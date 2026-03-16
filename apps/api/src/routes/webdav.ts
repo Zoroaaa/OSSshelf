@@ -129,8 +129,22 @@ async function handlePropfind(c: AppContext, userId: string, path: string) {
   if (path === '/') {
     parentCondition = isNull(files.parentId);
   } else {
-    const parentFolder = await db.select().from(files)
+    // 尝试查找带斜杠和不带斜杠的路径
+    let parentFolder = await db.select().from(files)
       .where(and(eq(files.userId, userId), eq(files.path, path))).get();
+    
+    // 如果没找到，尝试带斜杠的路径
+    if (!parentFolder) {
+      parentFolder = await db.select().from(files)
+        .where(and(eq(files.userId, userId), eq(files.path, path + '/'))).get();
+    }
+    
+    // 如果没找到，尝试不带斜杠的路径
+    if (!parentFolder && path.endsWith('/')) {
+      parentFolder = await db.select().from(files)
+        .where(and(eq(files.userId, userId), eq(files.path, path.slice(0, -1)))).get();
+    }
+    
     if (!parentFolder) return new Response('Not Found', { status: 404 });
     parentCondition = eq(files.parentId, parentFolder.id);
   }
@@ -139,9 +153,23 @@ async function handlePropfind(c: AppContext, userId: string, path: string) {
     .where(and(eq(files.userId, userId), parentCondition)).all();
 
   if (depth === '0') {
-    const current = path === '/'
-      ? null
-      : await db.select().from(files).where(and(eq(files.userId, userId), eq(files.path, path))).get();
+    let current = null;
+    if (path !== '/') {
+      // 尝试查找带斜杠和不带斜杠的路径
+      current = await db.select().from(files).where(and(eq(files.userId, userId), eq(files.path, path))).get();
+      
+      // 如果没找到，尝试带斜杠的路径
+      if (!current) {
+        current = await db.select().from(files)
+          .where(and(eq(files.userId, userId), eq(files.path, path + '/'))).get();
+      }
+      
+      // 如果没找到，尝试不带斜杠的路径
+      if (!current && path.endsWith('/')) {
+        current = await db.select().from(files)
+          .where(and(eq(files.userId, userId), eq(files.path, path.slice(0, -1)))).get();
+      }
+    }
     if (current) items.unshift(current);
   }
 
@@ -153,8 +181,22 @@ async function handlePropfind(c: AppContext, userId: string, path: string) {
 
 async function handleGet(c: AppContext, userId: string, path: string, headOnly: boolean) {
   const db = getDb(c.env.DB);
-  const file = await db.select().from(files)
+  
+  // 尝试查找带斜杠和不带斜杠的路径
+  let file = await db.select().from(files)
     .where(and(eq(files.userId, userId), eq(files.path, path))).get();
+  
+  // 如果没找到，尝试带斜杠的路径
+  if (!file) {
+    file = await db.select().from(files)
+      .where(and(eq(files.userId, userId), eq(files.path, path + '/'))).get();
+  }
+  
+  // 如果没找到，尝试不带斜杠的路径
+  if (!file && path.endsWith('/')) {
+    file = await db.select().from(files)
+      .where(and(eq(files.userId, userId), eq(files.path, path.slice(0, -1)))).get();
+  }
 
   if (!file) return new Response('Not Found', { status: 404 });
   if (file.isFolder) return new Response('Is a collection', { status: 400 });
@@ -183,14 +225,29 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   let parentId: string | null = null;
 
   if (parentPath !== '/') {
-    const parentFolder = await db.select().from(files)
+    // 尝试查找带斜杠和不带斜杠的路径
+    let parentFolder = await db.select().from(files)
       .where(and(eq(files.userId, userId), eq(files.path, parentPath))).get();
+    
+    // 如果没找到，尝试带斜杠的路径
+    if (!parentFolder) {
+      parentFolder = await db.select().from(files)
+        .where(and(eq(files.userId, userId), eq(files.path, parentPath + '/'))).get();
+    }
+    
     if (!parentFolder) return new Response('Conflict: parent folder not found', { status: 409 });
     parentId = parentFolder.id;
   }
 
-  const existingFile = await db.select().from(files)
+  // 查找文件时也处理路径一致性
+  let existingFile = await db.select().from(files)
     .where(and(eq(files.userId, userId), eq(files.path, path))).get();
+  
+  // 如果没找到，尝试带斜杠的路径（针对文件夹）
+  if (!existingFile && path.endsWith('/')) {
+    existingFile = await db.select().from(files)
+      .where(and(eq(files.userId, userId), eq(files.path, path.slice(0, -1)))).get();
+  }
 
   const fileId = existingFile?.id || crypto.randomUUID();
   const now = new Date().toISOString();
@@ -229,21 +286,32 @@ async function handleMkcol(c: AppContext, userId: string, path: string) {
   let parentId: string | null = null;
 
   if (parentPath !== '/') {
-    const parentFolder = await db.select().from(files)
+    // 尝试查找带斜杠和不带斜杠的路径
+    let parentFolder = await db.select().from(files)
       .where(and(eq(files.userId, userId), eq(files.path, parentPath))).get();
+    
+    // 如果没找到，尝试带斜杠的路径
+    if (!parentFolder) {
+      parentFolder = await db.select().from(files)
+        .where(and(eq(files.userId, userId), eq(files.path, parentPath + '/'))).get();
+    }
+    
     if (!parentFolder) return new Response('Conflict: parent not found', { status: 409 });
     parentId = parentFolder.id;
   }
 
+  // 规范化路径，确保以斜杠结尾
+  const normalizedPath = path.endsWith('/') ? path : path + '/';
+  
   const existing = await db.select().from(files)
-    .where(and(eq(files.userId, userId), eq(files.path, path))).get();
+    .where(and(eq(files.userId, userId), eq(files.path, normalizedPath))).get();
   if (existing) return new Response('Method Not Allowed: already exists', { status: 405 });
 
   const folderId = crypto.randomUUID();
   const now = new Date().toISOString();
 
   await db.insert(files).values({
-    id: folderId, userId, parentId, name: folderName, path, type: 'folder',
+    id: folderId, userId, parentId, name: folderName, path: normalizedPath, type: 'folder',
     size: 0, r2Key: `folders/${folderId}`, mimeType: null, hash: null, isFolder: true, createdAt: now, updatedAt: now,
   });
 
@@ -252,8 +320,22 @@ async function handleMkcol(c: AppContext, userId: string, path: string) {
 
 async function handleDelete(c: AppContext, userId: string, path: string) {
   const db = getDb(c.env.DB);
-  const file = await db.select().from(files)
+  
+  // 尝试查找带斜杠和不带斜杠的路径
+  let file = await db.select().from(files)
     .where(and(eq(files.userId, userId), eq(files.path, path))).get();
+  
+  // 如果没找到，尝试带斜杠的路径
+  if (!file) {
+    file = await db.select().from(files)
+      .where(and(eq(files.userId, userId), eq(files.path, path + '/'))).get();
+  }
+  
+  // 如果没找到，尝试不带斜杠的路径
+  if (!file && path.endsWith('/')) {
+    file = await db.select().from(files)
+      .where(and(eq(files.userId, userId), eq(files.path, path.slice(0, -1)))).get();
+  }
 
   if (!file) return new Response('Not Found', { status: 404 });
 
@@ -278,8 +360,22 @@ async function handleMove(c: AppContext, userId: string, path: string) {
   const destPath = new URL(destination).pathname.replace(/^\/dav/, '') || '/';
   const db = getDb(c.env.DB);
 
-  const file = await db.select().from(files)
+  // 尝试查找带斜杠和不带斜杠的路径
+  let file = await db.select().from(files)
     .where(and(eq(files.userId, userId), eq(files.path, path))).get();
+  
+  // 如果没找到，尝试带斜杠的路径
+  if (!file) {
+    file = await db.select().from(files)
+      .where(and(eq(files.userId, userId), eq(files.path, path + '/'))).get();
+  }
+  
+  // 如果没找到，尝试不带斜杠的路径
+  if (!file && path.endsWith('/')) {
+    file = await db.select().from(files)
+      .where(and(eq(files.userId, userId), eq(files.path, path.slice(0, -1)))).get();
+  }
+
   if (!file) return new Response('Not Found', { status: 404 });
 
   const newName = destPath.split('/').pop() || file.name;
@@ -297,8 +393,22 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
   const destPath = new URL(destination).pathname.replace(/^\/dav/, '') || '/';
   const db = getDb(c.env.DB);
 
-  const file = await db.select().from(files)
+  // 尝试查找带斜杠和不带斜杠的路径
+  let file = await db.select().from(files)
     .where(and(eq(files.userId, userId), eq(files.path, path))).get();
+  
+  // 如果没找到，尝试带斜杠的路径
+  if (!file) {
+    file = await db.select().from(files)
+      .where(and(eq(files.userId, userId), eq(files.path, path + '/'))).get();
+  }
+  
+  // 如果没找到，尝试不带斜杠的路径
+  if (!file && path.endsWith('/')) {
+    file = await db.select().from(files)
+      .where(and(eq(files.userId, userId), eq(files.path, path.slice(0, -1)))).get();
+  }
+
   if (!file) return new Response('Not Found', { status: 404 });
 
   const newName = destPath.split('/').pop() || file.name;
