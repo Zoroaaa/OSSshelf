@@ -5,10 +5,12 @@ import { useAuthStore } from '@/stores/auth';
 import { FileIcon } from '@/components/ui/FileIcon';
 import { StorageBar } from '@/components/ui/StorageBar';
 import { formatBytes, formatDate } from '@/utils';
+import { PROVIDER_META } from '@/services/api';
 import { cn } from '@/utils';
 import {
   Files as FilesIcon, FolderOpen, Trash2, Clock, TrendingUp,
   Image, Video, Music, FileText, File, ChevronRight,
+  Database,
 } from 'lucide-react';
 import type { DashboardStats } from '@/services/api';
 
@@ -145,13 +147,45 @@ export default function Dashboard() {
 
             {/* ── Right column ── */}
             <div className="space-y-4">
-              {/* Storage bar */}
+              {/* Storage — multi-bucket */}
               <div className="bg-card border rounded-xl p-5 space-y-4">
                 <h2 className="font-semibold text-sm">存储空间</h2>
                 <StorageBar
                   used={stats?.storageUsed ?? 0}
                   quota={stats?.storageQuota ?? 10737418240}
                 />
+                {stats?.bucketBreakdown && stats.bucketBreakdown.length > 0 && (
+                  <div className="space-y-2 pt-1">
+                    <p className="text-xs text-muted-foreground font-medium">各存储桶用量</p>
+                    {stats.bucketBreakdown.map((b) => {
+                      const meta = PROVIDER_META[b.provider as keyof typeof PROVIDER_META];
+                      const pct = b.storageQuota ? Math.min(100, (b.storageUsed / b.storageQuota) * 100) : null;
+                      return (
+                        <div key={b.id} className="space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="flex items-center gap-1.5 text-muted-foreground">
+                              <span>{meta?.icon ?? '📦'}</span>
+                              <span className="truncate max-w-[120px]">{b.name}</span>
+                              {b.isDefault && <span className="px-1 py-0.5 rounded text-[9px] bg-primary/10 text-primary">默认</span>}
+                            </span>
+                            <span className="text-muted-foreground">
+                              {formatBytes(b.storageUsed)}
+                              {b.storageQuota && <span className="opacity-50"> / {formatBytes(b.storageQuota)}</span>}
+                            </span>
+                          </div>
+                          {pct !== null && (
+                            <div className="h-1 bg-secondary rounded-full overflow-hidden">
+                              <div
+                                className={pct > 90 ? 'h-full rounded-full bg-red-500' : pct > 70 ? 'h-full rounded-full bg-amber-500' : 'h-full rounded-full bg-primary/60'}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Type breakdown */}

@@ -1,0 +1,378 @@
+/**
+ * s3client.ts — Universal S3-compatible storage client
+ *
+ * Runs entirely inside Cloudflare Workers (no Node.js SDK).
+ * Implements AWS Signature V4 for all S3-compatible providers:
+ * R2, AWS S3, Aliyun OSS, Tencent COS, Huawei OBS, Backblaze B2, MinIO, custom.
+ */
+
+import type { Env } from '../types/env';
+import type { storageBuckets } from '../db/schema';
+
+export interface S3BucketConfig {
+  id: string;
+  provider: string;
+  bucketName: string;
+  endpoint: string | null;
+  region: string | null;
+  accessKeyId: string;      // Already decrypted
+  secretAccessKey: string;  // Already decrypted
+  pathStyle: boolean;
+}
+
+// ── Credential deobfuscation ─────────────────────────────────────────────
+export function deobfuscate(value: string, key: string): string {
+  try {
+    const bytes = Uint8Array.from(atob(value), (c) => c.charCodeAt(0));
+    const keyBytes = new TextEncoder().encode(key.repeat(Math.ceil(bytes.length / key.length)));
+    const result = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) {
+      result[i] = bytes[i] ^ keyBytes[i];
+    }
+    return new TextDecoder().decode(result);
+  } catch {
+    return value;
+  }
+}
+
+export function obfuscate(value: string, key: string): string {
+  const keyBytes = new TextEncoder().encode(key.repeat(Math.ceil(value.length / key.length)));
+  const valueBytes = new TextEncoder().encode(value);
+  const result = new Uint8Array(valueBytes.length);
+  for (let i = 0; i < valueBytes.length; i++) {
+    result[i] = valueBytes[i] ^ keyBytes[i];
+  }
+  return btoa(String.fromCharCode(...result));
+}
+
+// ── Endpoint resolution ──────────────────────────────────────────────────
+export function resolveEndpoint(provider: string, endpoint: string | null, region: string | null): string {
+  if (endpoint) return endpoint.replace(/\/$/, '');
+  const r = region || 'us-east-1';
+  switch (provider) {
+    case 's3':    return `https://s3.${r}.amazonaws.com`;
+    case 'oss':   return `https://oss-${r}.aliyuncs.com`;
+    case 'cos':   return `https://cos.${r}.myqcloud.com`;
+    case 'obs':   return `https://obs.${r}.myhuaweicloud.com`;
+    case 'b2':    return 'https://s3.us-west-004.backblazeb2.com';
+    case 'minio': return 'http://localhost:9000';
+    default:      return '';
+  }
+}
+
+// ── Build object URL ─────────────────────────────────────────────────────
+function buildObjectUrl(config: S3BucketConfig, key: string): { url: string; host: string; canonicalUri: string } {
+  const endpoint = resolveEndpoint(config.provider, config.endpoint, config.region);
+  if (!endpoint) throw new Error(`无法解析存储桶 Endpoint（provider: ${config.provider}）`);
+
+  const encodedKey = key.split('/').map(encodeURIComponent).join('/');
+
+  if (config.pathStyle) {
+    const url = `${endpoint}/${config.bucketName}/${encodedKey}`;
+    const host = new URL(endpoint).host;
+    return { url, host, canonicalUri: `/${config.bucketName}/${encodedKey}` };
+  } else {
+    const proto = endpoint.match(/^https?:\/\//)?.[0] || 'https://';
+    const rest = endpoint.replace(/^https?:\/\//, '');
+    const url = `${proto}${config.bucketName}.${rest}/${encodedKey}`;
+    const host = `${config.bucketName}.${new URL(endpoint).host}`;
+    return { url, host, canonicalUri: `/${encodedKey}` };
+  }
+}
+
+// ── AWS Signature V4 ─────────────────────────────────────────────────────
+const enc = new TextEncoder();
+
+async function sha256Hex(data: string | Uint8Array): Promise<string> {
+  const buf = typeof data === 'string' ? enc.encode(data) : data;
+  const hash = await crypto.subtle.digest('SHA-256', buf as BufferSource);
+  return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function hmacSHA256(key: ArrayBuffer | Uint8Array, data: string): Promise<ArrayBuffer> {
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw', key as BufferSource, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  return crypto.subtle.sign('HMAC', cryptoKey, enc.encode(data));
+}
+
+async function deriveSigningKey(secretKey: string, dateStamp: string, region: string): Promise<ArrayBuffer> {
+  const kDate    = await hmacSHA256(enc.encode(`AWS4${secretKey}`), dateStamp);
+  const kRegion  = await hmacSHA256(kDate, region);
+  const kService = await hmacSHA256(kRegion, 's3');
+  return hmacSHA256(kService, 'aws4_request');
+}
+
+interface SignedRequest {
+  url: string;
+  headers: Record<string, string>;
+}
+
+async function signRequest(opts: {
+  method: string;
+  url: string;
+  host: string;
+  canonicalUri: string;
+  queryString: string;
+  payloadHash: string;
+  contentType?: string;
+  extraHeaders?: Record<string, string>;
+  accessKeyId: string;
+  secretAccessKey: string;
+  region: string;
+}): Promise<SignedRequest> {
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[:-]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  const dateStamp = amzDate.slice(0, 8);
+  const region = opts.region || 'us-east-1';
+
+  const headers: Record<string, string> = {
+    'host': opts.host,
+    'x-amz-date': amzDate,
+    'x-amz-content-sha256': opts.payloadHash,
+    ...opts.extraHeaders,
+  };
+  if (opts.contentType) headers['content-type'] = opts.contentType;
+
+  const sortedKeys = Object.keys(headers).sort();
+  const canonicalHeaders = sortedKeys.map((k) => `${k}:${headers[k]}\n`).join('');
+  const signedHeadersStr = sortedKeys.join(';');
+
+  const canonicalRequest = [
+    opts.method,
+    opts.canonicalUri,
+    opts.queryString,
+    canonicalHeaders,
+    signedHeadersStr,
+    opts.payloadHash,
+  ].join('\n');
+
+  const credScope = `${dateStamp}/${region}/s3/aws4_request`;
+  const canonicalHash = await sha256Hex(canonicalRequest);
+  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credScope, canonicalHash].join('\n');
+
+  const signingKey = await deriveSigningKey(opts.secretAccessKey, dateStamp, region);
+  const sigBuf = await hmacSHA256(signingKey, stringToSign);
+  const signature = Array.from(new Uint8Array(sigBuf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+
+  const authHeader = `AWS4-HMAC-SHA256 Credential=${opts.accessKeyId}/${credScope}, SignedHeaders=${signedHeadersStr}, Signature=${signature}`;
+  headers['Authorization'] = authHeader;
+
+  return { url: opts.url, headers };
+}
+
+// ── Public API ────────────────────────────────────────────────────────────
+
+/**
+ * Upload an object to an S3-compatible bucket.
+ */
+export async function s3Put(
+  config: S3BucketConfig,
+  key: string,
+  body: ReadableStream | ArrayBuffer | Uint8Array,
+  contentType: string,
+  metadata?: Record<string, string>,
+): Promise<void> {
+  const { url, host, canonicalUri } = buildObjectUrl(config, key);
+  const region = config.region || 'us-east-1';
+
+  // For streaming bodies we can't compute SHA256; use UNSIGNED-PAYLOAD for chunked uploads
+  // Most S3-compatible providers accept this for PUT
+  const payloadHash = 'UNSIGNED-PAYLOAD';
+
+  const extraHeaders: Record<string, string> = {};
+  if (metadata) {
+    for (const [k, v] of Object.entries(metadata)) {
+      extraHeaders[`x-amz-meta-${k.toLowerCase()}`] = v;
+    }
+  }
+
+  const signed = await signRequest({
+    method: 'PUT',
+    url, host, canonicalUri,
+    queryString: '',
+    payloadHash,
+    contentType,
+    extraHeaders,
+    accessKeyId: config.accessKeyId,
+    secretAccessKey: config.secretAccessKey,
+    region,
+  });
+
+  const res = await fetch(signed.url, {
+    method: 'PUT',
+    headers: signed.headers,
+    body: body as BodyInit,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`S3 PUT 失败 (${res.status}): ${text.slice(0, 300)}`);
+  }
+}
+
+/**
+ * Get an object from an S3-compatible bucket.
+ * Returns the Response so the caller can stream the body.
+ */
+export async function s3Get(
+  config: S3BucketConfig,
+  key: string,
+): Promise<Response> {
+  const { url, host, canonicalUri } = buildObjectUrl(config, key);
+  const region = config.region || 'us-east-1';
+  const payloadHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'; // empty
+
+  const signed = await signRequest({
+    method: 'GET',
+    url, host, canonicalUri,
+    queryString: '',
+    payloadHash,
+    accessKeyId: config.accessKeyId,
+    secretAccessKey: config.secretAccessKey,
+    region,
+  });
+
+  const res = await fetch(signed.url, { method: 'GET', headers: signed.headers });
+
+  if (!res.ok && res.status !== 206) {
+    throw new Error(`S3 GET 失败 (${res.status})`);
+  }
+  return res;
+}
+
+/**
+ * Delete an object from an S3-compatible bucket.
+ */
+export async function s3Delete(
+  config: S3BucketConfig,
+  key: string,
+): Promise<void> {
+  const { url, host, canonicalUri } = buildObjectUrl(config, key);
+  const region = config.region || 'us-east-1';
+  const payloadHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+
+  const signed = await signRequest({
+    method: 'DELETE',
+    url, host, canonicalUri,
+    queryString: '',
+    payloadHash,
+    accessKeyId: config.accessKeyId,
+    secretAccessKey: config.secretAccessKey,
+    region,
+  });
+
+  const res = await fetch(signed.url, { method: 'DELETE', headers: signed.headers });
+  // 204 No Content = success; 404 = already gone (treat as ok)
+  if (!res.ok && res.status !== 204 && res.status !== 404) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`S3 DELETE 失败 (${res.status}): ${text.slice(0, 200)}`);
+  }
+}
+
+/**
+ * Head an object (check existence, get metadata).
+ */
+export async function s3Head(
+  config: S3BucketConfig,
+  key: string,
+): Promise<Response> {
+  const { url, host, canonicalUri } = buildObjectUrl(config, key);
+  const region = config.region || 'us-east-1';
+  const payloadHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+
+  const signed = await signRequest({
+    method: 'HEAD',
+    url, host, canonicalUri,
+    queryString: '',
+    payloadHash,
+    accessKeyId: config.accessKeyId,
+    secretAccessKey: config.secretAccessKey,
+    region,
+  });
+
+  return fetch(signed.url, { method: 'HEAD', headers: signed.headers });
+}
+
+// ── Bucket resolver helper ────────────────────────────────────────────────
+/**
+ * Given a DB row from storage_buckets, return a ready-to-use S3BucketConfig
+ * with decrypted credentials.
+ */
+export function makeBucketConfig(
+  row: typeof import('../db/schema').storageBuckets.$inferSelect,
+  encKey: string,
+): S3BucketConfig {
+  return {
+    id: row.id,
+    provider: row.provider,
+    bucketName: row.bucketName,
+    endpoint: row.endpoint,
+    region: row.region,
+    accessKeyId: deobfuscate(row.accessKeyId, encKey),
+    secretAccessKey: deobfuscate(row.secretAccessKey, encKey),
+    pathStyle: row.pathStyle,
+  };
+}
+
+/**
+ * Test connectivity to a bucket using HeadBucket.
+ */
+export async function testS3Connection(config: S3BucketConfig): Promise<{
+  connected: boolean; message: string; statusCode: number;
+}> {
+  const endpoint = resolveEndpoint(config.provider, config.endpoint, config.region);
+  if (!endpoint) throw new Error('未配置 Endpoint，无法测试连接');
+
+  const region = config.region || 'us-east-1';
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[:-]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  const dateStamp = amzDate.slice(0, 8);
+
+  let bucketUrl: string;
+  let host: string;
+  let canonicalUri: string;
+
+  if (config.pathStyle) {
+    bucketUrl = `${endpoint}/${config.bucketName}/`;
+    host = new URL(endpoint).host;
+    canonicalUri = `/${config.bucketName}/`;
+  } else {
+    const proto = endpoint.match(/^https?:\/\//)?.[0] || 'https://';
+    const rest = endpoint.replace(/^https?:\/\//, '');
+    bucketUrl = `${proto}${config.bucketName}.${rest}/`;
+    host = `${config.bucketName}.${new URL(endpoint).host}`;
+    canonicalUri = '/';
+  }
+
+  const payloadHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+  const headers: Record<string, string> = {
+    'host': host,
+    'x-amz-date': amzDate,
+    'x-amz-content-sha256': payloadHash,
+  };
+  const signedHeadersStr = Object.keys(headers).sort().join(';');
+  const canonicalHeaders = Object.keys(headers).sort().map((k) => `${k}:${headers[k]}\n`).join('');
+  const canonicalRequest = ['HEAD', canonicalUri, '', canonicalHeaders, signedHeadersStr, payloadHash].join('\n');
+  const credScope = `${dateStamp}/${region}/s3/aws4_request`;
+  const canonicalHash = await sha256Hex(canonicalRequest);
+  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credScope, canonicalHash].join('\n');
+  const signingKey = await deriveSigningKey(config.secretAccessKey, dateStamp, region);
+  const sigBuf = await hmacSHA256(signingKey, stringToSign);
+  const signature = Array.from(new Uint8Array(sigBuf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+
+  headers['Authorization'] = `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${credScope}, SignedHeaders=${signedHeadersStr}, Signature=${signature}`;
+
+  const res = await fetch(bucketUrl, { method: 'HEAD', headers });
+
+  if (res.status === 200 || res.status === 204) {
+    return { connected: true, message: '连接成功', statusCode: res.status };
+  } else if (res.status === 403) {
+    return { connected: true, message: '凭证有效，但权限受限（存储桶存在）', statusCode: res.status };
+  } else if (res.status === 301 || res.status === 307) {
+    return { connected: true, message: '连接成功（请检查区域配置）', statusCode: res.status };
+  } else {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`HTTP ${res.status}: ${errText.slice(0, 200) || '连接失败'}`);
+  }
+}

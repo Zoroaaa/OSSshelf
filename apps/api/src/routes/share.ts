@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import { eq, and } from 'drizzle-orm';
 import { getDb, files, shares } from '../db';
+import { s3Get } from '../lib/s3client';
+import { resolveBucketConfig } from '../lib/bucketResolver';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES, SHARE_DEFAULT_EXPIRY } from '@r2shelf/shared';
 import type { Env, Variables } from '../types/env';
@@ -151,15 +153,18 @@ app.get('/:id/preview', async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只支持预览图片' } }, 400);
   }
 
-  const r2Object = await c.env.FILES.get(file.r2Key);
-  if (!r2Object) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件内容不存在' } }, 404);
-
-  return new Response(r2Object.body, {
-    headers: {
-      'Content-Type': file.mimeType,
-      'Cache-Control': 'private, max-age=300',
-    },
-  });
+  const db2 = getDb(c.env.DB);
+  const encKey2 = c.env.JWT_SECRET || 'r2shelf-key';
+  const bucketCfg2 = await resolveBucketConfig(db2, file.userId, encKey2, file.bucketId, file.parentId);
+  if (bucketCfg2) {
+    const s3Res = await s3Get(bucketCfg2, file.r2Key);
+    return new Response(s3Res.body, { headers: { 'Content-Type': file.mimeType!, 'Cache-Control': 'private, max-age=300' } });
+  } else if (c.env.FILES) {
+    const r2Object = await c.env.FILES.get(file.r2Key);
+    if (!r2Object) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件内容不存在' } }, 404);
+    return new Response(r2Object.body, { headers: { 'Content-Type': file.mimeType!, 'Cache-Control': 'private, max-age=300' } });
+  }
+  return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶未配置' } }, 500);
 });
 
 // ── Public: download via share ────────────────────────────────────────────
@@ -182,18 +187,17 @@ app.get('/:id/download', async (c) => {
   if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   if (file.isFolder) return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无法下载文件夹' } }, 400);
 
-  const r2Object = await c.env.FILES.get(file.r2Key);
-  if (!r2Object) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件内容不存在' } }, 404);
-
   await db.update(shares).set({ downloadCount: share.downloadCount + 1 }).where(eq(shares.id, shareId));
 
-  return new Response(r2Object.body, {
-    headers: {
-      'Content-Type': file.mimeType || 'application/octet-stream',
-      'Content-Disposition': `attachment; filename="${encodeURIComponent(file.name)}"`,
-      'Content-Length': file.size.toString(),
-    },
-  });
+  const encKey = c.env.JWT_SECRET || 'r2shelf-key';
+  const bucketCfg = await resolveBucketConfig(db, file.userId, encKey, file.bucketId, file.parentId);
+  const dlHeaders = { 'Content-Type': file.mimeType || 'application/octet-stream', 'Content-Disposition': `attachment; filename="${encodeURIComponent(file.name)}"`, 'Content-Length': file.size.toString() };
+  if (bucketCfg) { const s3Res = await s3Get(bucketCfg, file.r2Key); return new Response(s3Res.body, { headers: dlHeaders }); }
+  if (c.env.FILES) {
+    const r2Object = await c.env.FILES.get(file.r2Key);
+    if (!r2Object) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件内容不存在' } }, 404);
+    return new Response(r2Object.body, { headers: dlHeaders });
+  }
 });
 
 export default app;

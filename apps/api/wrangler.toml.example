@@ -8,9 +8,19 @@ binding = "DB"
 database_name = "r2shelf-db"
 database_id = "YOUR_D1_DATABASE_ID"
 
-[[r2_buckets]]
-binding = "FILES"
-bucket_name = "r2shelf-files"
+# ── R2 direct binding (OPTIONAL / LEGACY) ────────────────────────────────
+# This binding is no longer required. Storage buckets are now managed via
+# the in-app "存储桶管理" panel (Settings → 存储桶), where you can add any
+# S3-compatible provider (R2, AWS S3, Aliyun OSS, Tencent COS, etc.).
+#
+# Keep this binding ONLY if you have existing files uploaded before the
+# multi-bucket migration. New uploads will automatically route through the
+# configured storage buckets. You may remove it once all legacy files
+# have been migrated.
+#
+# [[r2_buckets]]
+# binding = "FILES"
+# bucket_name = "r2shelf-files"
 
 [[kv_namespaces]]
 binding = "KV"

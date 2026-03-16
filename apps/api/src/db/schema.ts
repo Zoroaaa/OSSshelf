@@ -28,6 +28,8 @@ export const files = sqliteTable('files', {
   updatedAt: text('updated_at').notNull(),
   // Soft delete: null = active, ISO timestamp = deleted
   deletedAt: text('deleted_at'),
+  // Which storage bucket this file lives in (null = legacy R2 binding)
+  bucketId: text('bucket_id'),
 });
 
 export const shares = sqliteTable('shares', {
@@ -56,6 +58,7 @@ export const storageBuckets = sqliteTable('storage_buckets', {
   isActive: integer('is_active', { mode: 'boolean' }).default(true).notNull(),
   storageUsed: integer('storage_used').default(0).notNull(),
   fileCount: integer('file_count').default(0).notNull(),
+  storageQuota: integer('storage_quota'),  // null = unlimited
   notes: text('notes'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),

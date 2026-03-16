@@ -19,7 +19,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useFileStore } from '@/stores/files';
 import { useAuthStore } from '@/stores/auth';
-import { filesApi, shareApi } from '@/services/api';
+import { filesApi, shareApi, bucketsApi, PROVIDER_META, type StorageBucket } from '@/services/api';
 import { useFolderUpload } from '@/hooks/useFolderUpload';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,11 +34,121 @@ import { getFileCategory, getCategoryBg, isPreviewable } from '@/utils/fileTypes
 import {
   Upload, FolderPlus, Grid, List, Download, Trash2, Share2,
   Search, X, Pencil, Eye, CheckSquare, Square, SortAsc, SortDesc,
-  Image as ImageIcon, FolderInput,
+  Image as ImageIcon, FolderInput, Database, ChevronDown,
 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import type { FileItem } from '@r2shelf/shared';
 import { cn } from '@/utils';
+
+
+// ── NewFolderDialog ─────────────────────────────────────────────────────
+function NewFolderDialog({
+  isRoot, name, bucketId, onNameChange, onBucketChange, onConfirm, onCancel, loading,
+}: {
+  isRoot: boolean;
+  name: string;
+  bucketId: string | null;
+  onNameChange: (v: string) => void;
+  onBucketChange: (v: string | null) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+  loading?: boolean;
+}) {
+  const { data: buckets = [] } = useQuery({
+    queryKey: ['buckets'],
+    queryFn: () => bucketsApi.list().then((r) => r.data.data ?? []),
+    staleTime: 30000,
+  });
+
+  const selected = (buckets as StorageBucket[]).find((b) => b.id === bucketId);
+  const defaultBucket = (buckets as StorageBucket[]).find((b) => b.isDefault);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-card border rounded-xl p-6 w-full max-w-md shadow-2xl space-y-4">
+        <h2 className="text-lg font-semibold">新建文件夹</h2>
+
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">文件夹名称</label>
+          <Input
+            placeholder="输入文件夹名称"
+            value={name}
+            onChange={(e) => onNameChange(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && name.trim() && onConfirm()}
+            autoFocus
+          />
+        </div>
+
+        {isRoot && (buckets as StorageBucket[]).length > 0 && (
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium flex items-center gap-1.5">
+              <Database className="h-3.5 w-3.5 text-muted-foreground" />
+              绑定存储桶
+            </label>
+            <div className="space-y-1.5 max-h-40 overflow-y-auto rounded-lg border divide-y">
+              <button
+                type="button"
+                onClick={() => onBucketChange(null)}
+                className={cn(
+                  'w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors',
+                  !bucketId ? 'bg-primary/5 text-primary font-medium' : 'hover:bg-muted/50 text-muted-foreground'
+                )}
+              >
+                <div className={cn('w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0', !bucketId ? 'border-primary' : 'border-muted-foreground/30')}>
+                  {!bucketId && <div className="w-2 h-2 rounded-full bg-primary" />}
+                </div>
+                <span className="flex-1">
+                  使用默认桶{defaultBucket ? `（${defaultBucket.name}）` : ''}
+                </span>
+              </button>
+              {(buckets as StorageBucket[]).filter((b) => b.isActive).map((b) => {
+                const meta = PROVIDER_META[b.provider];
+                const isSelected = bucketId === b.id;
+                return (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => onBucketChange(b.id)}
+                    className={cn(
+                      'w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors',
+                      isSelected ? 'bg-primary/5 text-primary font-medium' : 'hover:bg-muted/50'
+                    )}
+                  >
+                    <div className={cn('w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0', isSelected ? 'border-primary' : 'border-muted-foreground/30')}>
+                      {isSelected && <div className="w-2 h-2 rounded-full bg-primary" />}
+                    </div>
+                    <span className="text-base">{meta.icon}</span>
+                    <span className="flex-1 truncate">{b.name}</span>
+                    {b.isDefault && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">默认</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {selected && (
+              <p className="text-xs text-muted-foreground">
+                此文件夹及其中的文件将存储到「{selected.name}」
+              </p>
+            )}
+            {!bucketId && (
+              <p className="text-xs text-muted-foreground">
+                未指定时使用默认存储桶
+              </p>
+            )}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="outline" onClick={onCancel} disabled={loading}>取消</Button>
+          <Button onClick={onConfirm} disabled={loading || !name.trim()}>
+            {loading ? '创建中…' : '创建'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function Files() {
   const { folderId } = useParams<{ folderId: string }>();
@@ -53,6 +163,7 @@ export default function Files() {
 
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [newFolderBucketId, setNewFolderBucketId] = useState<string | null>(null);
   const [uploadProgresses, setUploadProgresses] = useState<Record<string, number>>({});
   const [shareFileId, setShareFileId] = useState<string | null>(null);
   const [sharePassword, setSharePassword] = useState('');
@@ -120,10 +231,10 @@ export default function Files() {
 
   // ── Mutations ────────────────────────────────────────────────────
   const createFolderMutation = useMutation({
-    mutationFn: (name: string) => filesApi.createFolder(name, folderId),
+    mutationFn: (name: string) => filesApi.createFolder(name, folderId, !folderId ? newFolderBucketId : null),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['files', folderId] });
-      setShowNewFolderDialog(false); setNewFolderName('');
+      setShowNewFolderDialog(false); setNewFolderName(''); setNewFolderBucketId(null);
       toast({ title: '创建成功' });
     },
     onError: (e: any) => toast({ title: '创建失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
@@ -345,16 +456,16 @@ export default function Files() {
 
       {/* Dialogs */}
       {showNewFolderDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-card border rounded-xl p-6 w-full max-w-md shadow-2xl">
-            <h2 className="text-lg font-semibold mb-4">新建文件夹</h2>
-            <Input placeholder="文件夹名称" value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && newFolderName.trim() && createFolderMutation.mutate(newFolderName.trim())} autoFocus />
-            <div className="flex justify-end gap-2 mt-4">
-              <Button variant="outline" onClick={() => { setShowNewFolderDialog(false); setNewFolderName(''); }}>取消</Button>
-              <Button onClick={() => newFolderName.trim() && createFolderMutation.mutate(newFolderName.trim())} disabled={createFolderMutation.isPending || !newFolderName.trim()}>创建</Button>
-            </div>
-          </div>
-        </div>
+        <NewFolderDialog
+          isRoot={!folderId}
+          name={newFolderName}
+          bucketId={newFolderBucketId}
+          onNameChange={setNewFolderName}
+          onBucketChange={setNewFolderBucketId}
+          onConfirm={() => newFolderName.trim() && createFolderMutation.mutate(newFolderName.trim())}
+          onCancel={() => { setShowNewFolderDialog(false); setNewFolderName(''); setNewFolderBucketId(null); }}
+          loading={createFolderMutation.isPending}
+        />
       )}
 
       {shareFileId && (
@@ -442,9 +553,15 @@ function ListItem({ file, isSelected, onClick, onToggleSelect, onDownload, onSha
       <div className="flex-shrink-0" onClick={() => onClick(file)}><FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="md" /></div>
       <div className="flex-1 min-w-0" onClick={() => onClick(file)}>
         <p className="font-medium truncate text-sm">{file.name}</p>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
           {file.isFolder ? '文件夹' : formatBytes(file.size)} · {formatDate(file.updatedAt)}
-          {file.mimeType && !file.isFolder && <span className="ml-2 opacity-40">{file.mimeType}</span>}
+          {file.mimeType && !file.isFolder && <span className="opacity-40">{file.mimeType}</span>}
+          {(file as any).bucket && (
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-muted border">
+              <Database className="h-2.5 w-2.5" />
+              {(file as any).bucket.name}
+            </span>
+          )}
         </p>
       </div>
       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
@@ -477,7 +594,15 @@ function GridItem({ file, isSelected, onClick, onToggleSelect, onDownload, onSha
       </div>
       <div className="px-3 py-2 border-t">
         <p className="text-xs font-medium truncate">{file.name}</p>
-        <p className="text-xs text-muted-foreground mt-0.5">{file.isFolder ? '文件夹' : formatBytes(file.size)}</p>
+        <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+          <p className="text-xs text-muted-foreground">{file.isFolder ? '文件夹' : formatBytes(file.size)}</p>
+          {(file as any).bucket && (
+            <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium bg-muted border">
+              <Database className="h-2 w-2" />
+              {(file as any).bucket.name}
+            </span>
+          )}
+        </div>
       </div>
       <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 rounded-xl" onClick={(e) => e.stopPropagation()}>
         {canPreview && <ActionBtn title="预览" onClick={() => onPreview(file)} light><Eye className="h-3.5 w-3.5" /></ActionBtn>}

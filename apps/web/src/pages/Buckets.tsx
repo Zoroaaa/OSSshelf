@@ -52,7 +52,11 @@ function BucketForm({ initial, onSave, onCancel, loading }: BucketFormProps) {
     pathStyle: initial?.pathStyle || false,
     isDefault: initial?.isDefault || false,
     notes: initial?.notes || '',
+    storageQuota: initial?.storageQuota ?? null,
   });
+  const [storageQuotaInput, setStorageQuotaInput] = useState<string>(
+    initial?.storageQuota ? String(Math.round(initial.storageQuota / (1024**3))) : ''
+  );
   const [showSecret, setShowSecret] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -228,6 +232,35 @@ function BucketForm({ initial, onSave, onCancel, loading }: BucketFormProps) {
 
       {field('备注（可选）', 'notes', { placeholder: '用途说明或备忘信息' })}
 
+      {/* Storage quota */}
+      <div className="space-y-1.5">
+        <label className="text-sm font-medium">存储限额（可选）</label>
+        <div className="flex gap-2 items-center">
+          <Input
+            type="number"
+            min={1}
+            value={storageQuotaInput || ''}
+            onChange={(e) => {
+              const v = e.target.value;
+              setStorageQuotaInput(v);
+              setForm((f) => ({
+                ...f,
+                storageQuota: v ? Math.round(parseFloat(v) * 1024 * 1024 * 1024) : null,
+              }));
+            }}
+            placeholder="留空则不限制"
+            className="w-40"
+          />
+          <span className="text-sm text-muted-foreground">GB</span>
+          {form.storageQuota && (
+            <span className="text-xs text-muted-foreground">
+              ≈ {(form.storageQuota / (1024**3)).toFixed(1)} GB
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">限制此存储桶的最大使用量（留空则无限制）</p>
+      </div>
+
       <div className="flex gap-2 pt-2">
         <Button onClick={handleSubmit} disabled={loading} className="flex-1 sm:flex-none">
           {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
@@ -306,6 +339,9 @@ function BucketCard({ bucket, onEdit, onDelete, onSetDefault, onToggle, onTest, 
         <span className="flex items-center gap-1">
           <Database className="h-3.5 w-3.5" />
           {formatBytes(bucket.storageUsed)}
+          {bucket.storageQuota && (
+            <span className="opacity-50">/ {formatBytes(bucket.storageQuota)}</span>
+          )}
         </span>
         <span>{bucket.fileCount} 个文件</span>
         {bucket.region && <span className="font-mono">{bucket.region}</span>}

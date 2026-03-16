@@ -55,6 +55,16 @@ export const authApi = {
     api.get<ApiResponse<DashboardStats>>('/api/auth/stats'),
 };
 
+export interface BucketStats {
+  id: string;
+  name: string;
+  provider: string;
+  storageUsed: number;
+  storageQuota: number | null;
+  fileCount: number;
+  isDefault: boolean;
+}
+
 export interface DashboardStats {
   fileCount: number;
   folderCount: number;
@@ -63,6 +73,7 @@ export interface DashboardStats {
   storageQuota: number;
   recentFiles: FileItem[];
   typeBreakdown: Record<string, number>;
+  bucketBreakdown: BucketStats[];
 }
 
 // ── Files ─────────────────────────────────────────────────────────────────
@@ -71,8 +82,8 @@ export const filesApi = {
     api.get<ApiResponse<FileItem[]>>('/api/files', { params }),
   get: (id: string) =>
     api.get<ApiResponse<FileItem>>(`/api/files/${id}`),
-  createFolder: (name: string, parentId?: string | null) =>
-    api.post<ApiResponse<FileItem>>('/api/files', { name, parentId }),
+  createFolder: (name: string, parentId?: string | null, bucketId?: string | null) =>
+    api.post<ApiResponse<FileItem>>('/api/files', { name, parentId, bucketId }),
   update: (id: string, data: { name?: string; parentId?: string | null }) =>
     api.put<ApiResponse<{ message: string }>>(`/api/files/${id}`, data),
   delete: (id: string) =>
@@ -147,6 +158,7 @@ export interface StorageBucket {
   isDefault: boolean;
   isActive: boolean;
   storageUsed: number;
+  storageQuota: number | null;
   fileCount: number;
   notes: string | null;
   createdAt: string;
@@ -164,6 +176,7 @@ export interface BucketFormData {
   pathStyle?: boolean;
   isDefault?: boolean;
   notes?: string;
+  storageQuota?: number | null;
 }
 
 export const PROVIDER_META: Record<StorageBucket['provider'], {
@@ -237,7 +250,7 @@ export const bucketsApi = {
     api.post<ApiResponse<StorageBucket>>('/api/buckets', data),
   get: (id: string) =>
     api.get<ApiResponse<StorageBucket>>(`/api/buckets/${id}`),
-  update: (id: string, data: Partial<BucketFormData>) =>
+  update: (id: string, data: Partial<BucketFormData> & { storageQuota?: number | null }) =>
     api.put<ApiResponse<StorageBucket>>(`/api/buckets/${id}`, data),
   setDefault: (id: string) =>
     api.post<ApiResponse<{ message: string }>>(`/api/buckets/${id}/set-default`),

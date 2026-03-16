@@ -279,12 +279,27 @@ app.get('/stats', authMiddleware, async (c) => {
     typeBreakdown[category] = (typeBreakdown[category] || 0) + f.size;
   }
 
-  const user = await db.select().from(files)
-    .where(deq(files.userId, userId))
-    .all();  // just to get user info, re-fetch
-
-  const { users: usersTable } = await import('../db');
+  const { users: usersTable, storageBuckets } = await import('../db');
   const userRow = await db.select().from(usersTable).where(deq(usersTable.id, userId)).get();
+
+  // Multi-bucket storage: sum all active buckets for used; use per-user quota
+  const bucketRows = await db.select().from(storageBuckets)
+    .where(and(deq(storageBuckets.userId, userId), deq(storageBuckets.isActive, true)))
+    .all();
+  const bucketStorageUsed = bucketRows.reduce((sum, b) => sum + (b.storageUsed ?? 0), 0);
+  // Use the max of user-level tracking vs bucket-level tracking (they should converge)
+  const totalStorageUsed = Math.max(userRow?.storageUsed ?? 0, bucketStorageUsed);
+
+  // Per-bucket breakdown for frontend
+  const bucketBreakdown = bucketRows.map((b) => ({
+    id: b.id,
+    name: b.name,
+    provider: b.provider,
+    storageUsed: b.storageUsed ?? 0,
+    storageQuota: b.storageQuota ?? null,
+    fileCount: b.fileCount ?? 0,
+    isDefault: b.isDefault,
+  }));
 
   return c.json({
     success: true,
@@ -292,10 +307,11 @@ app.get('/stats', authMiddleware, async (c) => {
       fileCount,
       folderCount,
       trashCount,
-      storageUsed: userRow?.storageUsed ?? 0,
+      storageUsed: totalStorageUsed,
       storageQuota: userRow?.storageQuota ?? 10737418240,
       recentFiles,
       typeBreakdown,
+      bucketBreakdown,
     },
   });
 });

@@ -30,31 +30,8 @@ export const PROVIDERS = {
   custom: { name: '自定义 S3 兼容', defaultEndpoint: '', pathStyle: false },
 } as const;
 
-// ── Simple XOR-based obfuscation for credentials ──────────────────────────
-// In production, use Cloudflare's encryption APIs or Workers Secrets.
-function obfuscate(value: string, key: string): string {
-  const keyBytes = new TextEncoder().encode(key.repeat(Math.ceil(value.length / key.length)));
-  const valueBytes = new TextEncoder().encode(value);
-  const result = new Uint8Array(valueBytes.length);
-  for (let i = 0; i < valueBytes.length; i++) {
-    result[i] = valueBytes[i] ^ keyBytes[i];
-  }
-  return btoa(String.fromCharCode(...result));
-}
-
-function deobfuscate(value: string, key: string): string {
-  try {
-    const bytes = Uint8Array.from(atob(value), (c) => c.charCodeAt(0));
-    const keyBytes = new TextEncoder().encode(key.repeat(Math.ceil(bytes.length / key.length)));
-    const result = new Uint8Array(bytes.length);
-    for (let i = 0; i < bytes.length; i++) {
-      result[i] = bytes[i] ^ keyBytes[i];
-    }
-    return new TextDecoder().decode(result);
-  } catch {
-    return value;
-  }
-}
+// Import credential helpers and S3 test from shared lib
+import { obfuscate, deobfuscate, testS3Connection, makeBucketConfig } from '../lib/s3client';
 
 // ── Schemas ────────────────────────────────────────────────────────────────
 const createBucketSchema = z.object({
@@ -68,6 +45,7 @@ const createBucketSchema = z.object({
   pathStyle: z.boolean().optional().default(false),
   isDefault: z.boolean().optional().default(false),
   notes: z.string().max(500).optional(),
+  storageQuota: z.number().int().positive().nullable().optional(),  // bytes, null = unlimited
 });
 
 const updateBucketSchema = createBucketSchema.partial();
@@ -151,6 +129,7 @@ app.post('/', async (c) => {
     isActive: true,
     storageUsed: 0,
     fileCount: 0,
+    storageQuota: data.storageQuota ?? null,
     notes: data.notes || null,
     createdAt: now,
     updatedAt: now,
@@ -226,6 +205,7 @@ app.put('/:id', async (c) => {
   if (data.pathStyle !== undefined) updateData.pathStyle = data.pathStyle;
   if (data.isDefault !== undefined) updateData.isDefault = data.isDefault;
   if (data.notes !== undefined) updateData.notes = data.notes || null;
+  if (data.storageQuota !== undefined) updateData.storageQuota = data.storageQuota ?? null;
 
   await db.update(storageBuckets).set(updateData).where(eq(storageBuckets.id, id));
 
@@ -297,27 +277,12 @@ app.post('/:id/test', async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '存储桶不存在' } }, 404);
   }
 
-  const accessKeyId = deobfuscate(bucket.accessKeyId, encKey);
-  const secretKey = deobfuscate(bucket.secretAccessKey, encKey);
-  const endpoint = resolveEndpoint(bucket.provider, bucket.endpoint, bucket.region);
-
-  // Build S3 ListBuckets / HeadBucket request
   try {
-    const testResult = await testS3Connection({
-      endpoint,
-      bucketName: bucket.bucketName,
-      accessKeyId,
-      secretAccessKey: secretKey,
-      region: bucket.region || 'us-east-1',
-      pathStyle: bucket.pathStyle,
-    });
-
+    const cfg = makeBucketConfig(bucket, encKey);
+    const testResult = await testS3Connection(cfg);
     return c.json({ success: true, data: testResult });
   } catch (err: any) {
-    return c.json({
-      success: false,
-      error: { code: 'CONNECTION_FAILED', message: err.message || '连接失败' },
-    }, 200); // Return 200 so frontend can display the error message
+    return c.json({ success: false, error: { code: 'CONNECTION_FAILED', message: err.message || '连接失败' } }, 200);
   }
 });
 
@@ -354,105 +319,6 @@ app.delete('/:id', async (c) => {
   return c.json({ success: true, data: { message: '已删除存储桶配置' } });
 });
 
-// ── Helpers ────────────────────────────────────────────────────────────────
 
-function resolveEndpoint(provider: string, endpoint: string | null, region: string | null): string {
-  if (endpoint) return endpoint.replace(/\/$/, '');
-  const r = region || 'us-east-1';
-  switch (provider) {
-    case 's3': return `https://s3.${r}.amazonaws.com`;
-    case 'oss': return `https://oss-${r}.aliyuncs.com`;
-    case 'cos': return `https://cos.${r}.myqcloud.com`;
-    case 'obs': return `https://obs.${r}.myhuaweicloud.com`;
-    case 'b2': return 'https://s3.us-west-004.backblazeb2.com';
-    case 'minio': return 'http://localhost:9000';
-    default: return '';
-  }
-}
-
-interface S3ConnTestParams {
-  endpoint: string;
-  bucketName: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  region: string;
-  pathStyle: boolean;
-}
-
-async function testS3Connection(params: S3ConnTestParams) {
-  const { endpoint, bucketName, accessKeyId, secretAccessKey, region, pathStyle } = params;
-
-  if (!endpoint) throw new Error('未配置 Endpoint，无法测试连接');
-
-  // Build HeadBucket request with AWS Signature V4
-  const now = new Date();
-  const dateStamp = now.toISOString().slice(0, 10).replace(/-/g, '');
-  const amzDate = now.toISOString().replace(/[:-]/g, '').replace(/\.\d{3}Z$/, 'Z');
-
-  const bucketUrl = pathStyle
-    ? `${endpoint}/${bucketName}/`
-    : endpoint.includes('://')
-      ? `${endpoint.replace('://', `://${bucketName}.`)}/`
-      : `https://${bucketName}.${endpoint}/`;
-
-  const host = new URL(pathStyle ? `${endpoint}/${bucketName}` : bucketUrl).host;
-  const canonicalUri = pathStyle ? `/${bucketName}/` : '/';
-  const payloadHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'; // empty body SHA256
-
-  const headers: Record<string, string> = {
-    'host': host,
-    'x-amz-date': amzDate,
-    'x-amz-content-sha256': payloadHash,
-  };
-
-  const signedHeaders = Object.keys(headers).sort().join(';');
-  const canonicalHeaders = Object.keys(headers).sort().map((k) => `${k}:${headers[k]}\n`).join('');
-  const canonicalRequest = ['HEAD', canonicalUri, '', canonicalHeaders, signedHeaders, payloadHash].join('\n');
-
-  const credentialScope = `${dateStamp}/${region}/s3/aws4_request`;
-  const encoder = new TextEncoder();
-
-  async function hmacSHA256(key: ArrayBuffer | ArrayBufferView, data: string): Promise<ArrayBuffer> {
-    const cryptoKey = await crypto.subtle.importKey('raw', key as BufferSource, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-    return crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(data));
-  }
-
-  async function sha256Hex(data: string): Promise<string> {
-    const hash = await crypto.subtle.digest('SHA-256', encoder.encode(data));
-    return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, '0')).join('');
-  }
-
-  const canonicalHash = await sha256Hex(canonicalRequest);
-  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credentialScope, canonicalHash].join('\n');
-
-  const signingKey = await (async () => {
-    const kDate = await hmacSHA256(encoder.encode(`AWS4${secretAccessKey}`), dateStamp);
-    const kRegion = await hmacSHA256(kDate, region);
-    const kService = await hmacSHA256(kRegion, 's3');
-    return hmacSHA256(kService, 'aws4_request');
-  })();
-
-  const sigBytes = await hmacSHA256(signingKey, stringToSign);
-  const signature = Array.from(new Uint8Array(sigBytes)).map((b) => b.toString(16).padStart(2, '0')).join('');
-
-  const authHeader = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
-
-  const finalUrl = pathStyle ? `${endpoint}/${bucketName}` : bucketUrl;
-  const res = await fetch(finalUrl, {
-    method: 'HEAD',
-    headers: { ...headers, Authorization: authHeader },
-  });
-
-  if (res.status === 200 || res.status === 204) {
-    return { connected: true, message: '连接成功', statusCode: res.status };
-  } else if (res.status === 403) {
-    return { connected: true, message: '凭证有效，但权限受限（存储桶存在）', statusCode: res.status };
-  } else if (res.status === 301 || res.status === 307) {
-    return { connected: true, message: '连接成功（重定向，请检查区域配置）', statusCode: res.status };
-  } else {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`HTTP ${res.status}: ${errText.slice(0, 200) || '连接失败'}`);
-  }
-}
 
 export default app;
