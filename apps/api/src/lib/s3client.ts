@@ -343,6 +343,54 @@ export async function s3PresignUploadPart(
 }
 
 /**
+ * Upload a single part directly from the server (proxy upload).
+ * Returns the ETag from the response.
+ */
+export async function s3UploadPart(
+  config: S3BucketConfig,
+  key: string,
+  uploadId: string,
+  partNumber: number,
+  body: ArrayBuffer | Uint8Array,
+): Promise<string> {
+  const { url: baseUrl, host, canonicalUri } = buildObjectUrl(config, key);
+  const region = config.region || 'us-east-1';
+
+  const encodedUploadId = encodeURIComponent(uploadId);
+  const queryString = `partNumber=${partNumber}&uploadId=${encodedUploadId}`;
+  const partUrl = `${baseUrl}?partNumber=${partNumber}&uploadId=${encodedUploadId}`;
+
+  const bodyUint8 = body instanceof ArrayBuffer ? new Uint8Array(body) : body;
+  const payloadHash = await sha256Hex(bodyUint8);
+
+  const signed = await signRequest({
+    method: 'PUT',
+    url: partUrl,
+    host,
+    canonicalUri,
+    queryString,
+    payloadHash,
+    accessKeyId: config.accessKeyId,
+    secretAccessKey: config.secretAccessKey,
+    region,
+  });
+
+  const res = await fetch(signed.url, {
+    method: 'PUT',
+    headers: signed.headers,
+    body: bodyUint8 as BodyInit,
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`分片上传失败 (${res.status}): ${text.slice(0, 300)}`);
+  }
+
+  const etag = res.headers.get('ETag') || res.headers.get('etag') || '';
+  return etag.replace(/"/g, '');
+}
+
+/**
  * Complete a multipart upload by sending the parts manifest.
  */
 export async function s3CompleteMultipartUpload(

@@ -38,6 +38,7 @@ import {
   s3CreateMultipartUpload,
   s3CompleteMultipartUpload,
   s3AbortMultipartUpload,
+  s3UploadPart,
   type MultipartPart,
 } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats, checkBucketQuota } from '../lib/bucketResolver';
@@ -301,6 +302,43 @@ app.post('/multipart/part', async (c) => {
   const partUrl = await s3PresignUploadPart(bucketConfig, r2Key, uploadId, partNumber, UPLOAD_EXPIRY);
 
   return c.json({ success: true, data: { partUrl, partNumber, expiresIn: UPLOAD_EXPIRY } });
+});
+
+// ── POST /api/presign/multipart/part-proxy ─────────────────────────────────
+// Proxy upload a single part (for CORS-restricted storage like Backblaze B2).
+// The browser sends the chunk data, server uploads it to S3 and returns ETag.
+
+app.post('/multipart/part-proxy', async (c) => {
+  const userId = c.get('userId')!;
+  const contentType = c.req.header('Content-Type') || '';
+
+  if (!contentType.includes('multipart/form-data')) {
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请使用 multipart/form-data 格式' } }, 400);
+  }
+
+  const formData = await c.req.formData();
+  const r2Key = formData.get('r2Key') as string;
+  const uploadId = formData.get('uploadId') as string;
+  const partNumber = parseInt(formData.get('partNumber') as string, 10);
+  const bucketId = formData.get('bucketId') as string | null;
+  const chunk = formData.get('chunk') as File | null;
+
+  if (!r2Key || !uploadId || !partNumber || !chunk) {
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少必要参数' } }, 400);
+  }
+
+  const db = getDb(c.env.DB);
+  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+
+  const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, null);
+  if (!bucketConfig) {
+    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '未找到存储桶配置' } }, 400);
+  }
+
+  const chunkBuffer = await chunk.arrayBuffer();
+  const etag = await s3UploadPart(bucketConfig, r2Key, uploadId, partNumber, chunkBuffer);
+
+  return c.json({ success: true, data: { partNumber, etag } });
 });
 
 // ── POST /api/presign/multipart/complete ──────────────────────────────────

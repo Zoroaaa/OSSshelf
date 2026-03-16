@@ -162,6 +162,19 @@ async function singlePresignUpload({
 
 // ── Multipart upload ───────────────────────────────────────────────────────
 
+let corsErrorDetected = false;
+
+function isCorsError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    return msg.includes('cors') || 
+           msg.includes('network error') || 
+           msg.includes('failed to fetch') ||
+           msg.includes('网络错误');
+  }
+  return false;
+}
+
 async function multipartUpload({
   file, parentId, bucketId, onProgress, onFallback,
 }: PresignUploadOptions): Promise<UploadedFile> {
@@ -187,6 +200,7 @@ async function multipartUpload({
   const totalParts = Math.ceil(file.size / PART_SIZE);
   const parts: Array<{ partNumber: number; etag: string }> = [];
   let uploadedBytes = 0;
+  let useProxyMode = corsErrorDetected;
 
   // Abort helper (best-effort)
   const abort = async () => {
@@ -200,7 +214,7 @@ async function multipartUpload({
     for (let batch = 0; batch < totalParts; batch += MAX_CONCURRENT_PARTS) {
       const batchParts = Array.from(
         { length: Math.min(MAX_CONCURRENT_PARTS, totalParts - batch) },
-        (_, i) => batch + i + 1, // part numbers are 1-indexed
+        (_, i) => batch + i + 1,
       );
 
       const batchResults = await Promise.all(
@@ -209,31 +223,50 @@ async function multipartUpload({
           const end = Math.min(start + PART_SIZE, file.size);
           const chunk = file.slice(start, end);
 
-          // Get presigned part URL (reuse firstPartUrl for part 1)
-          let partUrl: string;
-          if (partNumber === 1 && firstPartUrl) {
-            partUrl = firstPartUrl;
-          } else {
-            const partData = await apiPost<PresignPartResponse>('/api/presign/multipart/part', {
-              r2Key,
-              uploadId,
-              partNumber,
-              bucketId: resolvedBucketId,
-            });
-            partUrl = partData.partUrl;
-          }
+          let etag: string;
 
-          // Upload chunk
-          const etag = await uploadPart(partUrl, chunk, (partBytes) => {
-            uploadedBytes += partBytes;
-            onProgress?.(Math.round((uploadedBytes / file.size) * 100));
-          });
+          if (useProxyMode) {
+            // 使用代理上传模式
+            etag = await proxyUploadPart(r2Key, uploadId, partNumber, chunk, resolvedBucketId);
+          } else {
+            // 尝试直接上传
+            let partUrl: string;
+            if (partNumber === 1 && firstPartUrl) {
+              partUrl = firstPartUrl;
+            } else {
+              const partData = await apiPost<PresignPartResponse>('/api/presign/multipart/part', {
+                r2Key,
+                uploadId,
+                partNumber,
+                bucketId: resolvedBucketId,
+              });
+              partUrl = partData.partUrl;
+            }
+
+            try {
+              etag = await uploadPart(partUrl, chunk, (partBytes) => {
+                uploadedBytes += partBytes;
+                onProgress?.(Math.round((uploadedBytes / file.size) * 100));
+              });
+            } catch (error) {
+              // 检测 CORS 错误，切换到代理模式
+              if (isCorsError(error) && !useProxyMode) {
+                console.warn('检测到 CORS 错误，切换到代理上传模式');
+                corsErrorDetected = true;
+                useProxyMode = true;
+                etag = await proxyUploadPart(r2Key, uploadId, partNumber, chunk, resolvedBucketId);
+              } else {
+                throw error;
+              }
+            }
+          }
 
           return { partNumber, etag };
         }),
       );
 
       parts.push(...batchResults);
+      onProgress?.(Math.round(((batch + batchParts.length) / totalParts) * 100));
     }
 
     // Step 3: Complete
@@ -254,6 +287,34 @@ async function multipartUpload({
     await abort();
     throw err;
   }
+}
+
+// ── Proxy upload part (for CORS-restricted storage) ─────────────────────────
+
+async function proxyUploadPart(
+  r2Key: string,
+  uploadId: string,
+  partNumber: number,
+  chunk: Blob,
+  bucketId: string | undefined,
+): Promise<string> {
+  const formData = new FormData();
+  formData.append('r2Key', r2Key);
+  formData.append('uploadId', uploadId);
+  formData.append('partNumber', String(partNumber));
+  formData.append('chunk', chunk);
+  if (bucketId) formData.append('bucketId', bucketId);
+
+  const res = await axios.post<{ success: boolean; data: { partNumber: number; etag: string }; error?: { message: string } }>(
+    `${API_BASE}/api/presign/multipart/part-proxy`,
+    formData,
+    { headers: { ...authHeaders(), 'Content-Type': 'multipart/form-data' } },
+  );
+
+  if (!res.data.success) {
+    throw new Error(res.data.error?.message || '代理分片上传失败');
+  }
+  return res.data.data.etag;
 }
 
 // ── Low-level HTTP helpers ─────────────────────────────────────────────────
