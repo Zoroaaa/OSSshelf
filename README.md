@@ -1,8 +1,8 @@
-# R2Shelf
+# OSSshelf
 
 <p align="center">
-  <strong>基于 Cloudflare R2 的现代化文件管理系统</strong><br>
-  <sub>支持 WebDAV 协议 · 安全分享 · 响应式界面</sub>
+  <strong>基于 Cloudflare 部署的多厂商 OSS 文件管理系统</strong><br>
+  <sub>统一管理主流对象存储 · 支持 WebDAV 协议 · 安全分享 · 响应式界面</sub>
 </p>
 
 <p align="center">
@@ -18,6 +18,7 @@
 
 - [功能特性](#功能特性)
 - [技术架构](#技术架构)
+- [支持的存储厂商](#支持的存储厂商)
 - [项目结构](#项目结构)
 - [快速开始](#快速开始)
 - [配置说明](#配置说明)
@@ -37,8 +38,10 @@
 | 📁 **文件管理** | 上传、下载、重命名、移动、删除文件和文件夹，支持拖拽上传 |
 | 🔗 **文件分享** | 创建分享链接，支持密码保护、过期时间、下载次数限制 |
 | 🗑️ **回收站** | 软删除机制，支持恢复已删除文件，可永久删除或清空 |
-| 📊 **存储配额** | 用户级别存储空间管理，默认 10GB 配额 |
+| 📊 **存储配额** | 用户级别和存储桶级别的存储空间管理 |
 | 🔍 **搜索排序** | 按名称搜索文件，支持名称/大小/时间排序 |
+| 🌐 **多厂商支持** | 统一管理多个云存储厂商的存储桶 |
+| 🔄 **存储桶切换** | 灵活的存储桶分配和默认存储桶设置 |
 
 ### WebDAV 支持
 
@@ -63,6 +66,7 @@
 - ⚡ 实时上传进度显示
 - 🖼️ 图片/视频/音频/PDF 在线预览
 - 📂 文件夹拖拽上传
+- 🗃️ 多存储桶管理界面
 
 ---
 
@@ -85,18 +89,19 @@
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │  Hono Framework + Cloudflare Workers                 │   │
 │  │  REST API + WebDAV Protocol                          │   │
+│  │  S3 兼容存储客户端（多厂商支持）                       │   │
 │  └─────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
                               │
               ┌───────────────┼───────────────┐
               ▼               ▼               ▼
 ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-│  Cloudflare D1  │ │  Cloudflare R2  │ │  Cloudflare KV  │
-│   (SQLite)      │ │  (Object Store) │ │   (Cache)       │
+│  Cloudflare D1  │ │  多厂商对象存储   │ │  Cloudflare KV  │
+│   (SQLite)      │ │  (S3 兼容 API)   │ │   (Cache)       │
 │                 │ │                 │ │                 │
 │  - 用户数据     │ │  - 文件内容     │ │  - Session      │
 │  - 文件元数据   │ │  - 支持大文件   │ │  - 临时缓存     │
-│  - 分享记录     │ │  - CDN 加速     │ │                 │
+│  - 存储桶配置   │ │  - 跨厂商兼容   │ │                 │
 └─────────────────┘ └─────────────────┘ └─────────────────┘
 ```
 
@@ -131,16 +136,33 @@
 
 | 服务 | 用途 |
 |------|------|
-| Cloudflare D1 | SQLite 数据库，存储用户、文件元数据 |
-| Cloudflare R2 | 对象存储，存储文件内容 |
+| Cloudflare D1 | SQLite 数据库，存储用户、文件元数据和存储桶配置 |
 | Cloudflare KV | 键值存储，Session 管理 |
+| 多厂商对象存储 | 通过 S3 兼容 API 存储文件内容 |
+
+---
+
+## 支持的存储厂商
+
+OSSshelf 通过统一的 S3 兼容 API 接口，支持以下主流对象存储服务：
+
+| 厂商 | 标识 | 说明 |
+|------|------|------|
+| Cloudflare R2 | `r2` | Cloudflare 原生对象存储 |
+| Amazon S3 | `s3` | AWS 标准对象存储服务 |
+| 阿里云 OSS | `oss` | 阿里云对象存储服务 |
+| 腾讯云 COS | `cos` | 腾讯云对象存储服务 |
+| 华为云 OBS | `obs` | 华为云对象存储服务 |
+| Backblaze B2 | `b2` | Backblaze 云存储 |
+| MinIO | `minio` | 开源对象存储服务器 |
+| 自定义 S3 兼容 | `custom` | 其他支持 S3 协议的存储服务 |
 
 ---
 
 ## 项目结构
 
 ```
-r2shelf/
+OSSshelf/
 ├── apps/
 │   ├── api/                          # 后端 API 服务
 │   │   ├── src/
@@ -148,13 +170,16 @@ r2shelf/
 │   │   │   │   ├── index.ts          # 数据库连接
 │   │   │   │   └── schema.ts         # Drizzle Schema 定义
 │   │   │   ├── lib/
-│   │   │   │   └── crypto.ts         # 密码哈希、JWT 签名
+│   │   │   │   ├── bucketResolver.ts # 存储桶解析逻辑
+│   │   │   │   ├── crypto.ts         # 密码哈希、JWT 签名
+│   │   │   │   └── s3client.ts       # S3 兼容存储客户端
 │   │   │   ├── middleware/
 │   │   │   │   ├── auth.ts           # JWT 认证中间件
 │   │   │   │   ├── error.ts          # 错误处理中间件
 │   │   │   │   └── index.ts
 │   │   │   ├── routes/
 │   │   │   │   ├── auth.ts           # 认证路由 (注册/登录/用户信息)
+│   │   │   │   ├── buckets.ts        # 存储桶管理路由
 │   │   │   │   ├── files.ts          # 文件操作路由
 │   │   │   │   ├── share.ts          # 分享路由
 │   │   │   │   ├── webdav.ts         # WebDAV 协议实现
@@ -165,7 +190,9 @@ r2shelf/
 │   │   │   └── index.ts              # 应用入口
 │   │   ├── migrations/               # D1 数据库迁移文件
 │   │   │   ├── 0001_init.sql
-│   │   │   └── 0002_soft_delete.sql
+│   │   │   ├── 0002_soft_delete.sql
+│   │   │   ├── 0003_storage_buckets.sql
+│   │   │   └── 0004_bucket_quota_and_file_bucket.sql
 │   │   ├── drizzle.config.ts
 │   │   ├── wrangler.toml.example     # Workers 配置模板
 │   │   └── package.json
@@ -187,6 +214,7 @@ r2shelf/
 │       │   ├── hooks/
 │       │   │   └── useFolderUpload.ts    # 文件夹上传 Hook
 │       │   ├── pages/
+│       │   │   ├── Buckets.tsx          # 存储桶管理页面
 │       │   │   ├── Dashboard.tsx         # 仪表盘
 │       │   │   ├── Files.tsx             # 文件列表
 │       │   │   ├── Shares.tsx            # 分享管理
@@ -249,8 +277,8 @@ r2shelf/
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/your-username/r2shelf.git
-cd r2shelf
+git clone https://github.com/your-username/OSSshelf.git
+cd OSSshelf
 
 # 2. 安装依赖
 pnpm install
@@ -266,11 +294,8 @@ cp apps/api/wrangler.toml.example apps/api/wrangler.toml
 wrangler login
 
 # 创建 D1 数据库
-wrangler d1 create r2shelf-db
+wrangler d1 create ossshelf-db
 # 记录返回的 database_id，填入 wrangler.toml
-
-# 创建 R2 存储桶
-wrangler r2 bucket create r2shelf-files
 
 # 创建 KV 命名空间
 wrangler kv:namespace create KV
@@ -280,19 +305,15 @@ wrangler kv:namespace create KV
 ### 配置 wrangler.toml
 
 ```toml
-name = "r2shelf-api"
+name = "osshelf-api"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "DB"
-database_name = "r2shelf-db"
+database_name = "osshelf-db"
 database_id = "your-d1-database-id"    # 替换为实际 ID
-
-[[r2_buckets]]
-binding = "FILES"
-bucket_name = "r2shelf-files"
 
 [[kv_namespaces]]
 binding = "KV"
@@ -354,6 +375,20 @@ pnpm dev:web
 | `DEFAULT_STORAGE_QUOTA` | 10GB | 默认用户存储配额 |
 | `JWT_EXPIRY` | 7天 | JWT 令牌有效期 |
 | `SHARE_DEFAULT_EXPIRY` | 7天 | 分享链接默认有效期 |
+
+### 存储桶配置
+
+通过 Web 界面的「存储桶管理」页面，可以添加和配置多个存储桶：
+
+1. **存储厂商**：选择支持的存储服务提供商
+2. **显示名称**：存储桶的友好名称
+3. **存储桶名称**：在存储服务中创建的实际桶名称
+4. **Endpoint URL**：存储服务的 API 端点（留空使用默认）
+5. **区域**：存储桶所在的区域（部分厂商必填）
+6. **访问凭证**：Access Key ID 和 Secret Access Key
+7. **Path-style URL**：是否使用路径风格的 URL（MinIO/B2 等需要）
+8. **默认存储桶**：设置为默认存储位置
+9. **存储限额**：可选的存储桶级别的空间限制
 
 ---
 
@@ -418,24 +453,57 @@ GET /api/auth/me
 Authorization: Bearer <token>
 ```
 
-#### 更新用户信息
+### 存储桶接口
+
+#### 列出存储桶
 
 ```http
-PATCH /api/auth/me
+GET /api/buckets
+Authorization: Bearer <token>
+```
+
+#### 创建存储桶
+
+```http
+POST /api/buckets
 Authorization: Bearer <token>
 Content-Type: application/json
 
 {
-  "name": "新用户名",
-  "currentPassword": "旧密码",    // 修改密码时必填
-  "newPassword": "新密码"         // 可选
+  "name": "我的 S3 存储桶",
+  "provider": "s3",
+  "bucketName": "my-bucket",
+  "region": "us-east-1",
+  "accessKeyId": "AKIA...",
+  "secretAccessKey": "secret...",
+  "isDefault": true
 }
 ```
 
-#### 获取统计数据
+#### 更新存储桶
 
 ```http
-GET /api/auth/stats
+PUT /api/buckets/<id>
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "更新的名称",
+  "isDefault": true
+}
+```
+
+#### 删除存储桶
+
+```http
+DELETE /api/buckets/<id>
+Authorization: Bearer <token>
+```
+
+#### 测试存储桶连接
+
+```http
+POST /api/buckets/<id>/test
 Authorization: Bearer <token>
 ```
 
@@ -450,6 +518,7 @@ Content-Type: multipart/form-data
 
 file: <binary>
 parentId: <folder-id>  // 可选
+bucketId: <bucket-id>  // 可选，指定存储桶
 ```
 
 #### 列出文件
@@ -458,13 +527,6 @@ parentId: <folder-id>  // 可选
 GET /api/files?parentId=<id>&search=<keyword>&sortBy=name&sortOrder=asc
 Authorization: Bearer <token>
 ```
-
-| 参数 | 类型 | 描述 |
-|------|------|------|
-| `parentId` | string | 父文件夹 ID，根目录留空 |
-| `search` | string | 搜索关键词 |
-| `sortBy` | string | 排序字段: `name`, `size`, `createdAt` |
-| `sortOrder` | string | 排序方向: `asc`, `desc` |
 
 #### 创建文件夹
 
@@ -475,143 +537,16 @@ Content-Type: application/json
 
 {
   "name": "新建文件夹",
-  "parentId": null  // 可选
+  "parentId": null,  // 可选
+  "bucketId": "bucket-id"  // 可选，指定存储桶
 }
 ```
 
-#### 重命名/移动
+### 其他接口
 
-```http
-PUT /api/files/<id>
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "name": "新名称",
-  "parentId": "new-parent-id"  // 可选，用于移动
-}
-```
-
-#### 移动文件
-
-```http
-POST /api/files/<id>/move
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "targetParentId": "folder-id"  // null 表示根目录
-}
-```
-
-#### 下载文件
-
-```http
-GET /api/files/<id>/download
-Authorization: Bearer <token>
-```
-
-#### 预览文件
-
-```http
-GET /api/files/<id>/preview
-Authorization: Bearer <token>
-```
-
-#### 删除文件 (移入回收站)
-
-```http
-DELETE /api/files/<id>
-Authorization: Bearer <token>
-```
-
-### 回收站接口
-
-#### 列出回收站文件
-
-```http
-GET /api/files/trash
-Authorization: Bearer <token>
-```
-
-#### 恢复文件
-
-```http
-POST /api/files/trash/<id>/restore
-Authorization: Bearer <token>
-```
-
-#### 永久删除文件
-
-```http
-DELETE /api/files/trash/<id>
-Authorization: Bearer <token>
-```
-
-#### 清空回收站
-
-```http
-DELETE /api/files/trash
-Authorization: Bearer <token>
-```
-
-### 分享接口
-
-#### 创建分享
-
-```http
-POST /api/share
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "fileId": "file-id",
-  "password": "optional-password",    // 可选
-  "expiresAt": "2024-12-31T23:59:59Z", // 可选
-  "downloadLimit": 100                 // 可选
-}
-```
-
-#### 获取分享列表
-
-```http
-GET /api/share
-Authorization: Bearer <token>
-```
-
-#### 获取分享信息 (公开)
-
-```http
-GET /api/share/<id>?password=<password>
-```
-
-#### 下载分享文件 (公开)
-
-```http
-GET /api/share/<id>/download?password=<password>
-```
-
-#### 删除分享
-
-```http
-DELETE /api/share/<id>
-Authorization: Bearer <token>
-```
-
-### 错误码
-
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|-------------|------|
-| `UNAUTHORIZED` | 401 | 未授权 |
-| `FORBIDDEN` | 403 | 禁止访问 |
-| `NOT_FOUND` | 404 | 资源不存在 |
-| `VALIDATION_ERROR` | 400 | 参数验证失败 |
-| `FILE_TOO_LARGE` | 400 | 文件超过大小限制 |
-| `STORAGE_EXCEEDED` | 400 | 存储空间不足 |
-| `SHARE_EXPIRED` | 410 | 分享链接已过期 |
-| `SHARE_PASSWORD_REQUIRED` | 401 | 需要密码访问 |
-| `SHARE_PASSWORD_INVALID` | 401 | 密码错误 |
-| `SHARE_DOWNLOAD_LIMIT_EXCEEDED` | 403 | 下载次数已达上限 |
+- **回收站管理**：`/api/files/trash` 相关接口
+- **分享管理**：`/api/share` 相关接口
+- **WebDAV**：`/dav` 路径，遵循 WebDAV 协议
 
 ---
 
@@ -657,7 +592,7 @@ Authorization: Bearer <token>
 #### rclone
 
 ```ini
-[r2shelf]
+[osshelf]
 type = webdav
 url = https://your-domain.com/dav
 vendor = other
@@ -761,10 +696,33 @@ files: {
   path: string         // 路径
   type: 'file' | 'folder'
   size: number         // 大小 (字节)
-  r2Key: string        // R2 存储键
+  r2Key: string        // 存储键
   mimeType: string     // MIME 类型
   isFolder: boolean
   deletedAt: string    // 软删除时间
+  bucketId: string     // 存储桶 ID
+  createdAt: string
+  updatedAt: string
+}
+
+// 存储桶表
+storageBuckets: {
+  id: string
+  userId: string       // 所属用户
+  name: string         // 显示名称
+  provider: string     // 存储厂商
+  bucketName: string   // 存储桶名称
+  endpoint: string     // API 端点
+  region: string       // 区域
+  accessKeyId: string  // 加密存储的 Access Key
+  secretAccessKey: string // 加密存储的 Secret Key
+  pathStyle: boolean   // 是否使用路径风格 URL
+  isDefault: boolean   // 是否默认存储桶
+  isActive: boolean    // 是否激活
+  storageUsed: number  // 已用空间
+  fileCount: number    // 文件数量
+  storageQuota: number // 存储限额
+  notes: string        // 备注
   createdAt: string
   updatedAt: string
 }
@@ -804,3 +762,4 @@ shares: {
 - [Drizzle ORM](https://orm.drizzle.team/) - TypeScript ORM
 - [Radix UI](https://www.radix-ui.com/) - 无障碍组件库
 - [Lucide](https://lucide.dev/) - 图标库
+- 各存储厂商提供的 S3 兼容 API

@@ -15,7 +15,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "@r2shelf/shared": "workspace:*",
+    "@osshelf/shared": "workspace:*",
     "hono": "^4.0.0",
     "drizzle-orm": "^0.29.0",
     "zod": "^3.22.0"

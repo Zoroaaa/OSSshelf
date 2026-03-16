@@ -2,7 +2,7 @@
 
 ## Overview
 
-R2Shelf now supports multi-vendor, multi-bucket storage management.
+OSSshelf now supports multi-vendor, multi-bucket storage management.
 Files are routed to the correct bucket automatically based on:
 1. The file's explicit `bucket_id` (set when uploading into a bucket-assigned folder)
 2. Walking up the parent folder chain to find the nearest bucket assignment

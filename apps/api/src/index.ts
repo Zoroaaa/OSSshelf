@@ -16,7 +16,7 @@ const app = new Hono<{ Bindings: Env }>();
 app.use('*', logger());
 app.use('*', prettyJSON());
 app.use('*', cors({
-  origin: 'https://r2shelf.neutronx.uk',
+  origin: 'https://ossshelf-api.neutronx.uk',
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PROPFIND', 'MKCOL', 'COPY', 'MOVE', 'HEAD'],
   allowHeaders: ['Content-Type', 'Authorization', 'Depth', 'Destination', 'X-Requested-With'],
   exposeHeaders: ['Content-Length', 'Content-Range'],
@@ -29,9 +29,9 @@ app.use('*', errorHandler);
 
 app.get('/', (c) => {
   return c.json({
-    name: 'R2Shelf API',
+    name: 'OSSshelf API',
     version: '0.1.0',
-    description: '基于 Cloudflare R2 的文件管理系统 API',
+    description: '基于 Cloudflare 部署的多厂商 OSS 文件管理系统 API',
   });
 });
 

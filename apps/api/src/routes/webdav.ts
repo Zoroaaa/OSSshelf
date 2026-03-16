@@ -16,7 +16,7 @@ app.use('*', async (c, next) => {
   if (!authHeader || !authHeader.startsWith('Basic ')) {
     return new Response('Unauthorized', {
       status: 401,
-      headers: { 'WWW-Authenticate': 'Basic realm="R2Shelf WebDAV"' },
+      headers: { 'WWW-Authenticate': 'Basic realm="OSSshelf WebDAV"' },
     });
   }
 
@@ -34,7 +34,7 @@ app.use('*', async (c, next) => {
     if (!user || !(await verifyPassword(password, user.passwordHash))) {
       return new Response('Unauthorized', {
         status: 401,
-        headers: { 'WWW-Authenticate': 'Basic realm="R2Shelf WebDAV"' },
+        headers: { 'WWW-Authenticate': 'Basic realm="OSSshelf WebDAV"' },
       });
     }
 
@@ -43,7 +43,7 @@ app.use('*', async (c, next) => {
   } catch {
     return new Response('Unauthorized', {
       status: 401,
-      headers: { 'WWW-Authenticate': 'Basic realm="R2Shelf WebDAV"' },
+      headers: { 'WWW-Authenticate': 'Basic realm="OSSshelf WebDAV"' },
     });
   }
 });

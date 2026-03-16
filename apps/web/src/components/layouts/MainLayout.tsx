@@ -44,7 +44,7 @@ export default function MainLayout() {
           <div className="w-6 h-6 rounded bg-primary flex items-center justify-center">
             <HardDrive className="h-3.5 w-3.5 text-primary-foreground" />
           </div>
-          <span className="font-bold text-sm">R2Shelf</span>
+          <span className="font-bold text-sm">OSSshelf</span>
         </div>
         <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(!sidebarOpen)}>
           {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -62,7 +62,7 @@ export default function MainLayout() {
             <HardDrive className="h-4 w-4 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="text-base font-bold leading-none">R2Shelf</h1>
+            <h1 className="text-base font-bold leading-none">OSSshelf</h1>
             <p className="text-xs text-muted-foreground mt-0.5">文件管理系统</p>
           </div>
         </div>

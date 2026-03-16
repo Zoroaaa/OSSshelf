@@ -1,4 +1,4 @@
--- R2Shelf initial schema
+-- OSSshelf initial schema
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,

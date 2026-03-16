@@ -57,7 +57,7 @@ export default function SharePage() {
         <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center">
           <HardDrive className="h-4 w-4 text-primary-foreground" />
         </div>
-        <span className="font-semibold text-sm">R2Shelf</span>
+        <span className="font-semibold text-sm">OSSshelf</span>
         <span className="text-muted-foreground text-sm ml-1">· 文件分享</span>
       </header>
 
@@ -193,7 +193,7 @@ export default function SharePage() {
       </main>
 
       <footer className="border-t px-6 py-3 text-center text-xs text-muted-foreground">
-        Powered by R2Shelf · Cloudflare R2 文件存储
+        Powered by OSSshelf · 多厂商 OSS 文件管理系统
       </footer>
     </div>
   );
