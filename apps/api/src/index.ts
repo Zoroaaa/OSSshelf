@@ -7,6 +7,7 @@ import authRoutes from './routes/auth';
 import filesRoutes from './routes/files';
 import shareRoutes from './routes/share';
 import webdavRoutes from './routes/webdav';
+import bucketsRoutes from './routes/buckets';
 import { errorHandler } from './middleware/error';
 import type { Env } from './types/env';
 
@@ -41,6 +42,7 @@ app.get('/health', (c) => {
 app.route('/api/auth', authRoutes);
 app.route('/api/files', filesRoutes);
 app.route('/api/share', shareRoutes);
+app.route('/api/buckets', bucketsRoutes);
 app.route('/dav', webdavRoutes);
 
 app.notFound((c) => {

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable('users', {
   id: text('id').primaryKey(),
@@ -39,6 +39,26 @@ export const shares = sqliteTable('shares', {
   downloadLimit: integer('download_limit'),
   downloadCount: integer('download_count').default(0).notNull(),
   createdAt: text('created_at').notNull(),
+});
+
+export const storageBuckets = sqliteTable('storage_buckets', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  provider: text('provider').notNull(), // 'r2' | 's3' | 'oss' | 'cos' | 'obs' | 'b2' | 'custom'
+  bucketName: text('bucket_name').notNull(),
+  endpoint: text('endpoint'),
+  region: text('region'),
+  accessKeyId: text('access_key_id').notNull(),
+  secretAccessKey: text('secret_access_key').notNull(),
+  pathStyle: integer('path_style', { mode: 'boolean' }).default(false).notNull(),
+  isDefault: integer('is_default', { mode: 'boolean' }).default(false).notNull(),
+  isActive: integer('is_active', { mode: 'boolean' }).default(true).notNull(),
+  storageUsed: integer('storage_used').default(0).notNull(),
+  fileCount: integer('file_count').default(0).notNull(),
+  notes: text('notes'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
 });
 
 export const webdavSessions = sqliteTable('webdav_sessions', {

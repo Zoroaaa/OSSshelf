@@ -7,7 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { filesApi } from '@/services/api';
 import {
   LayoutDashboard, FolderOpen, Share2, Settings, LogOut,
-  Menu, X, HardDrive, Trash2,
+  Menu, X, HardDrive, Trash2, Database,
 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/utils';
@@ -17,6 +17,7 @@ const navItems = [
   { path: '/files', label: '文件', icon: FolderOpen, exact: false },
   { path: '/shares', label: '分享', icon: Share2, exact: false },
   { path: '/trash', label: '回收站', icon: Trash2, exact: false },
+  { path: '/buckets', label: '存储桶', icon: Database, exact: false },
   { path: '/settings', label: '设置', icon: Settings, exact: false },
 ];
 

@@ -131,3 +131,120 @@ export const shareApi = {
 };
 
 export default api;
+
+// ── Buckets ───────────────────────────────────────────────────────────────
+export interface StorageBucket {
+  id: string;
+  userId: string;
+  name: string;
+  provider: 'r2' | 's3' | 'oss' | 'cos' | 'obs' | 'b2' | 'minio' | 'custom';
+  bucketName: string;
+  endpoint: string | null;
+  region: string | null;
+  accessKeyId: string;    // Masked on backend
+  secretAccessKeyMasked: string;
+  pathStyle: boolean;
+  isDefault: boolean;
+  isActive: boolean;
+  storageUsed: number;
+  fileCount: number;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BucketFormData {
+  name: string;
+  provider: StorageBucket['provider'];
+  bucketName: string;
+  endpoint?: string;
+  region?: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  pathStyle?: boolean;
+  isDefault?: boolean;
+  notes?: string;
+}
+
+export const PROVIDER_META: Record<StorageBucket['provider'], {
+  label: string;
+  color: string;
+  icon: string;
+  regions?: string[];
+  endpointPlaceholder?: string;
+  regionRequired?: boolean;
+}> = {
+  r2: {
+    label: 'Cloudflare R2',
+    color: '#F6821F',
+    icon: '☁️',
+    endpointPlaceholder: 'https://<accountId>.r2.cloudflarestorage.com',
+  },
+  s3: {
+    label: 'Amazon S3',
+    color: '#FF9900',
+    icon: '🪣',
+    regions: ['us-east-1','us-east-2','us-west-1','us-west-2','ap-east-1','ap-northeast-1','ap-northeast-2','ap-southeast-1','ap-southeast-2','eu-west-1','eu-central-1','sa-east-1'],
+    regionRequired: true,
+  },
+  oss: {
+    label: 'Aliyun OSS',
+    color: '#FF6A00',
+    icon: '🌐',
+    regions: ['cn-hangzhou','cn-shanghai','cn-beijing','cn-shenzhen','cn-hongkong','ap-southeast-1','ap-northeast-1','us-west-1','eu-central-1'],
+    regionRequired: true,
+  },
+  cos: {
+    label: 'Tencent COS',
+    color: '#1772F6',
+    icon: '📦',
+    regions: ['ap-guangzhou','ap-shanghai','ap-beijing','ap-chengdu','ap-chongqing','ap-hongkong','ap-singapore','na-ashburn','eu-frankfurt'],
+    regionRequired: true,
+  },
+  obs: {
+    label: 'Huawei OBS',
+    color: '#CF0A2C',
+    icon: '🏔️',
+    regions: ['cn-north-4','cn-east-3','cn-south-1','cn-southwest-2','ap-southeast-3'],
+    regionRequired: true,
+  },
+  b2: {
+    label: 'Backblaze B2',
+    color: '#D01F2E',
+    icon: '🔥',
+    endpointPlaceholder: 'https://s3.us-west-004.backblazeb2.com',
+  },
+  minio: {
+    label: 'MinIO',
+    color: '#C72C41',
+    icon: '🐘',
+    endpointPlaceholder: 'http://your-minio-server:9000',
+  },
+  custom: {
+    label: '自定义 S3 兼容',
+    color: '#6B7280',
+    icon: '⚙️',
+    endpointPlaceholder: 'https://your-s3-endpoint.com',
+  },
+};
+
+export const bucketsApi = {
+  list: () =>
+    api.get<ApiResponse<StorageBucket[]>>('/api/buckets'),
+  providers: () =>
+    api.get<ApiResponse<Record<string, any>>>('/api/buckets/providers'),
+  create: (data: BucketFormData) =>
+    api.post<ApiResponse<StorageBucket>>('/api/buckets', data),
+  get: (id: string) =>
+    api.get<ApiResponse<StorageBucket>>(`/api/buckets/${id}`),
+  update: (id: string, data: Partial<BucketFormData>) =>
+    api.put<ApiResponse<StorageBucket>>(`/api/buckets/${id}`, data),
+  setDefault: (id: string) =>
+    api.post<ApiResponse<{ message: string }>>(`/api/buckets/${id}/set-default`),
+  toggle: (id: string) =>
+    api.post<ApiResponse<{ isActive: boolean }>>(`/api/buckets/${id}/toggle`),
+  test: (id: string) =>
+    api.post<ApiResponse<{ connected: boolean; message: string; statusCode: number }>>(`/api/buckets/${id}/test`),
+  delete: (id: string) =>
+    api.delete<ApiResponse<{ message: string }>>(`/api/buckets/${id}`),
+};
