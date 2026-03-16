@@ -16,7 +16,7 @@ const app = new Hono<{ Bindings: Env }>();
 app.use('*', logger());
 app.use('*', prettyJSON());
 app.use('*', cors({
-  origin: 'https://ossshelf-api.neutronx.uk',
+  origin: ['https://ossshelf.neutronx.uk', 'https://ossshelf-api.neutronx.uk'],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PROPFIND', 'MKCOL', 'COPY', 'MOVE', 'HEAD'],
   allowHeaders: ['Content-Type', 'Authorization', 'Depth', 'Destination', 'X-Requested-With'],
   exposeHeaders: ['Content-Length', 'Content-Range'],
