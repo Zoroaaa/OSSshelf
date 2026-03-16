@@ -9,7 +9,18 @@ import { verifyPassword } from '../lib/crypto';
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 
-// ── Basic Auth middleware ──────────────────────────────────────────────────
+app.options('/*', (c) => {
+  return new Response(null, {
+    status: 200,
+    headers: {
+      Allow: 'OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, PROPFIND, MOVE, COPY',
+      DAV: '1, 2',
+      'MS-Author-Via': 'DAV',
+      'Content-Length': '0',
+    },
+  });
+});
+
 app.use('*', async (c, next) => {
   const authHeader = c.req.header('Authorization');
 
@@ -57,16 +68,6 @@ app.all('/*', async (c) => {
   const path = rawPath.replace(/^\/dav/, '') || '/';
 
   switch (method) {
-    case 'OPTIONS':
-      return new Response(null, {
-        status: 200,
-        headers: {
-          Allow: 'OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, PROPFIND, MOVE, COPY',
-          DAV: '1, 2',
-          'MS-Author-Via': 'DAV',
-          'Content-Length': '0',
-        },
-      });
     case 'PROPFIND':
       return handlePropfind(c, userId, path);
     case 'GET':
