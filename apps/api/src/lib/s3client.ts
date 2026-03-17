@@ -428,7 +428,7 @@ export async function s3CompleteMultipartUpload(
 
   const res = await fetch(signed.url, {
     method: 'POST',
-    headers: { ...signed.headers, 'Content-Type': 'application/xml' },
+    headers: signed.headers,
     body,
   });
 
