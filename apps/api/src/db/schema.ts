@@ -1,0 +1,220 @@
+/**
+ * schema.ts
+ * 数据库表结构定义
+ * 
+ * 功能:
+ * - 定义所有数据库表结构
+ * - 定义表索引和约束
+ * - 使用Drizzle ORM的SQLite适配器
+ */
+
+import { sqliteTable, text, integer, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
+
+export const users = sqliteTable('users', {
+  id: text('id').primaryKey(),
+  email: text('email').notNull().unique(),
+  passwordHash: text('password_hash').notNull(),
+  name: text('name'),
+  role: text('role').default('user').notNull(),
+  storageQuota: integer('storage_quota').default(10737418240).notNull(),
+  storageUsed: integer('storage_used').default(0).notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  roleIdx: index('idx_users_role').on(table.role),
+  createdIdx: index('idx_users_created').on(table.createdAt),
+}));
+
+export const files = sqliteTable('files', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  parentId: text('parent_id'),
+  name: text('name').notNull(),
+  path: text('path').notNull(),
+  type: text('type'),
+  size: integer('size').default(0).notNull(),
+  r2Key: text('r2_key').notNull(),
+  mimeType: text('mime_type'),
+  hash: text('hash'),
+  isFolder: integer('is_folder', { mode: 'boolean' }).default(false).notNull(),
+  allowedMimeTypes: text('allowed_mime_types'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  deletedAt: text('deleted_at'),
+  bucketId: text('bucket_id'),
+}, (table) => ({
+  userParentIdx: index('idx_files_user_parent_active').on(table.userId, table.parentId),
+  userDeletedIdx: index('idx_files_user_deleted').on(table.userId, table.deletedAt),
+  userTypeIdx: index('idx_files_user_type').on(table.userId, table.type),
+  userMimeIdx: index('idx_files_user_mime').on(table.userId, table.mimeType),
+  userCreatedIdx: index('idx_files_user_created').on(table.userId, table.createdAt),
+  userUpdatedIdx: index('idx_files_user_updated').on(table.userId, table.updatedAt),
+  userSizeIdx: index('idx_files_user_size').on(table.userId, table.size),
+  hashIdx: index('idx_files_hash').on(table.hash),
+}));
+
+export const shares = sqliteTable('shares', {
+  id: text('id').primaryKey(),
+  fileId: text('file_id').notNull().references(() => files.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  password: text('password'),
+  expiresAt: text('expires_at'),
+  downloadLimit: integer('download_limit'),
+  downloadCount: integer('download_count').default(0).notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  expiresIdx: index('idx_shares_expires').on(table.expiresAt),
+  userCreatedIdx: index('idx_shares_user_created').on(table.userId, table.createdAt),
+  fileActiveIdx: index('idx_shares_file_active').on(table.fileId, table.expiresAt),
+}));
+
+export const storageBuckets = sqliteTable('storage_buckets', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  provider: text('provider').notNull(),
+  bucketName: text('bucket_name').notNull(),
+  endpoint: text('endpoint'),
+  region: text('region'),
+  accessKeyId: text('access_key_id').notNull(),
+  secretAccessKey: text('secret_access_key').notNull(),
+  pathStyle: integer('path_style', { mode: 'boolean' }).default(false).notNull(),
+  isDefault: integer('is_default', { mode: 'boolean' }).default(false).notNull(),
+  isActive: integer('is_active', { mode: 'boolean' }).default(true).notNull(),
+  storageUsed: integer('storage_used').default(0).notNull(),
+  fileCount: integer('file_count').default(0).notNull(),
+  storageQuota: integer('storage_quota'),
+  notes: text('notes'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => ({
+  userActiveIdx: index('idx_buckets_user_active').on(table.userId, table.isActive),
+  providerIdx: index('idx_buckets_provider').on(table.provider),
+  userDefaultIdx: uniqueIndex('idx_storage_buckets_user_default').on(table.userId),
+}));
+
+export const webdavSessions = sqliteTable('webdav_sessions', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  token: text('token').notNull().unique(),
+  expiresAt: text('expires_at').notNull(),
+  createdAt: text('created_at').notNull(),
+}, (table) => ({
+  expiresIdx: index('idx_webdav_expires').on(table.expiresAt),
+  userIdx: index('idx_webdav_user').on(table.userId, table.expiresAt),
+}));
+
+export const fileTags = sqliteTable('file_tags', {
+  id: text('id').primaryKey(),
+  fileId: text('file_id').notNull().references(() => files.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  color: text('color').default('#6366f1'),
+  createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+}, (table) => ({
+  fileIdx: index('idx_file_tags_file').on(table.fileId),
+  userNameIdx: index('idx_file_tags_user_name').on(table.userId, table.name),
+  uniqueIdx: uniqueIndex('idx_file_tags_unique').on(table.fileId, table.name),
+}));
+
+export const filePermissions = sqliteTable('file_permissions', {
+  id: text('id').primaryKey(),
+  fileId: text('file_id').notNull().references(() => files.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  permission: text('permission').notNull().default('read'),
+  grantedBy: text('granted_by').notNull().references(() => users.id),
+  createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+  updatedAt: text('updated_at').notNull().default('CURRENT_TIMESTAMP'),
+}, (table) => ({
+  fileIdx: index('idx_file_permissions_file').on(table.fileId),
+  userIdx: index('idx_file_permissions_user').on(table.userId),
+  uniqueIdx: uniqueIndex('idx_file_permissions_unique').on(table.fileId, table.userId),
+}));
+
+export const auditLogs = sqliteTable('audit_logs', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+  action: text('action').notNull(),
+  resourceType: text('resource_type').notNull(),
+  resourceId: text('resource_id'),
+  details: text('details'),
+  ipAddress: text('ip_address'),
+  userAgent: text('user_agent'),
+  status: text('status').default('success'),
+  errorMessage: text('error_message'),
+  createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+}, (table) => ({
+  userIdx: index('idx_audit_logs_user').on(table.userId, table.createdAt),
+  actionIdx: index('idx_audit_logs_action').on(table.action, table.createdAt),
+  resourceIdx: index('idx_audit_logs_resource').on(table.resourceType, table.resourceId),
+  createdIdx: index('idx_audit_logs_created').on(table.createdAt),
+}));
+
+export const loginAttempts = sqliteTable('login_attempts', {
+  id: text('id').primaryKey(),
+  email: text('email').notNull(),
+  ipAddress: text('ip_address').notNull(),
+  success: integer('success', { mode: 'boolean' }).notNull().default(false),
+  userAgent: text('user_agent'),
+  createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+}, (table) => ({
+  emailIdx: index('idx_login_attempts_email').on(table.email, table.createdAt),
+  ipIdx: index('idx_login_attempts_ip').on(table.ipAddress, table.createdAt),
+}));
+
+export const userDevices = sqliteTable('user_devices', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  deviceId: text('device_id').notNull(),
+  deviceName: text('device_name'),
+  deviceType: text('device_type'),
+  ipAddress: text('ip_address'),
+  userAgent: text('user_agent'),
+  lastActive: text('last_active').notNull().default('CURRENT_TIMESTAMP'),
+  createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+}, (table) => ({
+  userIdx: index('idx_user_devices_user').on(table.userId),
+  uniqueIdx: uniqueIndex('idx_user_devices_unique').on(table.userId, table.deviceId),
+}));
+
+export const uploadTasks = sqliteTable('upload_tasks', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  fileName: text('file_name').notNull(),
+  fileSize: integer('file_size').notNull(),
+  mimeType: text('mime_type'),
+  parentId: text('parent_id'),
+  bucketId: text('bucket_id'),
+  r2Key: text('r2_key').notNull(),
+  uploadId: text('upload_id').notNull(),
+  totalParts: integer('total_parts').notNull(),
+  uploadedParts: text('uploaded_parts').default('[]'),
+  status: text('status').default('pending'),
+  createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+  updatedAt: text('updated_at').notNull().default('CURRENT_TIMESTAMP'),
+  expiresAt: text('expires_at').notNull(),
+}, (table) => ({
+  userIdx: index('idx_upload_tasks_user').on(table.userId, table.status),
+  expiresIdx: index('idx_upload_tasks_expires').on(table.expiresAt),
+}));
+
+export const downloadTasks = sqliteTable('download_tasks', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  url: text('url').notNull(),
+  fileName: text('file_name'),
+  fileSize: integer('file_size'),
+  parentId: text('parent_id'),
+  bucketId: text('bucket_id'),
+  status: text('status').default('pending'),
+  progress: integer('progress').default(0),
+  errorMessage: text('error_message'),
+  createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+  updatedAt: text('updated_at').notNull().default('CURRENT_TIMESTAMP'),
+  completedAt: text('completed_at'),
+}, (table) => ({
+  userIdx: index('idx_download_tasks_user').on(table.userId, table.status),
+  statusIdx: index('idx_download_tasks_status').on(table.status, table.createdAt),
+}));
+
+export type DbType = typeof import('./index').getDb;

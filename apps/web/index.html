@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover" />
+    <meta name="description" content="OSSshelf - 基于 Cloudflare 部署的多厂商 OSS 文件管理系统，支持 WebDAV、预签名直传、安全分享" />
+    <meta name="keywords" content="OSS, 文件管理, 云存储, WebDAV, S3, Cloudflare" />
+    <meta name="author" content="OSSshelf" />
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#3b82f6" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1e40af" media="(prefers-color-scheme: dark)" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="OSSshelf" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="application-name" content="OSSshelf" />
+    <meta name="msapplication-TileColor" content="#3b82f6" />
+    <meta name="msapplication-config" content="/browserconfig.xml" />
+    
+    <!-- iOS Icons -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png" />
+    <link rel="apple-touch-icon" sizes="144x144" href="/icons/icon-144x144.png" />
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- Preconnect to API -->
+    <link rel="preconnect" href="/api" />
+    
+    <!-- DNS Prefetch -->
+    <link rel="dns-prefetch" href="/api" />
+    
+    <title>OSSshelf - 文件管理系统</title>
+    
+    <!-- Inline Critical CSS -->
+    <style>
+      :root {
+        --primary: #3b82f6;
+        --background: #ffffff;
+        --foreground: #0f172a;
+      }
+      
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --primary: #60a5fa;
+          --background: #0f172a;
+          --foreground: #f8fafc;
+        }
+      }
+      
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        background-color: var(--background);
+        color: var(--foreground);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      
+      #root {
+        min-height: 100vh;
+        min-height: 100dvh;
+      }
+      
+      /* Loading spinner */
+      .app-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        min-height: 100dvh;
+      }
+      
+      .app-loading-spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid rgba(59, 130, 246, 0.2);
+        border-top-color: var(--primary);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+      
+      /* Safe area padding for iOS */
+      @supports (padding: max(0px)) {
+        body {
+          padding-left: max(0px, env(safe-area-inset-left));
+          padding-right: max(0px, env(safe-area-inset-right));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="app-loading">
+        <div class="app-loading-spinner"></div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+    
+    <!-- Register Service Worker -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js').then(
+            function(registration) {
+              console.log('SW registered: ', registration.scope);
+            },
+            function(error) {
+              console.log('SW registration failed: ', error);
+            }
+          );
+        });
+      }
+    </script>
+  </body>
+</html>

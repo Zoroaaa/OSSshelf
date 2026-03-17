@@ -1,0 +1,76 @@
+{
+  "name": "OSSshelf - 文件管理系统",
+  "short_name": "OSSshelf",
+  "description": "多厂商 OSS 文件管理系统，支持 WebDAV、预签名直传、安全分享",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#3b82f6",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "shortcuts": [
+    {
+      "name": "文件管理",
+      "short_name": "文件",
+      "description": "打开文件管理页面",
+      "url": "/files"
+    },
+    {
+      "name": "分享列表",
+      "short_name": "分享",
+      "description": "查看已创建的分享",
+      "url": "/shares"
+    },
+    {
+      "name": "上传文件",
+      "short_name": "上传",
+      "description": "快速上传文件",
+      "url": "/files?action=upload"
+    }
+  ],
+  "share_target": {
+    "action": "/api/share-target",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "files": [
+        {
+          "name": "file",
+          "accept": ["*/*"]
+        }
+      ]
+    }
+  },
+  "file_handlers": [
+    {
+      "action": "/files?action=open",
+      "accept": {
+        "image/*": [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"],
+        "video/*": [".mp4", ".webm", ".mov", ".avi"],
+        "audio/*": [".mp3", ".wav", ".ogg", ".flac"],
+        "application/pdf": [".pdf"],
+        "text/*": [".txt", ".md", ".json", ".csv"]
+      }
+    }
+  ],
+  "protocol_handlers": [
+    {
+      "protocol": "web+osshelf",
+      "url": "/files?path=%s"
+    }
+  ]
+}

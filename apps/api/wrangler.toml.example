@@ -1,0 +1,43 @@
+name = "ossshelf-api"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ossshelf-db"
+database_id = "YOUR_D1_DATABASE_ID"
+
+# ── R2 direct binding (OPTIONAL / LEGACY) ────────────────────────────────
+# This binding is no longer required. Storage buckets are now managed via
+# the in-app "存储桶管理" panel (Settings → 存储桶), where you can add any
+# S3-compatible provider (R2, AWS S3, Aliyun OSS, Tencent COS, etc.).
+#
+# Keep this binding ONLY if you have existing files uploaded before the
+# multi-bucket migration. New uploads will automatically route through the
+# configured storage buckets. You may remove it once all legacy files
+# have been migrated.
+#
+# [[r2_buckets]]
+# binding = "FILES"
+# bucket_name = "ossshelf-files"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "YOUR_KV_NAMESPACE_ID"
+
+[vars]
+ENVIRONMENT = "development"
+JWT_SECRET = "your-jwt-secret-change-in-production"
+
+# ── Cron Triggers (定时任务) ─────────────────────────────────────────────
+# 每天凌晨 3 点执行回收站清理
+[triggers]
+crons = ["0 3 * * *"]
+
+[env.production]
+vars = { ENVIRONMENT = "production", JWT_SECRET = "YOUR_JWT_SECRET" }
+
+# 生产环境 Cron 触发器
+[env.production.triggers]
+crons = ["0 3 * * *"]
