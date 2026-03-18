@@ -81,12 +81,21 @@ app.get('/:id/preview', async (c) => {
   if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   if (file.isFolder)
     return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无法预览文件夹' } }, 400);
+  const officeTypes = [
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  ];
   const previewable =
     file.mimeType?.startsWith('image/') ||
     file.mimeType?.startsWith('video/') ||
     file.mimeType?.startsWith('audio/') ||
     file.mimeType === 'application/pdf' ||
-    file.mimeType?.startsWith('text/');
+    file.mimeType?.startsWith('text/') ||
+    officeTypes.includes(file.mimeType || '');
   if (!previewable)
     return c.json(
       { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该文件类型不支持预览' } },

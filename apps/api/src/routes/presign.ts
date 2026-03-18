@@ -534,12 +534,22 @@ app.get('/preview/:id', async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '文件夹无法预览' } }, 400);
   }
 
+  const officeTypes = [
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  ];
+
   const previewable =
     file.mimeType?.startsWith('image/') ||
     file.mimeType?.startsWith('video/') ||
     file.mimeType?.startsWith('audio/') ||
     file.mimeType === 'application/pdf' ||
-    file.mimeType?.startsWith('text/');
+    file.mimeType?.startsWith('text/') ||
+    officeTypes.includes(file.mimeType || '');
 
   if (!previewable) {
     return c.json(
