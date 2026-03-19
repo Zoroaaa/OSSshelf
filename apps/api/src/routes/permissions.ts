@@ -10,13 +10,25 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, inArray, like } from 'drizzle-orm';
-import { getDb, files, filePermissions, users, fileTags } from '../db';
+import { getDb } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
+import {
+  checkFilePermission,
+  grantPermission,
+  revokePermission,
+  getFilePermissions,
+  addTag,
+  removeTag,
+  getFileTags,
+  getUserTags,
+  getBatchTags,
+  checkPermission,
+  searchUsers,
+} from '../services/permissions.service';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -46,47 +58,6 @@ const removeTagSchema = z.object({
   tagName: z.string().min(1),
 });
 
-async function checkFileOwnership(db: ReturnType<typeof getDb>, fileId: string, userId: string) {
-  const file = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId)))
-    .get();
-  return file;
-}
-
-export async function checkFilePermission(
-  db: ReturnType<typeof getDb>,
-  fileId: string,
-  userId: string,
-  requiredPermission: 'read' | 'write' | 'admin'
-): Promise<{ hasAccess: boolean; permission: string | null; isOwner: boolean }> {
-  const file = await db.select().from(files).where(eq(files.id, fileId)).get();
-  if (!file) {
-    return { hasAccess: false, permission: null, isOwner: false };
-  }
-
-  if (file.userId === userId) {
-    return { hasAccess: true, permission: 'admin', isOwner: true };
-  }
-
-  const permission = await db
-    .select()
-    .from(filePermissions)
-    .where(and(eq(filePermissions.fileId, fileId), eq(filePermissions.userId, userId)))
-    .get();
-
-  if (!permission) {
-    return { hasAccess: false, permission: null, isOwner: false };
-  }
-
-  const permissionLevels = { read: 1, write: 2, admin: 3 };
-  const hasAccess =
-    permissionLevels[permission.permission as keyof typeof permissionLevels] >= permissionLevels[requiredPermission];
-
-  return { hasAccess, permission: permission.permission, isOwner: false };
-}
-
 app.post('/grant', async (c) => {
   const userId = c.get('userId')!;
   const body = await c.req.json();
@@ -101,36 +72,11 @@ app.post('/grant', async (c) => {
   const { fileId, userId: targetUserId, permission } = result.data;
   const db = getDb(c.env.DB);
 
-  const file = await checkFileOwnership(db, fileId, userId);
-  if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在或无权限' } }, 404);
-  }
+  const grantResult = await grantPermission(db, userId, fileId, targetUserId, permission);
 
-  const targetUser = await db.select().from(users).where(eq(users.id, targetUserId)).get();
-  if (!targetUser) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '目标用户不存在' } }, 404);
-  }
-
-  const existing = await db
-    .select()
-    .from(filePermissions)
-    .where(and(eq(filePermissions.fileId, fileId), eq(filePermissions.userId, targetUserId)))
-    .get();
-
-  const now = new Date().toISOString();
-
-  if (existing) {
-    await db.update(filePermissions).set({ permission, updatedAt: now }).where(eq(filePermissions.id, existing.id));
-  } else {
-    await db.insert(filePermissions).values({
-      id: crypto.randomUUID(),
-      fileId,
-      userId: targetUserId,
-      permission,
-      grantedBy: userId,
-      createdAt: now,
-      updatedAt: now,
-    });
+  if (!grantResult.success) {
+    const statusCode = grantResult.error === '文件不存在或无权限' ? 404 : 400;
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: grantResult.error } }, statusCode);
   }
 
   await createAuditLog({
@@ -139,12 +85,12 @@ app.post('/grant', async (c) => {
     action: 'file.move',
     resourceType: 'permission',
     resourceId: fileId,
-    details: { targetUserId, permission, fileName: file.name },
+    details: { targetUserId, permission },
     ipAddress: getClientIp(c),
     userAgent: getUserAgent(c),
   });
 
-  return c.json({ success: true, data: { message: '权限已授予', fileId, userId: targetUserId, permission } });
+  return c.json({ success: true, data: grantResult.data });
 });
 
 app.post('/revoke', async (c) => {
@@ -161,14 +107,12 @@ app.post('/revoke', async (c) => {
   const { fileId, userId: targetUserId } = result.data;
   const db = getDb(c.env.DB);
 
-  const file = await checkFileOwnership(db, fileId, userId);
-  if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在或无权限' } }, 404);
-  }
+  const revokeResult = await revokePermission(db, userId, fileId, targetUserId);
 
-  await db
-    .delete(filePermissions)
-    .where(and(eq(filePermissions.fileId, fileId), eq(filePermissions.userId, targetUserId)));
+  if (!revokeResult.success) {
+    const statusCode = revokeResult.error === '文件不存在或无权限' ? 404 : 400;
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: revokeResult.error } }, statusCode);
+  }
 
   await createAuditLog({
     env: c.env,
@@ -176,12 +120,12 @@ app.post('/revoke', async (c) => {
     action: 'file.delete',
     resourceType: 'permission',
     resourceId: fileId,
-    details: { targetUserId, fileName: file.name },
+    details: { targetUserId },
     ipAddress: getClientIp(c),
     userAgent: getUserAgent(c),
   });
 
-  return c.json({ success: true, data: { message: '权限已撤销' } });
+  return c.json({ success: true, data: revokeResult.data });
 });
 
 app.get('/file/:fileId', async (c) => {
@@ -189,41 +133,13 @@ app.get('/file/:fileId', async (c) => {
   const fileId = c.req.param('fileId');
   const db = getDb(c.env.DB);
 
-  const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'read');
-  if (!hasAccess) {
-    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权访问此文件' } }, 403);
+  const result = await getFilePermissions(db, fileId, userId);
+
+  if (!result.success) {
+    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: result.error } }, 403);
   }
 
-  const permissions = await db
-    .select({
-      id: filePermissions.id,
-      userId: filePermissions.userId,
-      permission: filePermissions.permission,
-      grantedBy: filePermissions.grantedBy,
-      createdAt: filePermissions.createdAt,
-      userName: users.name,
-      userEmail: users.email,
-    })
-    .from(filePermissions)
-    .leftJoin(users, eq(filePermissions.userId, users.id))
-    .where(eq(filePermissions.fileId, fileId))
-    .all();
-
-  return c.json({
-    success: true,
-    data: {
-      isOwner,
-      permissions: permissions.map((p) => ({
-        id: p.id,
-        userId: p.userId,
-        permission: p.permission,
-        grantedBy: p.grantedBy,
-        userName: p.userName,
-        userEmail: p.userEmail,
-        createdAt: p.createdAt,
-      })),
-    },
-  });
+  return c.json({ success: true, data: result.data });
 });
 
 app.post('/tags/add', async (c) => {
@@ -240,36 +156,13 @@ app.post('/tags/add', async (c) => {
   const { fileId, name, color } = result.data;
   const db = getDb(c.env.DB);
 
-  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'write');
-  if (!hasAccess) {
-    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权修改此文件' } }, 403);
+  const tagResult = await addTag(db, userId, fileId, name, color);
+
+  if (!tagResult.success) {
+    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: tagResult.error } }, 403);
   }
 
-  const existing = await db
-    .select()
-    .from(fileTags)
-    .where(and(eq(fileTags.fileId, fileId), eq(fileTags.name, name)))
-    .get();
-
-  if (existing) {
-    return c.json({ success: true, data: existing });
-  }
-
-  const tagId = crypto.randomUUID();
-  const now = new Date().toISOString();
-  await db.insert(fileTags).values({
-    id: tagId,
-    fileId,
-    userId,
-    name,
-    color: color || '#6366f1',
-    createdAt: now,
-  });
-
-  return c.json({
-    success: true,
-    data: { id: tagId, fileId, userId, name, color: color || '#6366f1', createdAt: now },
-  });
+  return c.json({ success: true, data: tagResult.data });
 });
 
 app.post('/tags/remove', async (c) => {
@@ -286,14 +179,13 @@ app.post('/tags/remove', async (c) => {
   const { fileId, tagName } = result.data;
   const db = getDb(c.env.DB);
 
-  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'write');
-  if (!hasAccess) {
-    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权修改此文件' } }, 403);
+  const tagResult = await removeTag(db, userId, fileId, tagName);
+
+  if (!tagResult.success) {
+    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: tagResult.error } }, 403);
   }
 
-  await db.delete(fileTags).where(and(eq(fileTags.fileId, fileId), eq(fileTags.name, tagName)));
-
-  return c.json({ success: true, data: { message: '标签已移除' } });
+  return c.json({ success: true, data: tagResult.data });
 });
 
 app.get('/tags/file/:fileId', async (c) => {
@@ -301,25 +193,22 @@ app.get('/tags/file/:fileId', async (c) => {
   const fileId = c.req.param('fileId');
   const db = getDb(c.env.DB);
 
-  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read');
-  if (!hasAccess) {
-    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权访问此文件' } }, 403);
+  const result = await getFileTags(db, fileId, userId);
+
+  if (!result.success) {
+    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: result.error } }, 403);
   }
 
-  const tags = await db.select().from(fileTags).where(eq(fileTags.fileId, fileId)).all();
-
-  return c.json({ success: true, data: tags });
+  return c.json({ success: true, data: result.data });
 });
 
 app.get('/tags/user', async (c) => {
   const userId = c.get('userId')!;
   const db = getDb(c.env.DB);
 
-  const tags = await db.select().from(fileTags).where(eq(fileTags.userId, userId)).all();
+  const result = await getUserTags(db, userId);
 
-  const uniqueTags = Array.from(new Map(tags.map((t) => [t.name, t])).values());
-
-  return c.json({ success: true, data: uniqueTags });
+  return c.json({ success: true, data: result.data });
 });
 
 const batchTagsSchema = z.object({
@@ -340,17 +229,9 @@ app.post('/tags/batch', async (c) => {
   const { fileIds } = result.data;
   const db = getDb(c.env.DB);
 
-  const tags = await db.select().from(fileTags).where(inArray(fileTags.fileId, fileIds)).all();
+  const tagsResult = await getBatchTags(db, fileIds);
 
-  const tagsByFileId: Record<string, typeof tags> = {};
-  for (const tag of tags) {
-    if (!tagsByFileId[tag.fileId]) {
-      tagsByFileId[tag.fileId] = [];
-    }
-    tagsByFileId[tag.fileId].push(tag);
-  }
-
-  return c.json({ success: true, data: tagsByFileId });
+  return c.json({ success: true, data: tagsResult.data });
 });
 
 app.get('/check/:fileId', async (c) => {
@@ -358,53 +239,20 @@ app.get('/check/:fileId', async (c) => {
   const fileId = c.req.param('fileId');
   const db = getDb(c.env.DB);
 
-  const result = await checkFilePermission(db, fileId, userId, 'read');
+  const result = await checkPermission(db, fileId, userId);
 
-  return c.json({
-    success: true,
-    data: {
-      hasAccess: result.hasAccess,
-      permission: result.permission,
-      isOwner: result.isOwner,
-    },
-  });
+  return c.json({ success: true, data: result.data });
 });
 
-// ── 用户搜索接口（供普通用户搜索其他用户以授权）────────────────────────────────
 app.get('/users/search', async (c) => {
   const userId = c.get('userId')!;
   const query = c.req.query('q') || '';
   const db = getDb(c.env.DB);
 
-  // 最少需要2个字符才能搜索
-  if (query.length < 2) {
-    return c.json({ success: true, data: [] });
-  }
+  const result = await searchUsers(db, userId, query);
 
-  // 搜索邮箱匹配的用户，排除当前用户自己
-  const matchedUsers = await db
-    .select({
-      id: users.id,
-      email: users.email,
-      name: users.name,
-      role: users.role,
-    })
-    .from(users)
-    .where(like(users.email, `%${query}%`))
-    .limit(10);
-
-  // 过滤掉当前用户
-  const filteredUsers = matchedUsers.filter((u) => u.id !== userId);
-
-  return c.json({
-    success: true,
-    data: filteredUsers.map((u) => ({
-      id: u.id,
-      email: u.email,
-      name: u.name,
-      role: u.role,
-    })),
-  });
+  return c.json({ success: true, data: result.data });
 });
 
+export { checkFilePermission };
 export default app;

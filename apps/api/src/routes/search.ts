@@ -10,12 +10,12 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, isNull, like, gte, lte, inArray, or, desc, SQL } from 'drizzle-orm';
-import { getDb, files, fileTags, storageBuckets } from '../db';
+import { getDb } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
+import { searchFiles, advancedSearch, getSearchSuggestions, getRecentFiles } from '../services/search.service';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -89,187 +89,10 @@ app.get('/', async (c) => {
     );
   }
 
-  const searchParams = result.data;
   const db = getDb(c.env.DB);
+  const searchResult = await searchFiles(db, userId, result.data);
 
-  async function getAllDescendantFolderIds(parentFolderId: string): Promise<Set<string>> {
-    const folderIds = new Set<string>([parentFolderId]);
-    const queue = [parentFolderId];
-
-    while (queue.length > 0) {
-      const currentId = queue.shift()!;
-      const childFolders = await db
-        .select({ id: files.id })
-        .from(files)
-        .where(and(eq(files.parentId, currentId), eq(files.isFolder, true), isNull(files.deletedAt)))
-        .all();
-
-      for (const folder of childFolders) {
-        if (!folderIds.has(folder.id)) {
-          folderIds.add(folder.id);
-          queue.push(folder.id);
-        }
-      }
-    }
-
-    return folderIds;
-  }
-
-  const conditions: SQL[] = [eq(files.userId, userId), isNull(files.deletedAt)];
-
-  if (searchParams.parentId !== undefined) {
-    if (searchParams.parentId && searchParams.recursive) {
-      const folderIds = await getAllDescendantFolderIds(searchParams.parentId);
-      const folderIdArray = Array.from(folderIds);
-      if (folderIdArray.length > 0) {
-        conditions.push(inArray(files.parentId, folderIdArray));
-      }
-    } else {
-      conditions.push(searchParams.parentId ? eq(files.parentId, searchParams.parentId) : isNull(files.parentId));
-    }
-  }
-
-  if (searchParams.query) {
-    conditions.push(like(files.name, `%${searchParams.query}%`));
-  }
-
-  if (searchParams.mimeType) {
-    if (searchParams.mimeType.endsWith('/*')) {
-      const prefix = searchParams.mimeType.slice(0, -1);
-      conditions.push(like(files.mimeType, `${prefix}%`));
-    } else {
-      conditions.push(eq(files.mimeType, searchParams.mimeType));
-    }
-  }
-
-  if (searchParams.isFolder !== undefined) {
-    conditions.push(eq(files.isFolder, searchParams.isFolder));
-  }
-
-  if (searchParams.bucketId) {
-    conditions.push(eq(files.bucketId, searchParams.bucketId));
-  }
-
-  if (searchParams.minSize !== undefined) {
-    conditions.push(gte(files.size, searchParams.minSize));
-  }
-
-  if (searchParams.maxSize !== undefined) {
-    conditions.push(lte(files.size, searchParams.maxSize));
-  }
-
-  if (searchParams.createdAfter) {
-    conditions.push(gte(files.createdAt, searchParams.createdAfter));
-  }
-
-  if (searchParams.createdBefore) {
-    conditions.push(lte(files.createdAt, searchParams.createdBefore));
-  }
-
-  if (searchParams.updatedAfter) {
-    conditions.push(gte(files.updatedAt, searchParams.updatedAfter));
-  }
-
-  if (searchParams.updatedBefore) {
-    conditions.push(lte(files.updatedAt, searchParams.updatedBefore));
-  }
-
-  let results = await db
-    .select()
-    .from(files)
-    .where(and(...conditions))
-    .all();
-
-  if (searchParams.tags && searchParams.tags.length > 0) {
-    const fileIdsWithTag = await db
-      .select({ fileId: fileTags.fileId })
-      .from(fileTags)
-      .where(and(eq(fileTags.userId, userId), inArray(fileTags.name, searchParams.tags)))
-      .all();
-
-    const fileIdSet = new Set(fileIdsWithTag.map((t) => t.fileId));
-    results = results.filter((f) => fileIdSet.has(f.id));
-  }
-
-  const sortBy = searchParams.sortBy || 'createdAt';
-  const sortOrder = searchParams.sortOrder || 'desc';
-  results.sort((a, b) => {
-    let aVal: string | number = a[sortBy] ?? '';
-    let bVal: string | number = b[sortBy] ?? '';
-    if (typeof aVal === 'string') aVal = aVal.toLowerCase();
-    if (typeof bVal === 'string') bVal = bVal.toLowerCase();
-    if (sortOrder === 'asc') {
-      return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
-    }
-    return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
-  });
-
-  const total = results.length;
-  const page = searchParams.page || 1;
-  const limit = searchParams.limit || 50;
-  const offset = (page - 1) * limit;
-  const paginatedResults = results.slice(offset, offset + limit);
-
-  const bucketIds = [...new Set(paginatedResults.map((f) => f.bucketId).filter(Boolean))] as string[];
-  const bucketMap: Record<string, { id: string; name: string; provider: string }> = {};
-  for (const bid of bucketIds) {
-    const b = await db.select().from(storageBuckets).where(eq(storageBuckets.id, bid)).get();
-    if (b) bucketMap[b.id] = { id: b.id, name: b.name, provider: b.provider };
-  }
-
-  const fileIds = paginatedResults.map((f) => f.id);
-  const allTags =
-    fileIds.length > 0
-      ? await db
-          .select()
-          .from(fileTags)
-          .where(and(eq(fileTags.userId, userId), inArray(fileTags.fileId, fileIds)))
-          .all()
-      : [];
-
-  const tagsByFile: Record<string, typeof allTags> = {};
-  for (const tag of allTags) {
-    if (!tagsByFile[tag.fileId]) tagsByFile[tag.fileId] = [];
-    tagsByFile[tag.fileId].push(tag);
-  }
-
-  const itemsWithMeta = paginatedResults.map((f) => ({
-    ...f,
-    bucket: f.bucketId ? (bucketMap[f.bucketId] ?? null) : null,
-    tags: tagsByFile[f.id] || [],
-  }));
-
-  const aggregations = {
-    types: {} as Record<string, number>,
-    mimeTypes: {} as Record<string, number>,
-    sizeRange: { min: 0, max: 0 },
-  };
-
-  for (const f of results) {
-    if (!f.isFolder) {
-      const type = f.mimeType?.split('/')[0] || 'other';
-      aggregations.types[type] = (aggregations.types[type] || 0) + 1;
-      aggregations.mimeTypes[f.mimeType || 'unknown'] = (aggregations.mimeTypes[f.mimeType || 'unknown'] || 0) + 1;
-    }
-  }
-
-  const sizes = results.filter((f) => !f.isFolder).map((f) => f.size);
-  aggregations.sizeRange = {
-    min: sizes.length > 0 ? Math.min(...sizes) : 0,
-    max: sizes.length > 0 ? Math.max(...sizes) : 0,
-  };
-
-  return c.json({
-    success: true,
-    data: {
-      items: itemsWithMeta,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-      aggregations,
-    },
-  });
+  return c.json({ success: true, data: searchResult });
 });
 
 app.post('/advanced', async (c) => {
@@ -284,158 +107,21 @@ app.post('/advanced', async (c) => {
     );
   }
 
-  const { conditions: searchConditions, logic, sortBy, sortOrder, page, limit } = result.data;
   const db = getDb(c.env.DB);
+  const searchResult = await advancedSearch(db, userId, result.data);
 
-  const allFiles = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
-    .all();
-
-  const evaluateCondition = (file: typeof files.$inferSelect, condition: (typeof searchConditions)[0]): boolean => {
-    const { field, operator, value } = condition;
-    let fieldValue: unknown;
-
-    if (field === 'tags') {
-      return true;
-    }
-
-    fieldValue = file[field as keyof typeof file];
-
-    switch (operator) {
-      case 'contains':
-        return (
-          typeof fieldValue === 'string' &&
-          typeof value === 'string' &&
-          fieldValue.toLowerCase().includes(value.toLowerCase())
-        );
-      case 'equals':
-        return fieldValue === value;
-      case 'startsWith':
-        return (
-          typeof fieldValue === 'string' &&
-          typeof value === 'string' &&
-          fieldValue.toLowerCase().startsWith(value.toLowerCase())
-        );
-      case 'endsWith':
-        return (
-          typeof fieldValue === 'string' &&
-          typeof value === 'string' &&
-          fieldValue.toLowerCase().endsWith(value.toLowerCase())
-        );
-      case 'gt':
-        return typeof fieldValue === 'number' && typeof value === 'number' && fieldValue > value;
-      case 'gte':
-        return typeof fieldValue === 'number' && typeof value === 'number' && fieldValue >= value;
-      case 'lt':
-        return typeof fieldValue === 'number' && typeof value === 'number' && fieldValue < value;
-      case 'lte':
-        return typeof fieldValue === 'number' && typeof value === 'number' && fieldValue <= value;
-      case 'in':
-        return Array.isArray(value) && value.includes(fieldValue as string);
-      default:
-        return false;
-    }
-  };
-
-  let filteredFiles = allFiles;
-
-  const tagConditions = searchConditions.filter((c) => c.field === 'tags');
-  const otherConditions = searchConditions.filter((c) => c.field !== 'tags');
-
-  if (otherConditions.length > 0) {
-    filteredFiles = filteredFiles.filter((file) => {
-      const results = otherConditions.map((cond) => evaluateCondition(file, cond));
-      return logic === 'and' ? results.every(Boolean) : results.some(Boolean);
-    });
-  }
-
-  if (tagConditions.length > 0) {
-    for (const tagCond of tagConditions) {
-      const tagNames = Array.isArray(tagCond.value) ? tagCond.value : [tagCond.value as string];
-      const filesWithTags = await db
-        .select({ fileId: fileTags.fileId })
-        .from(fileTags)
-        .where(and(eq(fileTags.userId, userId), inArray(fileTags.name, tagNames)))
-        .all();
-
-      const fileIdSet = new Set(filesWithTags.map((t) => t.fileId));
-      filteredFiles = filteredFiles.filter((f) => fileIdSet.has(f.id));
-    }
-  }
-
-  const sortField = sortBy || 'createdAt';
-  const order = sortOrder || 'desc';
-  filteredFiles.sort((a, b) => {
-    let aVal: string | number = a[sortField] ?? '';
-    let bVal: string | number = b[sortField] ?? '';
-    if (typeof aVal === 'string') aVal = aVal.toLowerCase();
-    if (typeof bVal === 'string') bVal = bVal.toLowerCase();
-    if (order === 'asc') {
-      return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
-    }
-    return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
-  });
-
-  const total = filteredFiles.length;
-  const offset = ((page || 1) - 1) * (limit || 50);
-  const paginatedResults = filteredFiles.slice(offset, offset + (limit || 50));
-
-  return c.json({
-    success: true,
-    data: {
-      items: paginatedResults,
-      total,
-      page: page || 1,
-      limit: limit || 50,
-      totalPages: Math.ceil(total / (limit || 50)),
-    },
-  });
+  return c.json({ success: true, data: searchResult });
 });
 
 app.get('/suggestions', async (c) => {
   const userId = c.get('userId')!;
   const query = c.req.query('q') || '';
-  const type = c.req.query('type') || 'name';
+  const type = (c.req.query('type') || 'name') as 'name' | 'tags' | 'mime';
 
   const db = getDb(c.env.DB);
+  const suggestions = await getSearchSuggestions(db, userId, query, type);
 
-  if (type === 'name' && query.length >= 2) {
-    const results = await db
-      .select({ name: files.name })
-      .from(files)
-      .where(and(eq(files.userId, userId), isNull(files.deletedAt), like(files.name, `${query}%`)))
-      .limit(10)
-      .all();
-
-    const suggestions = [...new Set(results.map((r) => r.name))];
-    return c.json({ success: true, data: suggestions });
-  }
-
-  if (type === 'tags') {
-    const allTags = await db.select({ name: fileTags.name }).from(fileTags).where(eq(fileTags.userId, userId)).all();
-
-    const uniqueTags = [...new Set(allTags.map((t) => t.name))];
-    const filtered = query ? uniqueTags.filter((t) => t.toLowerCase().includes(query.toLowerCase())) : uniqueTags;
-
-    return c.json({ success: true, data: filtered.slice(0, 20) });
-  }
-
-  if (type === 'mime') {
-    const results = await db
-      .select({ mimeType: files.mimeType })
-      .from(files)
-      .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
-      .all();
-
-    const mimeTypes = [...new Set(results.map((r) => r.mimeType).filter(Boolean))] as string[];
-    const filtered = query ? mimeTypes.filter((m) => m.toLowerCase().includes(query.toLowerCase())) : mimeTypes;
-
-    return c.json({ success: true, data: filtered.slice(0, 20) });
-  }
-
-  return c.json({ success: true, data: [] });
+  return c.json({ success: true, data: suggestions });
 });
 
 app.get('/recent', async (c) => {
@@ -443,13 +129,7 @@ app.get('/recent', async (c) => {
   const limit = parseInt(c.req.query('limit') || '20', 10);
   const db = getDb(c.env.DB);
 
-  const recentFiles = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false)))
-    .orderBy(desc(files.updatedAt))
-    .limit(limit)
-    .all();
+  const recentFiles = await getRecentFiles(db, userId, limit);
 
   return c.json({ success: true, data: recentFiles });
 });
