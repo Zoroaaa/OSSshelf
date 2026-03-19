@@ -1,7 +1,7 @@
 /**
  * batch.ts
  * 批量操作路由
- * 
+ *
  * 功能:
  * - 批量删除文件
  * - 批量移动文件
@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { s3Delete, s3Put, s3Get } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats, checkBucketQuota } from '../lib/bucketResolver';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
+import { getEncryptionKey } from '../lib/crypto';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -41,10 +42,15 @@ const batchCopySchema = z.object({
 });
 
 const batchRenameSchema = z.object({
-  items: z.array(z.object({
-    fileId: z.string().min(1),
-    newName: z.string().min(1).max(255),
-  })).min(1).max(100),
+  items: z
+    .array(
+      z.object({
+        fileId: z.string().min(1),
+        newName: z.string().min(1).max(255),
+      })
+    )
+    .min(1)
+    .max(100),
 });
 
 const batchTagSchema = z.object({
@@ -60,7 +66,9 @@ interface BatchResult {
 }
 
 async function softDeleteFolder(db: ReturnType<typeof getDb>, folderId: string, now: string) {
-  const children = await db.select().from(files)
+  const children = await db
+    .select()
+    .from(files)
     .where(and(eq(files.parentId, folderId), isNull(files.deletedAt)))
     .all();
   for (const child of children) {
@@ -74,7 +82,10 @@ app.post('/delete', async (c) => {
   const body = await c.req.json();
   const result = batchDeleteSchema.safeParse(body);
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const { fileIds } = result.data;
@@ -84,7 +95,9 @@ app.post('/delete', async (c) => {
 
   for (const fileId of fileIds) {
     try {
-      const file = await db.select().from(files)
+      const file = await db
+        .select()
+        .from(files)
         .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
         .get();
 
@@ -123,7 +136,10 @@ app.post('/move', async (c) => {
   const body = await c.req.json();
   const result = batchMoveSchema.safeParse(body);
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const { fileIds, targetParentId } = result.data;
@@ -132,8 +148,12 @@ app.post('/move', async (c) => {
   const batchResult: BatchResult = { success: 0, failed: 0, errors: [] };
 
   if (targetParentId) {
-    const targetFolder = await db.select().from(files)
-      .where(and(eq(files.id, targetParentId), eq(files.userId, userId), eq(files.isFolder, true), isNull(files.deletedAt)))
+    const targetFolder = await db
+      .select()
+      .from(files)
+      .where(
+        and(eq(files.id, targetParentId), eq(files.userId, userId), eq(files.isFolder, true), isNull(files.deletedAt))
+      )
       .get();
     if (!targetFolder) {
       return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '目标文件夹不存在' } }, 404);
@@ -142,7 +162,9 @@ app.post('/move', async (c) => {
 
   for (const fileId of fileIds) {
     try {
-      const file = await db.select().from(files)
+      const file = await db
+        .select()
+        .from(files)
         .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
         .get();
 
@@ -163,13 +185,17 @@ app.post('/move', async (c) => {
         }
       }
 
-      const conflict = await db.select().from(files)
-        .where(and(
-          eq(files.userId, userId),
-          eq(files.name, file.name),
-          targetParentId ? eq(files.parentId, targetParentId) : isNull(files.parentId),
-          isNull(files.deletedAt)
-        ))
+      const conflict = await db
+        .select()
+        .from(files)
+        .where(
+          and(
+            eq(files.userId, userId),
+            eq(files.name, file.name),
+            targetParentId ? eq(files.parentId, targetParentId) : isNull(files.parentId),
+            isNull(files.deletedAt)
+          )
+        )
         .get();
 
       if (conflict && conflict.id !== fileId) {
@@ -179,7 +205,8 @@ app.post('/move', async (c) => {
       }
 
       const newPath = targetParentId ? `${targetParentId}/${file.name}` : `/${file.name}`;
-      await db.update(files)
+      await db
+        .update(files)
         .set({ parentId: targetParentId, path: newPath, updatedAt: now })
         .where(eq(files.id, fileId));
 
@@ -208,12 +235,15 @@ app.post('/copy', async (c) => {
   const body = await c.req.json();
   const result = batchCopySchema.safeParse(body);
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const { fileIds, targetParentId, targetBucketId } = result.data;
   const db = getDb(c.env.DB);
-  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKey = getEncryptionKey(c.env);
   const now = new Date().toISOString();
   const batchResult: BatchResult = { success: 0, failed: 0, errors: [] };
 
@@ -223,8 +253,12 @@ app.post('/copy', async (c) => {
   }
 
   if (targetParentId) {
-    const targetFolder = await db.select().from(files)
-      .where(and(eq(files.id, targetParentId), eq(files.userId, userId), eq(files.isFolder, true), isNull(files.deletedAt)))
+    const targetFolder = await db
+      .select()
+      .from(files)
+      .where(
+        and(eq(files.id, targetParentId), eq(files.userId, userId), eq(files.isFolder, true), isNull(files.deletedAt))
+      )
       .get();
     if (!targetFolder) {
       return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '目标文件夹不存在' } }, 404);
@@ -232,10 +266,12 @@ app.post('/copy', async (c) => {
   }
 
   let totalSize = 0;
-  const filesToCopy: typeof files.$inferSelect[] = [];
+  const filesToCopy: (typeof files.$inferSelect)[] = [];
 
   for (const fileId of fileIds) {
-    const file = await db.select().from(files)
+    const file = await db
+      .select()
+      .from(files)
       .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
       .get();
 
@@ -317,8 +353,15 @@ app.post('/copy', async (c) => {
   }
 
   if (batchResult.success > 0) {
-    const copiedSize = filesToCopy.slice(0, batchResult.success).reduce((sum, f) => sum + f.size, 0);
-    await db.update(users)
+    // 仅统计实际成功复制的文件大小（而非按顺序截取），避免中间失败时统计偏差
+    const successIds = new Set(
+      filesToCopy.filter((_, i) => !batchResult.errors.some((e) => e.id === filesToCopy[i].id)).map((f) => f.id)
+    );
+    const copiedSize = filesToCopy
+      .filter((f) => !batchResult.errors.some((e) => e.id === f.id))
+      .reduce((sum, f) => sum + f.size, 0);
+    await db
+      .update(users)
       .set({ storageUsed: user.storageUsed + copiedSize, updatedAt: now })
       .where(eq(users.id, userId));
     await updateBucketStats(db, bucketConfig.id, copiedSize, batchResult.success);
@@ -342,7 +385,10 @@ app.post('/rename', async (c) => {
   const body = await c.req.json();
   const result = batchRenameSchema.safeParse(body);
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const { items } = result.data;
@@ -352,7 +398,9 @@ app.post('/rename', async (c) => {
 
   for (const item of items) {
     try {
-      const file = await db.select().from(files)
+      const file = await db
+        .select()
+        .from(files)
         .where(and(eq(files.id, item.fileId), eq(files.userId, userId), isNull(files.deletedAt)))
         .get();
 
@@ -362,13 +410,17 @@ app.post('/rename', async (c) => {
         continue;
       }
 
-      const conflict = await db.select().from(files)
-        .where(and(
-          eq(files.userId, userId),
-          eq(files.name, item.newName),
-          file.parentId ? eq(files.parentId, file.parentId) : isNull(files.parentId),
-          isNull(files.deletedAt)
-        ))
+      const conflict = await db
+        .select()
+        .from(files)
+        .where(
+          and(
+            eq(files.userId, userId),
+            eq(files.name, item.newName),
+            file.parentId ? eq(files.parentId, file.parentId) : isNull(files.parentId),
+            isNull(files.deletedAt)
+          )
+        )
         .get();
 
       if (conflict && conflict.id !== item.fileId) {
@@ -378,7 +430,8 @@ app.post('/rename', async (c) => {
       }
 
       const newPath = file.parentId ? `${file.parentId}/${item.newName}` : `/${item.newName}`;
-      await db.update(files)
+      await db
+        .update(files)
         .set({ name: item.newName, path: newPath, updatedAt: now })
         .where(eq(files.id, item.fileId));
 
@@ -407,18 +460,23 @@ app.post('/permanent-delete', async (c) => {
   const body = await c.req.json();
   const result = batchDeleteSchema.safeParse(body);
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const { fileIds } = result.data;
   const db = getDb(c.env.DB);
-  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKey = getEncryptionKey(c.env);
   const batchResult: BatchResult = { success: 0, failed: 0, errors: [] };
   let totalFreed = 0;
 
   for (const fileId of fileIds) {
     try {
-      const file = await db.select().from(files)
+      const file = await db
+        .select()
+        .from(files)
         .where(and(eq(files.id, fileId), eq(files.userId, userId), isNotNull(files.deletedAt)))
         .get();
 
@@ -454,7 +512,8 @@ app.post('/permanent-delete', async (c) => {
   if (totalFreed > 0) {
     const user = await db.select().from(users).where(eq(users.id, userId)).get();
     if (user) {
-      await db.update(users)
+      await db
+        .update(users)
         .set({ storageUsed: Math.max(0, user.storageUsed - totalFreed), updatedAt: new Date().toISOString() })
         .where(eq(users.id, userId));
     }
@@ -475,7 +534,10 @@ app.post('/restore', async (c) => {
   const body = await c.req.json();
   const result = batchDeleteSchema.safeParse(body);
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const { fileIds } = result.data;
@@ -485,7 +547,9 @@ app.post('/restore', async (c) => {
 
   for (const fileId of fileIds) {
     try {
-      const file = await db.select().from(files)
+      const file = await db
+        .select()
+        .from(files)
         .where(and(eq(files.id, fileId), eq(files.userId, userId), isNotNull(files.deletedAt)))
         .get();
 

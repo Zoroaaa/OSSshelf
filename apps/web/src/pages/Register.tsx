@@ -1,7 +1,7 @@
 /**
  * Register.tsx
  * 注册页面
- * 
+ *
  * 功能:
  * - 用户注册
  * - 邀请码验证
@@ -29,7 +29,9 @@ export default function Register() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
   const [inviteCode, setInviteCode] = useState('');
-  const [regError, setRegError] = useState<'closed' | 'invite_required' | 'invite_invalid' | 'invite_used' | null>(null);
+  const [regError, setRegError] = useState<'closed' | 'invite_required' | 'invite_invalid' | 'invite_used' | null>(
+    null
+  );
 
   const { data: regConfig, isLoading: configLoading } = useQuery({
     queryKey: ['registration-config'],
@@ -38,12 +40,13 @@ export default function Register() {
   });
 
   const registerMutation = useMutation({
-    mutationFn: () => authApi.register({
-      email,
-      password,
-      name: name || undefined,
-      inviteCode: inviteCode.trim().toUpperCase() || undefined,
-    } as any),
+    mutationFn: () =>
+      authApi.register({
+        email,
+        password,
+        name: name || undefined,
+        inviteCode: inviteCode.trim().toUpperCase() || undefined,
+      } as any),
     onSuccess: (response) => {
       if (response.data.success && response.data.data) {
         setAuth(response.data.data.user, response.data.data.token);
@@ -120,7 +123,9 @@ export default function Register() {
           <CardDescription>当前系统不开放新用户注册，请联系管理员获取访问权限。</CardDescription>
         </CardHeader>
         <CardFooter className="flex justify-center">
-          <Link to="/login" className="text-sm text-primary hover:underline">返回登录</Link>
+          <Link to="/login" className="text-sm text-primary hover:underline">
+            返回登录
+          </Link>
         </CardFooter>
       </Card>
     );
@@ -138,20 +143,56 @@ export default function Register() {
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <label htmlFor="name" className="text-sm font-medium">昵称（可选）</label>
-            <Input id="name" type="text" placeholder="您的昵称" value={name} onChange={(e) => setName(e.target.value)} />
+            <label htmlFor="name" className="text-sm font-medium">
+              昵称（可选）
+            </label>
+            <Input
+              id="name"
+              type="text"
+              placeholder="您的昵称"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
           </div>
           <div className="space-y-2">
-            <label htmlFor="email" className="text-sm font-medium">邮箱</label>
-            <Input id="email" type="email" placeholder="your@email.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <label htmlFor="email" className="text-sm font-medium">
+              邮箱
+            </label>
+            <Input
+              id="email"
+              type="email"
+              placeholder="your@email.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
           </div>
           <div className="space-y-2">
-            <label htmlFor="password" className="text-sm font-medium">密码</label>
-            <Input id="password" type="password" placeholder="至少6个字符" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} />
+            <label htmlFor="password" className="text-sm font-medium">
+              密码
+            </label>
+            <Input
+              id="password"
+              type="password"
+              placeholder="至少6个字符"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={6}
+            />
           </div>
           <div className="space-y-2">
-            <label htmlFor="confirmPassword" className="text-sm font-medium">确认密码</label>
-            <Input id="confirmPassword" type="password" placeholder="再次输入密码" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required />
+            <label htmlFor="confirmPassword" className="text-sm font-medium">
+              确认密码
+            </label>
+            <Input
+              id="confirmPassword"
+              type="password"
+              placeholder="再次输入密码"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+            />
           </div>
 
           {showInviteCodeField && (
@@ -170,7 +211,11 @@ export default function Register() {
                   setInviteCode(e.target.value.toUpperCase());
                   setRegError(null);
                 }}
-                className={regError === 'invite_required' || regError === 'invite_invalid' || regError === 'invite_used' ? 'border-destructive' : ''}
+                className={
+                  regError === 'invite_required' || regError === 'invite_invalid' || regError === 'invite_used'
+                    ? 'border-destructive'
+                    : ''
+                }
                 autoFocus={needsInviteCode}
                 maxLength={14}
                 required={needsInviteCode}
@@ -204,7 +249,9 @@ export default function Register() {
           </Button>
           <p className="text-sm text-muted-foreground">
             已有账号？{' '}
-            <Link to="/login" className="text-primary hover:underline">立即登录</Link>
+            <Link to="/login" className="text-primary hover:underline">
+              立即登录
+            </Link>
           </p>
         </CardFooter>
       </form>

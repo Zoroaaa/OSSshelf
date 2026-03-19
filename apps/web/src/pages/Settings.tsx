@@ -1,7 +1,7 @@
 /**
  * Settings.tsx
  * 设置页面
- * 
+ *
  * 功能:
  * - 个人信息管理
  * - 密码修改
@@ -15,7 +15,6 @@ import { useState } from 'react';
 import { useAuthStore } from '@/stores/auth';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { authApi } from '@/services/api';
-import type { UserDevice } from '@osshelf/shared';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -24,9 +23,25 @@ import { useToast } from '@/components/ui/use-toast';
 import { formatBytes, formatDate } from '@/utils';
 import { cn } from '@/utils';
 import {
-  User, Lock, Trash2, Server, Eye, EyeOff, AlertTriangle,
-  CheckCircle2, Copy, Globe, Shield, Monitor, Smartphone,
-  Tablet, Laptop, Trash2 as TrashIcon, Clock, MapPin, Loader2,
+  User,
+  Lock,
+  Trash2,
+  Server,
+  Eye,
+  EyeOff,
+  AlertTriangle,
+  CheckCircle2,
+  Copy,
+  Globe,
+  Shield,
+  Monitor,
+  Smartphone,
+  Tablet,
+  Laptop,
+  Trash2 as TrashIcon,
+  Clock,
+  MapPin,
+  Loader2,
 } from 'lucide-react';
 
 function getDeviceIcon(userAgent: string): typeof Monitor {
@@ -77,7 +92,11 @@ export default function Settings() {
   const apiBase = import.meta.env.VITE_API_URL || '';
   const webdavUrl = `${apiBase}/dav`;
 
-  const { data: devices = [], isLoading: devicesLoading, refetch: refetchDevices } = useQuery({
+  const {
+    data: devices = [],
+    isLoading: devicesLoading,
+    refetch: refetchDevices,
+  } = useQuery({
     queryKey: ['devices'],
     queryFn: () => authApi.devices().then((r) => r.data.data ?? []),
   });
@@ -90,17 +109,21 @@ export default function Settings() {
       queryClient.invalidateQueries({ queryKey: ['stats'] });
       toast({ title: '昵称已更新' });
     },
-    onError: (e: any) => toast({ title: '更新失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onError: (e: any) =>
+      toast({ title: '更新失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
   });
 
   const updatePasswordMutation = useMutation({
     mutationFn: () => authApi.patchMe({ currentPassword: currentPw, newPassword: newPw }),
     onSuccess: () => {
-      setCurrentPw(''); setNewPw(''); setConfirmPw('');
+      setCurrentPw('');
+      setNewPw('');
+      setConfirmPw('');
       toast({ title: '密码已更新，请重新登录', variant: 'default' });
       setTimeout(() => logout(), 1500);
     },
-    onError: (e: any) => toast({ title: '修改密码失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onError: (e: any) =>
+      toast({ title: '修改密码失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
   });
 
   const deleteAccountMutation = useMutation({
@@ -109,7 +132,8 @@ export default function Settings() {
       toast({ title: '账户已注销' });
       logout();
     },
-    onError: (e: any) => toast({ title: '注销失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onError: (e: any) =>
+      toast({ title: '注销失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
   });
 
   const deleteDeviceMutation = useMutation({
@@ -118,7 +142,8 @@ export default function Settings() {
       toast({ title: '设备已注销' });
       refetchDevices();
     },
-    onError: (e: any) => toast({ title: '注销失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onError: (e: any) =>
+      toast({ title: '注销失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
   });
 
   const pwStrength = (pw: string): { level: 0 | 1 | 2 | 3; label: string; color: string } => {
@@ -139,9 +164,10 @@ export default function Settings() {
     navigator.clipboard.writeText(text).then(() => toast({ title: msg }));
   };
 
-  const currentDeviceId = devices.find((d) => d.lastActive === devices.reduce((a, b) => 
-    new Date(a.lastActive) > new Date(b.lastActive) ? a : b
-  ).lastActive)?.id;
+  const currentDeviceId = devices.find(
+    (d) =>
+      d.lastActive === devices.reduce((a, b) => (new Date(a.lastActive) > new Date(b.lastActive) ? a : b)).lastActive
+  )?.id;
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -256,9 +282,7 @@ export default function Settings() {
                     />
                   ))}
                 </div>
-                <p className={cn('text-xs', strength.color.replace('bg-', 'text-'))}>
-                  密码强度：{strength.label}
-                </p>
+                <p className={cn('text-xs', strength.color.replace('bg-', 'text-'))}>密码强度：{strength.label}</p>
               </div>
             )}
           </div>
@@ -282,7 +306,9 @@ export default function Settings() {
 
           <Button
             onClick={() => updatePasswordMutation.mutate()}
-            disabled={!currentPw || !newPw || !confirmPw || !!pwMatch || newPw.length < 6 || updatePasswordMutation.isPending}
+            disabled={
+              !currentPw || !newPw || !confirmPw || !!pwMatch || newPw.length < 6 || updatePasswordMutation.isPending
+            }
           >
             {updatePasswordMutation.isPending ? '更新中…' : '更新密码'}
           </Button>
@@ -324,16 +350,20 @@ export default function Settings() {
                       isCurrent ? 'bg-primary/5 border-primary/20' : 'bg-muted/30'
                     )}
                   >
-                    <div className={cn(
-                      'w-10 h-10 rounded-lg flex items-center justify-center',
-                      isCurrent ? 'bg-primary/10' : 'bg-muted'
-                    )}>
+                    <div
+                      className={cn(
+                        'w-10 h-10 rounded-lg flex items-center justify-center',
+                        isCurrent ? 'bg-primary/10' : 'bg-muted'
+                      )}
+                    >
                       <DeviceIcon className={cn('h-5 w-5', isCurrent ? 'text-primary' : 'text-muted-foreground')} />
                     </div>
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-sm">{browser} · {os}</span>
+                        <span className="font-medium text-sm">
+                          {browser} · {os}
+                        </span>
                         {isCurrent && (
                           <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">
                             当前设备
@@ -398,10 +428,7 @@ export default function Settings() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <StorageBar
-            used={user?.storageUsed || 0}
-            quota={user?.storageQuota || 10737418240}
-          />
+          <StorageBar used={user?.storageUsed || 0} quota={user?.storageQuota || 10737418240} />
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="bg-muted/40 rounded-lg px-4 py-3">
               <p className="text-muted-foreground text-xs mb-1">已使用</p>
@@ -452,7 +479,9 @@ export default function Settings() {
               <span className="text-xs">您的登录密码</span>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground">支持 macOS Finder、Windows 资源管理器、Cyberduck、Mountain Duck 等客户端</p>
+          <p className="text-xs text-muted-foreground">
+            支持 macOS Finder、Windows 资源管理器、Cyberduck、Mountain Duck 等客户端
+          </p>
         </CardContent>
       </Card>
 
@@ -495,7 +524,14 @@ export default function Settings() {
                 autoFocus
               />
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => { setDeleteConfirmOpen(false); setDeletePw(''); }}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setDeleteConfirmOpen(false);
+                    setDeletePw('');
+                  }}
+                >
                   取消
                 </Button>
                 <Button

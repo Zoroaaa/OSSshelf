@@ -1,7 +1,7 @@
 /**
  * share.ts
  * 文件分享路由
- * 
+ *
  * 功能:
  * - 创建分享链接
  * - 分享权限管理
@@ -16,6 +16,7 @@ import { s3Get } from '../lib/s3client';
 import { resolveBucketConfig } from '../lib/bucketResolver';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES, SHARE_DEFAULT_EXPIRY } from '@osshelf/shared';
+import { getEncryptionKey } from '../lib/crypto';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 
@@ -51,13 +52,20 @@ app.post('/', authMiddleware, async (c) => {
   const result = createShareSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const { fileId, password, expiresAt, downloadLimit } = result.data;
   const db = getDb(c.env.DB);
 
-  const file = await db.select().from(files).where(and(eq(files.id, fileId), eq(files.userId, userId))).get();
+  const file = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, fileId), eq(files.userId, userId)))
+    .get();
   if (!file) {
     return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
@@ -68,11 +76,14 @@ app.post('/', authMiddleware, async (c) => {
   const expires = expiresAt || new Date(Date.now() + SHARE_DEFAULT_EXPIRY).toISOString();
 
   await db.insert(shares).values({
-    id: shareId, fileId, userId,
+    id: shareId,
+    fileId,
+    userId,
     password: password || null,
     expiresAt: expires,
     downloadLimit: downloadLimit || null,
-    downloadCount: 0, createdAt: now,
+    downloadCount: 0,
+    createdAt: now,
   });
 
   return c.json({
@@ -93,9 +104,11 @@ app.get('/', authMiddleware, async (c) => {
       const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
       return {
         ...share,
-        file: file ? { id: file.id, name: file.name, size: file.size, mimeType: file.mimeType, isFolder: file.isFolder } : null,
+        file: file
+          ? { id: file.id, name: file.name, size: file.size, mimeType: file.mimeType, isFolder: file.isFolder }
+          : null,
       };
-    }),
+    })
   );
 
   return c.json({ success: true, data: enriched });
@@ -107,7 +120,11 @@ app.delete('/:id', authMiddleware, async (c) => {
   const shareId = c.req.param('id');
   const db = getDb(c.env.DB);
 
-  const share = await db.select().from(shares).where(and(eq(shares.id, shareId), eq(shares.userId, userId))).get();
+  const share = await db
+    .select()
+    .from(shares)
+    .where(and(eq(shares.id, shareId), eq(shares.userId, userId)))
+    .get();
   if (!share) {
     return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '分享不存在' } }, 404);
   }
@@ -164,16 +181,20 @@ app.get('/:id/preview', async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只支持预览图片' } }, 400);
   }
 
-  const db2 = getDb(c.env.DB);
-  const encKey2 = c.env.JWT_SECRET || 'ossshelf-key';
-  const bucketCfg2 = await resolveBucketConfig(db2, file.userId, encKey2, file.bucketId, file.parentId);
-  if (bucketCfg2) {
-    const s3Res = await s3Get(bucketCfg2, file.r2Key);
-    return new Response(s3Res.body, { headers: { 'Content-Type': file.mimeType!, 'Cache-Control': 'private, max-age=300' } });
+  const encKey = getEncryptionKey(c.env);
+  const bucketCfg = await resolveBucketConfig(db, file.userId, encKey, file.bucketId, file.parentId);
+  if (bucketCfg) {
+    const s3Res = await s3Get(bucketCfg, file.r2Key);
+    return new Response(s3Res.body, {
+      headers: { 'Content-Type': file.mimeType!, 'Cache-Control': 'private, max-age=300' },
+    });
   } else if (c.env.FILES) {
     const r2Object = await c.env.FILES.get(file.r2Key);
-    if (!r2Object) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件内容不存在' } }, 404);
-    return new Response(r2Object.body, { headers: { 'Content-Type': file.mimeType!, 'Cache-Control': 'private, max-age=300' } });
+    if (!r2Object)
+      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件内容不存在' } }, 404);
+    return new Response(r2Object.body, {
+      headers: { 'Content-Type': file.mimeType!, 'Cache-Control': 'private, max-age=300' },
+    });
   }
   return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶未配置' } }, 500);
 });
@@ -191,24 +212,40 @@ app.get('/:id/download', async (c) => {
 
   const { share } = resolved;
   if (share.downloadLimit && share.downloadCount >= share.downloadLimit) {
-    return c.json({ success: false, error: { code: ERROR_CODES.SHARE_DOWNLOAD_LIMIT_EXCEEDED, message: '下载次数已达上限' } }, 403);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.SHARE_DOWNLOAD_LIMIT_EXCEEDED, message: '下载次数已达上限' } },
+      403
+    );
   }
 
   const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
   if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
-  if (file.isFolder) return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无法下载文件夹' } }, 400);
+  if (file.isFolder)
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无法下载文件夹' } }, 400);
 
-  await db.update(shares).set({ downloadCount: share.downloadCount + 1 }).where(eq(shares.id, shareId));
+  await db
+    .update(shares)
+    .set({ downloadCount: share.downloadCount + 1 })
+    .where(eq(shares.id, shareId));
 
-  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKey = getEncryptionKey(c.env);
   const bucketCfg = await resolveBucketConfig(db, file.userId, encKey, file.bucketId, file.parentId);
-  const dlHeaders = { 'Content-Type': file.mimeType || 'application/octet-stream', 'Content-Disposition': `attachment; filename="${encodeURIComponent(file.name)}"`, 'Content-Length': file.size.toString() };
-  if (bucketCfg) { const s3Res = await s3Get(bucketCfg, file.r2Key); return new Response(s3Res.body, { headers: dlHeaders }); }
+  const dlHeaders = {
+    'Content-Type': file.mimeType || 'application/octet-stream',
+    'Content-Disposition': `attachment; filename="${encodeURIComponent(file.name)}"`,
+    'Content-Length': file.size.toString(),
+  };
+  if (bucketCfg) {
+    const s3Res = await s3Get(bucketCfg, file.r2Key);
+    return new Response(s3Res.body, { headers: dlHeaders });
+  }
   if (c.env.FILES) {
     const r2Object = await c.env.FILES.get(file.r2Key);
-    if (!r2Object) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件内容不存在' } }, 404);
+    if (!r2Object)
+      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件内容不存在' } }, 404);
     return new Response(r2Object.body, { headers: dlHeaders });
   }
+  return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶未配置' } }, 500);
 });
 
 export default app;

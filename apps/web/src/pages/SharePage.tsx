@@ -1,7 +1,7 @@
 /**
  * SharePage.tsx
  * 公开分享页面
- * 
+ *
  * 功能:
  * - 访问分享链接
  * - 密码验证
@@ -17,21 +17,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FileIcon } from '@/components/ui/FileIcon';
 import { formatBytes, formatDate } from '@/utils';
-import {
-  Download,
-  Lock,
-  Clock,
-  AlertCircle,
-  Eye,
-  HardDrive,
-  ShieldCheck,
-} from 'lucide-react';
+import { Download, Lock, Clock, AlertCircle, HardDrive, ShieldCheck } from 'lucide-react';
 
 export default function SharePage() {
   const { shareId } = useParams<{ shareId: string }>();
   const [password, setPassword] = useState('');
   const [enteredPassword, setEnteredPassword] = useState<string | undefined>(undefined);
-  const [previewOpen, setPreviewOpen] = useState(false);
 
   const { data, isLoading, error, isError } = useQuery({
     queryKey: ['share-public', shareId, enteredPassword],
@@ -42,7 +33,6 @@ export default function SharePage() {
 
   const share = data?.data as any;
   const errorCode = (error as any)?.response?.data?.error?.code;
-  const needsPassword = errorCode === 'SHARE_PASSWORD_REQUIRED' || (!data?.success && !isLoading);
   const isExpired = errorCode === 'SHARE_EXPIRED';
   const isExhausted = errorCode === 'SHARE_DOWNLOAD_LIMIT_EXCEEDED';
 
@@ -74,7 +64,6 @@ export default function SharePage() {
 
       <main className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-md space-y-4">
-
           {/* Loading */}
           {isLoading && (
             <div className="text-center py-12 text-muted-foreground">
@@ -152,7 +141,9 @@ export default function SharePage() {
                     src={`/api/share/${shareId}/preview${enteredPassword ? `?password=${encodeURIComponent(enteredPassword)}` : ''}`}
                     alt={share.file.name}
                     className="max-h-48 max-w-full object-contain rounded"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
                   />
                 </div>
               )}
@@ -169,9 +160,7 @@ export default function SharePage() {
                 <div>
                   <h1 className="font-semibold text-base break-all">{share.file?.name}</h1>
                   <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground flex-wrap">
-                    {share.file?.size != null && (
-                      <span>{formatBytes(share.file.size)}</span>
-                    )}
+                    {share.file?.size != null && <span>{formatBytes(share.file.size)}</span>}
                     {share.expiresAt && (
                       <span className="flex items-center gap-0.5">
                         <Clock className="h-3 w-3" />

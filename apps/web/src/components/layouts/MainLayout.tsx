@@ -1,7 +1,7 @@
 /**
  * MainLayout.tsx
  * 主布局组件
- * 
+ *
  * 功能:
  * - 响应式侧边栏（仅桌面端）
  * - 移动端底部导航
@@ -21,10 +21,23 @@ import { PWAPrompt } from '@/components/ui/PWAInstallPrompt';
 import { useQuery } from '@tanstack/react-query';
 import { filesApi } from '@/services/api';
 import {
-  LayoutDashboard, FolderOpen, Share2, Settings, LogOut,
-  Menu, X, HardDrive, Trash2, Database, Shield,
-  ChevronLeft, ChevronRight, Keyboard, Upload, Download,
-  Sun, Moon, Monitor,
+  LayoutDashboard,
+  FolderOpen,
+  Share2,
+  Settings,
+  LogOut,
+  HardDrive,
+  Trash2,
+  Database,
+  Shield,
+  ChevronLeft,
+  ChevronRight,
+  Keyboard,
+  Upload,
+  Download,
+  Sun,
+  Moon,
+  Monitor,
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { cn } from '@/utils';
@@ -48,7 +61,6 @@ export default function MainLayout() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
   const { theme, setTheme } = useThemeStore();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -89,7 +101,7 @@ export default function MainLayout() {
 
   const { canGoBack, canGoForward, goBack, goForward } = useFileStore();
 
-  const isActive = (item: typeof navItems[0]) =>
+  const isActive = (item: (typeof navItems)[0]) =>
     item.exact ? location.pathname === item.path : location.pathname.startsWith(item.path);
 
   useEffect(() => {
@@ -101,7 +113,7 @@ export default function MainLayout() {
           navigate(targetFolderId ? `/files/${targetFolderId}` : '/files');
         }
       }
-      
+
       if ((e.metaKey || e.ctrlKey) && e.key === ']') {
         e.preventDefault();
         const targetFolderId = goForward();
@@ -109,7 +121,7 @@ export default function MainLayout() {
           navigate(targetFolderId ? `/files/${targetFolderId}` : '/files');
         }
       }
-      
+
       if (e.key === '?' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         setShowShortcuts(true);
@@ -142,7 +154,7 @@ export default function MainLayout() {
           </div>
           <span className="font-bold text-sm">OSSshelf</span>
         </div>
-        
+
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"
@@ -198,10 +210,12 @@ export default function MainLayout() {
         onMouseEnter={() => setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}
       >
-        <div className={cn(
-          'p-5 border-b flex items-center gap-2.5 flex-shrink-0',
-          (isCollapsed && !isHovering) && 'justify-center px-3'
-        )}>
+        <div
+          className={cn(
+            'p-5 border-b flex items-center gap-2.5 flex-shrink-0',
+            isCollapsed && !isHovering && 'justify-center px-3'
+          )}
+        >
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shadow-sm flex-shrink-0">
             <HardDrive className="h-4 w-4 text-primary-foreground" />
           </div>
@@ -213,10 +227,7 @@ export default function MainLayout() {
           )}
         </div>
 
-        <nav className={cn(
-          'flex-1 p-3 space-y-0.5 overflow-y-auto',
-          (isCollapsed && !isHovering) && 'px-2'
-        )}>
+        <nav className={cn('flex-1 p-3 space-y-0.5 overflow-y-auto', isCollapsed && !isHovering && 'px-2')}>
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = isActive(item);
@@ -241,10 +252,12 @@ export default function MainLayout() {
                   <>
                     <span className="flex-1">{item.label}</span>
                     {badge && (
-                      <span className={cn(
-                        'text-xs px-1.5 py-0.5 rounded-full font-medium min-w-[20px] text-center',
-                        active ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground'
-                      )}>
+                      <span
+                        className={cn(
+                          'text-xs px-1.5 py-0.5 rounded-full font-medium min-w-[20px] text-center',
+                          active ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground'
+                        )}
+                      >
                         {badge > 99 ? '99+' : badge}
                       </span>
                     )}
@@ -255,17 +268,11 @@ export default function MainLayout() {
           })}
         </nav>
 
-        <div className={cn(
-          'p-4 border-t space-y-4 flex-shrink-0',
-          (isCollapsed && !isHovering) && 'px-2'
-        )}>
+        <div className={cn('p-4 border-t space-y-4 flex-shrink-0', isCollapsed && !isHovering && 'px-2')}>
           {(!isCollapsed || isHovering) && (
-            <StorageBar
-              used={user?.storageUsed || 0}
-              quota={user?.storageQuota || 10737418240}
-            />
+            <StorageBar used={user?.storageUsed || 0} quota={user?.storageQuota || 10737418240} />
           )}
-          
+
           {(!isCollapsed || isHovering) && (
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-semibold text-xs flex-shrink-0 select-none">
@@ -277,7 +284,7 @@ export default function MainLayout() {
               </div>
             </div>
           )}
-          
+
           <div className={cn('flex gap-2', isCollapsed && !isHovering && 'flex-col')}>
             {(!isCollapsed || isHovering) && (
               <Button
@@ -291,20 +298,15 @@ export default function MainLayout() {
                 {theme === 'light' ? '浅色' : theme === 'dark' ? '深色' : '系统'}
               </Button>
             )}
-            
+
             {(!isCollapsed || isHovering) && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="flex-1"
-                onClick={() => setShowShortcuts(true)}
-              >
+              <Button variant="ghost" size="sm" className="flex-1" onClick={() => setShowShortcuts(true)}>
                 <Keyboard className="h-3.5 w-3.5 mr-1.5" />
                 快捷键
               </Button>
             )}
-            
-            {(isCollapsed && !isHovering) && (
+
+            {isCollapsed && !isHovering && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -315,11 +317,11 @@ export default function MainLayout() {
                 <ThemeIcon className="h-4 w-4" />
               </Button>
             )}
-            
+
             <Button
               variant="outline"
               size="sm"
-              className={cn('flex-1', (isCollapsed && !isHovering) && 'w-full px-2')}
+              className={cn('flex-1', isCollapsed && !isHovering && 'w-full px-2')}
               onClick={logout}
             >
               <LogOut className={cn('h-3.5 w-3.5', (!isCollapsed || isHovering) && 'mr-1.5')} />
@@ -359,19 +361,10 @@ export default function MainLayout() {
 
       <PWAPrompt />
       <Toaster />
-      
-      <KeyboardShortcutsDialog
-        isOpen={showShortcuts}
-        onClose={() => setShowShortcuts(false)}
-      />
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={handleFileSelect}
-      />
+      <KeyboardShortcutsDialog isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
+
+      <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileSelect} />
     </div>
   );
 }

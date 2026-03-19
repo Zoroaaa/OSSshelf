@@ -1,7 +1,7 @@
 /**
  * index.ts
  * 工具函数集合
- * 
+ *
  * 功能:
  * - 类名合并（cn）
  * - 字节格式化
@@ -18,13 +18,13 @@ export function cn(...inputs: ClassValue[]) {
 
 export function formatBytes(bytes: number, decimals = 2): string {
   if (bytes === 0) return '0 Bytes';
-  
+
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;
   const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-  
+
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  
+
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
 
@@ -48,7 +48,7 @@ export function getFileExtension(filename: string): string {
 
 export function getMimeTypeIcon(mimeType: string | null): string {
   if (!mimeType) return 'file';
-  
+
   if (mimeType.startsWith('image/')) return 'image';
   if (mimeType.startsWith('video/')) return 'video';
   if (mimeType.startsWith('audio/')) return 'audio';
@@ -58,13 +58,13 @@ export function getMimeTypeIcon(mimeType: string | null): string {
   if (mimeType.includes('excel') || mimeType.includes('spreadsheet')) return 'spreadsheet';
   if (mimeType.includes('powerpoint') || mimeType.includes('presentation')) return 'presentation';
   if (mimeType.startsWith('text/')) return 'text';
-  
+
   return 'file';
 }
 
 export function isPreviewable(mimeType: string | null): boolean {
   if (!mimeType) return false;
-  
+
   return (
     mimeType.startsWith('image/') ||
     mimeType.startsWith('video/') ||

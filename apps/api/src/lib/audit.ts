@@ -1,7 +1,7 @@
 /**
  * audit.ts
  * 审计日志工具
- * 
+ *
  * 功能:
  * - 记录用户操作日志
  * - 支持多种操作类型
@@ -26,7 +26,18 @@ interface CreateAuditLogParams {
 }
 
 export async function createAuditLog(params: CreateAuditLogParams): Promise<void> {
-  const { env, userId, action, resourceType, resourceId, details, ipAddress, userAgent, status = 'success', errorMessage } = params;
+  const {
+    env,
+    userId,
+    action,
+    resourceType,
+    resourceId,
+    details,
+    ipAddress,
+    userAgent,
+    status = 'success',
+    errorMessage,
+  } = params;
 
   try {
     const db = getDb(env.DB);

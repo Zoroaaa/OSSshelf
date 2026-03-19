@@ -1,7 +1,7 @@
 /**
  * FolderSettings.tsx
  * 文件夹设置组件
- * 
+ *
  * 功能:
  * - 设置文件夹上传文件类型限制
  * - 支持预设类型和自定义类型
@@ -13,7 +13,20 @@ import { filesApi } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/utils';
-import { Settings, X, Loader2, Check, Image, FileVideo, FileAudio, FileText, Archive, FileCode, File, Plus } from 'lucide-react';
+import {
+  Settings,
+  X,
+  Loader2,
+  Check,
+  Image,
+  FileVideo,
+  FileAudio,
+  FileText,
+  Archive,
+  FileCode,
+  File,
+  Plus,
+} from 'lucide-react';
 
 interface FolderSettingsProps {
   folderId: string;
@@ -27,14 +40,49 @@ const PRESET_TYPES = [
   { id: 'video/*', label: '视频', icon: FileVideo, color: 'text-red-500', bg: 'bg-red-500/10' },
   { id: 'audio/*', label: '音频', icon: FileAudio, color: 'text-purple-500', bg: 'bg-purple-500/10' },
   { id: 'application/pdf', label: 'PDF', icon: FileText, color: 'text-red-600', bg: 'bg-red-600/10' },
-  { id: 'application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document', label: 'Word', icon: FileText, color: 'text-blue-600', bg: 'bg-blue-600/10' },
-  { id: 'application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', label: 'Excel', icon: FileText, color: 'text-green-600', bg: 'bg-green-600/10' },
-  { id: 'application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation', label: 'PPT', icon: FileText, color: 'text-orange-600', bg: 'bg-orange-600/10' },
-  { id: 'application/zip,application/x-rar-compressed,application/x-7z-compressed,application/x-tar,application/gzip', label: '压缩包', icon: Archive, color: 'text-amber-500', bg: 'bg-amber-500/10' },
-  { id: 'text/*,application/json,application/xml', label: '文本/代码', icon: FileCode, color: 'text-cyan-500', bg: 'bg-cyan-500/10' },
+  {
+    id: 'application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    label: 'Word',
+    icon: FileText,
+    color: 'text-blue-600',
+    bg: 'bg-blue-600/10',
+  },
+  {
+    id: 'application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    label: 'Excel',
+    icon: FileText,
+    color: 'text-green-600',
+    bg: 'bg-green-600/10',
+  },
+  {
+    id: 'application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    label: 'PPT',
+    icon: FileText,
+    color: 'text-orange-600',
+    bg: 'bg-orange-600/10',
+  },
+  {
+    id: 'application/zip,application/x-rar-compressed,application/x-7z-compressed,application/x-tar,application/gzip',
+    label: '压缩包',
+    icon: Archive,
+    color: 'text-amber-500',
+    bg: 'bg-amber-500/10',
+  },
+  {
+    id: 'text/*,application/json,application/xml',
+    label: '文本/代码',
+    icon: FileCode,
+    color: 'text-cyan-500',
+    bg: 'bg-cyan-500/10',
+  },
 ];
 
-export function FolderSettings({ folderId, folderName, currentAllowedTypes, onClose }: FolderSettingsProps) {
+export function FolderSettings({
+  folderId,
+  folderName: _folderName,
+  currentAllowedTypes,
+  onClose,
+}: FolderSettingsProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [selectedTypes, setSelectedTypes] = useState<string[]>(currentAllowedTypes || []);
@@ -43,31 +91,31 @@ export function FolderSettings({ folderId, folderName, currentAllowedTypes, onCl
 
   useEffect(() => {
     if (currentAllowedTypes) {
-      const presetIds = PRESET_TYPES.map(p => p.id);
-      const custom = currentAllowedTypes.filter(t => !presetIds.includes(t));
+      const presetIds = PRESET_TYPES.map((p) => p.id);
+      const custom = currentAllowedTypes.filter((t) => !presetIds.includes(t));
       setCustomTypes(custom);
     }
   }, [currentAllowedTypes]);
 
   const updateMutation = useMutation({
-    mutationFn: (allowedMimeTypes: string[] | null) =>
-      filesApi.updateSettings(folderId, { allowedMimeTypes }),
+    mutationFn: (allowedMimeTypes: string[] | null) => filesApi.updateSettings(folderId, { allowedMimeTypes }),
     onSuccess: () => {
       toast({ title: '设置已保存' });
       queryClient.invalidateQueries({ queryKey: ['files'] });
       onClose();
     },
-    onError: (e: any) => toast({
-      title: '保存失败',
-      description: e.response?.data?.error?.message,
-      variant: 'destructive',
-    }),
+    onError: (e: any) =>
+      toast({
+        title: '保存失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
   });
 
   const togglePreset = (presetId: string) => {
-    setSelectedTypes(prev => {
+    setSelectedTypes((prev) => {
       if (prev.includes(presetId)) {
-        return prev.filter(t => t !== presetId);
+        return prev.filter((t) => t !== presetId);
       }
       return [...prev, presetId];
     });
@@ -77,17 +125,21 @@ export function FolderSettings({ folderId, folderName, currentAllowedTypes, onCl
     if (!customType.trim()) return;
     const mimePattern = /^[\w*]+\/[\w*.-]+$/;
     if (!mimePattern.test(customType.trim())) {
-      toast({ title: '格式错误', description: '请输入有效的 MIME 类型，如 image/png 或 image/*', variant: 'destructive' });
+      toast({
+        title: '格式错误',
+        description: '请输入有效的 MIME 类型，如 image/png 或 image/*',
+        variant: 'destructive',
+      });
       return;
     }
     if (!customTypes.includes(customType.trim())) {
-      setCustomTypes(prev => [...prev, customType.trim()]);
+      setCustomTypes((prev) => [...prev, customType.trim()]);
     }
     setCustomType('');
   };
 
   const removeCustomType = (type: string) => {
-    setCustomTypes(prev => prev.filter(t => t !== type));
+    setCustomTypes((prev) => prev.filter((t) => t !== type));
   };
 
   const handleSave = () => {
@@ -151,16 +203,10 @@ export function FolderSettings({ folderId, folderName, currentAllowedTypes, onCl
         {customTypes.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {customTypes.map((type) => (
-              <span
-                key={type}
-                className="inline-flex items-center gap-1 px-2 py-0.5 bg-muted rounded text-xs"
-              >
+              <span key={type} className="inline-flex items-center gap-1 px-2 py-0.5 bg-muted rounded text-xs">
                 <File className="h-3 w-3" />
                 {type}
-                <button
-                  onClick={() => removeCustomType(type)}
-                  className="ml-0.5 hover:text-red-500"
-                >
+                <button onClick={() => removeCustomType(type)} className="ml-0.5 hover:text-red-500">
                   <X className="h-3 w-3" />
                 </button>
               </span>

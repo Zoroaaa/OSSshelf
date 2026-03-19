@@ -1,7 +1,7 @@
 /**
  * KeyboardShortcutsDialog.tsx
  * 快捷键帮助对话框
- * 
+ *
  * 功能:
  * - 显示所有可用快捷键
  * - 分类展示
@@ -12,7 +12,6 @@ import { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Search, X, Keyboard } from 'lucide-react';
-import { cn } from '@/utils';
 
 interface ShortcutGroup {
   title: string;
@@ -110,16 +109,12 @@ export function KeyboardShortcutsDialog({ isOpen, onClose }: KeyboardShortcutsDi
 
         <div className="flex-1 overflow-y-auto p-4">
           {filteredGroups.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              没有找到匹配的快捷键
-            </div>
+            <div className="text-center py-8 text-muted-foreground">没有找到匹配的快捷键</div>
           ) : (
             <div className="space-y-6">
               {filteredGroups.map((group) => (
                 <div key={group.title}>
-                  <h3 className="text-sm font-medium text-muted-foreground mb-2">
-                    {group.title}
-                  </h3>
+                  <h3 className="text-sm font-medium text-muted-foreground mb-2">{group.title}</h3>
                   <div className="space-y-1">
                     {group.shortcuts.map((shortcut, index) => (
                       <div
@@ -127,9 +122,7 @@ export function KeyboardShortcutsDialog({ isOpen, onClose }: KeyboardShortcutsDi
                         className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-accent/50"
                       >
                         <span className="text-sm">{shortcut.description}</span>
-                        <kbd className="px-2 py-1 text-xs font-mono bg-muted rounded border">
-                          {shortcut.keys}
-                        </kbd>
+                        <kbd className="px-2 py-1 text-xs font-mono bg-muted rounded border">{shortcut.keys}</kbd>
                       </div>
                     ))}
                   </div>
@@ -140,9 +133,7 @@ export function KeyboardShortcutsDialog({ isOpen, onClose }: KeyboardShortcutsDi
         </div>
 
         <div className="p-4 border-t bg-muted/30">
-          <p className="text-xs text-muted-foreground text-center">
-            Mac 用户请将 Ctrl 替换为 ⌘ (Command)
-          </p>
+          <p className="text-xs text-muted-foreground text-center">Mac 用户请将 Ctrl 替换为 ⌘ (Command)</p>
         </div>
       </div>
     </div>

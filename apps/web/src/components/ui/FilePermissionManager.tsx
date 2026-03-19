@@ -1,7 +1,7 @@
 /**
  * FilePermissionManager.tsx
  * 文件权限管理组件
- * 
+ *
  * 功能:
  * - 查看文件权限
  * - 为用户授权/撤销权限
@@ -78,25 +78,26 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
       setSearchEmail('');
       setSelectedUserId(null);
     },
-    onError: (e: any) => toast({
-      title: '授权失败',
-      description: e.response?.data?.error?.message,
-      variant: 'destructive',
-    }),
+    onError: (e: any) =>
+      toast({
+        title: '授权失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
   });
 
   const revokeMutation = useMutation({
-    mutationFn: (userId: string) =>
-      permissionsApi.revoke({ fileId, userId }),
+    mutationFn: (userId: string) => permissionsApi.revoke({ fileId, userId }),
     onSuccess: () => {
       toast({ title: '权限已撤销' });
       queryClient.invalidateQueries({ queryKey: ['file-permissions', fileId] });
     },
-    onError: (e: any) => toast({
-      title: '撤销失败',
-      description: e.response?.data?.error?.message,
-      variant: 'destructive',
-    }),
+    onError: (e: any) =>
+      toast({
+        title: '撤销失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
   });
 
   const handleGrant = () => {
@@ -117,14 +118,8 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
     <div className="space-y-4">
       {isOwner && (
         <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            您是此文件的所有者，拥有完整管理权限
-          </p>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setShowAddForm(!showAddForm)}
-          >
+          <p className="text-sm text-muted-foreground">您是此文件的所有者，拥有完整管理权限</p>
+          <Button size="sm" variant="outline" onClick={() => setShowAddForm(!showAddForm)}>
             {showAddForm ? <X className="h-3.5 w-3.5 mr-1" /> : <Plus className="h-3.5 w-3.5 mr-1" />}
             {showAddForm ? '取消' : '添加用户'}
           </Button>
@@ -135,11 +130,7 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
         <div className="p-3 rounded-lg border bg-muted/30 space-y-3">
           <div className="space-y-1.5">
             <label className="text-xs font-medium">搜索用户</label>
-            <Input
-              placeholder="输入邮箱搜索..."
-              value={searchEmail}
-              onChange={(e) => setSearchEmail(e.target.value)}
-            />
+            <Input placeholder="输入邮箱搜索..." value={searchEmail} onChange={(e) => setSearchEmail(e.target.value)} />
           </div>
 
           {isSearching && (
@@ -150,9 +141,7 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
           )}
 
           {!isSearching && searchEmail.length >= 2 && searchResults.length === 0 && (
-            <div className="text-sm text-muted-foreground py-2">
-              未找到匹配的用户
-            </div>
+            <div className="text-sm text-muted-foreground py-2">未找到匹配的用户</div>
           )}
 
           {searchResults.length > 0 && (
@@ -163,9 +152,7 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
                   onClick={() => setSelectedUserId(user.id)}
                   className={cn(
                     'w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left transition-colors',
-                    selectedUserId === user.id
-                      ? 'bg-primary text-primary-foreground'
-                      : 'hover:bg-muted'
+                    selectedUserId === user.id ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
                   )}
                 >
                   <User className="h-3.5 w-3.5" />
@@ -188,9 +175,7 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
                     onClick={() => setSelectedPermission(perm)}
                     className={cn(
                       'flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-colors border',
-                      selectedPermission === perm
-                        ? `${config.bg} ${config.color} border-current`
-                        : 'hover:bg-muted'
+                      selectedPermission === perm ? `${config.bg} ${config.color} border-current` : 'hover:bg-muted'
                     )}
                   >
                     <Icon className="h-3.5 w-3.5" />
@@ -207,38 +192,40 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
             onClick={handleGrant}
             disabled={!selectedUserId || grantMutation.isPending}
           >
-            {grantMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Shield className="h-3.5 w-3.5 mr-1" />}
+            {grantMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-1" />
+            ) : (
+              <Shield className="h-3.5 w-3.5 mr-1" />
+            )}
             授权
           </Button>
         </div>
       )}
 
       {permissions.length === 0 ? (
-        <div className="text-center py-4 text-muted-foreground text-sm">
-          暂无其他用户权限
-        </div>
+        <div className="text-center py-4 text-muted-foreground text-sm">暂无其他用户权限</div>
       ) : (
         <div className="space-y-2">
           {permissions.map((perm) => {
-            const config = PERMISSION_CONFIG[perm.permission as keyof typeof PERMISSION_CONFIG] || PERMISSION_CONFIG.read;
+            const config =
+              PERMISSION_CONFIG[perm.permission as keyof typeof PERMISSION_CONFIG] || PERMISSION_CONFIG.read;
             const Icon = config.icon;
             return (
-              <div
-                key={perm.id}
-                className="flex items-center gap-3 p-2 rounded-lg border bg-muted/30"
-              >
+              <div key={perm.id} className="flex items-center gap-3 p-2 rounded-lg border bg-muted/30">
                 <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                   <User className="h-4 w-4 text-primary" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">
-                    {perm.userName || perm.userEmail}
-                  </p>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {perm.userEmail}
-                  </p>
+                  <p className="text-sm font-medium truncate">{perm.userName || perm.userEmail}</p>
+                  <p className="text-xs text-muted-foreground truncate">{perm.userEmail}</p>
                 </div>
-                <div className={cn('flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium', config.bg, config.color)}>
+                <div
+                  className={cn(
+                    'flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium',
+                    config.bg,
+                    config.color
+                  )}
+                >
                   <Icon className="h-3 w-3" />
                   {config.label}
                 </div>

@@ -1,7 +1,7 @@
 /**
  * Shares.tsx
  * 分享管理页面
- * 
+ *
  * 功能:
  * - 查看分享列表
  * - 创建分享链接
@@ -89,9 +89,7 @@ export default function Shares() {
           {/* Active shares */}
           {activeShares.length > 0 && (
             <section className="space-y-1.5">
-              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1">
-                有效分享
-              </h2>
+              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1">有效分享</h2>
               <div className="bg-card border rounded-xl overflow-hidden divide-y">
                 {activeShares.map((share: any) => (
                   <ShareItem
@@ -112,9 +110,7 @@ export default function Shares() {
           {/* Inactive shares */}
           {inactiveShares.length > 0 && (
             <section className="space-y-1.5">
-              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1">
-                已失效
-              </h2>
+              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1">已失效</h2>
               <div className="bg-card border rounded-xl overflow-hidden divide-y opacity-60">
                 {inactiveShares.map((share: any) => (
                   <ShareItem

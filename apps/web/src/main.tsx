@@ -4,7 +4,6 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import './index.css';
-import { useThemeStore } from './stores/theme';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,7 +22,7 @@ if (savedTheme) {
     const root = document.documentElement;
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     const effectiveTheme = theme === 'system' ? (prefersDark ? 'dark' : 'light') : theme;
-    
+
     if (effectiveTheme === 'dark') {
       root.classList.add('dark');
     } else {

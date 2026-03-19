@@ -1,7 +1,7 @@
 /**
  * App.tsx
  * 应用入口组件
- * 
+ *
  * 功能:
  * - 路由配置
  * - 认证状态初始化
@@ -28,7 +28,7 @@ import Downloads from './pages/Downloads';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isInitialized } = useAuthStore();
-  
+
   if (!isInitialized) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -36,14 +36,14 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  
+
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
 
 function App() {
   const initialize = useAuthStore((state) => state.initialize);
-  
+
   useEffect(() => {
     initialize();
   }, [initialize]);

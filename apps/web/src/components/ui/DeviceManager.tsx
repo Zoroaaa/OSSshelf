@@ -1,7 +1,7 @@
 /**
  * DeviceManager.tsx
  * 设备管理组件
- * 
+ *
  * 功能:
  * - 查看已登录设备
  * - 注销设备
@@ -15,10 +15,17 @@ import { useToast } from '@/components/ui/use-toast';
 import { useAuthStore } from '@/stores/auth';
 import { formatDate } from '@/utils';
 import { cn } from '@/utils';
-import type { UserDevice } from '@osshelf/shared';
 import {
-  Monitor, Smartphone, Tablet, Laptop, Trash2, Loader2,
-  CheckCircle2, AlertTriangle, MapPin, Clock,
+  Monitor,
+  Smartphone,
+  Tablet,
+  Laptop,
+  Trash2,
+  Loader2,
+  CheckCircle2,
+  AlertTriangle,
+  MapPin,
+  Clock,
 } from 'lucide-react';
 
 function getDeviceIcon(userAgent: string): typeof Monitor {
@@ -68,11 +75,12 @@ export function DeviceManager() {
       toast({ title: '设备已注销' });
       queryClient.invalidateQueries({ queryKey: ['devices'] });
     },
-    onError: (e: any) => toast({
-      title: '注销失败',
-      description: e.response?.data?.error?.message,
-      variant: 'destructive',
-    }),
+    onError: (e: any) =>
+      toast({
+        title: '注销失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
   });
 
   if (isLoading) {
@@ -84,11 +92,7 @@ export function DeviceManager() {
   }
 
   if (devices.length === 0) {
-    return (
-      <div className="text-center py-8 text-muted-foreground text-sm">
-        暂无已登录设备
-      </div>
-    );
+    return <div className="text-center py-8 text-muted-foreground text-sm">暂无已登录设备</div>;
   }
 
   return (
@@ -107,10 +111,12 @@ export function DeviceManager() {
               isCurrent ? 'bg-primary/5 border-primary/20' : 'bg-muted/30'
             )}
           >
-            <div className={cn(
-              'w-10 h-10 rounded-lg flex items-center justify-center',
-              isCurrent ? 'bg-primary/10' : 'bg-muted'
-            )}>
+            <div
+              className={cn(
+                'w-10 h-10 rounded-lg flex items-center justify-center',
+                isCurrent ? 'bg-primary/10' : 'bg-muted'
+              )}
+            >
               <DeviceIcon className={cn('h-5 w-5', isCurrent ? 'text-primary' : 'text-muted-foreground')} />
             </div>
 
@@ -147,7 +153,7 @@ export function DeviceManager() {
                 className="text-red-500 hover:text-red-600 hover:bg-red-500/10"
                 onClick={() => {
                   if (confirm('确定要注销此设备吗？')) {
-                    deleteMutation.mutate(device.id);
+                    deleteMutation.mutate(device.deviceId);
                   }
                 }}
                 disabled={deleteMutation.isPending}
@@ -162,9 +168,7 @@ export function DeviceManager() {
 
       <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
         <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" />
-        <p className="text-xs text-amber-600 dark:text-amber-400">
-          如果发现陌生设备登录，请立即修改密码并注销该设备
-        </p>
+        <p className="text-xs text-amber-600 dark:text-amber-400">如果发现陌生设备登录，请立即修改密码并注销该设备</p>
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 /**
  * Admin.tsx
  * 管理员面板页面
- * 
+ *
  * 功能:
  * - 用户管理（列表、禁用、删除）
  * - 注册配置管理
@@ -11,7 +11,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { adminApi, type AdminUser, type AdminStats, type RegistrationConfig } from '@/services/api';
+import { adminApi, type AdminUser } from '@/services/api';
 import { useAuthStore } from '@/stores/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,10 +20,26 @@ import { useToast } from '@/components/ui/use-toast';
 import { formatBytes, formatDate } from '@/utils';
 import { cn } from '@/utils';
 import {
-  Users, Shield, Settings2, Trash2, Edit3, Save, X, Plus, Copy,
-  Key, UserCheck, UserX, Server, Database, FileText, FolderOpen,
-  AlertTriangle, CheckCircle2, RefreshCw, Loader2, Eye, EyeOff,
-  ToggleLeft, ToggleRight, Mail, Ban, Clock,
+  Users,
+  Shield,
+  Trash2,
+  Edit3,
+  Save,
+  X,
+  Plus,
+  Copy,
+  Key,
+  UserCheck,
+  Server,
+  Database,
+  FileText,
+  FolderOpen,
+  AlertTriangle,
+  Loader2,
+  ToggleLeft,
+  ToggleRight,
+  Mail,
+  Clock,
 } from 'lucide-react';
 
 type TabKey = 'users' | 'registration' | 'stats' | 'audit';
@@ -94,7 +110,12 @@ function UsersTab() {
   const queryClient = useQueryClient();
   const { user: currentUser, updateUser } = useAuthStore();
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
-  const [editForm, setEditForm] = useState<{ name: string; role: 'admin' | 'user'; storageQuota: string; newPassword: string }>({ name: '', role: 'user', storageQuota: '', newPassword: '' });
+  const [editForm, setEditForm] = useState<{
+    name: string;
+    role: 'admin' | 'user';
+    storageQuota: string;
+    newPassword: string;
+  }>({ name: '', role: 'user', storageQuota: '', newPassword: '' });
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   const { data: users = [], isLoading } = useQuery({
@@ -118,7 +139,8 @@ function UsersTab() {
       }
       setEditingUser(null);
     },
-    onError: (e: any) => toast({ title: '更新失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onError: (e: any) =>
+      toast({ title: '更新失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
   });
 
   const deleteMutation = useMutation({
@@ -128,7 +150,8 @@ function UsersTab() {
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
       setDeleteConfirm(null);
     },
-    onError: (e: any) => toast({ title: '删除失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onError: (e: any) =>
+      toast({ title: '删除失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
   });
 
   const startEdit = (user: AdminUser) => {
@@ -136,7 +159,7 @@ function UsersTab() {
     setEditForm({
       name: user.name || '',
       role: user.role,
-      storageQuota: user.storageQuota ? String(Math.round(user.storageQuota / (1024 ** 3))) : '',
+      storageQuota: user.storageQuota ? String(Math.round(user.storageQuota / 1024 ** 3)) : '',
       newPassword: '',
     });
   };
@@ -148,7 +171,8 @@ function UsersTab() {
     const data: Parameters<typeof adminApi.patchUser>[1] = {
       name: editForm.name || undefined,
       role: editForm.role,
-      storageQuota: !isNaN(quotaGB) && editForm.storageQuota.trim() !== '' ? Math.round(quotaGB * 1024 ** 3) : undefined,
+      storageQuota:
+        !isNaN(quotaGB) && editForm.storageQuota.trim() !== '' ? Math.round(quotaGB * 1024 ** 3) : undefined,
       newPassword: trimmedPassword || undefined,
     };
     patchMutation.mutate({ id: editingUser.id, data });
@@ -223,7 +247,11 @@ function UsersTab() {
                     </div>
                     <div className="flex gap-2">
                       <Button size="sm" onClick={saveEdit} disabled={patchMutation.isPending}>
-                        {patchMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
+                        {patchMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                        ) : (
+                          <Save className="h-4 w-4 mr-1" />
+                        )}
                         保存
                       </Button>
                       <Button size="sm" variant="outline" onClick={() => setEditingUser(null)}>
@@ -240,12 +268,20 @@ function UsersTab() {
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-sm truncate">{user.name || user.email}</span>
                         {user.role === 'admin' && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">管理员</span>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">
+                            管理员
+                          </span>
                         )}
                       </div>
                       <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
-                        <span className="flex items-center gap-1"><Mail className="h-3 w-3" />{user.email}</span>
-                        <span>{formatBytes(user.storageUsed)} / {user.storageQuota ? formatBytes(user.storageQuota) : '无限制'}</span>
+                        <span className="flex items-center gap-1">
+                          <Mail className="h-3 w-3" />
+                          {user.email}
+                        </span>
+                        <span>
+                          {formatBytes(user.storageUsed)} /{' '}
+                          {user.storageQuota ? formatBytes(user.storageQuota) : '无限制'}
+                        </span>
                         <span>{user.fileCount} 文件</span>
                       </div>
                     </div>
@@ -253,7 +289,12 @@ function UsersTab() {
                       <Button variant="ghost" size="icon" onClick={() => startEdit(user)}>
                         <Edit3 className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-600" onClick={() => setDeleteConfirm(user.id)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-red-500 hover:text-red-600"
+                        onClick={() => setDeleteConfirm(user.id)}
+                      >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -278,11 +319,18 @@ function UsersTab() {
               <CardContent className="space-y-4">
                 <p className="text-sm text-muted-foreground">此操作将永久删除该用户及其所有数据，且不可恢复。</p>
                 <div className="flex gap-2">
-                  <Button variant="destructive" className="flex-1" onClick={() => deleteMutation.mutate(deleteConfirm)} disabled={deleteMutation.isPending}>
+                  <Button
+                    variant="destructive"
+                    className="flex-1"
+                    onClick={() => deleteMutation.mutate(deleteConfirm)}
+                    disabled={deleteMutation.isPending}
+                  >
                     {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                     确认删除
                   </Button>
-                  <Button variant="outline" onClick={() => setDeleteConfirm(null)}>取消</Button>
+                  <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
+                    取消
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -309,7 +357,8 @@ function RegistrationTab() {
       toast({ title: '设置已更新' });
       queryClient.invalidateQueries({ queryKey: ['admin', 'registration'] });
     },
-    onError: (e: any) => toast({ title: '更新失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onError: (e: any) =>
+      toast({ title: '更新失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
   });
 
   const genCodesMutation = useMutation({
@@ -319,7 +368,8 @@ function RegistrationTab() {
       toast({ title: `已生成 ${codes.length} 个邀请码` });
       queryClient.invalidateQueries({ queryKey: ['admin', 'registration'] });
     },
-    onError: (e: any) => toast({ title: '生成失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onError: (e: any) =>
+      toast({ title: '生成失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
   });
 
   const revokeCodeMutation = useMutation({
@@ -328,7 +378,8 @@ function RegistrationTab() {
       toast({ title: '邀请码已撤销' });
       queryClient.invalidateQueries({ queryKey: ['admin', 'registration'] });
     },
-    onError: (e: any) => toast({ title: '撤销失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onError: (e: any) =>
+      toast({ title: '撤销失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
   });
 
   const copyCode = (code: string) => {
@@ -426,8 +477,16 @@ function RegistrationTab() {
                 onChange={(e) => setNewCodeCount(Math.max(1, Math.min(50, parseInt(e.target.value) || 1)))}
                 className="w-20"
               />
-              <Button size="sm" onClick={() => genCodesMutation.mutate(newCodeCount)} disabled={genCodesMutation.isPending}>
-                {genCodesMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Plus className="h-4 w-4 mr-1" />}
+              <Button
+                size="sm"
+                onClick={() => genCodesMutation.mutate(newCodeCount)}
+                disabled={genCodesMutation.isPending}
+              >
+                {genCodesMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                ) : (
+                  <Plus className="h-4 w-4 mr-1" />
+                )}
                 生成
               </Button>
             </div>
@@ -455,7 +514,12 @@ function RegistrationTab() {
                       <Button variant="ghost" size="icon" onClick={() => copyCode(item.code)}>
                         <Copy className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-600" onClick={() => revokeCodeMutation.mutate(item.code)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-red-500 hover:text-red-600"
+                        onClick={() => revokeCodeMutation.mutate(item.code)}
+                      >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </>
@@ -488,10 +552,29 @@ function StatsTab() {
   const statCards = [
     { label: '用户总数', value: stats?.userCount ?? 0, icon: Users, color: 'text-blue-500', bg: 'bg-blue-500/10' },
     { label: '管理员', value: stats?.adminCount ?? 0, icon: Shield, color: 'text-amber-500', bg: 'bg-amber-500/10' },
-    { label: '文件总数', value: stats?.fileCount ?? 0, icon: FileText, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
-    { label: '文件夹', value: stats?.folderCount ?? 0, icon: FolderOpen, color: 'text-purple-500', bg: 'bg-purple-500/10' },
+    {
+      label: '文件总数',
+      value: stats?.fileCount ?? 0,
+      icon: FileText,
+      color: 'text-emerald-500',
+      bg: 'bg-emerald-500/10',
+    },
+    {
+      label: '文件夹',
+      value: stats?.folderCount ?? 0,
+      icon: FolderOpen,
+      color: 'text-purple-500',
+      bg: 'bg-purple-500/10',
+    },
     { label: '存储桶', value: stats?.bucketCount ?? 0, icon: Database, color: 'text-pink-500', bg: 'bg-pink-500/10' },
-    { label: '总存储用量', value: formatBytes(stats?.totalStorageUsed ?? 0), icon: Server, color: 'text-cyan-500', bg: 'bg-cyan-500/10', isString: true },
+    {
+      label: '总存储用量',
+      value: formatBytes(stats?.totalStorageUsed ?? 0),
+      icon: Server,
+      color: 'text-cyan-500',
+      bg: 'bg-cyan-500/10',
+      isString: true,
+    },
   ];
 
   return (
@@ -613,11 +696,16 @@ function AuditLogTab() {
           </div>
           <select
             value={actionFilter}
-            onChange={(e) => { setActionFilter(e.target.value); setPage(1); }}
+            onChange={(e) => {
+              setActionFilter(e.target.value);
+              setPage(1);
+            }}
             className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
           >
             {ACTION_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
             ))}
           </select>
         </div>
@@ -632,7 +720,10 @@ function AuditLogTab() {
         ) : (
           <div className="space-y-2">
             {logs.map((log) => {
-              const actionInfo = ACTION_LABELS[log.action] || { label: log.action, color: 'bg-muted text-muted-foreground' };
+              const actionInfo = ACTION_LABELS[log.action] || {
+                label: log.action,
+                color: 'bg-muted text-muted-foreground',
+              };
               return (
                 <div key={log.id} className="flex items-center gap-4 p-3 rounded-lg border bg-muted/30">
                   <div className={cn('px-2 py-1 rounded text-xs font-medium', actionInfo.color)}>

@@ -1,37 +1,37 @@
 /**
  * cron.ts
  * 定时任务路由
- * 
+ *
  * 功能:
  * - 回收站自动清理
- * - 会话自动清理
+ * - 会话/设备自动清理
  * - 分享链接过期清理
  * - 全量清理任务
  */
 
 import { Hono } from 'hono';
-import { eq, and, isNotNull, lt, sql } from 'drizzle-orm';
-import { getDb, files, users, shares, webdavSessions, uploadTasks, loginAttempts } from '../db';
-import { TRASH_RETENTION_DAYS, ERROR_CODES } from '@osshelf/shared';
+import { eq, and, isNotNull, lt } from 'drizzle-orm';
+import { getDb, files, users, shares, webdavSessions, uploadTasks, loginAttempts, userDevices } from '../db';
+import { TRASH_RETENTION_DAYS, DEVICE_SESSION_EXPIRY, ERROR_CODES } from '@osshelf/shared';
 import type { Env } from '../types/env';
 import { s3Delete } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats } from '../lib/bucketResolver';
+import { getEncryptionKey } from '../lib/crypto';
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.post('/cron/trash-cleanup', async (c) => {
   const db = getDb(c.env.DB);
-  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKey = getEncryptionKey(c.env);
 
   const retentionDate = new Date();
   retentionDate.setDate(retentionDate.getDate() - TRASH_RETENTION_DAYS);
   const threshold = retentionDate.toISOString();
 
-  const expiredFiles = await db.select().from(files)
-    .where(and(
-      isNotNull(files.deletedAt),
-      lt(files.deletedAt, threshold)
-    ))
+  const expiredFiles = await db
+    .select()
+    .from(files)
+    .where(and(isNotNull(files.deletedAt), lt(files.deletedAt, threshold)))
     .all();
 
   let deletedCount = 0;
@@ -65,7 +65,8 @@ app.post('/cron/trash-cleanup', async (c) => {
   for (const [userId, freedSize] of userStorageChanges) {
     const user = await db.select().from(users).where(eq(users.id, userId)).get();
     if (user) {
-      await db.update(users)
+      await db
+        .update(users)
         .set({
           storageUsed: Math.max(0, user.storageUsed - freedSize),
           updatedAt: new Date().toISOString(),
@@ -74,7 +75,9 @@ app.post('/cron/trash-cleanup', async (c) => {
     }
   }
 
-  console.log(`Trash cleanup completed: ${deletedCount} files deleted, ${(freedBytes / 1024 / 1024).toFixed(2)} MB freed`);
+  console.log(
+    `Trash cleanup completed: ${deletedCount} files deleted, ${(freedBytes / 1024 / 1024).toFixed(2)} MB freed`
+  );
 
   return c.json({
     success: true,
@@ -90,19 +93,21 @@ app.post('/cron/session-cleanup', async (c) => {
   const db = getDb(c.env.DB);
   const now = new Date().toISOString();
 
-  const expiredWebdav = await db.delete(webdavSessions)
+  // 清理过期 WebDAV sessions
+  const expiredWebdav = await db
+    .delete(webdavSessions)
     .where(lt(webdavSessions.expiresAt, now))
     .returning({ id: webdavSessions.id });
 
-  const expiredUploadTasks = await db.select().from(uploadTasks)
-    .where(and(
-      lt(uploadTasks.expiresAt, now),
-      eq(uploadTasks.status, 'pending')
-    ))
+  // 清理过期上传任务
+  const expiredUploadTasks = await db
+    .select()
+    .from(uploadTasks)
+    .where(and(lt(uploadTasks.expiresAt, now), eq(uploadTasks.status, 'pending')))
     .all();
 
   for (const task of expiredUploadTasks) {
-    const bucketConfig = await resolveBucketConfig(db, task.userId, c.env.JWT_SECRET || 'ossshelf-key', task.bucketId, null);
+    const bucketConfig = await resolveBucketConfig(db, task.userId, getEncryptionKey(c.env), task.bucketId, null);
     if (bucketConfig) {
       try {
         const { s3AbortMultipartUpload } = await import('../lib/s3client');
@@ -111,14 +116,24 @@ app.post('/cron/session-cleanup', async (c) => {
         console.error('Failed to abort expired upload:', e);
       }
     }
-    await db.update(uploadTasks)
-      .set({ status: 'expired', updatedAt: now })
-      .where(eq(uploadTasks.id, task.id));
+    await db.update(uploadTasks).set({ status: 'expired', updatedAt: now }).where(eq(uploadTasks.id, task.id));
   }
 
-  const oldLoginAttempts = await db.delete(loginAttempts)
+  // 清理过期登录记录（保留 30 天）
+  const oldLoginAttempts = await db
+    .delete(loginAttempts)
     .where(lt(loginAttempts.createdAt, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()))
     .returning({ id: loginAttempts.id });
+
+  // 修复：清理超过 DEVICE_SESSION_EXPIRY（30天）未活跃的登录设备。
+  // 原逻辑写在 GET /api/auth/devices 里（阈值写死为 7 天），每次查列表时静默删除，
+  // 导致前端缓存持有的 deviceId 失效后点注销返回 404。
+  // 现统一在此处清理，使用 shared 常量保证与 auth.ts 中 DEVICE_SESSION_EXPIRY 语义一致。
+  const deviceExpiryThreshold = new Date(Date.now() - DEVICE_SESSION_EXPIRY).toISOString();
+  const expiredDevices = await db
+    .delete(userDevices)
+    .where(lt(userDevices.lastActive, deviceExpiryThreshold))
+    .returning({ id: userDevices.id });
 
   return c.json({
     success: true,
@@ -126,6 +141,7 @@ app.post('/cron/session-cleanup', async (c) => {
       webdavSessionsCleaned: expiredWebdav.length,
       uploadTasksExpired: expiredUploadTasks.length,
       loginAttemptsCleaned: oldLoginAttempts.length,
+      devicesCleaned: expiredDevices.length,
     },
   });
 });
@@ -134,8 +150,9 @@ app.post('/cron/share-cleanup', async (c) => {
   const db = getDb(c.env.DB);
   const now = new Date().toISOString();
 
-  const expiredShares = await db.delete(shares)
-    .where(lt(shares.expiresAt, now))
+  const expiredShares = await db
+    .delete(shares)
+    .where(and(isNotNull(shares.expiresAt), lt(shares.expiresAt, now)))
     .returning({ id: shares.id });
 
   return c.json({

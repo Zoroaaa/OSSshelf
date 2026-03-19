@@ -1,7 +1,7 @@
 /**
  * Login.tsx
  * 登录页面
- * 
+ *
  * 功能:
  * - 用户登录
  * - 登录失败锁定提示
@@ -22,10 +22,10 @@ export default function Login() {
   const navigate = useNavigate();
   const { setAuth } = useAuthStore();
   const { toast } = useToast();
-  
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  
+
   const loginMutation = useMutation({
     mutationFn: () => authApi.login({ email, password }),
     onSuccess: (response) => {
@@ -42,12 +42,12 @@ export default function Login() {
       });
     },
   });
-  
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     loginMutation.mutate();
   };
-  
+
   return (
     <Card>
       <CardHeader className="text-center">

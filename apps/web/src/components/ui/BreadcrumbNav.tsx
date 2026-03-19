@@ -1,7 +1,7 @@
 /**
  * BreadcrumbNav.tsx
  * 面包屑导航组件
- * 
+ *
  * 功能:
  * - 显示当前路径
  * - 支持点击跳转
@@ -39,9 +39,7 @@ export function BreadcrumbNav({ items, className }: BreadcrumbNavProps) {
         onClick={() => navigate('/files')}
         className={cn(
           'flex items-center gap-1 transition-colors',
-          items.length === 0
-            ? 'text-foreground font-medium'
-            : 'text-muted-foreground hover:text-foreground'
+          items.length === 0 ? 'text-foreground font-medium' : 'text-muted-foreground hover:text-foreground'
         )}
       >
         <Home className="h-3.5 w-3.5" />

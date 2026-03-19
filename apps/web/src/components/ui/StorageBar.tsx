@@ -9,8 +9,7 @@ interface StorageBarProps {
 
 export function StorageBar({ used, quota, className }: StorageBarProps) {
   const percent = quota > 0 ? Math.min(100, (used / quota) * 100) : 0;
-  const barColor =
-    percent >= 90 ? 'bg-red-500' : percent >= 75 ? 'bg-amber-500' : 'bg-primary';
+  const barColor = percent >= 90 ? 'bg-red-500' : percent >= 75 ? 'bg-amber-500' : 'bg-primary';
 
   return (
     <div className={cn('space-y-1.5', className)}>

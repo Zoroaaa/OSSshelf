@@ -1,7 +1,7 @@
 /**
  * Dashboard.tsx
  * 仪表盘页面
- * 
+ *
  * 功能:
  * - 存储空间统计
  * - 最近文件列表
@@ -19,9 +19,22 @@ import { formatBytes, formatDate } from '@/utils';
 import { PROVIDER_META } from '@/services/api';
 import { cn } from '@/utils';
 import {
-  Files as FilesIcon, FolderOpen, Trash2, Clock, TrendingUp,
-  Image, Video, Music, FileText, File, ChevronRight,
-  Database, FileSpreadsheet, Presentation, Archive, FileCode,
+  Files as FilesIcon,
+  FolderOpen,
+  Trash2,
+  Clock,
+  TrendingUp,
+  Image,
+  Video,
+  Music,
+  FileText,
+  File,
+  ChevronRight,
+  FileSpreadsheet,
+  Presentation,
+  Archive,
+  FileCode,
+  Package,
 } from 'lucide-react';
 import type { DashboardStats } from '@/services/api';
 
@@ -34,12 +47,13 @@ const CATEGORY_META = {
   spreadsheet: { label: '表格', icon: FileSpreadsheet, color: 'text-green-500', bg: 'bg-green-500/10' },
   presentation: { label: '演示', icon: Presentation, color: 'text-orange-500', bg: 'bg-orange-500/10' },
   archive: { label: '压缩包', icon: Archive, color: 'text-amber-500', bg: 'bg-amber-500/10' },
+  installer: { label: '安装包', icon: Package, color: 'text-indigo-500', bg: 'bg-indigo-500/10' },
   code: { label: '代码', icon: FileCode, color: 'text-cyan-500', bg: 'bg-cyan-500/10' },
   text: { label: '文本', icon: FileText, color: 'text-slate-500', bg: 'bg-slate-500/10' },
   other: { label: '其他', icon: File, color: 'text-muted-foreground', bg: 'bg-muted/60' },
 } as const;
 
-type CategoryMeta = typeof CATEGORY_META[keyof typeof CATEGORY_META];
+type CategoryMeta = (typeof CATEGORY_META)[keyof typeof CATEGORY_META];
 
 const getCategoryMeta = (type: string): CategoryMeta => {
   const meta = CATEGORY_META[type as keyof typeof CATEGORY_META];
@@ -166,10 +180,7 @@ export default function Dashboard() {
               {/* Storage — multi-bucket */}
               <div className="bg-card border rounded-xl p-5 space-y-4">
                 <h2 className="font-semibold text-sm">存储空间</h2>
-                <StorageBar
-                  used={stats?.storageUsed ?? 0}
-                  quota={stats?.storageQuota ?? 10737418240}
-                />
+                <StorageBar used={stats?.storageUsed ?? 0} quota={stats?.storageQuota ?? 10737418240} />
                 {stats?.bucketBreakdown && stats.bucketBreakdown.length > 0 && (
                   <div className="space-y-2 pt-1">
                     <p className="text-xs text-muted-foreground font-medium">各存储桶用量</p>
@@ -182,7 +193,9 @@ export default function Dashboard() {
                             <span className="flex items-center gap-1.5 text-muted-foreground">
                               <span>{meta?.icon ?? '📦'}</span>
                               <span className="truncate max-w-[120px]">{b.name}</span>
-                              {b.isDefault && <span className="px-1 py-0.5 rounded text-[9px] bg-primary/10 text-primary">默认</span>}
+                              {b.isDefault && (
+                                <span className="px-1 py-0.5 rounded text-[9px] bg-primary/10 text-primary">默认</span>
+                              )}
                             </span>
                             <span className="text-muted-foreground">
                               {formatBytes(b.storageUsed)}
@@ -192,7 +205,13 @@ export default function Dashboard() {
                           {pct !== null && (
                             <div className="h-1 bg-secondary rounded-full overflow-hidden">
                               <div
-                                className={pct > 90 ? 'h-full rounded-full bg-red-500' : pct > 70 ? 'h-full rounded-full bg-amber-500' : 'h-full rounded-full bg-primary/60'}
+                                className={
+                                  pct > 90
+                                    ? 'h-full rounded-full bg-red-500'
+                                    : pct > 70
+                                      ? 'h-full rounded-full bg-amber-500'
+                                      : 'h-full rounded-full bg-primary/60'
+                                }
                                 style={{ width: `${pct}%` }}
                               />
                             </div>

@@ -16,7 +16,7 @@ const getSystemTheme = (): 'light' | 'dark' => {
 const applyTheme = (theme: Theme) => {
   const root = document.documentElement;
   const effectiveTheme = theme === 'system' ? getSystemTheme() : theme;
-  
+
   if (effectiveTheme === 'dark') {
     root.classList.add('dark');
   } else {
@@ -26,7 +26,7 @@ const applyTheme = (theme: Theme) => {
 
 export const useThemeStore = create<ThemeState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       theme: 'system',
       setTheme: (theme) => {
         set({ theme });

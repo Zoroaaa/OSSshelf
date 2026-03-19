@@ -1,7 +1,7 @@
 /**
  * search.ts
  * 文件搜索路由
- * 
+ *
  * 功能:
  * - 关键词搜索
  * - 高级条件搜索
@@ -10,7 +10,7 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, isNull, like, gte, lte, inArray, or, SQL } from 'drizzle-orm';
+import { eq, and, isNull, like, gte, lte, inArray, or, desc, SQL } from 'drizzle-orm';
 import { getDb, files, fileTags, storageBuckets } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
@@ -41,11 +41,15 @@ const searchSchema = z.object({
 });
 
 const advancedSearchSchema = z.object({
-  conditions: z.array(z.object({
-    field: z.enum(['name', 'mimeType', 'size', 'createdAt', 'updatedAt', 'tags']),
-    operator: z.enum(['contains', 'equals', 'startsWith', 'endsWith', 'gt', 'gte', 'lt', 'lte', 'in']),
-    value: z.union([z.string(), z.number(), z.array(z.string())]),
-  })).min(1),
+  conditions: z
+    .array(
+      z.object({
+        field: z.enum(['name', 'mimeType', 'size', 'createdAt', 'updatedAt', 'tags']),
+        operator: z.enum(['contains', 'equals', 'startsWith', 'endsWith', 'gt', 'gte', 'lt', 'lte', 'in']),
+        value: z.union([z.string(), z.number(), z.array(z.string())]),
+      })
+    )
+    .min(1),
   logic: z.enum(['and', 'or']).default('and'),
   sortBy: z.enum(['name', 'size', 'createdAt', 'updatedAt']).optional(),
   sortOrder: z.enum(['asc', 'desc']).optional(),
@@ -79,7 +83,10 @@ app.get('/', async (c) => {
 
   const result = searchSchema.safeParse(params);
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const searchParams = result.data;
@@ -88,18 +95,15 @@ app.get('/', async (c) => {
   async function getAllDescendantFolderIds(parentFolderId: string): Promise<Set<string>> {
     const folderIds = new Set<string>([parentFolderId]);
     const queue = [parentFolderId];
-    
+
     while (queue.length > 0) {
       const currentId = queue.shift()!;
-      const childFolders = await db.select({ id: files.id })
+      const childFolders = await db
+        .select({ id: files.id })
         .from(files)
-        .where(and(
-          eq(files.parentId, currentId),
-          eq(files.isFolder, true),
-          isNull(files.deletedAt)
-        ))
+        .where(and(eq(files.parentId, currentId), eq(files.isFolder, true), isNull(files.deletedAt)))
         .all();
-      
+
       for (const folder of childFolders) {
         if (!folderIds.has(folder.id)) {
           folderIds.add(folder.id);
@@ -107,7 +111,7 @@ app.get('/', async (c) => {
         }
       }
     }
-    
+
     return folderIds;
   }
 
@@ -170,15 +174,17 @@ app.get('/', async (c) => {
     conditions.push(lte(files.updatedAt, searchParams.updatedBefore));
   }
 
-  let results = await db.select().from(files).where(and(...conditions)).all();
+  let results = await db
+    .select()
+    .from(files)
+    .where(and(...conditions))
+    .all();
 
   if (searchParams.tags && searchParams.tags.length > 0) {
-    const fileIdsWithTag = await db.select({ fileId: fileTags.fileId })
+    const fileIdsWithTag = await db
+      .select({ fileId: fileTags.fileId })
       .from(fileTags)
-      .where(and(
-        eq(fileTags.userId, userId),
-        inArray(fileTags.name, searchParams.tags)
-      ))
+      .where(and(eq(fileTags.userId, userId), inArray(fileTags.name, searchParams.tags)))
       .all();
 
     const fileIdSet = new Set(fileIdsWithTag.map((t) => t.fileId));
@@ -212,9 +218,14 @@ app.get('/', async (c) => {
   }
 
   const fileIds = paginatedResults.map((f) => f.id);
-  const allTags = fileIds.length > 0 ? await db.select().from(fileTags)
-    .where(and(eq(fileTags.userId, userId), inArray(fileTags.fileId, fileIds)))
-    .all() : [];
+  const allTags =
+    fileIds.length > 0
+      ? await db
+          .select()
+          .from(fileTags)
+          .where(and(eq(fileTags.userId, userId), inArray(fileTags.fileId, fileIds)))
+          .all()
+      : [];
 
   const tagsByFile: Record<string, typeof allTags> = {};
   for (const tag of allTags) {
@@ -267,17 +278,22 @@ app.post('/advanced', async (c) => {
   const result = advancedSearchSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const { conditions: searchConditions, logic, sortBy, sortOrder, page, limit } = result.data;
   const db = getDb(c.env.DB);
 
-  const allFiles = await db.select().from(files)
+  const allFiles = await db
+    .select()
+    .from(files)
     .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
     .all();
 
-  const evaluateCondition = (file: typeof files.$inferSelect, condition: typeof searchConditions[0]): boolean => {
+  const evaluateCondition = (file: typeof files.$inferSelect, condition: (typeof searchConditions)[0]): boolean => {
     const { field, operator, value } = condition;
     let fieldValue: unknown;
 
@@ -289,13 +305,25 @@ app.post('/advanced', async (c) => {
 
     switch (operator) {
       case 'contains':
-        return typeof fieldValue === 'string' && typeof value === 'string' && fieldValue.toLowerCase().includes(value.toLowerCase());
+        return (
+          typeof fieldValue === 'string' &&
+          typeof value === 'string' &&
+          fieldValue.toLowerCase().includes(value.toLowerCase())
+        );
       case 'equals':
         return fieldValue === value;
       case 'startsWith':
-        return typeof fieldValue === 'string' && typeof value === 'string' && fieldValue.toLowerCase().startsWith(value.toLowerCase());
+        return (
+          typeof fieldValue === 'string' &&
+          typeof value === 'string' &&
+          fieldValue.toLowerCase().startsWith(value.toLowerCase())
+        );
       case 'endsWith':
-        return typeof fieldValue === 'string' && typeof value === 'string' && fieldValue.toLowerCase().endsWith(value.toLowerCase());
+        return (
+          typeof fieldValue === 'string' &&
+          typeof value === 'string' &&
+          fieldValue.toLowerCase().endsWith(value.toLowerCase())
+        );
       case 'gt':
         return typeof fieldValue === 'number' && typeof value === 'number' && fieldValue > value;
       case 'gte':
@@ -326,7 +354,8 @@ app.post('/advanced', async (c) => {
   if (tagConditions.length > 0) {
     for (const tagCond of tagConditions) {
       const tagNames = Array.isArray(tagCond.value) ? tagCond.value : [tagCond.value as string];
-      const filesWithTags = await db.select({ fileId: fileTags.fileId })
+      const filesWithTags = await db
+        .select({ fileId: fileTags.fileId })
         .from(fileTags)
         .where(and(eq(fileTags.userId, userId), inArray(fileTags.name, tagNames)))
         .all();
@@ -373,13 +402,10 @@ app.get('/suggestions', async (c) => {
   const db = getDb(c.env.DB);
 
   if (type === 'name' && query.length >= 2) {
-    const results = await db.select({ name: files.name })
+    const results = await db
+      .select({ name: files.name })
       .from(files)
-      .where(and(
-        eq(files.userId, userId),
-        isNull(files.deletedAt),
-        like(files.name, `${query}%`)
-      ))
+      .where(and(eq(files.userId, userId), isNull(files.deletedAt), like(files.name, `${query}%`)))
       .limit(10)
       .all();
 
@@ -388,10 +414,7 @@ app.get('/suggestions', async (c) => {
   }
 
   if (type === 'tags') {
-    const allTags = await db.select({ name: fileTags.name })
-      .from(fileTags)
-      .where(eq(fileTags.userId, userId))
-      .all();
+    const allTags = await db.select({ name: fileTags.name }).from(fileTags).where(eq(fileTags.userId, userId)).all();
 
     const uniqueTags = [...new Set(allTags.map((t) => t.name))];
     const filtered = query ? uniqueTags.filter((t) => t.toLowerCase().includes(query.toLowerCase())) : uniqueTags;
@@ -400,7 +423,8 @@ app.get('/suggestions', async (c) => {
   }
 
   if (type === 'mime') {
-    const results = await db.select({ mimeType: files.mimeType })
+    const results = await db
+      .select({ mimeType: files.mimeType })
       .from(files)
       .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
       .all();
@@ -419,9 +443,11 @@ app.get('/recent', async (c) => {
   const limit = parseInt(c.req.query('limit') || '20', 10);
   const db = getDb(c.env.DB);
 
-  const recentFiles = await db.select().from(files)
+  const recentFiles = await db
+    .select()
+    .from(files)
     .where(and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false)))
-    .orderBy(files.updatedAt)
+    .orderBy(desc(files.updatedAt))
     .limit(limit)
     .all();
 

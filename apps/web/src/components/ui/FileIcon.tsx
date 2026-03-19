@@ -1,7 +1,7 @@
 /**
  * FileIcon.tsx
  * 文件图标组件
- * 
+ *
  * 功能:
  * - 根据MIME类型显示对应图标
  * - 支持文件夹图标
@@ -21,6 +21,7 @@ import {
   Archive,
   File,
   FileType2,
+  Package,
 } from 'lucide-react';
 import { getFileCategory, getCategoryColor, type FileCategory } from '@/utils/fileTypes';
 import { cn } from '@/lib/utils';
@@ -43,6 +44,7 @@ const iconMap: Record<FileCategory, React.ElementType> = {
   presentation: Presentation,
   code: Code,
   archive: Archive,
+  installer: Package,
   text: FileText,
   unknown: File,
 };

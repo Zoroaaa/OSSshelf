@@ -1,227 +1,430 @@
-# OSSshelf 项目架构文档
+# OSSshelf 架构文档
 
-## 概述
+## 系统概述
 
-OSSshelf 是一个基于 Cloudflare 边缘计算平台构建的多厂商对象存储文件管理系统，采用 Monorepo 架构管理前后端代码。
-
-## 系统架构
-
-### 整体架构图
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        用户界面层                            │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │  React 18 + TypeScript + Tailwind CSS + Zustand     │   │
-│  │  React Query + Radix UI + Vite + PWA                │   │
-│  └─────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                        API 服务层                            │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │  Hono Framework + Cloudflare Workers                 │   │
-│  │  REST API + WebDAV Protocol + Presigned URL          │   │
-│  │  S3 兼容存储客户端（多厂商支持）                       │   │
-│  │  Cron Triggers（定时任务）                           │   │
-│  └─────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-                              │
-              ┌───────────────┼───────────────┐
-              ▼               ▼               ▼
-┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-│  Cloudflare D1  │ │  多厂商对象存储   │ │  Cloudflare KV  │
-│   (SQLite)      │ │  (S3 兼容 API)   │ │   (可选)        │
-│                 │ │                 │ │                 │
-│  - 用户数据     │ │  - 文件内容     │ │  - Session      │
-│  - 文件元数据   │ │  - 支持大文件   │ │  - 临时缓存     │
-│  - 存储桶配置   │ │  - 跨厂商兼容   │ │                 │
-│  - 权限/标签    │ │  - 直传支持     │ │                 │
-│  - 审计日志     │ │                 │ │                 │
-│  - 上传/下载任务│ │                 │ │                 │
-└─────────────────┘ └─────────────────┘ └─────────────────┘
-```
-
-## 项目结构
-
-```
-OSSshelf/
-├── apps/
-│   ├── api/                    # 后端 API 服务
-│   │   ├── src/
-│   │   │   ├── db/             # 数据库连接和 Schema
-│   │   │   ├── lib/            # 工具库（加密、S3客户端等）
-│   │   │   ├── middleware/     # 中间件（认证、错误处理）
-│   │   │   ├── routes/         # API 路由
-│   │   │   └── types/          # 类型定义
-│   │   └── migrations/         # 数据库迁移文件
-│   └── web/                    # 前端 Web 应用
-│       ├── src/
-│       │   ├── components/     # React 组件
-│       │   ├── hooks/          # 自定义 Hooks
-│       │   ├── pages/          # 页面组件
-│       │   ├── services/       # API 服务
-│       │   ├── stores/         # Zustand 状态管理
-│       │   └── utils/          # 工具函数
-│       └── public/             # 静态资源
-├── packages/
-│   └── shared/                 # 共享代码包（类型、常量）
-└── .github/workflows/          # CI/CD 配置
-```
+OSSshelf 是一个基于 Cloudflare 部署的多厂商 OSS 文件管理系统，支持 WebDAV 协议。系统采用前后端分离架构，前端使用 React + Vite，后端使用 Hono 框架运行在 Cloudflare Workers 上。
 
 ## 技术栈
 
 ### 前端 (apps/web)
 
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| React | ^18.2.0 | UI 框架 |
-| TypeScript | ^5.3.0 | 类型安全 |
-| Vite | ^5.1.0 | 构建工具 |
-| Tailwind CSS | ^3.4.0 | 样式框架 |
-| Zustand | ^4.5.0 | 状态管理 |
-| React Query | ^5.24.0 | 服务端状态 |
-| React Router | ^6.22.0 | 路由管理 |
-| Radix UI | ^1.0.x | 无障碍组件 |
-| Lucide | ^0.344.0 | 图标库 |
+- **框架**: React 18
+- **构建工具**: Vite 5
+- **路由**: React Router DOM 6
+- **状态管理**: Zustand 4
+- **数据请求**: TanStack Query 5 + Axios
+- **UI 组件**: Radix UI (Dialog, Dropdown Menu, Toast, Tooltip)
+- **样式**: Tailwind CSS 3
+- **图标**: Lucide React
+- **文件拖放**: React Dropzone
+- **Office 预览**: docx-preview
 
 ### 后端 (apps/api)
 
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| Hono | ^4.0.0 | Web 框架 |
-| Cloudflare Workers | ^3.24.0 | Serverless 运行时 |
-| Drizzle ORM | ^0.29.0 | 数据库 ORM |
-| Zod | ^3.22.0 | 参数验证 |
+- **框架**: Hono 4
+- **运行时**: Cloudflare Workers
+- **数据库**: Cloudflare D1 (SQLite)
+- **ORM**: Drizzle ORM 0.29
+- **验证**: Zod 3
+- **对象存储**: S3 兼容协议 (R2, AWS S3, 阿里云 OSS, 腾讯云 COS, 华为云 OBS, Backblaze B2, MinIO 等) + Telegram Bot API
 
-### 云服务
+### 共享包 (packages/shared)
 
-| 服务 | 用途 |
-|------|------|
-| Cloudflare D1 | SQLite 数据库 |
-| Cloudflare KV | 键值存储（可选） |
-| 多厂商对象存储 | 文件内容存储 |
-| Cloudflare Cron | 定时任务 |
+- **构建工具**: tsup
+- **内容**: 常量定义、类型定义、工具函数
 
-## 核心模块
+## 项目结构
 
-### 1. 认证模块 (routes/auth.ts)
-
-- 用户注册与登录
-- JWT Token 管理
-- 登录失败锁定保护
-- 设备管理与会话控制
-
-### 2. 文件模块 (routes/files.ts)
-
-- 文件/文件夹 CRUD
-- 文件上传下载
-- 回收站管理
-- 文件预览
-
-### 3. 存储桶模块 (routes/buckets.ts)
-
-- 多厂商存储桶管理
-- S3 兼容 API 客户端
-- 存储配额管理
-
-### 4. 预签名模块 (routes/presign.ts)
-
-- 浏览器直传支持
-- 大文件分片上传
-- 断点续传
-
-### 5. WebDAV 模块 (routes/webdav.ts)
-
-- RFC 4918 协议实现
-- 多客户端兼容
-
-### 6. 权限模块 (routes/permissions.ts)
-
-- 文件级别权限控制
-- 标签系统
-
-### 7. 审计模块 (lib/audit.ts)
-
-- 操作日志记录
-- 安全审计追踪
+```
+ossshelf/
+├── apps/
+│   ├── api/                    # 后端 API 服务
+│   │   ├── src/
+│   │   │   ├── db/
+│   │   │   │   ├── index.ts    # 数据库连接
+│   │   │   │   └── schema.ts   # 表结构定义
+│   │   │   ├── lib/
+│   │   │   │   ├── audit.ts    # 审计日志
+│   │   │   │   ├── bucketResolver.ts  # 存储桶解析
+│   │   │   │   ├── cleanup.ts  # 清理任务
+│   │   │   │   ├── crypto.ts   # 加密工具
+│   │   │   │   ├── s3client.ts # S3 客户端
+│   │   │   │   └── telegramClient.ts # Telegram 客户端
+│   │   │   ├── middleware/
+│   │   │   │   ├── auth.ts     # 认证中间件
+│   │   │   │   ├── error.ts    # 错误处理
+│   │   │   │   └── index.ts    # 中间件导出
+│   │   │   ├── routes/         # API 路由
+│   │   │   │   ├── admin.ts    # 管理员接口
+│   │   │   │   ├── auth.ts     # 认证接口
+│   │   │   │   ├── batch.ts    # 批量操作
+│   │   │   │   ├── buckets.ts  # 存储桶管理
+│   │   │   │   ├── cron.ts     # 定时任务
+│   │   │   │   ├── downloads.ts # 离线下载
+│   │   │   │   ├── files.ts    # 文件管理
+│   │   │   │   ├── permissions.ts # 权限管理
+│   │   │   │   ├── presign.ts  # 预签名 URL
+│   │   │   │   ├── preview.ts  # 文件预览
+│   │   │   │   ├── search.ts   # 文件搜索
+│   │   │   │   ├── share.ts    # 文件分享
+│   │   │   │   ├── tasks.ts    # 上传任务
+│   │   │   │   ├── telegram.ts # Telegram 存储
+│   │   │   │   └── webdav.ts   # WebDAV 协议
+│   │   │   ├── types/
+│   │   │   │   ├── env.ts      # 环境变量类型
+│   │   │   │   └── index.ts    # 类型导出
+│   │   │   └── index.ts        # 入口文件
+│   │   ├── migrations/         # 数据库迁移
+│   │   ├── drizzle.config.ts   # Drizzle 配置
+│   │   ├── wrangler.toml.example # Wrangler 配置示例
+│   │   └── package.json
+│   └── web/                    # 前端应用
+│       ├── src/
+│       │   ├── components/     # UI 组件
+│       │   ├── hooks/          # 自定义 Hooks
+│       │   ├── lib/            # 工具函数
+│       │   ├── pages/          # 页面组件
+│       │   ├── stores/         # Zustand 状态
+│       │   └── main.tsx        # 入口文件
+│       ├── vite.config.ts
+│       ├── tailwind.config.js
+│       └── package.json
+├── packages/
+│   └── shared/                 # 共享代码
+│       ├── src/
+│       │   └── constants/
+│       │       └── index.ts    # 常量定义
+│       ├── tsup.config.ts
+│       └── package.json
+├── docs/                       # 文档
+│   ├── api.md                  # API 文档
+│   ├── architecture.md         # 架构文档
+│   └── deployment.md           # 部署文档
+└── package.json                # 根 package.json
+```
 
 ## 数据库设计
 
-### 核心表结构
+### 表结构
 
-| 表名 | 用途 |
-|------|------|
-| users | 用户数据 |
-| files | 文件/文件夹元数据 |
-| storage_buckets | 存储桶配置 |
-| shares | 分享链接 |
-| file_tags | 文件标签 |
-| file_permissions | 文件权限 |
-| audit_logs | 审计日志 |
-| upload_tasks | 上传任务 |
-| download_tasks | 下载任务 |
-| user_devices | 用户设备 |
-| login_attempts | 登录尝试 |
-| webdav_sessions | WebDAV 会话 |
+#### users (用户表)
 
-## 安全设计
+| 字段          | 类型    | 说明              |
+| ------------- | ------- | ----------------- |
+| id            | TEXT    | 主键              |
+| email         | TEXT    | 邮箱 (唯一)       |
+| password_hash | TEXT    | 密码哈希          |
+| name          | TEXT    | 昵称              |
+| role          | TEXT    | 角色 (user/admin) |
+| storage_quota | INTEGER | 存储配额 (字节)   |
+| storage_used  | INTEGER | 已用空间 (字节)   |
+| created_at    | TEXT    | 创建时间          |
+| updated_at    | TEXT    | 更新时间          |
 
-### 认证安全
+#### files (文件表)
 
-- JWT Token 认证
-- 密码 bcrypt 哈希
-- 登录失败锁定机制
-- 设备会话管理
+| 字段               | 类型    | 说明                 |
+| ------------------ | ------- | -------------------- |
+| id                 | TEXT    | 主键                 |
+| user_id            | TEXT    | 所属用户             |
+| parent_id          | TEXT    | 父文件夹 ID          |
+| name               | TEXT    | 文件名               |
+| path               | TEXT    | 文件路径             |
+| type               | TEXT    | 文件类型             |
+| size               | INTEGER | 文件大小             |
+| r2_key             | TEXT    | 对象存储键           |
+| mime_type          | TEXT    | MIME 类型            |
+| hash               | TEXT    | 文件哈希             |
+| is_folder          | BOOLEAN | 是否为文件夹         |
+| allowed_mime_types | TEXT    | 文件夹允许的上传类型 |
+| bucket_id          | TEXT    | 所属存储桶 ID        |
+| created_at         | TEXT    | 创建时间             |
+| updated_at         | TEXT    | 更新时间             |
+| deleted_at         | TEXT    | 删除时间 (回收站)    |
 
-### 数据安全
+#### storage_buckets (存储桶表)
 
-- 存储桶凭证加密存储
-- 预签名 URL 临时访问
-- 文件级别权限控制
+| 字段              | 类型    | 说明                     |
+| ----------------- | ------- | ------------------------ |
+| id                | TEXT    | 主键                     |
+| user_id           | TEXT    | 所属用户                 |
+| name              | TEXT    | 显示名称                 |
+| provider          | TEXT    | 提供商 (s3/r2/oss/cos等) |
+| bucket_name       | TEXT    | 存储桶名称               |
+| endpoint          | TEXT    | 端点 URL                 |
+| region            | TEXT    | 区域                     |
+| access_key_id     | TEXT    | Access Key ID            |
+| secret_access_key | TEXT    | Secret Access Key        |
+| path_style        | BOOLEAN | 是否使用路径样式         |
+| is_default        | BOOLEAN | 是否为默认存储桶         |
+| is_active         | BOOLEAN | 是否启用                 |
+| storage_used      | INTEGER | 已用空间                 |
+| file_count        | INTEGER | 文件数量                 |
+| storage_quota     | INTEGER | 存储配额                 |
+| notes             | TEXT    | 备注                     |
+| created_at        | TEXT    | 创建时间                 |
+| updated_at        | TEXT    | 更新时间                 |
 
-### 传输安全
+#### shares (分享表)
 
-- HTTPS 强制
-- CORS 配置
-- 安全响应头
+| 字段           | 类型    | 说明            |
+| -------------- | ------- | --------------- |
+| id             | TEXT    | 主键            |
+| file_id        | TEXT    | 关联文件 ID     |
+| user_id        | TEXT    | 创建者 ID       |
+| password       | TEXT    | 访问密码 (可选) |
+| expires_at     | TEXT    | 过期时间        |
+| download_limit | INTEGER | 下载次数限制    |
+| download_count | INTEGER | 已下载次数      |
+| created_at     | TEXT    | 创建时间        |
 
-## 性能优化
+#### file_permissions (文件权限表)
 
-### 前端优化
+| 字段       | 类型 | 说明                    |
+| ---------- | ---- | ----------------------- |
+| id         | TEXT | 主键                    |
+| file_id    | TEXT | 文件 ID                 |
+| user_id    | TEXT | 用户 ID                 |
+| permission | TEXT | 权限 (read/write/admin) |
+| granted_by | TEXT | 授权人 ID               |
+| created_at | TEXT | 创建时间                |
+| updated_at | TEXT | 更新时间                |
 
-- 代码分割与懒加载
-- React Query 缓存
-- 图片懒加载
-- PWA 离线支持
+#### file_tags (文件标签表)
 
-### 后端优化
+| 字段       | 类型 | 说明     |
+| ---------- | ---- | -------- |
+| id         | TEXT | 主键     |
+| file_id    | TEXT | 文件 ID  |
+| user_id    | TEXT | 用户 ID  |
+| name       | TEXT | 标签名称 |
+| color      | TEXT | 标签颜色 |
+| created_at | TEXT | 创建时间 |
 
-- 数据库索引优化
-- 预签名直传绕过 Worker
-- 分片上传支持大文件
-- 定时任务异步处理
+#### upload_tasks (上传任务表)
 
-## 扩展性设计
+| 字段           | 类型    | 说明              |
+| -------------- | ------- | ----------------- |
+| id             | TEXT    | 主键              |
+| user_id        | TEXT    | 用户 ID           |
+| file_name      | TEXT    | 文件名            |
+| file_size      | INTEGER | 文件大小          |
+| mime_type      | TEXT    | MIME 类型         |
+| parent_id      | TEXT    | 父文件夹 ID       |
+| bucket_id      | TEXT    | 存储桶 ID         |
+| r2_key         | TEXT    | 对象存储键        |
+| upload_id      | TEXT    | 分片上传 ID       |
+| total_parts    | INTEGER | 总分片数          |
+| uploaded_parts | TEXT    | 已上传分片 (JSON) |
+| status         | TEXT    | 状态              |
+| created_at     | TEXT    | 创建时间          |
+| updated_at     | TEXT    | 更新时间          |
+| expires_at     | TEXT    | 过期时间          |
 
-### 存储厂商扩展
+#### download_tasks (离线下载任务表)
 
-通过统一的 S3 兼容接口，支持任意 S3 兼容存储服务：
+| 字段          | 类型    | 说明        |
+| ------------- | ------- | ----------- |
+| id            | TEXT    | 主键        |
+| user_id       | TEXT    | 用户 ID     |
+| url           | TEXT    | 下载 URL    |
+| file_name     | TEXT    | 文件名      |
+| file_size     | INTEGER | 文件大小    |
+| parent_id     | TEXT    | 父文件夹 ID |
+| bucket_id     | TEXT    | 存储桶 ID   |
+| status        | TEXT    | 状态        |
+| progress      | INTEGER | 进度百分比  |
+| error_message | TEXT    | 错误信息    |
+| created_at    | TEXT    | 创建时间    |
+| updated_at    | TEXT    | 更新时间    |
+| completed_at  | TEXT    | 完成时间    |
 
-```typescript
-// 存储桶配置结构
-interface BucketConfig {
-  provider: 'r2' | 's3' | 'oss' | 'cos' | 'obs' | 'b2' | 'minio' | 'custom';
-  endpoint?: string;
-  region?: string;
-  pathStyle: boolean;
-  // ...
-}
-```
+#### webdav_sessions (WebDAV 会话表)
 
-### 功能模块扩展
+| 字段       | 类型 | 说明     |
+| ---------- | ---- | -------- |
+| id         | TEXT | 主键     |
+| user_id    | TEXT | 用户 ID  |
+| token      | TEXT | 会话令牌 |
+| expires_at | TEXT | 过期时间 |
+| created_at | TEXT | 创建时间 |
 
-- 路由模块化设计
-- 中间件可插拔
-- 共享类型定义
+#### user_devices (用户设备表)
+
+| 字段        | 类型 | 说明         |
+| ----------- | ---- | ------------ |
+| id          | TEXT | 主键         |
+| user_id     | TEXT | 用户 ID      |
+| device_id   | TEXT | 设备 ID      |
+| device_name | TEXT | 设备名称     |
+| device_type | TEXT | 设备类型     |
+| ip_address  | TEXT | IP 地址      |
+| user_agent  | TEXT | User Agent   |
+| last_active | TEXT | 最后活跃时间 |
+| created_at  | TEXT | 创建时间     |
+
+#### login_attempts (登录尝试表)
+
+| 字段       | 类型    | 说明       |
+| ---------- | ------- | ---------- |
+| id         | TEXT    | 主键       |
+| email      | TEXT    | 邮箱       |
+| ip_address | TEXT    | IP 地址    |
+| success    | BOOLEAN | 是否成功   |
+| user_agent | TEXT    | User Agent |
+| created_at | TEXT    | 创建时间   |
+
+#### telegram_file_refs (Telegram 文件引用表)
+
+| 字段          | 类型    | 说明                     |
+| ------------- | ------- | ------------------------ |
+| id            | TEXT    | 主键                     |
+| file_id       | TEXT    | OSSshelf 内部文件 ID     |
+| r2_key        | TEXT    | 与 files.r2_key 对应     |
+| tg_file_id    | TEXT    | Telegram 返回的 file_id  |
+| tg_file_size  | INTEGER | Telegram 报告的文件大小  |
+| bucket_id     | TEXT    | 所属存储桶 ID            |
+| created_at    | TEXT    | 创建时间                 |
+
+#### audit_logs (审计日志表)
+
+| 字段          | 类型 | 说明        |
+| ------------- | ---- | ----------- |
+| id            | TEXT | 主键        |
+| user_id       | TEXT | 用户 ID     |
+| action        | TEXT | 操作类型    |
+| resource_type | TEXT | 资源类型    |
+| resource_id   | TEXT | 资源 ID     |
+| details       | TEXT | 详情 (JSON) |
+| ip_address    | TEXT | IP 地址     |
+| user_agent    | TEXT | User Agent  |
+| status        | TEXT | 状态        |
+| error_message | TEXT | 错误信息    |
+| created_at    | TEXT | 创建时间    |
+
+## API 路由
+
+| 路由前缀         | 模块           | 说明        |
+| ---------------- | -------------- | ----------- |
+| /api/auth        | auth.ts        | 用户认证    |
+| /api/files       | files.ts       | 文件管理    |
+| /api/buckets     | buckets.ts     | 存储桶管理  |
+| /api/share       | share.ts       | 文件分享    |
+| /api/presign     | presign.ts     | 预签名 URL  |
+| /api/tasks       | tasks.ts       | 上传任务    |
+| /api/downloads   | downloads.ts   | 离线下载    |
+| /api/batch       | batch.ts       | 批量操作    |
+| /api/search      | search.ts      | 文件搜索    |
+| /api/permissions | permissions.ts | 权限与标签  |
+| /api/preview     | preview.ts     | 文件预览    |
+| /api/admin       | admin.ts       | 管理员接口  |
+| /api/telegram    | telegram.ts    | Telegram 存储 |
+| /cron            | cron.ts        | 定时任务    |
+| /dav             | webdav.ts      | WebDAV 协议 |
+
+## 系统常量
+
+### 文件限制
+
+| 常量                  | 值     | 说明           |
+| --------------------- | ------ | -------------- |
+| MAX_FILE_SIZE         | 5 GB   | 单文件最大大小 |
+| DEFAULT_STORAGE_QUOTA | 10 GB  | 默认存储配额   |
+| UPLOAD_CHUNK_SIZE     | 10 MB  | 分片上传大小   |
+| MULTIPART_THRESHOLD   | 100 MB | 分片上传阈值   |
+| MAX_CONCURRENT_PARTS  | 3      | 最大并发分片数 |
+
+### 时间限制
+
+| 常量                  | 值      | 说明              |
+| --------------------- | ------- | ----------------- |
+| JWT_EXPIRY            | 7 天    | JWT 有效期        |
+| WEBDAV_SESSION_EXPIRY | 30 天   | WebDAV 会话有效期 |
+| SHARE_DEFAULT_EXPIRY  | 7 天    | 分享默认有效期    |
+| TRASH_RETENTION_DAYS  | 30 天   | 回收站保留天数    |
+| DEVICE_SESSION_EXPIRY | 30 天   | 设备会话有效期    |
+| UPLOAD_TASK_EXPIRY    | 24 小时 | 上传任务有效期    |
+
+### 安全限制
+
+| 常量                   | 值      | 说明             |
+| ---------------------- | ------- | ---------------- |
+| LOGIN_MAX_ATTEMPTS     | 5       | 最大登录尝试次数 |
+| LOGIN_LOCKOUT_DURATION | 15 分钟 | 登录锁定时长     |
+
+### 支持的存储提供商
+
+| Provider | 说明           |
+| -------- | -------------- |
+| r2       | Cloudflare R2  |
+| s3       | AWS S3         |
+| oss      | 阿里云 OSS     |
+| cos      | 腾讯云 COS     |
+| obs      | 华为云 OBS     |
+| b2       | Backblaze B2   |
+| minio    | MinIO          |
+| custom   | 自定义 S3 兼容 |
+| telegram | Telegram Bot API |
+
+## 认证机制
+
+### JWT 认证
+
+- 用户登录后获取 JWT Token
+- Token 有效期 7 天
+- Token 存储在客户端，通过 `Authorization: Bearer <token>` 头传递
+- 支持多设备登录，每个设备有独立的设备 ID
+
+### WebDAV 认证
+
+- 使用 Basic Auth 认证
+- 用户名：注册邮箱
+- 密码：账户密码
+- 认证成功后创建 WebDAV 会话，有效期 30 天
+
+### 登录保护
+
+- 连续 5 次登录失败后锁定账户
+- 锁定时长 15 分钟
+- 记录所有登录尝试
+
+## 文件上传流程
+
+### 小文件上传 (< 100MB)
+
+1. 前端直接 POST 到 `/api/files/upload`
+2. 后端代理上传到对象存储
+3. 创建文件记录
+
+### 大文件上传 (>= 100MB)
+
+1. 前端调用 `/api/presign/upload` 获取预签名 URL
+2. 如果返回 `useProxy: true`，使用代理模式
+3. 如果返回预签名 URL，直接上传到对象存储
+4. 上传完成后调用 `/api/presign/confirm` 确认
+
+### 分片上传流程
+
+1. 调用 `/api/presign/multipart/init` 初始化
+2. 循环获取每个分片的上传 URL
+3. 并发上传分片（最多 3 个并发）
+4. 调用 `/api/presign/multipart/complete` 完成上传
+
+## 定时任务
+
+系统通过 Cloudflare Cron Triggers 执行定时任务：
+
+| 任务       | 触发时间      | 说明                       |
+| ---------- | ------------- | -------------------------- |
+| 回收站清理 | 每天凌晨 3 点 | 清理超过 30 天的回收站文件 |
+| 会话清理   | 每天凌晨 3 点 | 清理过期的会话和任务       |
+| 分享清理   | 每天凌晨 3 点 | 清理过期的分享链接         |
+
+## 安全措施
+
+1. **密码存储**: 使用 bcrypt 哈希存储密码
+2. **JWT 签名**: 使用 JWT_SECRET 环境变量签名
+3. **CORS**: 限制允许的源
+4. **安全头**: 使用 Hono secure-headers 中间件
+5. **输入验证**: 使用 Zod 进行请求参数验证
+6. **审计日志**: 记录所有关键操作

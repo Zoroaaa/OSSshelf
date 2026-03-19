@@ -61,13 +61,16 @@ function FolderNode({ parentId, excludeIds, selectedId, onSelect, depth }: Folde
           <div
             className={cn(
               'flex items-center gap-1 rounded-md transition-colors',
-              selectedId === folder.id ? 'bg-primary/10' : 'hover:bg-accent',
+              selectedId === folder.id ? 'bg-primary/10' : 'hover:bg-accent'
             )}
             style={{ paddingLeft: `${(depth + 1) * 12 + 4}px` }}
           >
             <button
               className="p-1 text-muted-foreground hover:text-foreground"
-              onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setExpanded((v) => !v);
+              }}
             >
               <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', expanded && 'rotate-90')} />
             </button>
@@ -110,13 +113,7 @@ export function MoveFolderPicker({ excludeIds, onConfirm, onCancel, isPending }:
         </div>
 
         <div className="flex-1 overflow-y-auto p-2 min-h-0">
-          <FolderNode
-            parentId={null}
-            excludeIds={excludeIds}
-            selectedId={selected}
-            onSelect={setSelected}
-            depth={0}
-          />
+          <FolderNode parentId={null} excludeIds={excludeIds} selectedId={selected} onSelect={setSelected} depth={0} />
         </div>
 
         {selected !== undefined && (
@@ -126,7 +123,9 @@ export function MoveFolderPicker({ excludeIds, onConfirm, onCancel, isPending }:
         )}
 
         <div className="flex justify-end gap-2 px-4 py-3 border-t flex-shrink-0">
-          <Button variant="outline" size="sm" onClick={onCancel}>取消</Button>
+          <Button variant="outline" size="sm" onClick={onCancel}>
+            取消
+          </Button>
           <Button
             size="sm"
             disabled={selected === undefined || isPending}

@@ -1,13 +1,13 @@
 /**
  * index.ts
  * 共享类型定义
- * 
+ *
  * 功能:
  * - 用户类型定义
  * - 文件类型定义
  * - API响应类型
  * - 常量定义
- * 
+ *
  * 前后端共用，确保类型一致性
  */
 
@@ -163,7 +163,7 @@ export interface UploadTask {
   expiresAt: string;
 }
 
-export type UploadTaskStatus = 'pending' | 'uploading' | 'paused' | 'completed' | 'failed' | 'expired';
+export type UploadTaskStatus = 'pending' | 'uploading' | 'paused' | 'completed' | 'failed' | 'expired' | 'aborted';
 
 export interface DownloadTask {
   id: string;

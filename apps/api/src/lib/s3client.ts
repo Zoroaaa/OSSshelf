@@ -1,18 +1,22 @@
 /**
  * s3client.ts
  * S3兼容存储客户端
- * 
+ *
  * 功能:
  * - 支持多种S3兼容存储（R2、S3、OSS、COS、OBS、B2、MinIO等）
  * - AWS Signature V4签名实现
  * - 文件上传/下载/删除操作
  * - 分片上传支持
- * 
+ * - 存储凭证AES-GCM加密
+ * - 自动迁移旧版XOR混淆凭证
+ *
  * 运行在Cloudflare Workers环境，无需Node.js SDK
  */
 
+import { eq } from 'drizzle-orm';
 import type { Env } from '../types/env';
 import type { storageBuckets } from '../db/schema';
+import { encryptCredential, decryptCredential, getEncryptionKey, isAesGcmFormat } from './crypto';
 
 export interface S3BucketConfig {
   id: string;
@@ -20,12 +24,21 @@ export interface S3BucketConfig {
   bucketName: string;
   endpoint: string | null;
   region: string | null;
-  accessKeyId: string;      // Already decrypted
-  secretAccessKey: string;  // Already decrypted
+  accessKeyId: string; // Already decrypted
+  secretAccessKey: string; // Already decrypted
   pathStyle: boolean;
 }
 
-// ── Credential deobfuscation ─────────────────────────────────────────────
+// ── Credential encryption/decryption (AES-GCM) ─────────────────────────────
+export async function encryptSecret(value: string, secret: string): Promise<string> {
+  return encryptCredential(value, secret);
+}
+
+export async function decryptSecret(encrypted: string, secret: string): Promise<string> {
+  return decryptCredential(encrypted, secret);
+}
+
+// Legacy sync functions for backward compatibility (deprecated)
 export function deobfuscate(value: string, key: string): string {
   try {
     const bytes = Uint8Array.from(atob(value), (c) => c.charCodeAt(0));
@@ -55,13 +68,20 @@ export function resolveEndpoint(provider: string, endpoint: string | null, regio
   if (endpoint) return endpoint.replace(/\/$/, '');
   const r = region || 'us-east-1';
   switch (provider) {
-    case 's3':    return `https://s3.${r}.amazonaws.com`;
-    case 'oss':   return `https://oss-${r}.aliyuncs.com`;
-    case 'cos':   return `https://cos.${r}.myqcloud.com`;
-    case 'obs':   return `https://obs.${r}.myhuaweicloud.com`;
-    case 'b2':    return 'https://s3.us-west-004.backblazeb2.com';
-    case 'minio': return 'http://localhost:9000';
-    default:      return '';
+    case 's3':
+      return `https://s3.${r}.amazonaws.com`;
+    case 'oss':
+      return `https://oss-${r}.aliyuncs.com`;
+    case 'cos':
+      return `https://cos.${r}.myqcloud.com`;
+    case 'obs':
+      return `https://obs.${r}.myhuaweicloud.com`;
+    case 'b2':
+      return 'https://s3.us-west-004.backblazeb2.com';
+    case 'minio':
+      return 'http://localhost:9000';
+    default:
+      return '';
   }
 }
 
@@ -91,19 +111,25 @@ const enc = new TextEncoder();
 async function sha256Hex(data: string | Uint8Array): Promise<string> {
   const buf = typeof data === 'string' ? enc.encode(data) : data;
   const hash = await crypto.subtle.digest('SHA-256', buf as BufferSource);
-  return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 async function hmacSHA256(key: ArrayBuffer | Uint8Array, data: string): Promise<ArrayBuffer> {
   const cryptoKey = await crypto.subtle.importKey(
-    'raw', key as BufferSource, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+    'raw',
+    key as BufferSource,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
   );
   return crypto.subtle.sign('HMAC', cryptoKey, enc.encode(data));
 }
 
 async function deriveSigningKey(secretKey: string, dateStamp: string, region: string): Promise<ArrayBuffer> {
-  const kDate    = await hmacSHA256(enc.encode(`AWS4${secretKey}`), dateStamp);
-  const kRegion  = await hmacSHA256(kDate, region);
+  const kDate = await hmacSHA256(enc.encode(`AWS4${secretKey}`), dateStamp);
+  const kRegion = await hmacSHA256(kDate, region);
   const kService = await hmacSHA256(kRegion, 's3');
   return hmacSHA256(kService, 'aws4_request');
 }
@@ -127,12 +153,15 @@ async function signRequest(opts: {
   region: string;
 }): Promise<SignedRequest> {
   const now = new Date();
-  const amzDate = now.toISOString().replace(/[:-]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  const amzDate = now
+    .toISOString()
+    .replace(/[:-]/g, '')
+    .replace(/\.\d{3}Z$/, 'Z');
   const dateStamp = amzDate.slice(0, 8);
   const region = opts.region || 'us-east-1';
 
   const headers: Record<string, string> = {
-    'host': opts.host,
+    host: opts.host,
     'x-amz-date': amzDate,
     'x-amz-content-sha256': opts.payloadHash,
     ...opts.extraHeaders,
@@ -158,7 +187,9 @@ async function signRequest(opts: {
 
   const signingKey = await deriveSigningKey(opts.secretAccessKey, dateStamp, region);
   const sigBuf = await hmacSHA256(signingKey, stringToSign);
-  const signature = Array.from(new Uint8Array(sigBuf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  const signature = Array.from(new Uint8Array(sigBuf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 
   const authHeader = `AWS4-HMAC-SHA256 Credential=${opts.accessKeyId}/${credScope}, SignedHeaders=${signedHeadersStr}, Signature=${signature}`;
   headers['Authorization'] = authHeader;
@@ -185,13 +216,16 @@ export async function s3PresignUrl(
   method: 'PUT' | 'GET',
   key: string,
   expiresIn = 3600,
-  contentType?: string,
+  contentType?: string
 ): Promise<string> {
   const { url, host, canonicalUri } = buildObjectUrl(config, key);
   const region = config.region || 'us-east-1';
 
   const now = new Date();
-  const amzDate = now.toISOString().replace(/[:-]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  const amzDate = now
+    .toISOString()
+    .replace(/[:-]/g, '')
+    .replace(/\.\d{3}Z$/, 'Z');
   const dateStamp = amzDate.slice(0, 8);
 
   const credScope = `${dateStamp}/${region}/s3/aws4_request`;
@@ -212,28 +246,27 @@ export async function s3PresignUrl(
   // client-side usage simple (no extra header on the actual PUT request).
   // Tencent COS requires x-cos-security-token but we don't use STS here.
 
-  const sortedQuery = Object.keys(queryParams).sort()
-    .map((k) => `${k}=${encodeURIComponent(queryParams[k])}`).join('&');
+  const sortedQuery = Object.keys(queryParams)
+    .sort()
+    .map((k) => `${k}=${encodeURIComponent(queryParams[k])}`)
+    .join('&');
 
   const canonicalHeaders = `host:${host}\n`;
   const signedHeadersStr = 'host';
   const payloadHash = 'UNSIGNED-PAYLOAD';
 
-  const canonicalRequest = [
-    method,
-    canonicalUri,
-    sortedQuery,
-    canonicalHeaders,
-    signedHeadersStr,
-    payloadHash,
-  ].join('\n');
+  const canonicalRequest = [method, canonicalUri, sortedQuery, canonicalHeaders, signedHeadersStr, payloadHash].join(
+    '\n'
+  );
 
   const canonicalHash = await sha256Hex(canonicalRequest);
   const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credScope, canonicalHash].join('\n');
 
   const signingKey = await deriveSigningKey(config.secretAccessKey, dateStamp, region);
   const sigBuf = await hmacSHA256(signingKey, stringToSign);
-  const signature = Array.from(new Uint8Array(sigBuf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  const signature = Array.from(new Uint8Array(sigBuf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 
   // Append signature to the URL
   const fullQuery = `${sortedQuery}&X-Amz-Signature=${signature}`;
@@ -256,7 +289,7 @@ export interface MultipartPart {
 export async function s3CreateMultipartUpload(
   config: S3BucketConfig,
   key: string,
-  contentType: string,
+  contentType: string
 ): Promise<string> {
   const { url, host, canonicalUri } = buildObjectUrl(config, key);
   const region = config.region || 'us-east-1';
@@ -301,13 +334,16 @@ export async function s3PresignUploadPart(
   key: string,
   uploadId: string,
   partNumber: number,
-  expiresIn = 3600,
+  expiresIn = 3600
 ): Promise<string> {
   const { url: baseUrl, host, canonicalUri } = buildObjectUrl(config, key);
   const region = config.region || 'us-east-1';
 
   const now = new Date();
-  const amzDate = now.toISOString().replace(/[:-]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  const amzDate = now
+    .toISOString()
+    .replace(/[:-]/g, '')
+    .replace(/\.\d{3}Z$/, 'Z');
   const dateStamp = amzDate.slice(0, 8);
 
   const credScope = `${dateStamp}/${region}/s3/aws4_request`;
@@ -319,21 +355,16 @@ export async function s3PresignUploadPart(
     'X-Amz-Date': amzDate,
     'X-Amz-Expires': String(expiresIn),
     'X-Amz-SignedHeaders': 'host',
-    'partNumber': String(partNumber),
-    'uploadId': uploadId,
+    partNumber: String(partNumber),
+    uploadId: uploadId,
   };
 
-  const sortedQuery = Object.keys(queryParams).sort()
-    .map((k) => `${k}=${encodeURIComponent(queryParams[k])}`).join('&');
+  const sortedQuery = Object.keys(queryParams)
+    .sort()
+    .map((k) => `${k}=${encodeURIComponent(queryParams[k])}`)
+    .join('&');
 
-  const canonicalRequest = [
-    'PUT',
-    canonicalUri,
-    sortedQuery,
-    `host:${host}\n`,
-    'host',
-    'UNSIGNED-PAYLOAD',
-  ].join('\n');
+  const canonicalRequest = ['PUT', canonicalUri, sortedQuery, `host:${host}\n`, 'host', 'UNSIGNED-PAYLOAD'].join('\n');
 
   const canonicalHash = await sha256Hex(canonicalRequest);
   const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credScope, canonicalHash].join('\n');
@@ -341,7 +372,8 @@ export async function s3PresignUploadPart(
   const signingKey = await deriveSigningKey(config.secretAccessKey, dateStamp, region);
   const sigBuf = await hmacSHA256(signingKey, stringToSign);
   const signature = Array.from(new Uint8Array(sigBuf))
-    .map((b) => b.toString(16).padStart(2, '0')).join('');
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 
   const urlObj = new URL(baseUrl);
   return `${urlObj.origin}${urlObj.pathname}?${sortedQuery}&X-Amz-Signature=${signature}`;
@@ -356,7 +388,7 @@ export async function s3UploadPart(
   key: string,
   uploadId: string,
   partNumber: number,
-  body: ArrayBuffer | Uint8Array,
+  body: ArrayBuffer | Uint8Array
 ): Promise<string> {
   const { url: baseUrl, host, canonicalUri } = buildObjectUrl(config, key);
   const region = config.region || 'us-east-1';
@@ -402,7 +434,7 @@ export async function s3CompleteMultipartUpload(
   config: S3BucketConfig,
   key: string,
   uploadId: string,
-  parts: MultipartPart[],
+  parts: MultipartPart[]
 ): Promise<void> {
   const { url: baseUrl, host, canonicalUri } = buildObjectUrl(config, key);
   const region = config.region || 'us-east-1';
@@ -446,11 +478,7 @@ export async function s3CompleteMultipartUpload(
 /**
  * List parts that have been uploaded for a multipart upload.
  */
-export async function s3ListParts(
-  config: S3BucketConfig,
-  key: string,
-  uploadId: string,
-): Promise<MultipartPart[]> {
+export async function s3ListParts(config: S3BucketConfig, key: string, uploadId: string): Promise<MultipartPart[]> {
   const { url: baseUrl, host, canonicalUri } = buildObjectUrl(config, key);
   const region = config.region || 'us-east-1';
 
@@ -494,11 +522,7 @@ export async function s3ListParts(
 /**
  * Abort a multipart upload (cleanup on failure).
  */
-export async function s3AbortMultipartUpload(
-  config: S3BucketConfig,
-  key: string,
-  uploadId: string,
-): Promise<void> {
+export async function s3AbortMultipartUpload(config: S3BucketConfig, key: string, uploadId: string): Promise<void> {
   const { url: baseUrl, host, canonicalUri } = buildObjectUrl(config, key);
   const region = config.region || 'us-east-1';
 
@@ -527,6 +551,7 @@ export async function s3AbortMultipartUpload(
 
 /**
  * Upload an object to an S3-compatible bucket.
+ * @param contentLength - Required for streaming bodies; many S3 providers require Content-Length header
  */
 export async function s3Put(
   config: S3BucketConfig,
@@ -534,6 +559,7 @@ export async function s3Put(
   body: ReadableStream | ArrayBuffer | Uint8Array,
   contentType: string,
   metadata?: Record<string, string>,
+  contentLength?: number
 ): Promise<void> {
   const { url, host, canonicalUri } = buildObjectUrl(config, key);
   const region = config.region || 'us-east-1';
@@ -549,9 +575,18 @@ export async function s3Put(
     }
   }
 
+  // 如果提供了 contentLength，必须在签名头和请求头中都包含
+  // AWS Signature V4 要求签名头与实际请求头完全一致
+  // 许多 S3 兼容存储要求必须有 Content-Length 头
+  if (contentLength !== undefined) {
+    extraHeaders['content-length'] = String(contentLength);
+  }
+
   const signed = await signRequest({
     method: 'PUT',
-    url, host, canonicalUri,
+    url,
+    host,
+    canonicalUri,
     queryString: '',
     payloadHash,
     contentType,
@@ -577,17 +612,16 @@ export async function s3Put(
  * Get an object from an S3-compatible bucket.
  * Returns the Response so the caller can stream the body.
  */
-export async function s3Get(
-  config: S3BucketConfig,
-  key: string,
-): Promise<Response> {
+export async function s3Get(config: S3BucketConfig, key: string): Promise<Response> {
   const { url, host, canonicalUri } = buildObjectUrl(config, key);
   const region = config.region || 'us-east-1';
   const payloadHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'; // empty
 
   const signed = await signRequest({
     method: 'GET',
-    url, host, canonicalUri,
+    url,
+    host,
+    canonicalUri,
     queryString: '',
     payloadHash,
     accessKeyId: config.accessKeyId,
@@ -606,17 +640,16 @@ export async function s3Get(
 /**
  * Delete an object from an S3-compatible bucket.
  */
-export async function s3Delete(
-  config: S3BucketConfig,
-  key: string,
-): Promise<void> {
+export async function s3Delete(config: S3BucketConfig, key: string): Promise<void> {
   const { url, host, canonicalUri } = buildObjectUrl(config, key);
   const region = config.region || 'us-east-1';
   const payloadHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
   const signed = await signRequest({
     method: 'DELETE',
-    url, host, canonicalUri,
+    url,
+    host,
+    canonicalUri,
     queryString: '',
     payloadHash,
     accessKeyId: config.accessKeyId,
@@ -635,17 +668,16 @@ export async function s3Delete(
 /**
  * Head an object (check existence, get metadata).
  */
-export async function s3Head(
-  config: S3BucketConfig,
-  key: string,
-): Promise<Response> {
+export async function s3Head(config: S3BucketConfig, key: string): Promise<Response> {
   const { url, host, canonicalUri } = buildObjectUrl(config, key);
   const region = config.region || 'us-east-1';
   const payloadHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
   const signed = await signRequest({
     method: 'HEAD',
-    url, host, canonicalUri,
+    url,
+    host,
+    canonicalUri,
     queryString: '',
     payloadHash,
     accessKeyId: config.accessKeyId,
@@ -659,11 +691,70 @@ export async function s3Head(
 // ── Bucket resolver helper ────────────────────────────────────────────────
 /**
  * Given a DB row from storage_buckets, return a ready-to-use S3BucketConfig
- * with decrypted credentials.
+ * with decrypted credentials using AES-GCM.
+ *
+ * This function uses isAesGcmFormat to quickly detect format, avoiding
+ * unnecessary AES-GCM decryption attempts on legacy XOR data.
+ *
+ * Auto-migration: If legacy XOR format is detected and db is provided,
+ * credentials will be upgraded to AES-GCM encryption.
+ */
+export async function makeBucketConfigAsync(
+  row: typeof import('../db/schema').storageBuckets.$inferSelect,
+  encKey: string,
+  db?: ReturnType<typeof import('../db').getDb>
+): Promise<S3BucketConfig> {
+  const isAesGcm = isAesGcmFormat(row.accessKeyId) && isAesGcmFormat(row.secretAccessKey);
+
+  let accessKeyId: string;
+  let secretAccessKey: string;
+
+  if (isAesGcm) {
+    accessKeyId = await decryptCredential(row.accessKeyId, encKey);
+    secretAccessKey = await decryptCredential(row.secretAccessKey, encKey);
+  } else {
+    accessKeyId = deobfuscate(row.accessKeyId, encKey);
+    secretAccessKey = deobfuscate(row.secretAccessKey, encKey);
+
+    if (db) {
+      try {
+        const encryptedAccessKeyId = await encryptCredential(accessKeyId, encKey);
+        const encryptedSecretAccessKey = await encryptCredential(secretAccessKey, encKey);
+        const { storageBuckets } = await import('../db');
+        await db
+          .update(storageBuckets)
+          .set({
+            accessKeyId: encryptedAccessKeyId,
+            secretAccessKey: encryptedSecretAccessKey,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(storageBuckets.id, row.id));
+        console.log(`[Migration] Bucket ${row.id} credentials upgraded to AES-GCM`);
+      } catch (migrationError) {
+        console.error(`[Migration] Failed to upgrade bucket ${row.id}:`, migrationError);
+      }
+    }
+  }
+
+  return {
+    id: row.id,
+    provider: row.provider,
+    bucketName: row.bucketName,
+    endpoint: row.endpoint,
+    region: row.region,
+    accessKeyId,
+    secretAccessKey,
+    pathStyle: row.pathStyle,
+  };
+}
+
+/**
+ * Legacy sync version for backward compatibility.
+ * @deprecated Use makeBucketConfigAsync instead for proper AES-GCM decryption.
  */
 export function makeBucketConfig(
   row: typeof import('../db/schema').storageBuckets.$inferSelect,
-  encKey: string,
+  encKey: string
 ): S3BucketConfig {
   return {
     id: row.id,
@@ -681,16 +772,14 @@ export function makeBucketConfig(
  * Test connectivity to a bucket using HeadBucket.
  */
 export async function testS3Connection(config: S3BucketConfig): Promise<{
-  connected: boolean; message: string; statusCode: number;
+  connected: boolean;
+  message: string;
+  statusCode: number;
 }> {
   const endpoint = resolveEndpoint(config.provider, config.endpoint, config.region);
   if (!endpoint) throw new Error('未配置 Endpoint，无法测试连接');
 
   const region = config.region || 'us-east-1';
-  const now = new Date();
-  const amzDate = now.toISOString().replace(/[:-]/g, '').replace(/\.\d{3}Z$/, 'Z');
-  const dateStamp = amzDate.slice(0, 8);
-
   let bucketUrl: string;
   let host: string;
   let canonicalUri: string;
@@ -707,25 +796,22 @@ export async function testS3Connection(config: S3BucketConfig): Promise<{
     canonicalUri = '/';
   }
 
-  const payloadHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
-  const headers: Record<string, string> = {
-    'host': host,
-    'x-amz-date': amzDate,
-    'x-amz-content-sha256': payloadHash,
-  };
-  const signedHeadersStr = Object.keys(headers).sort().join(';');
-  const canonicalHeaders = Object.keys(headers).sort().map((k) => `${k}:${headers[k]}\n`).join('');
-  const canonicalRequest = ['HEAD', canonicalUri, '', canonicalHeaders, signedHeadersStr, payloadHash].join('\n');
-  const credScope = `${dateStamp}/${region}/s3/aws4_request`;
-  const canonicalHash = await sha256Hex(canonicalRequest);
-  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credScope, canonicalHash].join('\n');
-  const signingKey = await deriveSigningKey(config.secretAccessKey, dateStamp, region);
-  const sigBuf = await hmacSHA256(signingKey, stringToSign);
-  const signature = Array.from(new Uint8Array(sigBuf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  const payloadHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'; // SHA256('')
 
-  headers['Authorization'] = `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${credScope}, SignedHeaders=${signedHeadersStr}, Signature=${signature}`;
+  // 复用 signRequest 避免重复签名逻辑
+  const signed = await signRequest({
+    method: 'HEAD',
+    url: bucketUrl,
+    host,
+    canonicalUri,
+    queryString: '',
+    payloadHash,
+    accessKeyId: config.accessKeyId,
+    secretAccessKey: config.secretAccessKey,
+    region,
+  });
 
-  const res = await fetch(bucketUrl, { method: 'HEAD', headers });
+  const res = await fetch(signed.url, { method: 'HEAD', headers: signed.headers });
 
   if (res.status === 200 || res.status === 204) {
     return { connected: true, message: '连接成功', statusCode: res.status };

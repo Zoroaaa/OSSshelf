@@ -10,4 +10,3 @@ export default {
     token: process.env.CLOUDFLARE_D1_TOKEN!,
   },
 } satisfies Config;
-

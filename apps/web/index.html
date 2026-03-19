@@ -1,13 +1,19 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover" />
-    <meta name="description" content="OSSshelf - 基于 Cloudflare 部署的多厂商 OSS 文件管理系统，支持 WebDAV、预签名直传、安全分享" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover"
+    />
+    <meta
+      name="description"
+      content="OSSshelf - 基于 Cloudflare 部署的多厂商 OSS 文件管理系统，支持 WebDAV、预签名直传、安全分享"
+    />
     <meta name="keywords" content="OSS, 文件管理, 云存储, WebDAV, S3, Cloudflare" />
     <meta name="author" content="OSSshelf" />
-    
+
     <!-- PWA Meta Tags -->
     <meta name="theme-color" content="#3b82f6" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#1e40af" media="(prefers-color-scheme: dark)" />
@@ -18,23 +24,23 @@
     <meta name="application-name" content="OSSshelf" />
     <meta name="msapplication-TileColor" content="#3b82f6" />
     <meta name="msapplication-config" content="/browserconfig.xml" />
-    
+
     <!-- iOS Icons -->
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
     <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png" />
     <link rel="apple-touch-icon" sizes="144x144" href="/icons/icon-144x144.png" />
-    
+
     <!-- PWA Manifest -->
     <link rel="manifest" href="/manifest.json" />
-    
+
     <!-- Preconnect to API -->
     <link rel="preconnect" href="/api" />
-    
+
     <!-- DNS Prefetch -->
     <link rel="dns-prefetch" href="/api" />
-    
+
     <title>OSSshelf - 文件管理系统</title>
-    
+
     <!-- Inline Critical CSS -->
     <style>
       :root {
@@ -42,7 +48,7 @@
         --background: #ffffff;
         --foreground: #0f172a;
       }
-      
+
       @media (prefers-color-scheme: dark) {
         :root {
           --primary: #60a5fa;
@@ -50,7 +56,7 @@
           --foreground: #f8fafc;
         }
       }
-      
+
       body {
         margin: 0;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -59,12 +65,12 @@
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
       }
-      
+
       #root {
         min-height: 100vh;
         min-height: 100dvh;
       }
-      
+
       /* Loading spinner */
       .app-loading {
         display: flex;
@@ -73,7 +79,7 @@
         min-height: 100vh;
         min-height: 100dvh;
       }
-      
+
       .app-loading-spinner {
         width: 40px;
         height: 40px;
@@ -82,11 +88,13 @@
         border-radius: 50%;
         animation: spin 1s linear infinite;
       }
-      
+
       @keyframes spin {
-        to { transform: rotate(360deg); }
+        to {
+          transform: rotate(360deg);
+        }
       }
-      
+
       /* Safe area padding for iOS */
       @supports (padding: max(0px)) {
         body {
@@ -103,16 +111,16 @@
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>
-    
+
     <!-- Register Service Worker -->
     <script>
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', function() {
+        window.addEventListener('load', function () {
           navigator.serviceWorker.register('/sw.js').then(
-            function(registration) {
+            function (registration) {
               console.log('SW registered: ', registration.scope);
             },
-            function(error) {
+            function (error) {
               console.log('SW registration failed: ', error);
             }
           );

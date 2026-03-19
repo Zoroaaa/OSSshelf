@@ -1,15 +1,15 @@
 /**
  * presign.ts
  * 预签名URL路由
- * 
+ *
  * 功能:
  * - 生成预签名上传URL
  * - 生成预签名下载URL
  * - 分片上传初始化与管理
  * - 上传确认与完成
- * 
+ *
  * 浏览器直接与对象存储交互，无需服务器代理
- * 
+ *
  * 端点:
  * - POST /api/presign/upload - 获取上传URL
  * - POST /api/presign/multipart/init - 初始化分片上传
@@ -24,7 +24,8 @@ import { Hono } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files, users, storageBuckets } from '../db';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES, MAX_FILE_SIZE } from '@osshelf/shared';
+import { ERROR_CODES, MAX_FILE_SIZE, OFFICE_MIME_TYPES, isPreviewableMimeType } from '@osshelf/shared';
+import { getEncryptionKey } from '../lib/crypto';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import {
@@ -37,6 +38,7 @@ import {
   type MultipartPart,
 } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats, checkBucketQuota } from '../lib/bucketResolver';
+import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -85,10 +87,14 @@ const multipartCompleteSchema = z.object({
   r2Key: z.string().min(1),
   uploadId: z.string().min(1),
   bucketId: z.string().nullable().optional(),
-  parts: z.array(z.object({
-    partNumber: z.number().int().min(1),
-    etag: z.string().min(1),
-  })).min(1),
+  parts: z
+    .array(
+      z.object({
+        partNumber: z.number().int().min(1),
+        etag: z.string().min(1),
+      })
+    )
+    .min(1),
 });
 
 const multipartAbortSchema = z.object({
@@ -109,38 +115,6 @@ async function getUserOrFail(db: ReturnType<typeof getDb>, userId: string) {
   return user;
 }
 
-async function checkFolderMimeTypeRestriction(
-  db: ReturnType<typeof getDb>,
-  parentId: string | null | undefined,
-  mimeType: string,
-): Promise<{ allowed: boolean; allowedTypes?: string[] }> {
-  if (!parentId) return { allowed: true };
-  
-  const parentFolder = await db.select().from(files)
-    .where(and(eq(files.id, parentId), eq(files.isFolder, true)))
-    .get();
-  
-  if (!parentFolder || !parentFolder.allowedMimeTypes) {
-    return { allowed: true };
-  }
-  
-  try {
-    const allowedTypes: string[] = JSON.parse(parentFolder.allowedMimeTypes);
-    if (allowedTypes.length === 0) return { allowed: true };
-    
-    const isAllowed = allowedTypes.some((allowed) => {
-      if (allowed.endsWith('/*')) {
-        return mimeType.startsWith(allowed.slice(0, -1));
-      }
-      return mimeType === allowed;
-    });
-    
-    return { allowed: isAllowed, allowedTypes };
-  } catch {
-    return { allowed: true };
-  }
-}
-
 // ── POST /api/presign/upload ───────────────────────────────────────────────
 // Phase 1: Return a presigned PUT URL. The browser uploads directly.
 // Phase 2: Browser calls /confirm after a successful upload.
@@ -150,25 +124,30 @@ app.post('/upload', async (c) => {
   const body = await c.req.json();
   const result = presignUploadSchema.safeParse(body);
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const { fileName, fileSize, mimeType, parentId, bucketId: requestedBucketId } = result.data;
   const db = getDb(c.env.DB);
-  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKey = getEncryptionKey(c.env);
 
   const mimeCheck = await checkFolderMimeTypeRestriction(db, parentId, mimeType);
   if (!mimeCheck.allowed) {
-    return c.json({
-      success: false,
-      error: {
-        code: ERROR_CODES.VALIDATION_ERROR,
-        message: `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.VALIDATION_ERROR,
+          message: `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
+        },
       },
-    }, 400);
+      400
+    );
   }
 
-  // Check user quota
   const user = await getUserOrFail(db, userId);
   if (user.storageUsed + fileSize > user.storageQuota) {
     return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: '用户存储配额已满' } }, 400);
@@ -179,6 +158,11 @@ app.post('/upload', async (c) => {
   // No S3 config → tell frontend to use the proxy upload route
   if (!bucketConfig) {
     return c.json({ success: true, data: { useProxy: true } });
+  }
+
+  // Telegram 桶不支持预签名上传，让前端使用代理上传
+  if (bucketConfig.provider === 'telegram') {
+    return c.json({ success: true, data: { useProxy: true, bucketId: bucketConfig.id } });
   }
 
   // Check per-bucket quota
@@ -213,7 +197,10 @@ app.post('/confirm', async (c) => {
   const body = await c.req.json();
   const result = presignConfirmSchema.safeParse(body);
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const { fileId, fileName, fileSize, mimeType, parentId, r2Key, bucketId } = result.data;
@@ -249,7 +236,8 @@ app.post('/confirm', async (c) => {
   // Update user storage usage
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
   if (user) {
-    await db.update(users)
+    await db
+      .update(users)
       .set({ storageUsed: user.storageUsed + fileSize, updatedAt: now })
       .where(eq(users.id, userId));
   }
@@ -273,22 +261,28 @@ app.post('/multipart/init', async (c) => {
   const body = await c.req.json();
   const result = multipartInitSchema.safeParse(body);
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const { fileName, fileSize, mimeType, parentId, bucketId: requestedBucketId } = result.data;
   const db = getDb(c.env.DB);
-  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKey = getEncryptionKey(c.env);
 
   const mimeCheck = await checkFolderMimeTypeRestriction(db, parentId, mimeType);
   if (!mimeCheck.allowed) {
-    return c.json({
-      success: false,
-      error: {
-        code: ERROR_CODES.VALIDATION_ERROR,
-        message: `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.VALIDATION_ERROR,
+          message: `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
+        },
       },
-    }, 400);
+      400
+    );
   }
 
   // Quota checks
@@ -302,7 +296,10 @@ app.post('/multipart/init', async (c) => {
     return c.json({ success: true, data: { useProxy: true } });
   }
 
-  const quotaErr = await checkBucketQuota(db, bucketConfig.id, fileSize);
+  // Telegram 桶不支持分片上传，回落到代理上传
+  if (bucketConfig.provider === 'telegram') {
+    return c.json({ success: true, data: { useProxy: true, bucketId: bucketConfig.id } });
+  }
   if (quotaErr) {
     return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: quotaErr } }, 400);
   }
@@ -336,12 +333,15 @@ app.post('/multipart/part', async (c) => {
   const body = await c.req.json();
   const result = multipartPartSchema.safeParse(body);
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const { r2Key, uploadId, partNumber, bucketId } = result.data;
   const db = getDb(c.env.DB);
-  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKey = getEncryptionKey(c.env);
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, null);
   if (!bucketConfig) {
@@ -361,12 +361,15 @@ app.post('/multipart/complete', async (c) => {
   const body = await c.req.json();
   const result = multipartCompleteSchema.safeParse(body);
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const { fileId, fileName, fileSize, mimeType, parentId, r2Key, uploadId, bucketId, parts } = result.data;
   const db = getDb(c.env.DB);
-  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKey = getEncryptionKey(c.env);
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, parentId);
   if (!bucketConfig) {
@@ -406,7 +409,8 @@ app.post('/multipart/complete', async (c) => {
 
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
   if (user) {
-    await db.update(users)
+    await db
+      .update(users)
       .set({ storageUsed: user.storageUsed + fileSize, updatedAt: now })
       .where(eq(users.id, userId));
   }
@@ -425,12 +429,15 @@ app.post('/multipart/abort', async (c) => {
   const body = await c.req.json();
   const result = multipartAbortSchema.safeParse(body);
   if (!result.success) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
   }
 
   const { r2Key, uploadId, bucketId } = result.data;
   const db = getDb(c.env.DB);
-  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKey = getEncryptionKey(c.env);
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, null);
   if (!bucketConfig) {
@@ -448,9 +455,11 @@ app.get('/download/:id', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
-  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKey = getEncryptionKey(c.env);
 
-  const file = await db.select().from(files)
+  const file = await db
+    .select()
+    .from(files)
     .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
     .get();
   if (!file) {
@@ -486,9 +495,11 @@ app.get('/preview/:id', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
-  const encKey = c.env.JWT_SECRET || 'ossshelf-key';
+  const encKey = getEncryptionKey(c.env);
 
-  const file = await db.select().from(files)
+  const file = await db
+    .select()
+    .from(files)
     .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
     .get();
   if (!file) {
@@ -498,14 +509,11 @@ app.get('/preview/:id', async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '文件夹无法预览' } }, 400);
   }
 
-  const previewable = file.mimeType?.startsWith('image/')
-    || file.mimeType?.startsWith('video/')
-    || file.mimeType?.startsWith('audio/')
-    || file.mimeType === 'application/pdf'
-    || file.mimeType?.startsWith('text/');
-
-  if (!previewable) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该文件类型不支持预览' } }, 400);
+  if (!isPreviewableMimeType(file.mimeType)) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该文件类型不支持预览' } },
+      400
+    );
   }
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);

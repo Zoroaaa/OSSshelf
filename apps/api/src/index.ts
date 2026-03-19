@@ -1,7 +1,7 @@
 /**
  * index.ts
  * API服务入口文件
- * 
+ *
  * 功能:
  * - 注册所有API路由
  * - 配置中间件（CORS、日志、安全头）
@@ -27,6 +27,7 @@ import searchRoutes from './routes/search';
 import downloadsRoutes from './routes/downloads';
 import previewRoutes from './routes/preview';
 import cronRoutes from './routes/cron';
+import telegramRoutes from './routes/telegram';
 import { errorHandler } from './middleware/error';
 import { runAllCleanupTasks } from './lib/cleanup';
 import type { Env } from './types/env';
@@ -35,17 +36,50 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.use('*', logger());
 app.use('*', prettyJSON());
-app.use('*', cors({
-  origin: ['https://ossshelf.neutronx.uk'],
-  allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'PROPFIND', 'MKCOL', 'COPY', 'MOVE', 'HEAD'],
-  allowHeaders: ['Content-Type', 'Authorization', 'Depth', 'Destination', 'X-Requested-With'],
-  exposeHeaders: ['Content-Length', 'Content-Range'],
-  maxAge: 86400,
-  credentials: true,
-}));
-app.use('*', secureHeaders({
-  crossOriginResourcePolicy: false,
-}));
+app.use(
+  '*',
+  cors({
+    origin: (origin) => {
+      const allowedOrigins = [
+        'https://ossshelf.neutronx.uk',
+        'http://localhost:3000',
+        'http://localhost:5173',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:5173',
+      ];
+      if (allowedOrigins.includes(origin)) return origin;
+      if (origin.endsWith('.neutronx.uk')) return origin;
+      return allowedOrigins[0];
+    },
+    // 修复：补充 LOCK 和 UNLOCK，与 webdav.ts 的 OPTIONS Allow 头保持一致
+    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'PROPFIND', 'PROPPATCH', 'MKCOL', 'COPY', 'MOVE', 'HEAD', 'LOCK', 'UNLOCK'],
+    allowHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Depth',
+      'Destination',
+      'X-Requested-With',
+      'Accept',
+      'Origin',
+      'Cache-Control',
+      'Lock-Token',  // LOCK/UNLOCK 需要
+      'If',          // WebDAV 条件请求头
+      'Overwrite',   // COPY/MOVE 覆盖控制
+      'Timeout',     // LOCK 超时参数
+    ],
+    exposeHeaders: ['Content-Length', 'Content-Range', 'ETag', 'DAV', 'Lock-Token'],
+    maxAge: 86400,
+    credentials: true,
+  })
+);
+app.use(
+  '*',
+  secureHeaders({
+    crossOriginResourcePolicy: false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: false,
+  })
+);
 
 app.use('*', errorHandler);
 
@@ -73,6 +107,7 @@ app.route('/api/batch', batchRoutes);
 app.route('/api/search', searchRoutes);
 app.route('/api/downloads', downloadsRoutes);
 app.route('/api/preview', previewRoutes);
+app.route('/api/telegram', telegramRoutes);
 app.route('/cron', cronRoutes);
 app.route('/dav', webdavRoutes);
 
@@ -85,11 +120,13 @@ export default {
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     console.log(`Cron trigger fired at ${new Date().toISOString()}`);
     ctx.waitUntil(
-      runAllCleanupTasks(env).then((result) => {
-        console.log('Cron job completed:', JSON.stringify(result));
-      }).catch((error) => {
-        console.error('Cron job failed:', error);
-      })
+      runAllCleanupTasks(env)
+        .then((result) => {
+          console.log('Cron job completed:', JSON.stringify(result));
+        })
+        .catch((error) => {
+          console.error('Cron job failed:', error);
+        })
     );
   },
 };

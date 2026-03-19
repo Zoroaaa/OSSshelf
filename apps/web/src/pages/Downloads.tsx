@@ -1,7 +1,7 @@
 /**
  * Downloads.tsx
  * 离线下载任务管理页面
- * 
+ *
  * 功能:
  * - 创建离线下载任务
  * - 查看下载任务状态
@@ -19,8 +19,17 @@ import { useToast } from '@/components/ui/use-toast';
 import { formatBytes, formatDate } from '@/utils';
 import { cn } from '@/utils';
 import {
-  Download, Plus, Trash2, Loader2, RefreshCw, CheckCircle2, XCircle,
-  Clock, AlertTriangle, ExternalLink, RotateCw, FileText, Link,
+  Download,
+  Plus,
+  Trash2,
+  Loader2,
+  RefreshCw,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  AlertTriangle,
+  RotateCw,
+  Link,
 } from 'lucide-react';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: typeof Clock }> = {
@@ -31,7 +40,11 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: typeof
   failed: { label: '失败', color: 'text-red-500', icon: XCircle },
 };
 
-const DEFAULT_STATUS: { label: string; color: string; icon: typeof Clock } = { label: '未知', color: 'text-muted-foreground', icon: Clock };
+const DEFAULT_STATUS: { label: string; color: string; icon: typeof Clock } = {
+  label: '未知',
+  color: 'text-muted-foreground',
+  icon: Clock,
+};
 
 export default function Downloads() {
   const { toast } = useToast();
@@ -40,7 +53,11 @@ export default function Downloads() {
   const [newFileName, setNewFileName] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
 
-  const { data: result, isLoading, refetch } = useQuery({
+  const {
+    data: result,
+    isLoading,
+    refetch,
+  } = useQuery({
     queryKey: ['downloads'],
     queryFn: () => downloadsApi.list().then((r) => r.data.data),
     refetchInterval: 5000,
@@ -49,10 +66,11 @@ export default function Downloads() {
   const tasks = result?.items ?? [];
 
   const createMutation = useMutation({
-    mutationFn: () => downloadsApi.create({
-      url: newUrl,
-      fileName: newFileName || undefined,
-    }),
+    mutationFn: () =>
+      downloadsApi.create({
+        url: newUrl,
+        fileName: newFileName || undefined,
+      }),
     onSuccess: () => {
       toast({ title: '下载任务已创建' });
       queryClient.invalidateQueries({ queryKey: ['downloads'] });
@@ -60,11 +78,12 @@ export default function Downloads() {
       setNewFileName('');
       setShowCreateForm(false);
     },
-    onError: (e: any) => toast({
-      title: '创建失败',
-      description: e.response?.data?.error?.message,
-      variant: 'destructive',
-    }),
+    onError: (e: any) =>
+      toast({
+        title: '创建失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
   });
 
   const retryMutation = useMutation({
@@ -73,11 +92,12 @@ export default function Downloads() {
       toast({ title: '任务已重试' });
       queryClient.invalidateQueries({ queryKey: ['downloads'] });
     },
-    onError: (e: any) => toast({
-      title: '重试失败',
-      description: e.response?.data?.error?.message,
-      variant: 'destructive',
-    }),
+    onError: (e: any) =>
+      toast({
+        title: '重试失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
   });
 
   const deleteMutation = useMutation({
@@ -86,11 +106,12 @@ export default function Downloads() {
       toast({ title: '任务已删除' });
       queryClient.invalidateQueries({ queryKey: ['downloads'] });
     },
-    onError: (e: any) => toast({
-      title: '删除失败',
-      description: e.response?.data?.error?.message,
-      variant: 'destructive',
-    }),
+    onError: (e: any) =>
+      toast({
+        title: '删除失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
   });
 
   const clearCompletedMutation = useMutation({
@@ -115,11 +136,12 @@ export default function Downloads() {
       toast({ title: '任务已暂停' });
       queryClient.invalidateQueries({ queryKey: ['downloads'] });
     },
-    onError: (e: any) => toast({
-      title: '暂停失败',
-      description: e.response?.data?.error?.message,
-      variant: 'destructive',
-    }),
+    onError: (e: any) =>
+      toast({
+        title: '暂停失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
   });
 
   const resumeMutation = useMutation({
@@ -128,14 +150,17 @@ export default function Downloads() {
       toast({ title: '任务已恢复' });
       queryClient.invalidateQueries({ queryKey: ['downloads'] });
     },
-    onError: (e: any) => toast({
-      title: '恢复失败',
-      description: e.response?.data?.error?.message,
-      variant: 'destructive',
-    }),
+    onError: (e: any) =>
+      toast({
+        title: '恢复失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
   });
 
-  const activeTasks = tasks.filter((t) => t.status === 'pending' || t.status === 'downloading' || t.status === 'paused');
+  const activeTasks = tasks.filter(
+    (t) => t.status === 'pending' || t.status === 'downloading' || t.status === 'paused'
+  );
   const completedTasks = tasks.filter((t) => t.status === 'completed');
   const failedTasks = tasks.filter((t) => t.status === 'failed');
 
@@ -165,8 +190,11 @@ export default function Downloads() {
             <div className="space-y-2 text-sm">
               <p className="font-medium text-blue-600 dark:text-blue-400">使用说明</p>
               <ul className="text-muted-foreground space-y-1 list-disc list-inside">
-                <li>输入<strong>公开可访问的文件下载链接</strong>（直链）</li>
-                <li>支持的链接示例：
+                <li>
+                  输入<strong>公开可访问的文件下载链接</strong>（直链）
+                </li>
+                <li>
+                  支持的链接示例：
                   <code className="mx-1 px-1.5 py-0.5 rounded bg-muted text-xs">https://example.com/file.zip</code>
                 </li>
                 <li>GitHub Release、软件官网直链、网盘公开分享链接等均可使用</li>
@@ -201,10 +229,7 @@ export default function Downloads() {
               />
             </div>
             <div className="flex gap-2">
-              <Button
-                onClick={() => createMutation.mutate()}
-                disabled={!newUrl.trim() || createMutation.isPending}
-              >
+              <Button onClick={() => createMutation.mutate()} disabled={!newUrl.trim() || createMutation.isPending}>
                 {createMutation.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
                 ) : (
@@ -212,7 +237,14 @@ export default function Downloads() {
                 )}
                 创建任务
               </Button>
-              <Button variant="outline" onClick={() => { setShowCreateForm(false); setNewUrl(''); setNewFileName(''); }}>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowCreateForm(false);
+                  setNewUrl('');
+                  setNewFileName('');
+                }}
+              >
                 取消
               </Button>
             </div>
@@ -319,9 +351,7 @@ export default function Downloads() {
             </CardHeader>
             <CardContent>
               {completedTasks.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground text-sm">
-                  暂无已完成的下载任务
-                </div>
+                <div className="text-center py-8 text-muted-foreground text-sm">暂无已完成的下载任务</div>
               ) : (
                 <div className="space-y-3">
                   {completedTasks.map((task) => (
@@ -359,21 +389,27 @@ function DownloadTaskItem({
   onResume?: () => void;
 }) {
   const status = STATUS_CONFIG[task.status] ?? DEFAULT_STATUS;
-  const progress = task.fileSize && task.fileSize > 0
-    ? Math.round(((task.progress || 0)))
-    : 0;
+  const progress = task.fileSize && task.fileSize > 0 ? Math.round(task.progress || 0) : 0;
   const StatusIcon = status.icon;
 
   return (
     <div className="flex items-start gap-4 p-4 rounded-lg border bg-muted/30">
-      <div className={cn(
-        'w-10 h-10 rounded-lg flex items-center justify-center',
-        task.status === 'downloading' ? 'bg-blue-500/10' : task.status === 'paused' ? 'bg-orange-500/10' : 'bg-muted'
-      )}>
-        <StatusIcon className={cn(
-          'h-5 w-5',
-          task.status === 'downloading' ? 'text-blue-500 animate-spin' : task.status === 'paused' ? 'text-orange-500' : 'text-muted-foreground'
-        )} />
+      <div
+        className={cn(
+          'w-10 h-10 rounded-lg flex items-center justify-center',
+          task.status === 'downloading' ? 'bg-blue-500/10' : task.status === 'paused' ? 'bg-orange-500/10' : 'bg-muted'
+        )}
+      >
+        <StatusIcon
+          className={cn(
+            'h-5 w-5',
+            task.status === 'downloading'
+              ? 'text-blue-500 animate-spin'
+              : task.status === 'paused'
+                ? 'text-orange-500'
+                : 'text-muted-foreground'
+          )}
+        />
       </div>
 
       <div className="flex-1 min-w-0">
@@ -390,25 +426,21 @@ function DownloadTaskItem({
         </div>
         <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
           {task.fileSize && <span>{formatBytes(task.fileSize)}</span>}
-          {(task.status === 'downloading' || task.status === 'paused') && task.fileSize && (
-            <span>{progress}%</span>
-          )}
+          {(task.status === 'downloading' || task.status === 'paused') && task.fileSize && <span>{progress}%</span>}
           <span>{formatDate(task.createdAt)}</span>
         </div>
         {(task.status === 'downloading' || task.status === 'paused') && task.fileSize && task.fileSize > 0 && (
           <div className="mt-2">
             <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
               <div
-                className={cn("h-full transition-all", task.status === 'paused' ? 'bg-orange-500' : 'bg-primary')}
+                className={cn('h-full transition-all', task.status === 'paused' ? 'bg-orange-500' : 'bg-primary')}
                 style={{ width: `${progress}%` }}
               />
             </div>
             <p className="text-xs text-muted-foreground mt-1">{progress}%</p>
           </div>
         )}
-        {task.errorMessage && (
-          <p className="text-xs text-red-500 mt-1">{task.errorMessage}</p>
-        )}
+        {task.errorMessage && <p className="text-xs text-red-500 mt-1">{task.errorMessage}</p>}
       </div>
 
       <div className="flex items-center gap-1">
@@ -436,12 +468,7 @@ function DownloadTaskItem({
             重试
           </Button>
         )}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-red-500 hover:text-red-600"
-          onClick={onDelete}
-        >
+        <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-600" onClick={onDelete}>
           <Trash2 className="h-4 w-4" />
         </Button>
       </div>

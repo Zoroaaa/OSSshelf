@@ -1,7 +1,7 @@
 /**
  * FilePermissionsDialog.tsx
  * 文件权限管理对话框
- * 
+ *
  * 功能:
  * - 查看文件权限
  * - 授予/撤销用户权限
@@ -15,10 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/utils';
-import {
-  Shield, X, Plus, Trash2, Crown, Eye, Edit, UserPlus,
-  Loader2, Search,
-} from 'lucide-react';
+import { Shield, X, Trash2, Crown, Eye, Edit, UserPlus, Loader2 } from 'lucide-react';
 
 interface FilePermissionsDialogProps {
   fileId: string;
@@ -35,12 +32,7 @@ const PERMISSION_LABELS: Record<string, { label: string; icon: typeof Eye; color
 
 const DEFAULT_PERMISSION = { label: '只读', icon: Eye, color: 'text-blue-500' };
 
-export function FilePermissionsDialog({
-  fileId,
-  fileName,
-  isFolder,
-  onClose,
-}: FilePermissionsDialogProps) {
+export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose }: FilePermissionsDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [newUserEmail, setNewUserEmail] = useState('');
@@ -59,25 +51,26 @@ export function FilePermissionsDialog({
       queryClient.invalidateQueries({ queryKey: ['permissions', fileId] });
       setNewUserEmail('');
     },
-    onError: (e: any) => toast({
-      title: '授权失败',
-      description: e.response?.data?.error?.message,
-      variant: 'destructive',
-    }),
+    onError: (e: any) =>
+      toast({
+        title: '授权失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
   });
 
   const revokeMutation = useMutation({
-    mutationFn: (userId: string) =>
-      permissionsApi.revoke({ fileId, userId }),
+    mutationFn: (userId: string) => permissionsApi.revoke({ fileId, userId }),
     onSuccess: () => {
       toast({ title: '权限已撤销' });
       queryClient.invalidateQueries({ queryKey: ['permissions', fileId] });
     },
-    onError: (e: any) => toast({
-      title: '撤销失败',
-      description: e.response?.data?.error?.message,
-      variant: 'destructive',
-    }),
+    onError: (e: any) =>
+      toast({
+        title: '撤销失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
   });
 
   const handleGrant = () => {
@@ -122,29 +115,20 @@ export function FilePermissionsDialog({
               <div className="space-y-2">
                 <h3 className="text-sm font-medium">当前权限</h3>
                 {permissions.length === 0 ? (
-                  <div className="text-center py-6 text-muted-foreground text-sm">
-                    暂无其他用户权限
-                  </div>
+                  <div className="text-center py-6 text-muted-foreground text-sm">暂无其他用户权限</div>
                 ) : (
                   <div className="space-y-2">
                     {permissions.map((perm) => {
                       const permInfo = PERMISSION_LABELS[perm.permission] ?? DEFAULT_PERMISSION;
                       const PermIcon = permInfo.icon;
                       return (
-                        <div
-                          key={perm.id}
-                          className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30"
-                        >
+                        <div key={perm.id} className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
                           <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-medium">
                             {(perm.userName || perm.userEmail).charAt(0).toUpperCase()}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">
-                              {perm.userName || perm.userEmail}
-                            </p>
-                            <p className="text-xs text-muted-foreground truncate">
-                              {perm.userEmail}
-                            </p>
+                            <p className="text-sm font-medium truncate">{perm.userName || perm.userEmail}</p>
+                            <p className="text-xs text-muted-foreground truncate">{perm.userEmail}</p>
                           </div>
                           <div className={cn('flex items-center gap-1 text-xs', permInfo.color)}>
                             <PermIcon className="h-3.5 w-3.5" />

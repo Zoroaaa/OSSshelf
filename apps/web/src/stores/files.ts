@@ -1,7 +1,7 @@
 /**
  * files.ts
  * 文件状态管理 Store
- * 
+ *
  * 功能:
  * - 视图模式管理
  * - 选择状态管理
@@ -43,7 +43,7 @@ interface FileState {
   historyIndex: number;
   focusedFileId: string | null;
   isSelectAll: boolean;
-  
+
   setCurrentFolder: (folderId: string | null) => void;
   setSelectedFiles: (fileIds: string[], fileItems?: FileItem[]) => void;
   toggleFileSelection: (fileId: string, fileItem?: FileItem) => void;
@@ -81,12 +81,12 @@ export const useFileStore = create<FileState>()(
 
       setCurrentFolder: (folderId) => {
         const { navigationHistory, historyIndex, currentFolderId } = get();
-        
+
         const newHistory = navigationHistory.slice(0, historyIndex + 1);
         if (currentFolderId !== folderId) {
           newHistory.push({ folderId: currentFolderId, timestamp: Date.now() });
         }
-        
+
         set({
           currentFolderId: folderId,
           selectedFiles: [],
@@ -109,7 +109,7 @@ export const useFileStore = create<FileState>()(
       toggleFileSelection: (fileId, fileItem) => {
         const { selectedFiles, selectedFileItems } = get();
         const isSelected = selectedFiles.includes(fileId);
-        
+
         if (isSelected) {
           set({
             selectedFiles: selectedFiles.filter((id) => id !== fileId),
@@ -119,9 +119,7 @@ export const useFileStore = create<FileState>()(
         } else {
           set({
             selectedFiles: [...selectedFiles, fileId],
-            selectedFileItems: fileItem 
-              ? [...selectedFileItems, fileItem]
-              : selectedFileItems,
+            selectedFileItems: fileItem ? [...selectedFileItems, fileItem] : selectedFileItems,
             isSelectAll: false,
           });
         }
@@ -130,14 +128,14 @@ export const useFileStore = create<FileState>()(
       selectRange: (startId, endId, files) => {
         const startIndex = files.findIndex((f) => f.id === startId);
         const endIndex = files.findIndex((f) => f.id === endId);
-        
+
         if (startIndex === -1 || endIndex === -1) return;
-        
+
         const minIndex = Math.min(startIndex, endIndex);
         const maxIndex = Math.max(startIndex, endIndex);
-        
+
         const selectedFiles = files.slice(minIndex, maxIndex + 1);
-        
+
         set({
           selectedFiles: selectedFiles.map((f) => f.id),
           selectedFileItems: selectedFiles,
@@ -179,34 +177,34 @@ export const useFileStore = create<FileState>()(
       goBack: () => {
         const { navigationHistory, historyIndex } = get();
         if (historyIndex <= 0) return null;
-        
+
         const newIndex = historyIndex - 1;
         const targetFolderId = navigationHistory[newIndex]?.folderId ?? null;
-        
+
         set({
           historyIndex: newIndex,
           currentFolderId: targetFolderId,
           selectedFiles: [],
           selectedFileItems: [],
         });
-        
+
         return targetFolderId;
       },
 
       goForward: () => {
         const { navigationHistory, historyIndex } = get();
         if (historyIndex >= navigationHistory.length - 1) return null;
-        
+
         const newIndex = historyIndex + 1;
         const targetFolderId = navigationHistory[newIndex]?.folderId ?? null;
-        
+
         set({
           historyIndex: newIndex,
           currentFolderId: targetFolderId,
           selectedFiles: [],
           selectedFileItems: [],
         });
-        
+
         return targetFolderId;
       },
 
@@ -225,20 +223,19 @@ export const useFileStore = create<FileState>()(
       getNextFileId: (files, direction) => {
         const { focusedFileId } = get();
         if (files.length === 0) return null;
-        
+
         if (!focusedFileId) {
           return files[0]!.id;
         }
-        
+
         const currentIndex = files.findIndex((f) => f.id === focusedFileId);
         if (currentIndex === -1) {
           return files[0]!.id;
         }
-        
-        const nextIndex = direction === 'up' 
-          ? Math.max(0, currentIndex - 1)
-          : Math.min(files.length - 1, currentIndex + 1);
-        
+
+        const nextIndex =
+          direction === 'up' ? Math.max(0, currentIndex - 1) : Math.min(files.length - 1, currentIndex + 1);
+
         const nextFile = files[nextIndex];
         return nextFile ? nextFile.id : null;
       },

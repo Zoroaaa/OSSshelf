@@ -1,7 +1,7 @@
 /**
  * auth.ts
  * 认证中间件
- * 
+ *
  * 功能:
  * - JWT令牌验证
  * - 用户身份注入
@@ -19,10 +19,7 @@ export const authMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
   const authHeader = c.req.header('Authorization');
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '未提供认证令牌' } },
-      401,
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '未提供认证令牌' } }, 401);
   }
 
   const token = authHeader.slice(7);
@@ -34,7 +31,7 @@ export const authMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
     if (!session) {
       return c.json(
         { success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '会话已过期，请重新登录' } },
-        401,
+        401
       );
     }
 
@@ -43,10 +40,7 @@ export const authMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
 
     await next();
   } catch {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '令牌无效或已过期' } },
-      401,
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '令牌无效或已过期' } }, 401);
   }
 };
 

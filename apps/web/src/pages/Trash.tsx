@@ -1,7 +1,7 @@
 /**
  * Trash.tsx
  * 回收站页面
- * 
+ *
  * 功能:
  * - 查看已删除文件
  * - 恢复文件
@@ -72,12 +72,7 @@ export default function Trash() {
           </p>
         </div>
         {items.length > 0 && (
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={handleEmpty}
-            disabled={emptyMutation.isPending}
-          >
+          <Button variant="destructive" size="sm" onClick={handleEmpty} disabled={emptyMutation.isPending}>
             <Trash2 className="h-4 w-4 mr-1.5" />
             清空回收站
           </Button>
@@ -139,19 +134,11 @@ function TrashItem({ file, onRestore, onDelete, restorePending, deletePending }:
         <p className="text-sm font-medium truncate text-muted-foreground">{file.name}</p>
         <p className="text-xs text-muted-foreground/70">
           {file.isFolder ? '文件夹' : formatBytes(file.size)}
-          {(file as any).deletedAt && (
-            <span className="ml-2">· 删除于 {formatDate((file as any).deletedAt)}</span>
-          )}
+          {(file as any).deletedAt && <span className="ml-2">· 删除于 {formatDate((file as any).deletedAt)}</span>}
         </p>
       </div>
       <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs"
-          onClick={onRestore}
-          disabled={restorePending}
-        >
+        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={onRestore} disabled={restorePending}>
           <RotateCcw className="h-3 w-3 mr-1" />
           恢复
         </Button>

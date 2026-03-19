@@ -1,7 +1,7 @@
 /**
  * usePWA.ts
  * PWA 功能 Hook
- * 
+ *
  * 功能:
  * - Service Worker 注册
  * - 安装提示
@@ -42,8 +42,8 @@ export function usePWA(): [PWAState, PWAActions] {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
 
   useEffect(() => {
-    const isInstalled = window.matchMedia('(display-mode: standalone)').matches ||
-                       (window.navigator as any).standalone === true;
+    const isInstalled =
+      window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
 
     setState((prev) => ({ ...prev, isInstalled }));
 
@@ -92,7 +92,7 @@ export function usePWA(): [PWAState, PWAActions] {
     try {
       await deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
-      
+
       if (outcome === 'accepted') {
         setDeferredPrompt(null);
         setState((prev) => ({ ...prev, isInstallable: false }));
