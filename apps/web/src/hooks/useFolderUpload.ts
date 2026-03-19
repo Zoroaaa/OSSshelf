@@ -47,41 +47,58 @@ export function useFolderUpload({
 
       /**
        * 递归遍历 FileSystemEntry。
-       * path 是「当前 entry 的父路径」，不含 entry 自身名字。
-       * 对目录：先把自己的完整路径（path/name）记入 folderPaths，再递归子项。
-       * 对文件：把完整路径（path/name）记入 files。
+       * parentPath 是「当前 entry 的父路径」，不含 entry 自身名字。
+       * 对目录：先把自己的完整路径记入 folderPaths，再递归子项。
+       * 对文件：把完整路径记入 files。
+       *
+       * 注意：readEntries 的回调不能是 async，否则内部 await 不会被等待。
+       * 用 Promise 链 + 递归 readAll 解决批量读取问题。
        */
-      const traverseEntry = async (entry: FileSystemEntry, parentPath: string): Promise<void> => {
+      const traverseEntry = (entry: FileSystemEntry, parentPath: string): Promise<void> => {
         const fullPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
 
         if (entry.isFile) {
-          await new Promise<void>((resolve) => {
+          return new Promise<void>((resolve) => {
             (entry as FileSystemFileEntry).file((f) => {
               files.push({ file: f, relativePath: fullPath });
               resolve();
             });
           });
-        } else if (entry.isDirectory) {
+        }
+
+        if (entry.isDirectory) {
           // 先注册自己（含根文件夹、空文件夹）
           folderPaths.add(fullPath);
 
           const dirReader = (entry as FileSystemDirectoryEntry).createReader();
-          await new Promise<void>((resolve) => {
-            const readAll = () => {
-              dirReader.readEntries(async (entries) => {
-                if (entries.length === 0) {
-                  resolve();
-                  return;
-                }
-                for (const e of entries) {
-                  await traverseEntry(e, fullPath);
-                }
-                readAll(); // readEntries 每次最多返回 100 条，需循环读完
-              });
-            };
-            readAll();
-          });
+
+          // readEntries 每次最多返回 100 条，需循环直到返回空数组
+          const readBatch = (): Promise<void> =>
+            new Promise<void>((resolve, reject) => {
+              dirReader.readEntries(
+                (entries) => {
+                  if (entries.length === 0) {
+                    resolve();
+                    return;
+                  }
+                  // 串行处理本批次，再读下一批
+                  entries
+                    .reduce(
+                      (chain, e) => chain.then(() => traverseEntry(e, fullPath)),
+                      Promise.resolve()
+                    )
+                    .then(() => readBatch())
+                    .then(resolve)
+                    .catch(reject);
+                },
+                reject
+              );
+            });
+
+          return readBatch();
         }
+
+        return Promise.resolve();
       };
 
       for (let i = 0; i < items.length; i++) {
