@@ -37,8 +37,10 @@ export function useFolderUpload({
 }: UseFolderUploadOptions) {
   const queryClient = useQueryClient();
 
-  const uploadFolderEntries = useCallback(
-    async (items: DataTransferItemList) => {
+  // 核心处理函数：接受已同步提取好的 FileSystemEntry[]
+  // 必须在 drop 事件同步代码里提取 entry，再传入此函数
+  const uploadFolderEntriesDirect = useCallback(
+    async (rootEntries: FileSystemEntry[]) => {
       // 收集所有文件和文件夹，保留完整的相对路径
       // folderPaths: 所有需要创建的文件夹路径（含根文件夹、空文件夹）
       // files: 所有文件及其在目录树中的相对路径
@@ -101,11 +103,7 @@ export function useFolderUpload({
         return Promise.resolve();
       };
 
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        if (!item || item.kind !== 'file') continue;
-        const entry = item.webkitGetAsEntry?.();
-        if (!entry) continue;
+      for (const entry of rootEntries) {
         await traverseEntry(entry, '');
       }
 
@@ -176,5 +174,5 @@ export function useFolderUpload({
     [currentFolderId, queryClient, onFileStart, onFileProgress, onFileDone, onFileError, onAllDone]
   );
 
-  return { uploadFolderEntries };
+  return { uploadFolderEntriesDirect };
 }

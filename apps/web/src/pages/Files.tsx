@@ -77,7 +77,6 @@ import {
   SlidersHorizontal,
   User,
 } from 'lucide-react';
-import { useDropzone } from 'react-dropzone';
 import type { FileItem } from '@osshelf/shared';
 import { cn } from '@/utils';
 
@@ -264,7 +263,7 @@ export default function Files() {
   const [showUploadMenu, setShowUploadMenu] = useState(false);
   const { openContextMenu, ContextMenuComponent } = useContextMenuState();
 
-  const { uploadFolderEntries } = useFolderUpload({
+  const { uploadFolderEntriesDirect } = useFolderUpload({
     currentFolderId: folderId,
     onFileStart: (name, key) => setUploadProgresses((p) => ({ ...p, [key]: 0 })),
     onFileProgress: (key, progress) => setUploadProgresses((p) => ({ ...p, [key]: progress })),
@@ -527,31 +526,54 @@ export default function Files() {
       toast({ title: '创建分享失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
   });
 
-  const onDrop = useCallback(
-    (acceptedFiles: File[], _rejected: any[], event: any) => {
-      const nativeEvent = event?.nativeEvent ?? event;
-      const items = nativeEvent?.dataTransfer?.items as DataTransferItemList | undefined;
+  const [isDragActive, setIsDragActive] = useState(false);
 
-      const hasFolder = items
-        ? Array.from(items).some((item) => {
-            const entry = item.webkitGetAsEntry?.();
-            return entry?.isDirectory;
-          })
-        : false;
+  // 原生拖拽处理：必须在 drop 事件的同步代码里调用 webkitGetAsEntry()
+  // react-dropzone 的 onDrop 是异步回调，此时 DataTransferItemList 已被清空
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragActive(true);
+  }, []);
 
-      if (hasFolder && items) {
-        uploadFolderEntries(items);
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    // 只有离开最外层容器时才关闭遮罩
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDragActive(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragActive(false);
+
+      const items = e.dataTransfer.items;
+      if (!items || items.length === 0) return;
+
+      // 同步检查是否含有文件夹，同步提取所有 entry（异步调用后 items 会被清空）
+      const entries: FileSystemEntry[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const entry = item?.webkitGetAsEntry?.();
+        if (entry) entries.push(entry);
+      }
+
+      const hasFolder = entries.some((e) => e.isDirectory);
+
+      if (hasFolder) {
+        // 把已提取的 entries 直接传给 uploadFolderEntries，不再依赖 items
+        uploadFolderEntriesDirect(entries);
       } else {
-        acceptedFiles.forEach((file) => {
+        // 纯文件拖拽，从 dataTransfer.files 读取（此时仍有效）
+        Array.from(e.dataTransfer.files).forEach((file) => {
           const key = `${file.name}-${Date.now()}`;
           uploadMutation.mutate({ file, parentId: folderId || null, key });
         });
       }
     },
-    [folderId, uploadMutation, uploadFolderEntries]
+    [folderId, uploadMutation, uploadFolderEntriesDirect]
   );
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, noClick: true });
 
   const handleDownload = async (file: FileItem) => {
     try {
@@ -873,8 +895,12 @@ export default function Files() {
   ];
 
   return (
-    <div {...getRootProps()} className="space-y-5">
-      <input {...getInputProps()} />
+    <div
+      className="space-y-5"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <ContextMenuComponent />
 
       {isDragActive && (
