@@ -1159,29 +1159,31 @@ export default function Files() {
                       const files = Array.from(e.target.files || []);
                       if (files.length === 0) return;
 
+                      // webkitRelativePath 格式: "根文件夹/子文件夹/文件名"
                       const rootFolderName = files[0]
                         ? ((files[0] as any).webkitRelativePath as string).split('/')[0]
                         : '';
                       const totalFiles = files.length;
-                      const totalFolders = new Set<string>();
+                      const folderPathSet = new Set<string>();
 
                       for (const file of files) {
                         const relativePath = (file as any).webkitRelativePath as string;
                         if (relativePath) {
                           const parts = relativePath.split('/');
+                          // i 从 1 到 parts.length-1，依次收集各层文件夹路径（含根文件夹）
                           for (let i = 1; i < parts.length; i++) {
-                            totalFolders.add(parts.slice(0, i).join('/'));
+                            folderPathSet.add(parts.slice(0, i).join('/'));
                           }
                         }
                       }
 
-                      const sortedFolderPaths = [...totalFolders].sort((a, b) => {
+                      const sortedFolderPaths = [...folderPathSet].sort((a, b) => {
                         return a.split('/').length - b.split('/').length;
                       });
 
                       toast({
                         title: `开始上传文件夹 "${rootFolderName}"`,
-                        description: `${totalFolders.size} 个文件夹, ${totalFiles} 个文件`,
+                        description: `${folderPathSet.size} 个文件夹，${totalFiles} 个文件`,
                       });
 
                       const folderIdMap = new Map<string, string>();
@@ -1189,6 +1191,7 @@ export default function Files() {
                       let failedCount = 0;
 
                       const createFoldersAndUpload = async () => {
+                        // 第一步：按深度顺序创建所有文件夹
                         for (const folderPath of sortedFolderPaths) {
                           const parts = folderPath.split('/');
                           const name = parts[parts.length - 1];
@@ -1203,18 +1206,16 @@ export default function Files() {
                             const createdFolderId = res.data.data?.id;
                             if (createdFolderId) {
                               folderIdMap.set(folderPath, createdFolderId);
+                              // 创建后立即刷新父目录
+                              queryClient.invalidateQueries({ queryKey: ['files', parentId ?? undefined] });
                             }
                           } catch (err: any) {
-                            const errorMsg = err?.response?.data?.error?.message || err?.message || '未知错误';
-                            toast({
-                              title: `创建文件夹 "${name}" 失败`,
-                              description: errorMsg,
-                              variant: 'destructive',
-                            });
-                            return;
+                            // 记录警告但不中止——继续处理后续文件夹和文件
+                            console.warn(`创建文件夹 "${folderPath}" 失败:`, err?.response?.data?.error?.message || err?.message);
                           }
                         }
 
+                        // 第二步：上传文件到对应文件夹
                         for (const file of files) {
                           const relativePath = (file as any).webkitRelativePath as string;
                           const parts = relativePath.split('/');
@@ -1238,6 +1239,8 @@ export default function Files() {
                               delete n[key];
                               return n;
                             });
+                            // 上传完立即刷新所在目录
+                            queryClient.invalidateQueries({ queryKey: ['files', parentId ?? undefined] });
                           } catch (err: any) {
                             failedCount++;
                             setUploadProgresses((p) => {
