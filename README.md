@@ -13,7 +13,8 @@
 - 🏷️ **标签系统**: 为文件添加自定义标签
 - 🔍 **高级搜索**: 按名称、类型、大小、时间等条件搜索
 - 📥 **离线下载**: 支持 URL 离线下载到云存储
-- 📡 **WebDAV**: 完整的 WebDAV 协议支持
+- 📡 **WebDAV**: 完整的 WebDAV 协议支持（优化 Windows 资源管理器兼容性）
+- 📱 **Telegram 存储**: 通过 Telegram Bot API 存储文件，支持自定义代理
 - 👥 **多用户**: 用户管理、存储配额、审计日志
 - ⏰ **定时任务**: 自动清理回收站、过期分享
 
@@ -24,7 +25,7 @@
 | 前端   | React 18 + Vite 5 + Tailwind CSS 3       |
 | 后端   | Hono 4 + Cloudflare Workers              |
 | 数据库 | Cloudflare D1 (SQLite) + Drizzle ORM     |
-| 存储   | S3 兼容协议 (R2/S3/OSS/COS/OBS/B2/MinIO) |
+| 存储   | S3 兼容协议 (R2/S3/OSS/COS/OBS/B2/MinIO) + Telegram Bot API |
 | 认证   | JWT + bcrypt                             |
 
 ## 快速开始
@@ -104,6 +105,7 @@ ossshelf/
   - Backblaze B2
   - MinIO
   - 自定义 S3 兼容存储
+  - Telegram (通过 Bot API)
 
 ### 文件分享
 
@@ -120,15 +122,43 @@ ossshelf/
 
 ### WebDAV
 
-完整支持 WebDAV 协议，可使用任何 WebDAV 客户端连接：
+完整支持 WebDAV 协议，可使用任何 WebDAV 客户端连接，特别优化了 Windows 资源管理器兼容性：
 
 | 配置项     | 值                            |
 | ---------- | ----------------------------- |
 | 服务器地址 | `https://your-domain.com/dav` |
 | 用户名     | 注册邮箱                      |
 | 密码       | 账户密码                      |
+| 认证方式   | Basic Auth                    |
 
-支持的操作：PROPFIND、GET、PUT、MKCOL、DELETE、MOVE、COPY
+**Windows 资源管理器优化**：
+- 修复 401 响应必须携带 DAV 头的问题
+- 确保 PROPFIND 响应路径与请求路径精确匹配
+- 实现 LOCK/UNLOCK 操作，解决 Windows 写操作卡死问题
+
+支持的操作：PROPFIND、GET、HEAD、PUT、MKCOL、DELETE、MOVE、COPY、LOCK、UNLOCK、PROPPATCH
+
+### Telegram 存储
+
+通过 Telegram Bot API 存储文件，利用 Telegram 的免费存储资源：
+
+**配置方法**：
+1. 创建一个 Telegram Bot（通过 @BotFather）
+2. 获取 Bot Token
+3. 创建一个频道或群组，将 Bot 添加为管理员
+4. 获取 Chat ID（频道/群组/私聊的 ID）
+5. 在存储桶管理中选择 Telegram 提供商并填入配置
+
+**特点**：
+- 支持自定义 Bot API 代理地址
+- 自动根据文件类型选择合适的上传方式
+- 支持文件预览和下载
+- 静默发送，不打扰聊天
+
+**限制**：
+- 单文件最大 50MB（Bot API 限制）
+- 无法真正删除文件，只能删除消息引用
+- 需要稳定的网络连接到 Telegram API
 
 ### 管理员功能
 

@@ -392,7 +392,13 @@ Content-Type: application/json
 }
 ```
 
-**支持的 provider**: `r2`, `s3`, `oss`, `cos`, `obs`, `b2`, `minio`, `custom`
+**支持的 provider**: `r2`, `s3`, `oss`, `cos`, `obs`, `b2`, `minio`, `custom`, `telegram`
+
+**Telegram 配置说明**:
+- `accessKeyId`: Telegram Bot Token
+- `bucketName`: Telegram Chat ID
+- `endpoint`: 可选的 Bot API 代理地址
+- `secretAccessKey`: 固定为 `telegram-no-secret`（占位符）
 
 ### 获取单个存储桶
 
@@ -440,6 +446,38 @@ Authorization: Bearer <token>
 ```http
 DELETE /api/buckets/<bucketId>
 Authorization: Bearer <token>
+```
+
+---
+
+## Telegram 接口
+
+### 测试 Telegram Bot 连接
+
+```http
+POST /api/telegram/test
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "botToken": "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11",
+  "chatId": "-1001234567890",
+  "apiBase": "https://api.telegram.org" // 可选代理
+}
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "connected": true,
+    "message": "连接成功！Bot @botname → Chat Title",
+    "botName": "botname",
+    "chatTitle": "Chat Title"
+  }
+}
 ```
 
 ---
@@ -1533,15 +1571,26 @@ WebDAV 协议端点: `/dav`
 
 ### 支持的操作
 
-| 操作        | 方法     | 描述                          |
-| ----------- | -------- | ----------------------------- |
-| 列出目录    | PROPFIND | Depth: 0 (当前), 1 (包含子项) |
-| 下载文件    | GET      | -                             |
-| 上传文件    | PUT      | 自动创建父目录                |
-| 创建目录    | MKCOL    | -                             |
-| 删除        | DELETE   | 永久删除                      |
-| 移动/重命名 | MOVE     | 需要 Destination 头           |
-| 复制        | COPY     | 需要 Destination 头           |
+| 操作        | 方法         | 描述                          |
+| ----------- | ------------ | ----------------------------- |
+| 列出目录    | PROPFIND     | Depth: 0 (当前), 1 (包含子项) |
+| 下载文件    | GET          | -                             |
+| 查看文件头  | HEAD         | -                             |
+| 上传文件    | PUT          | 自动创建父目录                |
+| 创建目录    | MKCOL        | -                             |
+| 删除        | DELETE       | 永久删除                      |
+| 移动/重命名 | MOVE         | 需要 Destination 头           |
+| 复制        | COPY         | 需要 Destination 头           |
+| 锁定资源    | LOCK         | 支持 Windows 资源管理器       |
+| 解锁资源    | UNLOCK       | 支持 Windows 资源管理器       |
+| 属性修改    | PROPPATCH    | 只读属性，返回 403             |
+
+### Windows 资源管理器兼容性优化
+
+- **401 响应必须携带 DAV 头**：Windows Mini-Redirector 以此判断服务器是否支持 WebDAV
+- **PROPFIND 响应路径精确匹配**：根节点 `<href>` 必须与请求路径完全一致
+- **实现 LOCK/UNLOCK**：Windows 在写操作前会发送 LOCK 请求，缺少此功能会导致卡死
+- **路径规范化**：自动处理路径末尾斜杠，确保路径一致性
 
 ### PROPFIND 示例
 

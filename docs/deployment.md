@@ -277,6 +277,30 @@ Bucket: your-bucket-name
 路径样式: 是
 ```
 
+#### Telegram
+
+```
+提供商: telegram
+Bot Token: 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11  # 从 @BotFather 获取
+Chat ID: -1001234567890  # 频道/群组/私聊的 ID
+API 代理: https://api.telegram.org (可选)
+```
+
+**Telegram 配置步骤**:
+1. 向 @BotFather 发送 `/newbot` 创建一个新 Bot
+2. 保存 Bot Token
+3. 创建一个频道或群组，将 Bot 添加为管理员
+4. 获取 Chat ID:
+   - 频道：在频道中发送消息，然后访问 `https://api.telegram.org/bot<token>/getUpdates`
+   - 群组：添加 Bot 到群组，发送消息，然后访问 `https://api.telegram.org/bot<token>/getUpdates`
+   - 私聊：直接与 Bot 对话，然后访问 `https://api.telegram.org/bot<token>/getUpdates`
+5. 在 OSSshelf 中创建存储桶，选择 Telegram 提供商并填入配置
+
+**注意事项**:
+- Bot 需要有发送消息和删除消息的权限
+- 单文件最大 50MB（Bot API 限制）
+- 建议使用专用频道存储文件，避免消息干扰
+
 ## 定时任务配置
 
 系统使用 Cloudflare Cron Triggers 执行定时任务。在 `wrangler.toml` 中配置：

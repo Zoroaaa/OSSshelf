@@ -26,7 +26,7 @@ OSSshelf 是一个基于 Cloudflare 部署的多厂商 OSS 文件管理系统，
 - **数据库**: Cloudflare D1 (SQLite)
 - **ORM**: Drizzle ORM 0.29
 - **验证**: Zod 3
-- **对象存储**: S3 兼容协议 (R2, AWS S3, 阿里云 OSS, 腾讯云 COS, 华为云 OBS, Backblaze B2, MinIO 等)
+- **对象存储**: S3 兼容协议 (R2, AWS S3, 阿里云 OSS, 腾讯云 COS, 华为云 OBS, Backblaze B2, MinIO 等) + Telegram Bot API
 
 ### 共享包 (packages/shared)
 
@@ -48,7 +48,8 @@ ossshelf/
 │   │   │   │   ├── bucketResolver.ts  # 存储桶解析
 │   │   │   │   ├── cleanup.ts  # 清理任务
 │   │   │   │   ├── crypto.ts   # 加密工具
-│   │   │   │   └── s3client.ts # S3 客户端
+│   │   │   │   ├── s3client.ts # S3 客户端
+│   │   │   │   └── telegramClient.ts # Telegram 客户端
 │   │   │   ├── middleware/
 │   │   │   │   ├── auth.ts     # 认证中间件
 │   │   │   │   ├── error.ts    # 错误处理
@@ -67,6 +68,7 @@ ossshelf/
 │   │   │   │   ├── search.ts   # 文件搜索
 │   │   │   │   ├── share.ts    # 文件分享
 │   │   │   │   ├── tasks.ts    # 上传任务
+│   │   │   │   ├── telegram.ts # Telegram 存储
 │   │   │   │   └── webdav.ts   # WebDAV 协议
 │   │   │   ├── types/
 │   │   │   │   ├── env.ts      # 环境变量类型
@@ -272,6 +274,18 @@ ossshelf/
 | user_agent | TEXT    | User Agent |
 | created_at | TEXT    | 创建时间   |
 
+#### telegram_file_refs (Telegram 文件引用表)
+
+| 字段          | 类型    | 说明                     |
+| ------------- | ------- | ------------------------ |
+| id            | TEXT    | 主键                     |
+| file_id       | TEXT    | OSSshelf 内部文件 ID     |
+| r2_key        | TEXT    | 与 files.r2_key 对应     |
+| tg_file_id    | TEXT    | Telegram 返回的 file_id  |
+| tg_file_size  | INTEGER | Telegram 报告的文件大小  |
+| bucket_id     | TEXT    | 所属存储桶 ID            |
+| created_at    | TEXT    | 创建时间                 |
+
 #### audit_logs (审计日志表)
 
 | 字段          | 类型 | 说明        |
@@ -304,6 +318,7 @@ ossshelf/
 | /api/permissions | permissions.ts | 权限与标签  |
 | /api/preview     | preview.ts     | 文件预览    |
 | /api/admin       | admin.ts       | 管理员接口  |
+| /api/telegram    | telegram.ts    | Telegram 存储 |
 | /cron            | cron.ts        | 定时任务    |
 | /dav             | webdav.ts      | WebDAV 协议 |
 
@@ -349,6 +364,7 @@ ossshelf/
 | b2       | Backblaze B2   |
 | minio    | MinIO          |
 | custom   | 自定义 S3 兼容 |
+| telegram | Telegram Bot API |
 
 ## 认证机制
 
