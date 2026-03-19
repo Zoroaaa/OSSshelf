@@ -81,6 +81,8 @@ async function getUserOrFail(db: ReturnType<typeof getDb>, userId: string) {
   return user;
 }
 
+
+
 app.post('/create', async (c) => {
   const userId = c.get('userId')!;
   const body = await c.req.json();
@@ -223,11 +225,7 @@ app.get('/list', async (c) => {
     success: true,
     data: tasks.map((t) => {
       let rawParts: unknown[] = [];
-      try {
-        rawParts = JSON.parse(t.uploadedParts || '[]');
-      } catch {
-        /* ignore */
-      }
+      try { rawParts = JSON.parse(t.uploadedParts || '[]'); } catch { /* ignore */ }
       // 兼容旧格式（数字数组）和新格式（{partNumber,etag}[]）
       const uploadedPartNumbers = rawParts.map((p) =>
         typeof p === 'number' ? p : (p as { partNumber: number }).partNumber
@@ -245,7 +243,10 @@ app.delete('/clear', async (c) => {
   await db
     .delete(uploadTasks)
     .where(
-      and(eq(uploadTasks.userId, userId), inArray(uploadTasks.status, ['completed', 'failed', 'expired', 'aborted']))
+      and(
+        eq(uploadTasks.userId, userId),
+        inArray(uploadTasks.status, ['completed', 'failed', 'expired', 'aborted'])
+      )
     );
 
   return c.json({ success: true, data: { message: '已清空历史任务记录' } });
@@ -256,7 +257,14 @@ app.delete('/clear-completed', async (c) => {
   const db = getDb(c.env.DB);
 
   // 只删除已完成的任务
-  await db.delete(uploadTasks).where(and(eq(uploadTasks.userId, userId), eq(uploadTasks.status, 'completed')));
+  await db
+    .delete(uploadTasks)
+    .where(
+      and(
+        eq(uploadTasks.userId, userId),
+        eq(uploadTasks.status, 'completed')
+      )
+    );
 
   return c.json({ success: true, data: { message: '已清空已完成的任务' } });
 });
@@ -268,7 +276,12 @@ app.delete('/clear-failed', async (c) => {
   // 只删除失败、过期、取消的任务
   await db
     .delete(uploadTasks)
-    .where(and(eq(uploadTasks.userId, userId), inArray(uploadTasks.status, ['failed', 'expired', 'aborted'])));
+    .where(
+      and(
+        eq(uploadTasks.userId, userId),
+        inArray(uploadTasks.status, ['failed', 'expired', 'aborted'])
+      )
+    );
 
   return c.json({ success: true, data: { message: '已清空失败/过期/取消的任务' } });
 });
@@ -667,9 +680,7 @@ app.get('/:taskId', async (c) => {
     if (storedParts.length > 0 && typeof storedParts[0] === 'number') {
       storedParts = (storedParts as unknown as number[]).map((n) => ({ partNumber: n, etag: '' }));
     }
-  } catch {
-    /* ignore */
-  }
+  } catch { /* ignore */ }
 
   let parts: MultipartPart[] = storedParts.filter((p) => p.etag); // 只保留有 etag 的
 

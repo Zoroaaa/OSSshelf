@@ -276,7 +276,7 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   let parentId: string | null = null;
 
   if (parentPath !== '/') {
-    const parentFolder = await findFileByPath(db, userId, parentPath);
+    let parentFolder = await findFileByPath(db, userId, parentPath);
     if (!parentFolder) {
       const pathParts = parentPath.split('/').filter(Boolean);
       let currentParentId: string | null = null;
@@ -284,7 +284,7 @@ async function handlePut(c: AppContext, userId: string, path: string) {
 
       for (const part of pathParts) {
         currentPath = currentPath ? `${currentPath}/${part}` : `/${part}`;
-        const folder = await findFileByPath(db, userId, currentPath);
+        let folder = await findFileByPath(db, userId, currentPath);
 
         if (!folder) {
           const folderId = crypto.randomUUID();
