@@ -39,6 +39,7 @@ import {
 } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats, checkBucketQuota } from '../lib/bucketResolver';
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
+import { getUserOrFail, encodeFilename } from '../lib/utils';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -108,12 +109,6 @@ const multipartAbortSchema = z.object({
 /** 1-hour presign window for upload, 6-hour for download (large files take time) */
 const UPLOAD_EXPIRY = 3600;
 const DOWNLOAD_EXPIRY = 21600;
-
-async function getUserOrFail(db: ReturnType<typeof getDb>, userId: string) {
-  const user = await db.select().from(users).where(eq(users.id, userId)).get();
-  if (!user) throw new Error('用户不存在');
-  return user;
-}
 
 // ── POST /api/presign/upload ───────────────────────────────────────────────
 // Phase 1: Return a presigned PUT URL. The browser uploads directly.
@@ -531,15 +526,5 @@ app.get('/preview/:id', async (c) => {
     },
   });
 });
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-
-/**
- * Safe-encode a filename for use in S3 keys.
- * Keeps the extension, replaces unsafe characters.
- */
-function encodeFilename(name: string): string {
-  return name.replace(/[^\w.\-\u4e00-\u9fa5]/g, '_');
-}
 
 export default app;

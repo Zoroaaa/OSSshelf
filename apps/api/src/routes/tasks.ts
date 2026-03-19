@@ -42,6 +42,7 @@ import {
   type TelegramBotConfig,
 } from '../lib/telegramClient';
 import { decryptSecret } from '../lib/s3client';
+import { getUserOrFail, encodeFilename } from '../lib/utils';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -80,12 +81,6 @@ const completeTaskSchema = z
     },
     { message: '所有分片的 etag 不能为空' }
   );
-
-async function getUserOrFail(db: ReturnType<typeof getDb>, userId: string) {
-  const user = await db.select().from(users).where(eq(users.id, userId)).get();
-  if (!user) throw new Error('用户不存在');
-  return user;
-}
 
 app.post('/create', async (c) => {
   const userId = c.get('userId')!;
@@ -1031,29 +1026,5 @@ app.post('/:taskId/resume', async (c) => {
 
   return c.json({ success: true, data: { message: '任务已恢复' } });
 });
-
-app.delete('/:taskId', async (c) => {
-  const userId = c.get('userId')!;
-  const taskId = c.req.param('taskId');
-  const db = getDb(c.env.DB);
-
-  const task = await db
-    .select()
-    .from(uploadTasks)
-    .where(and(eq(uploadTasks.id, taskId), eq(uploadTasks.userId, userId)))
-    .get();
-
-  if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
-  }
-
-  await db.delete(uploadTasks).where(eq(uploadTasks.id, taskId));
-
-  return c.json({ success: true, data: { message: '任务已删除' } });
-});
-
-function encodeFilename(name: string): string {
-  return name.replace(/[^\w.\-\u4e00-\u9fa5]/g, '_');
-}
 
 export default app;

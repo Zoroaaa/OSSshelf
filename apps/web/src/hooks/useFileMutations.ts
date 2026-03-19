@@ -17,6 +17,7 @@ import { useNavigate } from 'react-router-dom';
 import { filesApi, shareApi, batchApi, type StorageBucket } from '@/services/api';
 import { useToast } from '@/components/ui/use-toast';
 import { useFileStore } from '@/stores/files';
+import { getErrorMessage } from '@/utils';
 
 const TG_MAX_FILE_SIZE = 50 * 1024 * 1024;
 
@@ -54,8 +55,7 @@ export function useFileMutations() {
       queryClient.invalidateQueries({ queryKey: ['files', parentId] });
       toast({ title: '创建成功' });
     },
-    onError: (e: any) =>
-      toast({ title: '创建失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onError: (e) => toast({ title: '创建失败', description: getErrorMessage(e), variant: 'destructive' }),
   });
 
   const deleteMutation = useMutation({
@@ -68,8 +68,7 @@ export function useFileMutations() {
       clearSelection();
       toast({ title: '已移入回收站' });
     },
-    onError: (e: any) =>
-      toast({ title: '删除失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onError: (e) => toast({ title: '删除失败', description: getErrorMessage(e), variant: 'destructive' }),
   });
 
   const renameMutation = useMutation({
@@ -78,8 +77,7 @@ export function useFileMutations() {
       queryClient.invalidateQueries({ queryKey: ['files'] });
       toast({ title: '重命名成功' });
     },
-    onError: (e: any) =>
-      toast({ title: '重命名失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onError: (e) => toast({ title: '重命名失败', description: getErrorMessage(e), variant: 'destructive' }),
   });
 
   const moveMutation = useMutation({
@@ -88,8 +86,7 @@ export function useFileMutations() {
       queryClient.invalidateQueries({ queryKey: ['files'] });
       toast({ title: '移动成功' });
     },
-    onError: (e: any) =>
-      toast({ title: '移动失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onError: (e) => toast({ title: '移动失败', description: getErrorMessage(e), variant: 'destructive' }),
   });
 
   const shareMutation = useMutation({
@@ -103,8 +100,7 @@ export function useFileMutations() {
       }
       queryClient.invalidateQueries({ queryKey: ['shares'] });
     },
-    onError: (e: any) =>
-      toast({ title: '创建分享失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onError: (e) => toast({ title: '创建分享失败', description: getErrorMessage(e), variant: 'destructive' }),
   });
 
   const batchDeleteMutation = useMutation({
@@ -120,8 +116,7 @@ export function useFileMutations() {
         description: `成功 ${data?.success || 0} 个，失败 ${data?.failed || 0} 个`,
       });
     },
-    onError: (e: any) =>
-      toast({ title: '批量删除失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onError: (e) => toast({ title: '批量删除失败', description: getErrorMessage(e), variant: 'destructive' }),
   });
 
   const batchMoveMutation = useMutation({
@@ -135,8 +130,7 @@ export function useFileMutations() {
         description: `成功 ${data?.success || 0} 个，失败 ${data?.failed || 0} 个`,
       });
     },
-    onError: (e: any) =>
-      toast({ title: '批量移动失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onError: (e) => toast({ title: '批量移动失败', description: getErrorMessage(e), variant: 'destructive' }),
   });
 
   const batchCopyMutation = useMutation({
@@ -150,8 +144,7 @@ export function useFileMutations() {
         description: `成功 ${data?.success || 0} 个，失败 ${data?.failed || 0} 个`,
       });
     },
-    onError: (e: any) =>
-      toast({ title: '批量复制失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onError: (e) => toast({ title: '批量复制失败', description: getErrorMessage(e), variant: 'destructive' }),
   });
 
   function checkTelegramLimit(file: File, bucket: StorageBucket | null): string | null {

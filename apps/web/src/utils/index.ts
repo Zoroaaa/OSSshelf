@@ -6,6 +6,7 @@
  * - 类名合并（cn）
  * - 字节格式化
  * - 日期格式化
+ * - 错误消息提取
  */
 
 import { clsx, type ClassValue } from 'clsx';
@@ -38,4 +39,9 @@ export function formatDate(date: string | Date | undefined | null): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+export function getErrorMessage(error: unknown, fallback = '操作失败'): string {
+  const err = error as any;
+  return err?.response?.data?.error?.message || err?.message || fallback;
 }

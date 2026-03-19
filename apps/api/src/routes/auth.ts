@@ -24,6 +24,7 @@ import {
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
+import { getRegConfig } from '../lib/utils';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -34,23 +35,7 @@ const registerSchema = z.object({
   inviteCode: z.string().optional(),
 });
 
-const REG_CONFIG_KEY = 'admin:registration_config';
 const INVITE_PREFIX = 'admin:invite:';
-
-interface RegConfig {
-  open: boolean;
-  requireInviteCode: boolean;
-}
-
-async function getRegConfig(kv: KVNamespace): Promise<RegConfig> {
-  const raw = await kv.get(REG_CONFIG_KEY);
-  if (!raw) return { open: true, requireInviteCode: false };
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return { open: true, requireInviteCode: false };
-  }
-}
 
 const loginSchema = z.object({
   email: z.string().email('邮箱格式不正确'),
