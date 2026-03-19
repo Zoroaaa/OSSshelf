@@ -141,12 +141,16 @@ async function singlePresignUpload({
 }: PresignUploadOptions): Promise<UploadedFile> {
   if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
 
-  // 创建上传任务记录
-  const taskRecord = await apiPost<{
+  // 通过 tasks/create 创建任务并获取预签名 PUT URL（小文件路径）
+  const init = await apiPost<{
     taskId: string;
+    fileId: string;
     uploadId: string;
     r2Key: string;
     bucketId: string;
+    uploadUrl?: string;
+    isSmallFile?: boolean;
+    useProxy?: boolean;
   }>('/api/tasks/create', {
     fileName: file.name,
     fileSize: file.size,
@@ -155,22 +159,15 @@ async function singlePresignUpload({
     bucketId,
   });
 
-  const presign = await apiPost<PresignUploadResponse>('/api/presign/upload', {
-    fileName: file.name,
-    fileSize: file.size,
-    mimeType: file.type || 'application/octet-stream',
-    parentId,
-    bucketId,
-  });
-
-  if (presign.useProxy) {
+  if (init.useProxy) {
     onFallback?.();
     return proxyUpload({ file, parentId, bucketId, onProgress, signal });
   }
 
-  const { uploadUrl, fileId, r2Key, bucketId: resolvedBucketId } = presign;
-  if (!uploadUrl || !fileId || !r2Key) {
-    throw new Error('预签名上传：服务器返回了无效的响应');
+  const { taskId, uploadUrl } = init;
+
+  if (!uploadUrl) {
+    throw new Error('预签名上传：服务器未返回上传 URL');
   }
 
   try {
@@ -186,20 +183,10 @@ async function singlePresignUpload({
     throw error;
   }
 
-  const result = await apiPost<UploadedFile>('/api/presign/confirm', {
-    fileId,
-    fileName: file.name,
-    fileSize: file.size,
-    mimeType: file.type || 'application/octet-stream',
-    parentId,
-    r2Key,
-    bucketId: resolvedBucketId ?? null,
-  });
-
-  // 标记任务完成
-  await apiPost('/api/tasks/complete', {
-    taskId: taskRecord.taskId,
-    parts: [{ partNumber: 1, etag: 'single' }],
+  // 通知服务端完成，入库
+  const result = await apiPost<UploadedFile>('/api/tasks/complete', {
+    taskId,
+    parts: [{ partNumber: 1, etag: 'direct' }],
   });
 
   return result;

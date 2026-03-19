@@ -173,12 +173,15 @@ async function singleUpload(
   task: UploadTask,
   onProgress: (percent: number, uploadedBytes: number) => void
 ): Promise<{ fileId: string; fileName: string }> {
-  // 创建上传任务记录
-  const taskRecord = await apiPost<{
+  // 通过 tasks/create 创建任务，并获取预签名 PUT URL（小文件路径）
+  const init = await apiPost<{
     taskId: string;
+    fileId: string;
     uploadId: string;
     r2Key: string;
     bucketId: string;
+    uploadUrl?: string;
+    isSmallFile?: boolean;
   }>('/api/tasks/create', {
     fileName: task.fileName,
     fileSize: task.fileSize,
@@ -187,23 +190,16 @@ async function singleUpload(
     bucketId: task.bucketId,
   });
 
-  // 获取预签名 URL
-  const presign = await apiPost<{
-    uploadUrl: string;
-    fileId: string;
-    r2Key: string;
-  }>('/api/presign/upload', {
-    fileName: task.fileName,
-    fileSize: task.fileSize,
-    mimeType: task.mimeType,
-    parentId: task.parentId,
-    bucketId: task.bucketId,
-  });
+  const { taskId, uploadUrl } = init;
 
-  // 上传文件
+  if (!uploadUrl) {
+    throw new Error('小文件上传初始化失败：服务器未返回上传 URL');
+  }
+
+  // 用预签名 PUT URL 直传
   await new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('PUT', presign.uploadUrl);
+    xhr.open('PUT', uploadUrl);
     xhr.setRequestHeader('Content-Type', task.mimeType);
 
     xhr.upload.onprogress = (e) => {
@@ -214,6 +210,7 @@ async function singleUpload(
 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
+        onProgress(100, task.fileSize);
         resolve();
       } else {
         reject(new Error(`上传失败 (${xhr.status})`));
@@ -226,21 +223,10 @@ async function singleUpload(
     xhr.send(task.fileBuffer);
   });
 
-  // 确认上传
-  const result = await apiPost<{ id: string; name: string }>('/api/presign/confirm', {
-    fileId: presign.fileId,
-    fileName: task.fileName,
-    fileSize: task.fileSize,
-    mimeType: task.mimeType,
-    parentId: task.parentId,
-    r2Key: presign.r2Key,
-    bucketId: task.bucketId,
-  });
-
-  // 标记任务完成
-  await apiPost('/api/tasks/complete', {
-    taskId: taskRecord.taskId,
-    parts: [{ partNumber: 1, etag: 'single' }],
+  // 通知服务端上传完成（小文件直接入库，不需要 S3 合并）
+  const result = await apiPost<{ id: string; name: string }>('/api/tasks/complete', {
+    taskId,
+    parts: [{ partNumber: 1, etag: 'direct' }],
   });
 
   return { fileId: result.id, fileName: result.name };

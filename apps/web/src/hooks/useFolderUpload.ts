@@ -137,6 +137,8 @@ export function useFolderUpload({
             onProgress: (progress) => onFileProgress?.(key, progress),
           });
           onFileDone?.(key);
+          // 每上传完一个文件，立即刷新当前目录
+          queryClient.invalidateQueries({ queryKey: ['files', currentFolderId ?? undefined] });
         } catch (e) {
           onFileError?.(key, e);
         }

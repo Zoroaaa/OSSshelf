@@ -1107,6 +1107,10 @@ export default function Files() {
             全选
           </Button>
 
+          <Button variant="outline" size="sm" onClick={() => refetch()} title="刷新当前目录">
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+
           <Button variant="outline" size="sm" onClick={() => setShowNewFolderDialog(true)} className="hidden sm:flex">
             <FolderPlus className="h-4 w-4 mr-1.5" />
             新建
@@ -1250,6 +1254,7 @@ export default function Files() {
                         }
 
                         queryClient.invalidateQueries({ queryKey: ['files'] });
+                        queryClient.invalidateQueries({ queryKey: ['files', folderId] });
                         queryClient.invalidateQueries({ queryKey: ['stats'] });
 
                         if (failedCount === 0) {

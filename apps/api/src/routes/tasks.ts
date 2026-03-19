@@ -161,10 +161,51 @@ app.post('/create', async (c) => {
   const taskId = crypto.randomUUID();
   const fileId = crypto.randomUUID();
   const r2Key = `files/${userId}/${fileId}/${encodeFilename(fileName)}`;
-  const totalParts = Math.ceil(fileSize / UPLOAD_CHUNK_SIZE);
   const now = new Date().toISOString();
   const expiresAt = new Date(Date.now() + UPLOAD_TASK_EXPIRY).toISOString();
+  const isSmallFile = fileSize <= MULTIPART_THRESHOLD;
 
+  if (isSmallFile) {
+    // 小文件：生成预签名 PUT URL，不创建 multipart session
+    const uploadUrl = await s3PresignUrl(bucketConfig, 'PUT', r2Key, UPLOAD_EXPIRY, mimeType || 'application/octet-stream');
+
+    await db.insert(uploadTasks).values({
+      id: taskId,
+      userId,
+      fileName,
+      fileSize,
+      mimeType: mimeType || null,
+      parentId: parentId || null,
+      bucketId: bucketConfig.id,
+      r2Key,
+      uploadId: '', // 小文件不需要 multipart uploadId
+      totalParts: 1,
+      uploadedParts: '[]',
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt,
+    });
+
+    return c.json({
+      success: true,
+      data: {
+        taskId,
+        fileId,
+        uploadId: '',
+        r2Key,
+        bucketId: bucketConfig.id,
+        totalParts: 1,
+        partSize: fileSize,
+        uploadUrl, // 直传 URL
+        isSmallFile: true,
+        expiresAt,
+      },
+    });
+  }
+
+  // 大文件：创建 multipart upload
+  const totalParts = Math.ceil(fileSize / UPLOAD_CHUNK_SIZE);
   const uploadId = await s3CreateMultipartUpload(bucketConfig, r2Key, mimeType || 'application/octet-stream');
 
   await db.insert(uploadTasks).values({
@@ -198,6 +239,7 @@ app.post('/create', async (c) => {
       totalParts,
       partSize: UPLOAD_CHUNK_SIZE,
       firstPartUrl,
+      isSmallFile: false,
       expiresAt,
     },
   });
@@ -476,40 +518,46 @@ app.post('/complete', async (c) => {
       );
     }
 
-    if (parts.length !== task.totalParts) {
-      console.warn(`Parts count mismatch: expected ${task.totalParts}, got ${parts.length}`);
-      return c.json(
-        {
-          success: false,
-          error: {
-            code: ERROR_CODES.VALIDATION_ERROR,
-            message: `分片数量不匹配：期望 ${task.totalParts} 个，实际 ${parts.length} 个`,
+    const isSmallFile = !task.uploadId || task.uploadId === '';
+    const now = new Date().toISOString();
+
+    if (!isSmallFile) {
+      // 大文件：校验分片数量并合并
+      if (parts.length !== task.totalParts) {
+        console.warn(`Parts count mismatch: expected ${task.totalParts}, got ${parts.length}`);
+        return c.json(
+          {
+            success: false,
+            error: {
+              code: ERROR_CODES.VALIDATION_ERROR,
+              message: `分片数量不匹配：期望 ${task.totalParts} 个，实际 ${parts.length} 个`,
+            },
           },
-        },
-        400
-      );
+          400
+        );
+      }
+
+      try {
+        await s3CompleteMultipartUpload(bucketConfig, task.r2Key, task.uploadId, parts as MultipartPart[]);
+      } catch (s3Error: any) {
+        console.error('S3 Complete Multipart Upload Error:', s3Error);
+        await db.update(uploadTasks).set({ status: 'failed', updatedAt: now }).where(eq(uploadTasks.id, taskId));
+        return c.json(
+          {
+            success: false,
+            error: {
+              code: 'S3_ERROR',
+              message: `合并分片失败: ${s3Error.message || '未知错误'}`,
+            },
+          },
+          500
+        );
+      }
     }
+    // 小文件：文件已通过预签名 PUT 直传到 S3，无需合并步骤
 
     const fileId = crypto.randomUUID();
-    const now = new Date().toISOString();
     const path = task.parentId ? `${task.parentId}/${task.fileName}` : `/${task.fileName}`;
-
-    try {
-      await s3CompleteMultipartUpload(bucketConfig, task.r2Key, task.uploadId, parts as MultipartPart[]);
-    } catch (s3Error: any) {
-      console.error('S3 Complete Multipart Upload Error:', s3Error);
-      await db.update(uploadTasks).set({ status: 'failed', updatedAt: now }).where(eq(uploadTasks.id, taskId));
-      return c.json(
-        {
-          success: false,
-          error: {
-            code: 'S3_ERROR',
-            message: `合并分片失败: ${s3Error.message || '未知错误'}`,
-          },
-        },
-        500
-      );
-    }
 
     const { files } = await import('../db');
     await db.insert(files).values({
