@@ -145,8 +145,100 @@ export async function tgUploadFile(
 }
 
 /**
- * 获取文件的下载路径（用于流式下载）
+ * 流式上传文件到 Telegram（零复制转发）
+ * 与 tgUploadFile 区别：接受 ReadableStream 而非 ArrayBuffer，
+ * 避免在 Worker 内存中缓冲完整文件，防止 OOM。
+ * 用于 /telegram-part 端点将前端分片直接 pipe 到 TG Bot API。
  */
+export async function tgUploadStream(
+  config: TelegramBotConfig,
+  stream: ReadableStream<Uint8Array>,
+  fileName: string,
+  fileSize: number,
+  mimeType: string | null | undefined,
+  caption?: string
+): Promise<TgUploadResult> {
+  const method = selectSendMethod(mimeType);
+  const url = botUrl(config, method);
+  const fieldName = method === 'sendAudio' ? 'audio' : 'document';
+
+  // 构造 multipart boundary
+  const boundary = `----WKBoundary${crypto.randomUUID().replace(/-/g, '')}`;
+  const encoder = new TextEncoder();
+
+  // 前置 part headers
+  const preamble = [
+    `--${boundary}\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n${config.chatId}`,
+    `\r\n--${boundary}\r\nContent-Disposition: form-data; name="disable_notification"\r\n\r\ntrue`,
+    ...(caption ? [`\r\n--${boundary}\r\nContent-Disposition: form-data; name="caption"\r\n\r\n${caption.slice(0, 1024)}`] : []),
+    `\r\n--${boundary}\r\nContent-Disposition: form-data; name="${fieldName}"; filename="${encodeURIComponent(fileName)}"\r\nContent-Type: ${mimeType || 'application/octet-stream'}\r\n\r\n`,
+  ].join('');
+
+  const epilogue = `\r\n--${boundary}--\r\n`;
+  const preambleBytes = encoder.encode(preamble);
+  const epilogueBytes = encoder.encode(epilogue);
+  const totalLength = preambleBytes.byteLength + fileSize + epilogueBytes.byteLength;
+
+  // 将 preamble + stream + epilogue 合并为单一 ReadableStream
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  const writer = writable.getWriter();
+
+  // 异步写入，不阻塞主流程
+  (async () => {
+    try {
+      await writer.write(preambleBytes);
+      const reader = stream.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        await writer.write(value);
+      }
+      await writer.write(epilogueBytes);
+      await writer.close();
+    } catch (e) {
+      await writer.abort(e);
+    }
+  })();
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      'Content-Length': String(totalLength),
+    },
+    body: readable,
+    // @ts-ignore — Cloudflare Workers 支持 duplex fetch
+    duplex: 'half',
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Telegram API HTTP ${resp.status}: ${text}`);
+  }
+
+  const json = (await resp.json()) as any;
+  if (!json.ok) {
+    throw new Error(`Telegram API error: ${json.description || JSON.stringify(json)}`);
+  }
+
+  const msg = json.result;
+  let tgFileId: string | null = null;
+  let tgFileSize = 0;
+
+  if (msg.document) { tgFileId = msg.document.file_id; tgFileSize = msg.document.file_size || fileSize; }
+  else if (msg.audio) { tgFileId = msg.audio.file_id; tgFileSize = msg.audio.file_size || fileSize; }
+  else if (msg.video) { tgFileId = msg.video.file_id; tgFileSize = msg.video.file_size || fileSize; }
+  else if (msg.photo) {
+    const largest = (msg.photo as any[]).sort((a: any, b: any) => (b.file_size || 0) - (a.file_size || 0))[0];
+    tgFileId = largest.file_id; tgFileSize = largest.file_size || fileSize;
+  }
+
+  if (!tgFileId) throw new Error('Telegram 响应中未找到 file_id');
+
+  return { fileId: tgFileId, messageId: msg.message_id, fileSize: tgFileSize, mimeType: mimeType || undefined };
+}
+
+
 export async function tgGetFileInfo(config: TelegramBotConfig, tgFileId: string): Promise<TgFileInfo> {
   const url = botUrl(config, 'getFile');
   const resp = await fetch(url, {

@@ -636,17 +636,15 @@ async function telegramProxyUpload({
     const start = (partNumber - 1) * partSize;
     const end = Math.min(start + partSize, file.size);
     const chunk = file.slice(start, end);
+    const actualChunkSize = end - start;
 
-    const formData = new FormData();
-    formData.append('taskId', taskId);
-    formData.append('partNumber', String(partNumber));
-    formData.append('chunk', chunk, file.name);
+    const url = `${API_BASE}/api/tasks/telegram-part?taskId=${encodeURIComponent(taskId)}&partNumber=${partNumber}&chunkSize=${actualChunkSize}`;
 
     const res = await axios.post<{ success: boolean; error?: { message: string } }>(
-      `${API_BASE}/api/tasks/telegram-part`,
-      formData,
+      url,
+      chunk, // 裸二进制，无 multipart 开销
       {
-        headers: { ...authHeaders(), 'Content-Type': 'multipart/form-data' },
+        headers: { ...authHeaders(), 'Content-Type': 'application/octet-stream' },
         signal,
         onUploadProgress: (e) => {
           if (e.total && onProgress) {

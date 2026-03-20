@@ -39,6 +39,7 @@ import { resolveBucketConfig, updateBucketStats, checkBucketQuota } from '../lib
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 import {
   tgUploadFile,
+  tgUploadStream,
   TG_MAX_FILE_SIZE,
   TG_MAX_CHUNKED_FILE_SIZE,
   type TelegramBotConfig,
@@ -565,34 +566,28 @@ app.post('/part-proxy', async (c) => {
 });
 
 // ── POST /api/tasks/telegram-part ────────────────────────────────────────
-// 接收单个分片（≤49MB multipart/form-data），直接上传到 Telegram Bot API。
-// 前端循环调用，每片完成后调 /part-done 记录进度，全部完成后调 /complete。
+// 接收单个分片，流式转发到 Telegram Bot API（零内存缓冲）。
+// metadata（taskId / partNumber / chunkSize）通过 URL query 参数传递，
+// 请求体为裸二进制（application/octet-stream），直接 pipe 给 tgUploadStream。
 app.post('/telegram-part', async (c) => {
   const userId = c.get('userId')!;
-  const contentType = c.req.header('Content-Type') || '';
-  if (!contentType.includes('multipart/form-data')) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请使用 multipart/form-data' } },
-      400
-    );
-  }
 
-  const formData = await c.req.formData();
-  const taskId = formData.get('taskId') as string | null;
-  const partNumberStr = formData.get('partNumber') as string | null;
-  const chunkBlob = formData.get('chunk') as File | null;
+  const taskId = c.req.query('taskId');
+  const partNumberStr = c.req.query('partNumber');
+  const chunkSizeStr = c.req.query('chunkSize');
 
-  if (!taskId || !partNumberStr || !chunkBlob) {
+  if (!taskId || !partNumberStr || !chunkSizeStr) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少 taskId、partNumber 或 chunk' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少 taskId、partNumber 或 chunkSize 查询参数' } },
       400
     );
   }
 
   const partNumber = parseInt(partNumberStr, 10);
-  if (isNaN(partNumber) || partNumber < 1) {
+  const chunkSize = parseInt(chunkSizeStr, 10);
+  if (isNaN(partNumber) || partNumber < 1 || isNaN(chunkSize) || chunkSize < 1) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: 'partNumber 无效' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: 'partNumber 或 chunkSize 无效' } },
       400
     );
   }
@@ -638,13 +633,17 @@ app.post('/telegram-part', async (c) => {
     apiBase: bucket.endpoint || undefined,
   };
 
-  const chunkBuffer = await chunkBlob.arrayBuffer();
+  const bodyStream = c.req.raw.body;
+  if (!bodyStream) {
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请求体为空' } }, 400);
+  }
+
   const chunkFileName = `${task.fileName}.part${String(partNumber).padStart(3, '0')}`;
   const caption = `📦 ${task.fileName} [${partNumber}/${task.totalParts}]\n🗂 OSSshelf chunk | group:${groupId.slice(0, 8)}`;
 
   let tgFileId: string;
   try {
-    const result = await tgUploadFile(tgConfig, chunkBuffer, chunkFileName, task.mimeType, caption);
+    const result = await tgUploadStream(tgConfig, bodyStream, chunkFileName, chunkSize, task.mimeType, caption);
     tgFileId = result.fileId;
   } catch (e: any) {
     return c.json(
@@ -653,36 +652,21 @@ app.post('/telegram-part', async (c) => {
     );
   }
 
-  // 写入 telegram_file_chunks 表
   const now = new Date().toISOString();
   await (db as any).run(
     `INSERT OR REPLACE INTO telegram_file_chunks
        (id, group_id, chunk_index, tg_file_id, chunk_size, bucket_id, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [
-      crypto.randomUUID(),
-      groupId,
-      partNumber - 1, // chunk_index 为 0-based
-      tgFileId,
-      chunkBuffer.byteLength,
-      task.bucketId,
-      now,
-    ]
+    [crypto.randomUUID(), groupId, partNumber - 1, tgFileId, chunkSize, task.bucketId, now]
   );
 
-  // 更新 uploadedParts 进度（复用 part-done 格式）
   const uploadedParts: Array<{ partNumber: number; etag: string }> = JSON.parse(task.uploadedParts || '[]');
   if (!uploadedParts.some((p) => p.partNumber === partNumber)) {
     uploadedParts.push({ partNumber, etag: tgFileId });
     const progress = task.totalParts > 0 ? Math.round((uploadedParts.length / task.totalParts) * 100) : 0;
     await db
       .update(uploadTasks)
-      .set({
-        uploadedParts: JSON.stringify(uploadedParts),
-        status: 'uploading',
-        progress,
-        updatedAt: now,
-      })
+      .set({ uploadedParts: JSON.stringify(uploadedParts), status: 'uploading', progress, updatedAt: now })
       .where(eq(uploadTasks.id, taskId));
   }
 
