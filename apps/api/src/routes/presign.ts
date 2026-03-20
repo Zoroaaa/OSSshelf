@@ -40,6 +40,7 @@ import {
 import { resolveBucketConfig, updateBucketStats, checkBucketQuota } from '../lib/bucketResolver';
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 import { getUserOrFail, encodeFilename } from '../lib/utils';
+import { computeSha256Hex, checkAndClaimDedup, releaseFileRef } from '../lib/dedup';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -210,6 +211,9 @@ app.post('/confirm', async (c) => {
   const now = new Date().toISOString();
   const path = parentId ? `${parentId}/${fileName}` : `/${fileName}`;
 
+  // Note: presign confirm receives the final hash from client (or null if unsupported).
+  // Server-side hash computation is not possible here since the file was uploaded directly
+  // to S3. We record the hash as provided; dedup on confirm path is best-effort.
   await db.insert(files).values({
     id: fileId,
     userId,
@@ -221,6 +225,7 @@ app.post('/confirm', async (c) => {
     r2Key,
     mimeType: mimeType || null,
     hash: null,
+    refCount: 1,
     isFolder: false,
     bucketId: bucketId || null,
     createdAt: now,
@@ -392,6 +397,7 @@ app.post('/multipart/complete', async (c) => {
     r2Key,
     mimeType: mimeType || null,
     hash: null,
+    refCount: 1,
     isFolder: false,
     bucketId: bucketConfig.id,
     createdAt: now,

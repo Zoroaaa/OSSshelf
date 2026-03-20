@@ -25,8 +25,18 @@ import {
   tgUploadFile,
   tgDownloadFile,
   TG_MAX_FILE_SIZE,
+  TG_CHUNKED_THRESHOLD,
+  TG_MAX_CHUNKED_FILE_SIZE,
   type TelegramBotConfig,
 } from '../lib/telegramClient';
+import {
+  needsChunking,
+  tgUploadChunked,
+  tgDownloadChunked,
+  tgDeleteChunked,
+  isChunkedFileId,
+} from '../lib/telegramChunked';
+import { checkAndClaimDedup, releaseFileRef, computeSha256Hex } from '../lib/dedup';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -129,8 +139,10 @@ app.get('/:id/preview', async (c) => {
         return c.json({ success: false, error: { code: 'TG_CONFIG_ERROR', message: '无法加载 Telegram 配置' } }, 500);
       }
       try {
-        const tgResp = await tgDownloadFile(tgConfig, ref.tgFileId);
-        return new Response(tgResp.body, { headers: pvHeaders });
+        const body = isChunkedFileId(ref.tgFileId)
+          ? await tgDownloadChunked(tgConfig, ref.tgFileId, db)
+          : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
+        return new Response(body, { headers: pvHeaders });
       } catch (e: any) {
         return c.json({ success: false, error: { code: 'TG_DOWNLOAD_FAILED', message: e?.message } }, 502);
       }
@@ -212,14 +224,14 @@ app.post('/upload', async (c) => {
     if (bkt?.provider === 'telegram') isTelegramBucket = true;
   }
 
-  // Telegram 单文件 50MB 限制
-  if (isTelegramBucket && uploadFile.size > TG_MAX_FILE_SIZE) {
+  // Telegram 文件大小检查（分片上传最大 200MB；≤49MB 直接上传，>49MB 自动分片）
+  if (isTelegramBucket && uploadFile.size > TG_MAX_CHUNKED_FILE_SIZE) {
     return c.json(
       {
         success: false,
         error: {
           code: ERROR_CODES.FILE_TOO_LARGE,
-          message: `Telegram 存储桶单文件上限 50MB，当前文件 ${(uploadFile.size / 1024 / 1024).toFixed(1)}MB`,
+          message: `Telegram 存储桶文件上限 500MB，当前文件 ${(uploadFile.size / 1024 / 1024).toFixed(1)}MB`,
         },
       },
       413
@@ -240,48 +252,82 @@ app.post('/upload', async (c) => {
   const now = new Date().toISOString();
   const r2Key = `files/${userId}/${fileId}/${uploadFile.name}`;
   const path = parentId ? `${parentId}/${uploadFile.name}` : `/${uploadFile.name}`;
+  const finalBucketId = isTelegramBucket ? effectiveBucketId : (bucketConfig?.id ?? null);
 
-  if (isTelegramBucket && effectiveBucketId) {
-    // ── Telegram 上传路径 ────────────────────────────────────────────────
-    const tgConfig = await resolveTgBucketConfig(db, effectiveBucketId, encKey);
-    if (!tgConfig) {
-      return c.json({ success: false, error: { code: 'TG_CONFIG_ERROR', message: '无法加载 Telegram 配置' } }, 500);
+  // ── CoW 去重：单次读取 buffer，计算 hash，查找可复用对象 ───────────────
+  const fileBuffer = await uploadFile.arrayBuffer();
+  const hash = await computeSha256Hex(fileBuffer);
+  const dedupResult = await checkAndClaimDedup(db, hash, finalBucketId, userId);
+  const finalR2Key = dedupResult.isDuplicate ? dedupResult.existingR2Key! : r2Key;
+
+  if (!dedupResult.isDuplicate) {
+    // 未命中去重：正常写入存储后端
+    if (isTelegramBucket && effectiveBucketId) {
+      const tgConfig = await resolveTgBucketConfig(db, effectiveBucketId, encKey);
+      if (!tgConfig) {
+        return c.json({ success: false, error: { code: 'TG_CONFIG_ERROR', message: '无法加载 Telegram 配置' } }, 500);
+      }
+      let tgFileId: string;
+      let tgFileSize: number;
+      try {
+        if (needsChunking(fileBuffer.byteLength)) {
+          // 大文件：分片上传（每块 ≤49MB）
+          const chunked = await tgUploadChunked(tgConfig, fileBuffer, uploadFile.name, fileMime, db, effectiveBucketId);
+          tgFileId = chunked.virtualFileId;   // "chunked:{groupId}"
+          tgFileSize = chunked.totalBytes;
+        } else {
+          // 小文件：直接上传
+          const caption = `📁 ${uploadFile.name}\n🗂 OSSshelf | ${now.slice(0, 10)}`;
+          const result = await tgUploadFile(tgConfig, fileBuffer, uploadFile.name, fileMime, caption);
+          tgFileId = result.fileId;
+          tgFileSize = result.fileSize;
+        }
+      } catch (e: any) {
+        return c.json({ success: false, error: { code: 'TG_UPLOAD_FAILED', message: e?.message || 'Telegram 上传失败' } }, 502);
+      }
+      await db.insert(telegramFileRefs).values({
+        id: crypto.randomUUID(),
+        fileId,
+        r2Key: finalR2Key,
+        tgFileId,
+        tgFileSize,
+        bucketId: effectiveBucketId,
+        createdAt: now,
+      });
+    } else if (bucketConfig) {
+      await s3Put(bucketConfig, finalR2Key, fileBuffer, fileMime, {
+        userId,
+        originalName: uploadFile.name,
+      });
+    } else if (c.env.FILES) {
+      await c.env.FILES.put(finalR2Key, fileBuffer, {
+        httpMetadata: { contentType: fileMime },
+        customMetadata: { userId, originalName: uploadFile.name },
+      });
+    } else {
+      return c.json(
+        { success: false, error: { code: 'NO_STORAGE', message: '未配置存储桶，请先在「存储桶管理」中添加至少一个存储桶' } },
+        400
+      );
     }
-    const caption = `📁 ${uploadFile.name}\n🗂 OSSshelf | ${now.slice(0, 10)}`;
-    let tgResult;
-    try {
-      tgResult = await tgUploadFile(tgConfig, await uploadFile.arrayBuffer(), uploadFile.name, fileMime, caption);
-    } catch (e: any) {
-      return c.json({ success: false, error: { code: 'TG_UPLOAD_FAILED', message: e?.message || 'Telegram 上传失败' } }, 502);
+  } else if (isTelegramBucket && effectiveBucketId) {
+    // 去重命中 Telegram：为新 fileId 创建指向同一 tgFileId 的引用记录
+    const origRef = await db
+      .select()
+      .from(telegramFileRefs)
+      .where(eq(telegramFileRefs.r2Key, finalR2Key))
+      .get();
+    if (origRef) {
+      await db.insert(telegramFileRefs).values({
+        id: crypto.randomUUID(),
+        fileId,
+        r2Key: finalR2Key,
+        tgFileId: origRef.tgFileId,
+        tgFileSize: origRef.tgFileSize,
+        bucketId: effectiveBucketId,
+        createdAt: now,
+      });
     }
-    // 持久化 file_id 映射
-    await db.insert(telegramFileRefs).values({
-      id: crypto.randomUUID(),
-      fileId,
-      r2Key,
-      tgFileId: tgResult.fileId,
-      tgFileSize: tgResult.fileSize,
-      bucketId: effectiveBucketId,
-      createdAt: now,
-    });
-  } else if (bucketConfig) {
-    await s3Put(bucketConfig, r2Key, await uploadFile.arrayBuffer(), fileMime, {
-      userId,
-      originalName: uploadFile.name,
-    });
-  } else if (c.env.FILES) {
-    await c.env.FILES.put(r2Key, uploadFile.stream(), {
-      httpMetadata: { contentType: fileMime },
-      customMetadata: { userId, originalName: uploadFile.name },
-    });
-  } else {
-    return c.json(
-      {
-        success: false,
-        error: { code: 'NO_STORAGE', message: '未配置存储桶，请先在「存储桶管理」中添加至少一个存储桶' },
-      },
-      400
-    );
   }
 
   await db.insert(files).values({
@@ -292,11 +338,12 @@ app.post('/upload', async (c) => {
     path,
     type: 'file',
     size: uploadFile.size,
-    r2Key,
+    r2Key: finalR2Key,
     mimeType: fileMime || null,
-    hash: null,
+    hash,
+    refCount: 1,
     isFolder: false,
-    bucketId: isTelegramBucket ? effectiveBucketId : (bucketConfig?.id ?? null),
+    bucketId: finalBucketId,
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
@@ -308,11 +355,12 @@ app.post('/upload', async (c) => {
       .set({ storageUsed: user.storageUsed + uploadFile.size, updatedAt: now })
       .where(eq(users.id, userId));
   }
-  // Telegram 桶统计在 tgUploadFile 之后已通过 insert telegramFileRefs 记录，此处统一更新 bucket stats
+  // bucket stats：去重命中时物理存储未增加（sizeDelta=0），fileCount 仍 +1
+  const physicalSizeDelta = dedupResult.isDuplicate ? 0 : uploadFile.size;
   if (isTelegramBucket && effectiveBucketId) {
-    await updateBucketStats(db, effectiveBucketId, uploadFile.size, 1);
+    await updateBucketStats(db, effectiveBucketId, physicalSizeDelta, 1);
   } else if (bucketConfig) {
-    await updateBucketStats(db, bucketConfig.id, uploadFile.size, 1);
+    await updateBucketStats(db, bucketConfig.id, physicalSizeDelta, 1);
   }
 
   return c.json({
@@ -323,7 +371,8 @@ app.post('/upload', async (c) => {
       size: uploadFile.size,
       mimeType: fileMime,
       path,
-      bucketId: isTelegramBucket ? effectiveBucketId : (bucketConfig?.id ?? null),
+      bucketId: finalBucketId,
+      deduped: dedupResult.isDuplicate,
       createdAt: now,
     },
   });
@@ -460,8 +509,11 @@ app.delete('/trash/:id', async (c) => {
     .get();
   if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   if (!file.isFolder) {
-    await deleteFileFromStorage(c.env, db, userId, encKey, file);
-    // 更新用户存储配额
+    // CoW 引用计数：仅最后一个引用归零时才删除存储对象
+    const { shouldDeleteStorage } = await releaseFileRef(db, fileId);
+    if (shouldDeleteStorage) {
+      await deleteFileFromStorage(c.env, db, userId, encKey, file);
+    }
     const user = await db.select().from(users).where(eq(users.id, userId)).get();
     if (user) {
       await db
@@ -487,7 +539,11 @@ app.delete('/trash', async (c) => {
   let freedBytes = 0;
   for (const file of trashed) {
     if (!file.isFolder) {
-      await deleteFileFromStorage(c.env, db, userId, encKey, file);
+      // CoW 引用计数：仅最后一个引用归零时才删除存储对象
+      const { shouldDeleteStorage } = await releaseFileRef(db, file.id);
+      if (shouldDeleteStorage) {
+        await deleteFileFromStorage(c.env, db, userId, encKey, file);
+      }
       freedBytes += file.size;
     }
     await db.delete(files).where(eq(files.id, file.id));
@@ -851,8 +907,10 @@ app.get('/:id/download', async (c) => {
         return c.json({ success: false, error: { code: 'TG_CONFIG_ERROR', message: '无法加载 Telegram 配置' } }, 500);
       }
       try {
-        const tgResp = await tgDownloadFile(tgConfig, ref.tgFileId);
-        return new Response(tgResp.body, { headers: dlHeaders });
+        const body = isChunkedFileId(ref.tgFileId)
+          ? await tgDownloadChunked(tgConfig, ref.tgFileId, db)
+          : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
+        return new Response(body, { headers: dlHeaders });
       } catch (e: any) {
         return c.json({ success: false, error: { code: 'TG_DOWNLOAD_FAILED', message: e?.message || 'Telegram 下载失败' } }, 502);
       }
@@ -876,6 +934,11 @@ app.get('/:id/download', async (c) => {
  * 从对象存储中删除文件，更新 bucket 统计。
  * 注意：此函数不更新用户 storageUsed，由调用方统一批量更新以避免双重扣减。
  */
+/**
+ * 从对象存储中物理删除文件，并更新 bucket 统计。
+ * 此函数只应在 CoW ref_count 已归零时调用（由 releaseFileRef 判断）。
+ * 注意：不更新用户 storageUsed，由调用方统一处理。
+ */
 async function deleteFileFromStorage(
   env: Env,
   db: ReturnType<typeof getDb>,
@@ -883,11 +946,16 @@ async function deleteFileFromStorage(
   encKey: string,
   file: typeof files.$inferSelect
 ) {
-  // ── Telegram 桶删除：清理 DB 引用（Telegram 消息删除为尽力而为）──────
+  // ── Telegram 桶：清理 DB 引用（物理文件在 Telegram 服务器，无法强制删除）
   if (file.bucketId) {
     const bkt = await db.select().from(storageBuckets).where(eq(storageBuckets.id, file.bucketId)).get();
     if (bkt?.provider === 'telegram') {
-      await db.delete(telegramFileRefs).where(eq(telegramFileRefs.fileId, file.id));
+      // 清理分片记录（若为分片文件）
+      const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.r2Key, file.r2Key)).get();
+      if (ref && isChunkedFileId(ref.tgFileId)) {
+        await tgDeleteChunked(db, ref.tgFileId);
+      }
+      await db.delete(telegramFileRefs).where(eq(telegramFileRefs.r2Key, file.r2Key));
       await updateBucketStats(db, file.bucketId, -file.size, -1);
       return;
     }

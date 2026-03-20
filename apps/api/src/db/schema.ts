@@ -46,6 +46,7 @@ export const files = sqliteTable(
     hash: text('hash'),
     isFolder: integer('is_folder', { mode: 'boolean' }).default(false).notNull(),
     allowedMimeTypes: text('allowed_mime_types'),
+    refCount: integer('ref_count').default(1).notNull(),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
     deletedAt: text('deleted_at'),
@@ -77,12 +78,20 @@ export const shares = sqliteTable(
     expiresAt: text('expires_at'),
     downloadLimit: integer('download_limit'),
     downloadCount: integer('download_count').default(0).notNull(),
+    isUploadLink: integer('is_upload_link', { mode: 'boolean' }).default(false).notNull(),
+    uploadToken: text('upload_token').unique(),
+    maxUploadSize: integer('max_upload_size'),
+    uploadAllowedMimeTypes: text('upload_allowed_mime_types'),
+    maxUploadCount: integer('max_upload_count'),
+    uploadCount: integer('upload_count').default(0).notNull(),
     createdAt: text('created_at').notNull(),
   },
   (table) => ({
     expiresIdx: index('idx_shares_expires').on(table.expiresAt),
     userCreatedIdx: index('idx_shares_user_created').on(table.userId, table.createdAt),
     fileActiveIdx: index('idx_shares_file_active').on(table.fileId, table.expiresAt),
+    uploadTokenIdx: index('idx_shares_upload_token').on(table.uploadToken),
+    uploadLinkIdx: index('idx_shares_upload_link').on(table.userId, table.isUploadLink),
   })
 );
 

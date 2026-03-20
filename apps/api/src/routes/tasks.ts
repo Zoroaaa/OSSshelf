@@ -39,8 +39,10 @@ import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 import {
   tgUploadFile,
   TG_MAX_FILE_SIZE,
+  TG_MAX_CHUNKED_FILE_SIZE,
   type TelegramBotConfig,
 } from '../lib/telegramClient';
+import { needsChunking, tgUploadChunked } from '../lib/telegramChunked';
 import { decryptSecret } from '../lib/s3client';
 import { getUserOrFail, encodeFilename } from '../lib/utils';
 
@@ -125,14 +127,14 @@ app.post('/create', async (c) => {
 
   // ── Telegram 桶：返回特殊标记，让前端走代理上传路径 ──────────────────
   if (bucketConfig.provider === 'telegram') {
-    // 检查文件大小限制
-    if (fileSize > TG_MAX_FILE_SIZE) {
+    // 检查文件大小限制（分片上传支持最大 200MB）
+    if (fileSize > TG_MAX_CHUNKED_FILE_SIZE) {
       return c.json(
         {
           success: false,
           error: {
             code: ERROR_CODES.FILE_TOO_LARGE,
-            message: `Telegram 存储桶单文件上限 50MB，当前文件 ${(fileSize / 1024 / 1024).toFixed(1)}MB`,
+            message: `Telegram 存储桶文件上限 500MB，当前文件 ${(fileSize / 1024 / 1024).toFixed(1)}MB`,
           },
         },
         413
@@ -588,21 +590,32 @@ app.post('/telegram-upload', async (c) => {
   };
 
   const now = new Date().toISOString();
-  const caption = `📁 ${task.fileName}\n🗂 OSSshelf | ${now.slice(0, 10)}`;
-
-  let tgResult;
-  try {
-    const fileBuffer = await fileBlob.arrayBuffer();
-    tgResult = await tgUploadFile(tgConfig, fileBuffer, task.fileName, task.mimeType, caption);
-  } catch (e: any) {
-    await db.update(uploadTasks).set({ status: 'failed', updatedAt: now }).where(eq(uploadTasks.id, taskId));
-    return c.json({ success: false, error: { code: 'TG_UPLOAD_FAILED', message: e?.message || 'Telegram 上传失败' } }, 502);
-  }
 
   // 生成 fileId（使用 r2Key 中内嵌的那个 UUID 保持一致）
   const r2KeyParts = task.r2Key.split('/');
   const fileId = r2KeyParts[2] || crypto.randomUUID();
   const path = task.parentId ? `${task.parentId}/${task.fileName}` : `/${task.fileName}`;
+
+  let tgFileId: string;
+  let tgFileSize: number;
+  try {
+    const fileBuffer = await fileBlob.arrayBuffer();
+    if (needsChunking(fileBuffer.byteLength)) {
+      // 大文件（>49MB）：自动分片上传
+      const chunked = await tgUploadChunked(tgConfig, fileBuffer, task.fileName, task.mimeType, db, task.bucketId!);
+      tgFileId = chunked.virtualFileId;   // "chunked:{groupId}"
+      tgFileSize = chunked.totalBytes;
+    } else {
+      // 常规文件：直接上传
+      const caption = `📁 ${task.fileName}\n🗂 OSSshelf | ${now.slice(0, 10)}`;
+      const result = await tgUploadFile(tgConfig, fileBuffer, task.fileName, task.mimeType, caption);
+      tgFileId = result.fileId;
+      tgFileSize = result.fileSize;
+    }
+  } catch (e: any) {
+    await db.update(uploadTasks).set({ status: 'failed', updatedAt: now }).where(eq(uploadTasks.id, taskId));
+    return c.json({ success: false, error: { code: 'TG_UPLOAD_FAILED', message: e?.message || 'Telegram 上传失败' } }, 502);
+  }
 
   // 写入 files 表
   await db.insert(files).values({
@@ -616,6 +629,7 @@ app.post('/telegram-upload', async (c) => {
     r2Key: task.r2Key,
     mimeType: task.mimeType,
     hash: null,
+    refCount: 1,
     isFolder: false,
     bucketId: task.bucketId,
     createdAt: now,
@@ -623,13 +637,13 @@ app.post('/telegram-upload', async (c) => {
     deletedAt: null,
   });
 
-  // 写入 telegram_file_refs
+  // 写入 telegram_file_refs（tgFileId 可能是普通 file_id 或 "chunked:{groupId}"）
   await db.insert(telegramFileRefs).values({
     id: crypto.randomUUID(),
     fileId,
     r2Key: task.r2Key,
-    tgFileId: tgResult.fileId,
-    tgFileSize: tgResult.fileSize,
+    tgFileId,
+    tgFileSize,
     bucketId: task.bucketId!,
     createdAt: now,
   });
@@ -772,6 +786,7 @@ app.post('/complete', async (c) => {
       r2Key: task.r2Key,
       mimeType: task.mimeType,
       hash: null,
+      refCount: 1,
       isFolder: false,
       bucketId: task.bucketId,
       createdAt: now,
