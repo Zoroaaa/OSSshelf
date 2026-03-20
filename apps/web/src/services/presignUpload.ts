@@ -126,7 +126,8 @@ async function singlePresignUpload(
     isSmallFile?: boolean;
     useProxy?: boolean;
     isTelegramUpload?: boolean;
-    proxyUploadUrl?: string;
+    totalParts?: number;
+    partSize?: number;
   }>('/api/tasks/create', {
     fileName: file.name,
     fileSize: file.size,
@@ -136,7 +137,14 @@ async function singlePresignUpload(
   });
 
   if (init.isTelegramUpload) {
-    return telegramProxyUpload({ file, taskId: init.taskId, onProgress, signal });
+    return telegramProxyUpload({
+      file,
+      taskId: init.taskId,
+      totalParts: init.totalParts ?? 1,
+      partSize: init.partSize ?? file.size,
+      onProgress,
+      signal,
+    });
   }
 
   if (init.useProxy) {
@@ -243,9 +251,16 @@ async function multipartUpload(
       }
     );
 
-    // Telegram 上传走专门的代理端点
+    // Telegram 上传走专门的分片端点
     if ((init as any).isTelegramUpload) {
-      return telegramProxyUpload({ file, taskId: (init as any).taskId, onProgress, signal });
+      return telegramProxyUpload({
+        file,
+        taskId: (init as any).taskId,
+        totalParts: (init as any).totalParts ?? 1,
+        partSize: (init as any).partSize ?? file.size,
+        onProgress,
+        signal,
+      });
     }
 
     // 检查是否返回了 useProxy（兼容旧逻辑）
@@ -597,115 +612,81 @@ async function proxyUpload({
 interface TelegramProxyUploadOptions {
   file: File;
   taskId: string;
+  totalParts: number;
+  partSize: number;
   onProgress?: (percent: number) => void;
   signal?: AbortSignal;
 }
 
-interface TelegramTaskStatus {
-  id: string;
-  status: 'pending' | 'uploading' | 'completed' | 'failed' | 'expired' | 'aborted';
-  progress: number;
-  errorMessage?: string;
-  fileName: string;
-  fileSize: number;
-  mimeType?: string | null;
-  bucketId?: string;
-}
-
-interface TelegramUploadResponse {
-  success: boolean;
-  data: { taskId: string; status: string; message: string };
-  error?: { message: string };
-}
-
-const TG_POLL_INTERVAL = 1000;
-const TG_UPLOAD_PHASE_RATIO = 0.1;
-const MAX_POLL_ATTEMPTS = 3600;
-
 async function telegramProxyUpload({
   file,
   taskId,
+  totalParts,
+  partSize,
   onProgress,
   signal,
 }: TelegramProxyUploadOptions): Promise<UploadedFile> {
   if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
 
-  const formData = new FormData();
-  formData.append('taskId', taskId);
-  formData.append('file', file);
+  await apiPost('/api/tasks/start', { taskId }).catch(() => {});
 
-  const uploadRes = await axios.post<TelegramUploadResponse>(`${API_BASE}/api/tasks/telegram-upload`, formData, {
-    headers: { ...authHeaders(), 'Content-Type': 'multipart/form-data' },
-    signal,
-    onUploadProgress: (e) => {
-      if (e.total && onProgress) {
-        const frontendProgress = Math.round((e.loaded / e.total) * 100 * TG_UPLOAD_PHASE_RATIO);
-        onProgress(frontendProgress);
-      }
-    },
-  });
-
-  if (!uploadRes.data.success) {
-    throw new Error(uploadRes.data.error?.message || 'Telegram 上传启动失败');
-  }
-
-  return pollTelegramUploadProgress({ taskId, onProgress, signal });
-}
-
-async function pollTelegramUploadProgress({
-  taskId,
-  onProgress,
-  signal,
-}: {
-  taskId: string;
-  onProgress?: (percent: number) => void;
-  signal?: AbortSignal;
-}): Promise<UploadedFile> {
-  let lastProgress = Math.round(TG_UPLOAD_PHASE_RATIO * 100);
-  let attempts = 0;
-
-  while (attempts < MAX_POLL_ATTEMPTS) {
-    attempts++;
+  for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
     if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
 
-    const statusRes = await apiGet<TelegramTaskStatus>(`/api/tasks/${taskId}`);
-    const { status, progress, errorMessage } = statusRes;
+    const start = (partNumber - 1) * partSize;
+    const end = Math.min(start + partSize, file.size);
+    const chunk = file.slice(start, end);
 
-    const displayProgress = Math.round(TG_UPLOAD_PHASE_RATIO * 100 + progress * (1 - TG_UPLOAD_PHASE_RATIO));
-    if (displayProgress !== lastProgress && onProgress) {
-      onProgress(displayProgress);
-      lastProgress = displayProgress;
+    const formData = new FormData();
+    formData.append('taskId', taskId);
+    formData.append('partNumber', String(partNumber));
+    formData.append('chunk', chunk, file.name);
+
+    const res = await axios.post<{ success: boolean; error?: { message: string } }>(
+      `${API_BASE}/api/tasks/telegram-part`,
+      formData,
+      {
+        headers: { ...authHeaders(), 'Content-Type': 'multipart/form-data' },
+        signal,
+        onUploadProgress: (e) => {
+          if (e.total && onProgress) {
+            const partProgress = e.loaded / e.total;
+            const overall = Math.round(((partNumber - 1 + partProgress) / totalParts) * 100);
+            onProgress(Math.min(overall, 99));
+          }
+        },
+      }
+    );
+
+    if (!res.data.success) {
+      throw new Error(res.data.error?.message || `分片 ${partNumber} 上传失败`);
     }
-
-    if (status === 'completed') {
-      onProgress?.(100);
-      return {
-        id: taskId,
-        name: statusRes.fileName,
-        size: statusRes.fileSize,
-        mimeType: statusRes.mimeType || 'application/octet-stream',
-        path: '',
-        bucketId: statusRes.bucketId || '',
-        createdAt: new Date().toISOString(),
-      };
-    }
-
-    if (status === 'failed') {
-      throw new Error(errorMessage || 'Telegram 上传失败');
-    }
-
-    if (status === 'expired' || status === 'aborted') {
-      throw new Error(`上传任务${status === 'expired' ? '已过期' : '已取消'}`);
-    }
-
-    await sleep(TG_POLL_INTERVAL);
   }
 
-  throw new Error('上传超时，请稍后重试');
-}
+  // 全部分片完成，通知服务端写入 DB
+  const completeRes = await apiPost<{
+    id: string;
+    name: string;
+    size: number;
+    mimeType?: string | null;
+    path: string;
+    bucketId: string;
+    createdAt: string;
+  }>('/api/tasks/complete', {
+    taskId,
+    parts: [], // telegram-chunked 分支不依赖 parts 参数
+  });
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  onProgress?.(100);
+  return {
+    id: completeRes.id || taskId,
+    name: completeRes.name || file.name,
+    size: completeRes.size || file.size,
+    mimeType: completeRes.mimeType || file.type || 'application/octet-stream',
+    path: completeRes.path || '',
+    bucketId: completeRes.bucketId || '',
+    createdAt: completeRes.createdAt || new Date().toISOString(),
+  };
 }
 
 // ── Presigned download/preview URL helpers ─────────────────────────────────
