@@ -65,25 +65,18 @@ const uploadPartSchema = z.object({
   partNumber: z.number().int().min(1).max(10000),
 });
 
-const completeTaskSchema = z
-  .object({
-    taskId: z.string().min(1),
-    parts: z
-      .array(
-        z.object({
-          partNumber: z.number().int().min(1),
-          etag: z.string().min(1, 'etag 不能为空'),
-        })
-      )
-      .min(1),
-  })
-  .refine(
-    (data) => {
-      const hasEmptyEtag = data.parts.some((p) => !p.etag || p.etag.trim() === '');
-      return !hasEmptyEtag;
-    },
-    { message: '所有分片的 etag 不能为空' }
-  );
+const completeTaskSchema = z.object({
+  taskId: z.string().min(1),
+  parts: z
+    .array(
+      z.object({
+        partNumber: z.number().int().min(1),
+        etag: z.string().min(1, 'etag 不能为空'),
+      })
+    )
+    .min(0)
+    .default([]),
+});
 
 app.post('/create', async (c) => {
   const userId = c.get('userId')!;
@@ -1032,7 +1025,14 @@ app.post('/complete', async (c) => {
     }
 
     if (!isSmallFile) {
-      // 大文件：校验分片数量并合并
+      // 大文件：校验分片数量、etag 完整性并合并
+      const hasEmptyEtag = parts.some((p) => !p.etag || p.etag.trim() === '');
+      if (hasEmptyEtag) {
+        return c.json(
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '所有分片的 etag 不能为空' } },
+          400
+        );
+      }
       if (parts.length !== task.totalParts) {
         console.warn(`Parts count mismatch: expected ${task.totalParts}, got ${parts.length}`);
         return c.json(
