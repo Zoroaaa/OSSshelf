@@ -415,6 +415,19 @@ app.post('/part', async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '上传任务已过期' } }, 410);
   }
 
+  if (task.uploadId === 'telegram') {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.VALIDATION_ERROR,
+          message: 'Telegram 存储桶不支持分片预签名，请使用 /api/tasks/telegram-upload 端点',
+        },
+      },
+      400
+    );
+  }
+
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, task.bucketId, null);
   if (!bucketConfig) {
     return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶配置不存在' } }, 400);
@@ -541,7 +554,10 @@ app.post('/telegram-upload', async (c) => {
   const userId = c.get('userId')!;
   const contentType = c.req.header('Content-Type') || '';
   if (!contentType.includes('multipart/form-data')) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请使用 multipart/form-data' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请使用 multipart/form-data' } },
+      400
+    );
   }
 
   const formData = await c.req.formData();
@@ -549,7 +565,10 @@ app.post('/telegram-upload', async (c) => {
   const fileBlob = formData.get('file') as File | null;
 
   if (!taskId || !fileBlob) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少 taskId 或 file' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少 taskId 或 file' } },
+      400
+    );
   }
 
   const db = getDb(c.env.DB);
@@ -565,7 +584,10 @@ app.post('/telegram-upload', async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
   }
   if (task.uploadId !== 'telegram') {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '非 Telegram 上传任务' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '非 Telegram 上传任务' } },
+      400
+    );
   }
   if (new Date(task.expiresAt) < new Date()) {
     return c.json({ success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '上传任务已过期' } }, 410);
@@ -603,7 +625,7 @@ app.post('/telegram-upload', async (c) => {
     if (needsChunking(fileBuffer.byteLength)) {
       // 大文件（>49MB）：自动分片上传
       const chunked = await tgUploadChunked(tgConfig, fileBuffer, task.fileName, task.mimeType, db, task.bucketId!);
-      tgFileId = chunked.virtualFileId;   // "chunked:{groupId}"
+      tgFileId = chunked.virtualFileId; // "chunked:{groupId}"
       tgFileSize = chunked.totalBytes;
     } else {
       // 常规文件：直接上传
@@ -614,7 +636,10 @@ app.post('/telegram-upload', async (c) => {
     }
   } catch (e: any) {
     await db.update(uploadTasks).set({ status: 'failed', updatedAt: now }).where(eq(uploadTasks.id, taskId));
-    return c.json({ success: false, error: { code: 'TG_UPLOAD_FAILED', message: e?.message || 'Telegram 上传失败' } }, 502);
+    return c.json(
+      { success: false, error: { code: 'TG_UPLOAD_FAILED', message: e?.message || 'Telegram 上传失败' } },
+      502
+    );
   }
 
   // 写入 files 表
@@ -651,7 +676,10 @@ app.post('/telegram-upload', async (c) => {
   // 更新用户存储用量 & 桶统计
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
   if (user) {
-    await db.update(users).set({ storageUsed: user.storageUsed + task.fileSize, updatedAt: now }).where(eq(users.id, userId));
+    await db
+      .update(users)
+      .set({ storageUsed: user.storageUsed + task.fileSize, updatedAt: now })
+      .where(eq(users.id, userId));
   }
   await updateBucketStats(db, task.bucketId!, task.fileSize, 1);
 

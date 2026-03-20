@@ -15,6 +15,58 @@ import { Folder, ChevronRight, Loader2, Upload } from 'lucide-react';
 import { cn } from '@/utils';
 import type { FileItem } from '@osshelf/shared';
 
+interface FolderItemProps {
+  folder: FileItem;
+  selectedId: string | null;
+  depth: number;
+  onSelect: (id: string, name: string) => void;
+}
+
+function FolderItem({ folder, selectedId, depth, onSelect }: FolderItemProps) {
+  const [subExpanded, setSubExpanded] = useState(false);
+  const isSelected = selectedId === folder.id;
+
+  return (
+    <div>
+      <div
+        className={cn(
+          'flex items-center gap-1 px-2 py-1.5 rounded-md transition-colors',
+          isSelected ? 'bg-primary/10 text-primary' : 'hover:bg-accent'
+        )}
+      >
+        <button
+          className="flex-shrink-0 p-0.5 text-muted-foreground hover:text-foreground rounded"
+          onClick={(e) => {
+            e.stopPropagation();
+            setSubExpanded((v) => !v);
+          }}
+        >
+          <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', subExpanded && 'rotate-90')} />
+        </button>
+        <button
+          className="flex-1 flex items-center gap-2 text-sm text-left min-w-0"
+          onClick={() => onSelect(folder.id, folder.name)}
+          style={{ paddingLeft: depth * 8 }}
+        >
+          <Folder className="h-4 w-4 flex-shrink-0 text-amber-400" />
+          <span className="truncate">{folder.name}</span>
+        </button>
+      </div>
+      {subExpanded && (
+        <div className="ml-4">
+          <FolderNode
+            parentId={folder.id}
+            selectedId={selectedId}
+            selectedName=""
+            onSelect={onSelect}
+            depth={depth + 1}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface FolderNodeProps {
   parentId: string | null;
   selectedId: string | null;
@@ -23,7 +75,7 @@ interface FolderNodeProps {
   depth: number;
 }
 
-function FolderNode({ parentId, selectedId, selectedName: _sn, onSelect, depth }: FolderNodeProps) {
+function FolderNode({ parentId, selectedId, depth, onSelect }: FolderNodeProps) {
   const [expanded, setExpanded] = useState(depth === 0);
 
   const { data: items = [], isLoading } = useQuery<FileItem[]>({
@@ -43,54 +95,24 @@ function FolderNode({ parentId, selectedId, selectedName: _sn, onSelect, depth }
   }
 
   if (folders.length === 0 && depth === 0) {
+    return <div className="py-6 text-center text-sm text-muted-foreground">暂无文件夹，请先创建文件夹</div>;
+  }
+
+  if (!expanded && depth === 0) {
     return (
-      <div className="py-6 text-center text-sm text-muted-foreground">
-        暂无文件夹，请先创建文件夹
+      <div className="p-2">
+        <button className="text-sm text-primary hover:underline" onClick={() => setExpanded(true)}>
+          点击加载文件夹列表
+        </button>
       </div>
     );
   }
 
   return (
     <div>
-      {folders.map((folder) => {
-        const isSelected = selectedId === folder.id;
-        const [subExpanded, setSubExpanded] = useState(false);
-
-        return (
-          <div key={folder.id}>
-            <div className={cn(
-              'flex items-center gap-1 px-2 py-1.5 rounded-md transition-colors',
-              isSelected ? 'bg-primary/10 text-primary' : 'hover:bg-accent'
-            )}>
-              <button
-                className="flex-shrink-0 p-0.5 text-muted-foreground hover:text-foreground rounded"
-                onClick={(e) => { e.stopPropagation(); setSubExpanded((v) => !v); }}
-              >
-                <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', subExpanded && 'rotate-90')} />
-              </button>
-              <button
-                className="flex-1 flex items-center gap-2 text-sm text-left min-w-0"
-                onClick={() => onSelect(folder.id, folder.name)}
-                style={{ paddingLeft: depth * 8 }}
-              >
-                <Folder className="h-4 w-4 flex-shrink-0 text-amber-400" />
-                <span className="truncate">{folder.name}</span>
-              </button>
-            </div>
-            {subExpanded && (
-              <div className="ml-4">
-                <FolderNode
-                  parentId={folder.id}
-                  selectedId={selectedId}
-                  selectedName=""
-                  onSelect={onSelect}
-                  depth={depth + 1}
-                />
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {folders.map((folder) => (
+        <FolderItem key={folder.id} folder={folder} selectedId={selectedId} depth={depth} onSelect={onSelect} />
+      ))}
     </div>
   );
 }

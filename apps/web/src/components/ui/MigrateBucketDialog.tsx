@@ -13,10 +13,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { bucketsApi, migrateApi, type StorageBucket, type MigrationStatus } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { formatBytes } from '@/utils';
-import {
-  ArrowRight, Loader2, CheckCircle2, XCircle, AlertCircle,
-  ArrowRightLeft, X,
-} from 'lucide-react';
+import { ArrowRight, Loader2, CheckCircle2, XCircle, AlertCircle, ArrowRightLeft, X } from 'lucide-react';
 
 interface Props {
   /** 预填的来源存储桶 ID（可选） */
@@ -66,7 +63,8 @@ export function MigrateBucketDialog({ defaultSourceId, fileIds, onClose }: Props
 
   const canStart = sourceId && targetId && sourceId !== targetId && !migrationId;
   const isRunning = migStatus?.status === 'running';
-  const isDone = migStatus?.status === 'completed' || migStatus?.status === 'failed' || migStatus?.status === 'cancelled';
+  const isDone =
+    migStatus?.status === 'completed' || migStatus?.status === 'failed' || migStatus?.status === 'cancelled';
 
   const pct = migStatus ? Math.round(((migStatus.done + migStatus.failed) / Math.max(1, migStatus.total)) * 100) : 0;
 
@@ -155,7 +153,13 @@ export function MigrateBucketDialog({ defaultSourceId, fileIds, onClose }: Props
           <div className="space-y-3">
             <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">
-                {isRunning ? '迁移中...' : migStatus.status === 'completed' ? '迁移完成' : migStatus.status === 'cancelled' ? '已取消' : '迁移失败'}
+                {isRunning
+                  ? '迁移中...'
+                  : migStatus.status === 'completed'
+                    ? '迁移完成'
+                    : migStatus.status === 'cancelled'
+                      ? '已取消'
+                      : '迁移失败'}
               </span>
               <span className="font-medium tabular-nums">
                 {migStatus.done + migStatus.failed} / {migStatus.total}
@@ -165,8 +169,11 @@ export function MigrateBucketDialog({ defaultSourceId, fileIds, onClose }: Props
             <div className="h-2 bg-muted rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-300 ${
-                  migStatus.status === 'failed' ? 'bg-red-500' :
-                  migStatus.status === 'completed' ? 'bg-emerald-500' : 'bg-primary'
+                  migStatus.status === 'failed'
+                    ? 'bg-red-500'
+                    : migStatus.status === 'completed'
+                      ? 'bg-emerald-500'
+                      : 'bg-primary'
                 }`}
                 style={{ width: `${pct}%` }}
               />
@@ -204,28 +211,30 @@ export function MigrateBucketDialog({ defaultSourceId, fileIds, onClose }: Props
         <div className="flex justify-end gap-2 pt-1">
           {!migrationId && (
             <>
-              <Button variant="outline" onClick={onClose}>取消</Button>
+              <Button variant="outline" onClick={onClose}>
+                取消
+              </Button>
               <Button onClick={() => startMutation.mutate()} disabled={!canStart || startMutation.isPending}>
-                {startMutation.isPending
-                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> 启动中...</>
-                  : <><ArrowRightLeft className="h-4 w-4 mr-2" /> 开始迁移</>}
+                {startMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" /> 启动中...
+                  </>
+                ) : (
+                  <>
+                    <ArrowRightLeft className="h-4 w-4 mr-2" /> 开始迁移
+                  </>
+                )}
               </Button>
             </>
           )}
 
           {migrationId && isRunning && (
-            <Button
-              variant="outline"
-              onClick={() => cancelMutation.mutate()}
-              disabled={cancelMutation.isPending}
-            >
+            <Button variant="outline" onClick={() => cancelMutation.mutate()} disabled={cancelMutation.isPending}>
               {cancelMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : '取消迁移'}
             </Button>
           )}
 
-          {migrationId && isDone && (
-            <Button onClick={onClose}>关闭</Button>
-          )}
+          {migrationId && isDone && <Button onClick={onClose}>关闭</Button>}
         </div>
       </div>
     </div>

@@ -62,9 +62,7 @@ export function useFolderUpload({
         }
       }
 
-      const sortedFolderPaths = [...folderPaths].sort(
-        (a, b) => a.split('/').length - b.split('/').length
-      );
+      const sortedFolderPaths = [...folderPaths].sort((a, b) => a.split('/').length - b.split('/').length);
 
       const folderIdMap = new Map<string, string>();
 
@@ -174,9 +172,7 @@ export function useFolderUpload({
 
       if (files.length === 0 && folderPaths.size === 0) return;
 
-      const sortedFolderPaths = [...folderPaths].sort(
-        (a, b) => a.split('/').length - b.split('/').length
-      );
+      const sortedFolderPaths = [...folderPaths].sort((a, b) => a.split('/').length - b.split('/').length);
 
       const folderIdMap = new Map<string, string>();
 

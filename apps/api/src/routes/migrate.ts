@@ -23,19 +23,8 @@ import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
 import { getEncryptionKey } from '../lib/crypto';
 import { resolveBucketConfig, updateBucketStats } from '../lib/bucketResolver';
-import {
-  s3Get,
-  s3Put,
-  s3Delete,
-  decryptSecret,
-  makeBucketConfigAsync,
-  type S3BucketConfig,
-} from '../lib/s3client';
-import {
-  tgUploadFile,
-  tgDownloadFile,
-  type TelegramBotConfig,
-} from '../lib/telegramClient';
+import { s3Get, s3Put, s3Delete, decryptSecret, makeBucketConfigAsync, type S3BucketConfig } from '../lib/s3client';
+import { tgUploadFile, tgDownloadFile, type TelegramBotConfig } from '../lib/telegramClient';
 import {
   isChunkedFileId,
   tgDownloadChunked,
@@ -104,11 +93,7 @@ const startMigrateSchema = z.object({
 });
 
 // ── Helper: 递归收集文件夹下所有文件 ID ────────────────────────────────────
-async function collectFileIds(
-  db: ReturnType<typeof getDb>,
-  userId: string,
-  ids: string[]
-): Promise<string[]> {
+async function collectFileIds(db: ReturnType<typeof getDb>, userId: string, ids: string[]): Promise<string[]> {
   const result: string[] = [];
   const queue = [...ids];
 
@@ -135,21 +120,12 @@ async function collectFileIds(
 }
 
 // ── Helper: 收集 sourceBucketId 下所有文件 ID ──────────────────────────────
-async function collectBucketFileIds(
-  db: ReturnType<typeof getDb>,
-  userId: string,
-  bucketId: string
-): Promise<string[]> {
+async function collectBucketFileIds(db: ReturnType<typeof getDb>, userId: string, bucketId: string): Promise<string[]> {
   const rows = await db
     .select({ id: files.id })
     .from(files)
     .where(
-      and(
-        eq(files.userId, userId),
-        eq(files.bucketId, bucketId),
-        eq(files.isFolder, false),
-        isNull(files.deletedAt)
-      )
+      and(eq(files.userId, userId), eq(files.bucketId, bucketId), eq(files.isFolder, false), isNull(files.deletedAt))
     )
     .all();
   return rows.map((r) => r.id);
@@ -161,11 +137,7 @@ async function resolveTgConfig(
   bucketId: string,
   encKey: string
 ): Promise<TelegramBotConfig | null> {
-  const bucket = await db
-    .select()
-    .from(storageBuckets)
-    .where(eq(storageBuckets.id, bucketId))
-    .get();
+  const bucket = await db.select().from(storageBuckets).where(eq(storageBuckets.id, bucketId)).get();
   if (!bucket || bucket.provider !== 'telegram') return null;
   const botToken = await decryptSecret(bucket.accessKeyId, encKey);
   return {
@@ -203,12 +175,16 @@ app.post('/start', async (c) => {
     db
       .select()
       .from(storageBuckets)
-      .where(and(eq(storageBuckets.id, sourceBucketId), eq(storageBuckets.userId, userId), eq(storageBuckets.isActive, true)))
+      .where(
+        and(eq(storageBuckets.id, sourceBucketId), eq(storageBuckets.userId, userId), eq(storageBuckets.isActive, true))
+      )
       .get(),
     db
       .select()
       .from(storageBuckets)
-      .where(and(eq(storageBuckets.id, targetBucketId), eq(storageBuckets.userId, userId), eq(storageBuckets.isActive, true)))
+      .where(
+        and(eq(storageBuckets.id, targetBucketId), eq(storageBuckets.userId, userId), eq(storageBuckets.isActive, true))
+      )
       .get(),
   ]);
 
@@ -271,9 +247,7 @@ app.post('/start', async (c) => {
   });
 
   // 使用 ctx.waitUntil 异步执行迁移，立即返回 migrationId
-  c.executionCtx.waitUntil(
-    runMigration(c.env, db, userId, encKey, migrationId, tgtBucket.provider, deleteSource)
-  );
+  c.executionCtx.waitUntil(runMigration(c.env, db, userId, encKey, migrationId, tgtBucket.provider, deleteSource));
 
   return c.json({
     success: true,
@@ -313,7 +287,10 @@ app.post('/:migrationId/cancel', async (c) => {
   const status: MigrationStatus = JSON.parse(raw);
   if (status.status !== 'running') {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: `任务状态为 ${status.status}，无法取消` } },
+      {
+        success: false,
+        error: { code: ERROR_CODES.VALIDATION_ERROR, message: `任务状态为 ${status.status}，无法取消` },
+      },
       400
     );
   }
@@ -346,19 +323,11 @@ async function runMigration(
   const raw = await env.KV.get(kKey);
   if (!raw) return;
 
-  let status: MigrationStatus = JSON.parse(raw);
+  const status: MigrationStatus = JSON.parse(raw);
 
   // 预加载桶配置
-  const srcBucketRow = await db
-    .select()
-    .from(storageBuckets)
-    .where(eq(storageBuckets.id, status.sourceBucketId))
-    .get();
-  const tgtBucketRow = await db
-    .select()
-    .from(storageBuckets)
-    .where(eq(storageBuckets.id, status.targetBucketId))
-    .get();
+  const srcBucketRow = await db.select().from(storageBuckets).where(eq(storageBuckets.id, status.sourceBucketId)).get();
+  const tgtBucketRow = await db.select().from(storageBuckets).where(eq(storageBuckets.id, status.targetBucketId)).get();
 
   if (!srcBucketRow || !tgtBucketRow) {
     status.status = 'failed';
@@ -367,18 +336,10 @@ async function runMigration(
     return;
   }
 
-  const srcS3 = srcBucketRow.provider !== 'telegram'
-    ? await makeBucketConfigAsync(srcBucketRow, encKey, db)
-    : null;
-  const tgtS3 = tgtBucketRow.provider !== 'telegram'
-    ? await makeBucketConfigAsync(tgtBucketRow, encKey, db)
-    : null;
-  const srcTg = srcBucketRow.provider === 'telegram'
-    ? await resolveTgConfig(db, status.sourceBucketId, encKey)
-    : null;
-  const tgtTg = tgtBucketRow.provider === 'telegram'
-    ? await resolveTgConfig(db, status.targetBucketId, encKey)
-    : null;
+  const srcS3 = srcBucketRow.provider !== 'telegram' ? await makeBucketConfigAsync(srcBucketRow, encKey, db) : null;
+  const tgtS3 = tgtBucketRow.provider !== 'telegram' ? await makeBucketConfigAsync(tgtBucketRow, encKey, db) : null;
+  const srcTg = srcBucketRow.provider === 'telegram' ? await resolveTgConfig(db, status.sourceBucketId, encKey) : null;
+  const tgtTg = tgtBucketRow.provider === 'telegram' ? await resolveTgConfig(db, status.targetBucketId, encKey) : null;
 
   for (let i = 0; i < status.results.length; i++) {
     const entry = status.results[i];
@@ -413,11 +374,7 @@ async function runMigration(
       if (srcBucketRow.provider === 'telegram') {
         // Telegram → 其他
         if (!srcTg) throw new Error('来源 Telegram 配置无效');
-        const ref = await db
-          .select()
-          .from(telegramFileRefs)
-          .where(eq(telegramFileRefs.fileId, file.id))
-          .get();
+        const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, file.id)).get();
         if (!ref) throw new Error('找不到 Telegram 文件引用');
 
         if (isChunkedFileId(ref.tgFileId)) {
@@ -432,7 +389,10 @@ async function runMigration(
           const total = chunks.reduce((n, c) => n + c.length, 0);
           const out = new Uint8Array(total);
           let pos = 0;
-          for (const c of chunks) { out.set(c, pos); pos += c.length; }
+          for (const c of chunks) {
+            out.set(c, pos);
+            pos += c.length;
+          }
           fileBuffer = out.buffer;
         } else {
           const resp = await tgDownloadFile(srcTg, ref.tgFileId);
@@ -532,10 +492,7 @@ async function runMigration(
           // 更新来源桶统计
           await updateBucketStats(db, status.sourceBucketId, -file.size, -1);
           // 软删除原文件记录
-          await db
-            .update(files)
-            .set({ deletedAt: now, updatedAt: now })
-            .where(eq(files.id, file.id));
+          await db.update(files).set({ deletedAt: now, updatedAt: now }).where(eq(files.id, file.id));
         } catch (delErr) {
           // 删除失败不影响整体迁移成功状态，记录警告
           console.warn(`[migrate] deleteSource failed for ${file.id}:`, delErr);

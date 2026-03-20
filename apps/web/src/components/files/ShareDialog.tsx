@@ -53,7 +53,8 @@ export function ShareDialog({ fileId: _fileId, isFolder, isPending, onConfirm, o
           <div className="space-y-1.5">
             <label className="text-sm font-medium">有效天数（可选）</label>
             <Input
-              type="number" min={1}
+              type="number"
+              min={1}
               placeholder="留空则使用默认（7天）"
               value={expiresDays}
               onChange={(e) => setExpiresDays(e.target.value ? Number(e.target.value) : '')}
@@ -62,7 +63,8 @@ export function ShareDialog({ fileId: _fileId, isFolder, isPending, onConfirm, o
           <div className="space-y-1.5">
             <label className="text-sm font-medium">下载次数限制（可选）</label>
             <Input
-              type="number" min={1}
+              type="number"
+              min={1}
               placeholder="留空则不限次数"
               value={downloadLimit}
               onChange={(e) => setDownloadLimit(e.target.value ? Number(e.target.value) : '')}
@@ -70,7 +72,9 @@ export function ShareDialog({ fileId: _fileId, isFolder, isPending, onConfirm, o
           </div>
         </div>
         <div className="flex justify-end gap-2 mt-5">
-          <Button variant="outline" onClick={onCancel}>取消</Button>
+          <Button variant="outline" onClick={onCancel}>
+            取消
+          </Button>
           <Button onClick={handleConfirm} disabled={isPending}>
             {isPending ? '创建中...' : '创建并复制链接'}
           </Button>
@@ -114,7 +118,10 @@ export function UploadLinkDialog({
   const handleConfirm = () => {
     const expiresAt = expiresDays ? new Date(Date.now() + Number(expiresDays) * 86400000).toISOString() : undefined;
     const allowedMimeTypes = mimeInput.trim()
-      ? mimeInput.split(',').map((s) => s.trim()).filter(Boolean)
+      ? mimeInput
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
       : undefined;
     onConfirm({
       password: password || undefined,
@@ -134,7 +141,8 @@ export function UploadLinkDialog({
         </div>
         <p className="text-xs text-muted-foreground mb-4">
           目标文件夹：<span className="font-medium text-foreground">{folderName}</span>
-          <br />生成的链接允许任何人无需登录即可上传文件到此文件夹
+          <br />
+          生成的链接允许任何人无需登录即可上传文件到此文件夹
         </p>
         <div className="space-y-3">
           <div className="space-y-1.5">
@@ -144,7 +152,8 @@ export function UploadLinkDialog({
           <div className="space-y-1.5">
             <label className="text-sm font-medium">有效天数（可选）</label>
             <Input
-              type="number" min={1}
+              type="number"
+              min={1}
               placeholder="留空则使用默认（7天）"
               value={expiresDays}
               onChange={(e) => setExpiresDays(e.target.value ? Number(e.target.value) : '')}
@@ -166,7 +175,8 @@ export function UploadLinkDialog({
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">单文件大小上限（MB，可选）</label>
                 <Input
-                  type="number" min={1}
+                  type="number"
+                  min={1}
                   placeholder="留空则继承系统上限"
                   value={maxSizeMb}
                   onChange={(e) => setMaxSizeMb(e.target.value ? Number(e.target.value) : '')}
@@ -175,7 +185,8 @@ export function UploadLinkDialog({
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">最多上传文件数（可选）</label>
                 <Input
-                  type="number" min={1}
+                  type="number"
+                  min={1}
                   placeholder="留空则不限"
                   value={maxCount}
                   onChange={(e) => setMaxCount(e.target.value ? Number(e.target.value) : '')}
@@ -194,7 +205,9 @@ export function UploadLinkDialog({
           )}
         </div>
         <div className="flex justify-end gap-2 mt-5">
-          <Button variant="outline" onClick={onCancel}>取消</Button>
+          <Button variant="outline" onClick={onCancel}>
+            取消
+          </Button>
           <Button onClick={handleConfirm} disabled={isPending}>
             {isPending ? '创建中...' : '创建上传链接'}
           </Button>

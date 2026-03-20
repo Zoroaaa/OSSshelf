@@ -491,9 +491,7 @@ function TaskItem({
                 />
               )}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {isSmallFileUploading ? '上传中...' : `${progress}%`}
-            </p>
+            <p className="text-xs text-muted-foreground mt-1">{isSmallFileUploading ? '上传中...' : `${progress}%`}</p>
           </div>
         )}
         {task.errorMessage && <p className="text-xs text-red-500 mt-1">{task.errorMessage}</p>}

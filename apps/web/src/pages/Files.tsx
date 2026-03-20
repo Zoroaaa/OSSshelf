@@ -234,15 +234,12 @@ export default function Files() {
 
   // Upload link creation
   const createUploadLinkMutation = useMutation({
-    mutationFn: (params: Parameters<typeof shareApi.createUploadLink>[0]) =>
-      shareApi.createUploadLink(params),
+    mutationFn: (params: Parameters<typeof shareApi.createUploadLink>[0]) => shareApi.createUploadLink(params),
     onSuccess: (res) => {
       const d = res.data.data;
       if (d?.uploadToken) {
         const url = `${window.location.origin}/upload/${d.uploadToken}`;
-        navigator.clipboard.writeText(url).then(() =>
-          toast({ title: '上传链接已复制', description: url })
-        );
+        navigator.clipboard.writeText(url).then(() => toast({ title: '上传链接已复制', description: url }));
       }
       setUploadLinkFolder(null);
     },
@@ -889,7 +886,10 @@ export default function Files() {
           isFolder={shareFileItem?.isFolder ?? false}
           isPending={shareMutation.isPending}
           onConfirm={handleShareConfirm}
-          onCancel={() => { setShareFileId(null); setShareFileItem(null); }}
+          onCancel={() => {
+            setShareFileId(null);
+            setShareFileItem(null);
+          }}
         />
       )}
 
@@ -910,17 +910,13 @@ export default function Files() {
           folderId={uploadLinkFolder.id}
           folderName={uploadLinkFolder.name}
           isPending={createUploadLinkMutation.isPending}
-          onConfirm={(params) =>
-            createUploadLinkMutation.mutate({ folderId: uploadLinkFolder.id, ...params })
-          }
+          onConfirm={(params) => createUploadLinkMutation.mutate({ folderId: uploadLinkFolder.id, ...params })}
           onCancel={() => setUploadLinkFolder(null)}
         />
       )}
 
       {/* Migrate bucket dialog */}
-      {showMigrateDialog && (
-        <MigrateBucketDialog onClose={() => setShowMigrateDialog(false)} />
-      )}
+      {showMigrateDialog && <MigrateBucketDialog onClose={() => setShowMigrateDialog(false)} />}
 
       {renameFile && (
         <RenameDialog
@@ -1039,7 +1035,7 @@ export default function Files() {
         onDownload={handleDownload}
         onShare={(id) => {
           // Find file in displayFiles to get isFolder
-          const f = displayFiles.find(x => x.id === id);
+          const f = displayFiles.find((x) => x.id === id);
           setShareFileItem(f ? { id, isFolder: f.isFolder } : { id, isFolder: false });
           setShareFileId(id);
         }}
@@ -1049,6 +1045,11 @@ export default function Files() {
         onMove={setMoveFile}
         onContextMenu={onContextMenu}
         onTagClick={handleTagClick}
+        onUploadLink={(file) => {
+          if (file.isFolder) {
+            setUploadLinkFolder({ id: file.id, name: file.name });
+          }
+        }}
       />
     </div>
   );

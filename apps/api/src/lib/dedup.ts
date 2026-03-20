@@ -97,10 +97,7 @@ export async function checkAndClaimDedup(
  *
  * @returns shouldDeleteStorage  true = ref_count 已归零，调用方应删除存储对象
  */
-export async function releaseFileRef(
-  db: DrizzleDb,
-  fileId: string
-): Promise<{ shouldDeleteStorage: boolean }> {
+export async function releaseFileRef(db: DrizzleDb, fileId: string): Promise<{ shouldDeleteStorage: boolean }> {
   const file = await db
     .select({ id: files.id, r2Key: files.r2Key, refCount: files.refCount })
     .from(files)
@@ -112,10 +109,7 @@ export async function releaseFileRef(
   // ref_count 已为 1（或 0）：此次删除是最后一个引用
   if (file.refCount <= 1) {
     // 将 ref_count 设为 0，标志存储对象可被清理
-    await db
-      .update(files)
-      .set({ refCount: 0, updatedAt: new Date().toISOString() })
-      .where(eq(files.id, fileId));
+    await db.update(files).set({ refCount: 0, updatedAt: new Date().toISOString() }).where(eq(files.id, fileId));
     return { shouldDeleteStorage: true };
   }
 

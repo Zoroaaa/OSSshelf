@@ -32,15 +32,6 @@ const MAX_CONCURRENT_PARTS = 3;
 
 // ── Typed API response helpers ─────────────────────────────────────────────
 
-interface PresignUploadResponse {
-  useProxy?: boolean;
-  uploadUrl?: string;
-  fileId?: string;
-  r2Key?: string;
-  bucketId?: string;
-  expiresIn?: number;
-}
-
 interface PresignMultipartInitResponse {
   useProxy?: boolean;
   uploadId?: string;
@@ -134,6 +125,8 @@ async function singlePresignUpload(
     uploadUrl?: string;
     isSmallFile?: boolean;
     useProxy?: boolean;
+    isTelegramUpload?: boolean;
+    proxyUploadUrl?: string;
   }>('/api/tasks/create', {
     fileName: file.name,
     fileSize: file.size,
@@ -141,6 +134,10 @@ async function singlePresignUpload(
     parentId,
     bucketId,
   });
+
+  if (init.isTelegramUpload) {
+    return telegramProxyUpload({ file, taskId: init.taskId, onProgress, signal });
+  }
 
   if (init.useProxy) {
     onFallback?.();
@@ -235,13 +232,21 @@ async function multipartUpload(
     skipParts = [...new Set([...skipParts, ...taskInfo.uploadedParts])];
   } else {
     // 使用 /api/tasks/create 创建任务记录，这样可以在任务页面追踪
-    const init = await apiPost<PresignMultipartInitResponse & { taskId?: string }>('/api/tasks/create', {
-      fileName: file.name,
-      fileSize: file.size,
-      mimeType: file.type || 'application/octet-stream',
-      parentId,
-      bucketId,
-    });
+    const init = await apiPost<PresignMultipartInitResponse & { taskId?: string; isTelegramUpload?: boolean }>(
+      '/api/tasks/create',
+      {
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: file.type || 'application/octet-stream',
+        parentId,
+        bucketId,
+      }
+    );
+
+    // Telegram 上传走专门的代理端点
+    if ((init as any).isTelegramUpload) {
+      return telegramProxyUpload({ file, taskId: (init as any).taskId, onProgress, signal });
+    }
 
     // 检查是否返回了 useProxy（兼容旧逻辑）
     if ('useProxy' in init && init.useProxy) {
@@ -583,6 +588,47 @@ async function proxyUpload({
 
   if (!res.data.success) {
     throw new Error(res.data.error?.message || '上传失败');
+  }
+  return res.data.data;
+}
+
+// ── Telegram proxy upload ─────────────────────────────────────────────────
+
+interface TelegramProxyUploadOptions {
+  file: File;
+  taskId: string;
+  onProgress?: (percent: number) => void;
+  signal?: AbortSignal;
+}
+
+async function telegramProxyUpload({
+  file,
+  taskId,
+  onProgress,
+  signal,
+}: TelegramProxyUploadOptions): Promise<UploadedFile> {
+  if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
+
+  const formData = new FormData();
+  formData.append('taskId', taskId);
+  formData.append('file', file);
+
+  const res = await axios.post<{ success: boolean; data: UploadedFile; error?: { message: string } }>(
+    `${API_BASE}/api/tasks/telegram-upload`,
+    formData,
+    {
+      headers: { ...authHeaders(), 'Content-Type': 'multipart/form-data' },
+      signal,
+      onUploadProgress: (e) => {
+        if (e.total && onProgress) {
+          onProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      },
+    }
+  );
+
+  if (!res.data.success) {
+    throw new Error(res.data.error?.message || 'Telegram 上传失败');
   }
   return res.data.data;
 }

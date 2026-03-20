@@ -16,21 +16,21 @@
  */
 
 export interface TelegramBotConfig {
-  botToken: string;          // Bot Token (来自 @BotFather)
-  chatId: string;            // 目标 Chat ID（频道/群组/私聊）
-  apiBase?: string;          // 可选代理，默认 https://api.telegram.org
+  botToken: string; // Bot Token (来自 @BotFather)
+  chatId: string; // 目标 Chat ID（频道/群组/私聊）
+  apiBase?: string; // 可选代理，默认 https://api.telegram.org
 }
 
 export interface TgUploadResult {
-  fileId: string;            // Telegram file_id（永久引用）
-  messageId: number;         // 消息 ID（删除时使用）
+  fileId: string; // Telegram file_id（永久引用）
+  messageId: number; // 消息 ID（删除时使用）
   fileSize: number;
   mimeType?: string;
 }
 
 export interface TgFileInfo {
   fileId: string;
-  filePath: string;          // Telegram 内部路径，用于构造下载 URL
+  filePath: string; // Telegram 内部路径，用于构造下载 URL
   fileSize: number;
 }
 
@@ -198,10 +198,7 @@ export async function tgDownloadFile(config: TelegramBotConfig, tgFileId: string
  * Telegram Bot 只能删除自己发送的或有管理员权限的消息
  * 如果删除失败（权限不足），静默忽略
  */
-export async function tgDeleteMessage(
-  config: TelegramBotConfig,
-  messageId: number
-): Promise<void> {
+export async function tgDeleteMessage(config: TelegramBotConfig, messageId: number): Promise<void> {
   try {
     const url = botUrl(config, 'deleteMessage');
     const resp = await fetch(url, {
@@ -263,8 +260,7 @@ export async function tgTestConnection(config: TelegramBotConfig): Promise<{
         botName,
       };
     }
-    const chatTitle =
-      chatJson.result.title || chatJson.result.username || `Chat ${config.chatId}`;
+    const chatTitle = chatJson.result.title || chatJson.result.username || `Chat ${config.chatId}`;
 
     return {
       connected: true,

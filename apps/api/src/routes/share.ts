@@ -57,14 +57,14 @@ const createUploadLinkSchema = z.object({
  * 验证分享链接有效性（expiry + password），返回 share 记录或 error。
  * 适用于下载类分享（is_upload_link = false）。
  */
-async function resolveDownloadShare(
-  db: ReturnType<typeof getDb>,
-  shareId: string,
-  password?: string
-) {
+async function resolveDownloadShare(db: ReturnType<typeof getDb>, shareId: string, password?: string) {
   const share = await db.select().from(shares).where(eq(shares.id, shareId)).get();
   if (!share) return { error: { code: ERROR_CODES.NOT_FOUND, message: '分享链接不存在' }, status: 404 as const };
-  if (share.isUploadLink) return { error: { code: ERROR_CODES.VALIDATION_ERROR, message: '此链接为上传链接，不可下载' }, status: 400 as const };
+  if (share.isUploadLink)
+    return {
+      error: { code: ERROR_CODES.VALIDATION_ERROR, message: '此链接为上传链接，不可下载' },
+      status: 400 as const,
+    };
   if (share.expiresAt && new Date(share.expiresAt) < new Date()) {
     return { error: { code: ERROR_CODES.SHARE_EXPIRED, message: '分享链接已过期' }, status: 410 as const };
   }
@@ -79,14 +79,14 @@ async function resolveDownloadShare(
 /**
  * 验证上传链接有效性（token + expiry + password）。
  */
-async function resolveUploadShare(
-  db: ReturnType<typeof getDb>,
-  uploadToken: string,
-  password?: string
-) {
+async function resolveUploadShare(db: ReturnType<typeof getDb>, uploadToken: string, password?: string) {
   const share = await db.select().from(shares).where(eq(shares.uploadToken, uploadToken)).get();
   if (!share) return { error: { code: ERROR_CODES.NOT_FOUND, message: '上传链接不存在' }, status: 404 as const };
-  if (!share.isUploadLink) return { error: { code: ERROR_CODES.VALIDATION_ERROR, message: '此链接为下载链接，不可上传' }, status: 400 as const };
+  if (!share.isUploadLink)
+    return {
+      error: { code: ERROR_CODES.VALIDATION_ERROR, message: '此链接为下载链接，不可上传' },
+      status: 400 as const,
+    };
   if (share.expiresAt && new Date(share.expiresAt) < new Date()) {
     return { error: { code: ERROR_CODES.SHARE_EXPIRED, message: '上传链接已过期' }, status: 410 as const };
   }
@@ -131,7 +131,10 @@ async function fetchFileContent(
         const total = chunks.reduce((n, c) => n + c.length, 0);
         const out = new Uint8Array(total);
         let pos = 0;
-        for (const c of chunks) { out.set(c, pos); pos += c.length; }
+        for (const c of chunks) {
+          out.set(c, pos);
+          pos += c.length;
+        }
         return out.buffer;
       }
       const resp = await tgDownloadFile(tgConfig, ref.tgFileId);
@@ -250,10 +253,7 @@ app.get('/', authMiddleware, async (c) => {
 
   // Batch fetch files (避免 N+1)
   const fileIds = [...new Set(userShares.map((s) => s.fileId))];
-  const fileRows =
-    fileIds.length > 0
-      ? await db.select().from(files).where(inArray(files.id, fileIds)).all()
-      : [];
+  const fileRows = fileIds.length > 0 ? await db.select().from(files).where(inArray(files.id, fileIds)).all() : [];
   const fileMap = Object.fromEntries(fileRows.map((f) => [f.id, f]));
 
   const enriched = userShares.map((share) => {
@@ -376,7 +376,14 @@ app.get('/:id', async (c) => {
   if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
 
   // 文件夹分享：返回一层子文件列表（不递归，支持前端分页浏览）
-  let children: Array<{ id: string; name: string; size: number; mimeType: string | null; isFolder: boolean; updatedAt: string }> | null = null;
+  let children: Array<{
+    id: string;
+    name: string;
+    size: number;
+    mimeType: string | null;
+    isFolder: boolean;
+    updatedAt: string;
+  }> | null = null;
   if (file.isFolder) {
     const rows = await db
       .select()
@@ -545,14 +552,26 @@ app.get('/:id/zip', async (c) => {
   const MAX_ZIP_BYTES = 500 * 1024 * 1024;
   if (entries.length > MAX_ZIP_FILES) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: `ZIP 打包最多 ${MAX_ZIP_FILES} 个文件，当前 ${entries.length} 个` } },
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.VALIDATION_ERROR,
+          message: `ZIP 打包最多 ${MAX_ZIP_FILES} 个文件，当前 ${entries.length} 个`,
+        },
+      },
       400
     );
   }
   const totalBytes = entries.reduce((n, e) => n + e.file.size, 0);
   if (totalBytes > MAX_ZIP_BYTES) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: `ZIP 打包总大小不超过 500MB，当前 ${(totalBytes / 1024 / 1024).toFixed(1)}MB` } },
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.VALIDATION_ERROR,
+          message: `ZIP 打包总大小不超过 500MB，当前 ${(totalBytes / 1024 / 1024).toFixed(1)}MB`,
+        },
+      },
       400
     );
   }
@@ -572,10 +591,7 @@ app.get('/:id/zip', async (c) => {
   }
 
   if (errors.length === entries.length) {
-    return c.json(
-      { success: false, error: { code: 'FETCH_FAILED', message: '所有文件下载失败' } },
-      502
-    );
+    return c.json({ success: false, error: { code: 'FETCH_FAILED', message: '所有文件下载失败' } }, 502);
   }
 
   // 更新下载计数（整个 ZIP 算一次下载）
@@ -659,7 +675,8 @@ app.get('/upload/:token', async (c) => {
 
   const { share } = resolved;
   const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
-  if (!folder) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '目标文件夹不存在' } }, 404);
+  if (!folder)
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '目标文件夹不存在' } }, 404);
 
   const parsedAllowedMimes: string[] | null = share.uploadAllowedMimeTypes
     ? JSON.parse(share.uploadAllowedMimeTypes)
@@ -712,7 +729,13 @@ app.post('/upload/:token', async (c) => {
   // 检查上传数量限制
   if (share.maxUploadCount !== null && share.uploadCount >= share.maxUploadCount) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: `此上传链接最多允许上传 ${share.maxUploadCount} 个文件，已达上限` } },
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.VALIDATION_ERROR,
+          message: `此上传链接最多允许上传 ${share.maxUploadCount} 个文件，已达上限`,
+        },
+      },
       403
     );
   }

@@ -176,7 +176,10 @@ function BucketForm({ initial, onSave, onCancel, loading }: BucketFormProps) {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {field('显示名称', 'name', { required: true, placeholder: form.provider === 'telegram' ? '如：我的 Telegram 频道' : '如：我的 R2 存储桶' })}
+        {field('显示名称', 'name', {
+          required: true,
+          placeholder: form.provider === 'telegram' ? '如：我的 Telegram 频道' : '如：我的 R2 存储桶',
+        })}
         {form.provider === 'telegram' ? (
           <div className="space-y-1.5">
             <label className="text-sm font-medium flex items-center gap-1">
@@ -237,9 +240,15 @@ function BucketForm({ initial, onSave, onCancel, loading }: BucketFormProps) {
           <div className="rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3 space-y-1">
             <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">⚠️ 使用须知</p>
             <ul className="text-xs text-amber-600 dark:text-amber-500 space-y-0.5 list-disc list-inside">
-              <li>单文件上传上限 <strong>50 MB</strong>（Telegram Bot API 限制）</li>
-              <li>请确保 Bot 已被添加为目标频道/群组的<strong>管理员</strong></li>
-              <li>私人频道 Chat ID 通常以 <code>-100</code> 开头</li>
+              <li>
+                单文件上传上限 <strong>50 MB</strong>（Telegram Bot API 限制）
+              </li>
+              <li>
+                请确保 Bot 已被添加为目标频道/群组的<strong>管理员</strong>
+              </li>
+              <li>
+                私人频道 Chat ID 通常以 <code>-100</code> 开头
+              </li>
               <li>存储空间由 Telegram 服务器提供，理论无上限</li>
             </ul>
           </div>
@@ -797,10 +806,7 @@ export default function Buckets() {
 
       {/* Migrate bucket dialog */}
       {migrateSourceId && (
-        <MigrateBucketDialog
-          defaultSourceId={migrateSourceId}
-          onClose={() => setMigrateSourceId(null)}
-        />
+        <MigrateBucketDialog defaultSourceId={migrateSourceId} onClose={() => setMigrateSourceId(null)} />
       )}
 
       {/* Info card */}

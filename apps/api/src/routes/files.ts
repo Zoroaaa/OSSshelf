@@ -132,7 +132,10 @@ app.get('/:id/preview', async (c) => {
     if (bkt?.provider === 'telegram') {
       const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, fileId)).get();
       if (!ref) {
-        return c.json({ success: false, error: { code: 'TG_REF_NOT_FOUND', message: '未找到 Telegram 文件引用' } }, 404);
+        return c.json(
+          { success: false, error: { code: 'TG_REF_NOT_FOUND', message: '未找到 Telegram 文件引用' } },
+          404
+        );
       }
       const tgConfig = await resolveTgBucketConfig(db, file.bucketId, encKey);
       if (!tgConfig) {
@@ -273,7 +276,7 @@ app.post('/upload', async (c) => {
         if (needsChunking(fileBuffer.byteLength)) {
           // 大文件：分片上传（每块 ≤49MB）
           const chunked = await tgUploadChunked(tgConfig, fileBuffer, uploadFile.name, fileMime, db, effectiveBucketId);
-          tgFileId = chunked.virtualFileId;   // "chunked:{groupId}"
+          tgFileId = chunked.virtualFileId; // "chunked:{groupId}"
           tgFileSize = chunked.totalBytes;
         } else {
           // 小文件：直接上传
@@ -283,7 +286,10 @@ app.post('/upload', async (c) => {
           tgFileSize = result.fileSize;
         }
       } catch (e: any) {
-        return c.json({ success: false, error: { code: 'TG_UPLOAD_FAILED', message: e?.message || 'Telegram 上传失败' } }, 502);
+        return c.json(
+          { success: false, error: { code: 'TG_UPLOAD_FAILED', message: e?.message || 'Telegram 上传失败' } },
+          502
+        );
       }
       await db.insert(telegramFileRefs).values({
         id: crypto.randomUUID(),
@@ -306,17 +312,16 @@ app.post('/upload', async (c) => {
       });
     } else {
       return c.json(
-        { success: false, error: { code: 'NO_STORAGE', message: '未配置存储桶，请先在「存储桶管理」中添加至少一个存储桶' } },
+        {
+          success: false,
+          error: { code: 'NO_STORAGE', message: '未配置存储桶，请先在「存储桶管理」中添加至少一个存储桶' },
+        },
         400
       );
     }
   } else if (isTelegramBucket && effectiveBucketId) {
     // 去重命中 Telegram：为新 fileId 创建指向同一 tgFileId 的引用记录
-    const origRef = await db
-      .select()
-      .from(telegramFileRefs)
-      .where(eq(telegramFileRefs.r2Key, finalR2Key))
-      .get();
+    const origRef = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.r2Key, finalR2Key)).get();
     if (origRef) {
       await db.insert(telegramFileRefs).values({
         id: crypto.randomUUID(),
@@ -900,7 +905,10 @@ app.get('/:id/download', async (c) => {
     if (bkt?.provider === 'telegram') {
       const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, fileId)).get();
       if (!ref) {
-        return c.json({ success: false, error: { code: 'TG_REF_NOT_FOUND', message: '未找到 Telegram 文件引用，文件可能已损坏' } }, 404);
+        return c.json(
+          { success: false, error: { code: 'TG_REF_NOT_FOUND', message: '未找到 Telegram 文件引用，文件可能已损坏' } },
+          404
+        );
       }
       const tgConfig = await resolveTgBucketConfig(db, file.bucketId, encKey);
       if (!tgConfig) {
@@ -912,7 +920,10 @@ app.get('/:id/download', async (c) => {
           : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
         return new Response(body, { headers: dlHeaders });
       } catch (e: any) {
-        return c.json({ success: false, error: { code: 'TG_DOWNLOAD_FAILED', message: e?.message || 'Telegram 下载失败' } }, 502);
+        return c.json(
+          { success: false, error: { code: 'TG_DOWNLOAD_FAILED', message: e?.message || 'Telegram 下载失败' } },
+          502
+        );
       }
     }
   }

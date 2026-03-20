@@ -13,8 +13,17 @@ import { UploadLinkDialog } from '@/components/files/ShareDialog';
 import { FolderPickerDialog } from '@/components/ui/FolderPickerDialog';
 import { useToast } from '@/components/ui/use-toast';
 import {
-  Link2, Trash2, Lock, Clock, Download, AlertCircle,
-  CheckCircle2, Ban, ExternalLink, Upload, Copy,
+  Link2,
+  Trash2,
+  Lock,
+  Clock,
+  Download,
+  AlertCircle,
+  CheckCircle2,
+  Ban,
+  ExternalLink,
+  Upload,
+  Copy,
 } from 'lucide-react';
 import { cn } from '@/utils';
 
@@ -42,15 +51,12 @@ export default function Shares() {
   });
 
   const createUploadLinkMutation = useMutation({
-    mutationFn: (params: Parameters<typeof shareApi.createUploadLink>[0]) =>
-      shareApi.createUploadLink(params),
+    mutationFn: (params: Parameters<typeof shareApi.createUploadLink>[0]) => shareApi.createUploadLink(params),
     onSuccess: (res) => {
       const d = res.data.data;
       if (d?.uploadToken) {
         const url = `${window.location.origin}/upload/${d.uploadToken}`;
-        navigator.clipboard.writeText(url).then(() =>
-          toast({ title: '上传链接已复制', description: url })
-        );
+        navigator.clipboard.writeText(url).then(() => toast({ title: '上传链接已复制', description: url }));
       }
       queryClient.invalidateQueries({ queryKey: ['shares'] });
       setShowFolderPicker(false);
@@ -60,16 +66,18 @@ export default function Shares() {
   });
 
   const handleCopyLink = (shareId: string, isUploadLink = false, uploadToken?: string) => {
-    const url = isUploadLink && uploadToken
-      ? `${window.location.origin}/upload/${uploadToken}`
-      : `${window.location.origin}/share/${shareId}`;
+    const url =
+      isUploadLink && uploadToken
+        ? `${window.location.origin}/upload/${uploadToken}`
+        : `${window.location.origin}/share/${shareId}`;
     navigator.clipboard.writeText(url).then(() => toast({ title: '链接已复制到剪贴板' }));
   };
 
   const getStatus = (share: any): 'active' | 'expired' | 'exhausted' => {
     if (share.expiresAt && new Date(share.expiresAt) < new Date()) return 'expired';
     if (!share.isUploadLink && share.downloadLimit && share.downloadCount >= share.downloadLimit) return 'exhausted';
-    if (share.isUploadLink && share.maxUploadCount != null && share.uploadCount >= share.maxUploadCount) return 'exhausted';
+    if (share.isUploadLink && share.maxUploadCount != null && share.uploadCount >= share.maxUploadCount)
+      return 'exhausted';
     return 'active';
   };
 
@@ -91,10 +99,12 @@ export default function Shares() {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b">
-        {([
-          { key: 'download' as Tab, label: '下载分享', count: downloadShares.length, icon: Link2 },
-          { key: 'upload' as Tab, label: '上传链接', count: uploadShares.length, icon: Upload },
-        ] as const).map(({ key, label, count, icon: Icon }) => (
+        {(
+          [
+            { key: 'download' as Tab, label: '下载分享', count: downloadShares.length, icon: Link2 },
+            { key: 'upload' as Tab, label: '上传链接', count: uploadShares.length, icon: Upload },
+          ] as const
+        ).map(({ key, label, count, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setTab(key)}
@@ -139,11 +149,7 @@ export default function Shares() {
       {tab === 'upload' && (
         <div className="space-y-3">
           <div className="flex justify-end">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setShowFolderPicker(true)}
-            >
+            <Button size="sm" variant="outline" onClick={() => setShowFolderPicker(true)}>
               <Upload className="h-3.5 w-3.5 mr-1.5" /> 创建上传链接
             </Button>
           </div>
@@ -185,9 +191,7 @@ export default function Shares() {
           folderId={uploadFolderMeta.id}
           folderName={uploadFolderMeta.name}
           isPending={createUploadLinkMutation.isPending}
-          onConfirm={(params) =>
-            createUploadLinkMutation.mutate({ folderId: uploadFolderMeta.id, ...params })
-          }
+          onConfirm={(params) => createUploadLinkMutation.mutate({ folderId: uploadFolderMeta.id, ...params })}
           onCancel={() => setUploadFolderMeta(null)}
         />
       )}
@@ -212,8 +216,16 @@ interface ShareListProps {
 }
 
 function ShareList({
-  shares, isLoading, emptyText, emptyHint, getStatus, isUploadTab,
-  onCopy, onDelete, onBulkDelete, isPending,
+  shares,
+  isLoading,
+  emptyText,
+  emptyHint,
+  getStatus,
+  isUploadTab,
+  onCopy,
+  onDelete,
+  onBulkDelete,
+  isPending,
 }: ShareListProps) {
   const activeShares = shares.filter((s) => getStatus(s) === 'active');
   const inactiveShares = shares.filter((s) => getStatus(s) !== 'active');
@@ -223,9 +235,11 @@ function ShareList({
   if (shares.length === 0) {
     return (
       <div className="text-center py-16 text-muted-foreground space-y-3">
-        {isUploadTab
-          ? <Upload className="h-14 w-14 mx-auto opacity-20" />
-          : <Link2 className="h-14 w-14 mx-auto opacity-20" />}
+        {isUploadTab ? (
+          <Upload className="h-14 w-14 mx-auto opacity-20" />
+        ) : (
+          <Link2 className="h-14 w-14 mx-auto opacity-20" />
+        )}
         <p className="font-medium">{emptyText}</p>
         <p className="text-sm">{emptyHint}</p>
       </div>
@@ -256,8 +270,12 @@ function ShareList({
         <section className="space-y-1.5">
           <div className="flex items-center justify-between px-1">
             <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">已失效</h2>
-            <Button variant="ghost" size="sm" className="h-6 text-xs text-muted-foreground hover:text-red-500"
-              onClick={() => onBulkDelete(inactiveShares.map((s) => s.id))}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 text-xs text-muted-foreground hover:text-red-500"
+              onClick={() => onBulkDelete(inactiveShares.map((s) => s.id))}
+            >
               <Trash2 className="h-3 w-3 mr-1" /> 清理失效
             </Button>
           </div>
@@ -300,9 +318,10 @@ function ShareItem({ share, status, isUploadTab, onCopy, onDelete, isPending }: 
   };
   const { icon: StatusIcon, label, color } = statusConfig[status];
 
-  const publicUrl = isUploadTab && share.uploadToken
-    ? `${window.location.origin}/upload/${share.uploadToken}`
-    : `${window.location.origin}/share/${share.id}`;
+  const publicUrl =
+    isUploadTab && share.uploadToken
+      ? `${window.location.origin}/upload/${share.uploadToken}`
+      : `${window.location.origin}/share/${share.id}`;
 
   return (
     <div className="flex items-center gap-3 px-4 py-3.5 group hover:bg-accent/30 transition-colors">
@@ -338,7 +357,9 @@ function ShareItem({ share, status, isUploadTab, onCopy, onDelete, isPending }: 
             </span>
           )}
           {share.password && (
-            <span className="flex items-center gap-0.5"><Lock className="h-3 w-3" /> 有密码</span>
+            <span className="flex items-center gap-0.5">
+              <Lock className="h-3 w-3" /> 有密码
+            </span>
           )}
           {!isUploadTab && share.downloadLimit != null && (
             <span className="flex items-center gap-0.5">
@@ -358,8 +379,7 @@ function ShareItem({ share, status, isUploadTab, onCopy, onDelete, isPending }: 
       <div className="flex items-center gap-1.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
         {status === 'active' && (
           <>
-            <Button variant="outline" size="sm" className="h-7 text-xs gap-1"
-              onClick={() => onCopy(share.id, share)}>
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => onCopy(share.id, share)}>
               <Copy className="h-3 w-3" /> 复制链接
             </Button>
             <a href={publicUrl} target="_blank" rel="noopener noreferrer">
@@ -370,7 +390,8 @@ function ShareItem({ share, status, isUploadTab, onCopy, onDelete, isPending }: 
           </>
         )}
         <Button
-          variant="ghost" size="icon"
+          variant="ghost"
+          size="icon"
           className="h-7 w-7 hover:bg-red-500/10 hover:text-red-500"
           onClick={() => onDelete(share.id)}
           disabled={isPending}

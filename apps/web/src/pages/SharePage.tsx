@@ -13,9 +13,21 @@ import { Input } from '@/components/ui/input';
 import { FileIcon } from '@/components/ui/FileIcon';
 import { formatBytes, formatDate } from '@/utils';
 import {
-  Download, Lock, Clock, AlertCircle, HardDrive, ShieldCheck,
-  FolderOpen, Archive, CheckSquare, Square, Upload,
-  CheckCircle2, XCircle, Loader2, File,
+  Download,
+  Lock,
+  Clock,
+  AlertCircle,
+  HardDrive,
+  ShieldCheck,
+  FolderOpen,
+  Archive,
+  CheckSquare,
+  Square,
+  Upload,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  File,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -49,13 +61,7 @@ function Shell({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
-function PasswordPrompt({
-  isWrong,
-  onSubmit,
-}: {
-  isWrong: boolean;
-  onSubmit: (pw: string) => void;
-}) {
+function PasswordPrompt({ isWrong, onSubmit }: { isWrong: boolean; onSubmit: (pw: string) => void }) {
   const [pw, setPw] = useState('');
   return (
     <div className="bg-card border rounded-xl p-8 space-y-5">
@@ -143,15 +149,23 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
       )}
 
       {isExpired && (
-        <StatusCard icon={<Clock className="h-7 w-7 text-amber-500" />} bg="bg-amber-500/10" title="链接已过期" desc="这个分享链接已超过有效期，无法访问。" />
+        <StatusCard
+          icon={<Clock className="h-7 w-7 text-amber-500" />}
+          bg="bg-amber-500/10"
+          title="链接已过期"
+          desc="这个分享链接已超过有效期，无法访问。"
+        />
       )}
       {isExhausted && (
-        <StatusCard icon={<AlertCircle className="h-7 w-7 text-red-500" />} bg="bg-red-500/10" title="下载次数已达上限" desc="该分享链接的下载次数已用完。" />
+        <StatusCard
+          icon={<AlertCircle className="h-7 w-7 text-red-500" />}
+          bg="bg-red-500/10"
+          title="下载次数已达上限"
+          desc="该分享链接的下载次数已用完。"
+        />
       )}
 
-      {(needsPw || wrongPw) && (
-        <PasswordPrompt isWrong={wrongPw} onSubmit={(pw) => setEnteredPw(pw)} />
-      )}
+      {(needsPw || wrongPw) && <PasswordPrompt isWrong={wrongPw} onSubmit={(pw) => setEnteredPw(pw)} />}
 
       {/* Single file */}
       {share && !isFolder && (
@@ -162,7 +176,9 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
                 src={shareApi.previewUrl(shareId, enteredPw)}
                 alt={share.file.name}
                 className="max-h-48 max-w-full object-contain rounded"
-                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                }}
               />
             </div>
           ) : (
@@ -175,7 +191,10 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
               <h1 className="font-semibold text-base break-all">{share.file?.name}</h1>
               <ShareMeta share={share} />
             </div>
-            <Button className="w-full" onClick={() => trigger(shareApi.downloadUrl(shareId, enteredPw), share.file!.name)}>
+            <Button
+              className="w-full"
+              onClick={() => trigger(shareApi.downloadUrl(shareId, enteredPw), share.file!.name)}
+            >
               <Download className="h-4 w-4 mr-2" /> 下载文件
             </Button>
           </div>
@@ -207,21 +226,32 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
                 onClick={toggleAll}
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                {allSelected
-                  ? <CheckSquare className="h-3.5 w-3.5 text-primary" />
-                  : <Square className="h-3.5 w-3.5" />}
+                {allSelected ? (
+                  <CheckSquare className="h-3.5 w-3.5 text-primary" />
+                ) : (
+                  <Square className="h-3.5 w-3.5" />
+                )}
                 {allSelected ? '取消全选' : '全选'}
                 {selectedIds.size > 0 && <span className="text-primary font-medium">（已选 {selectedIds.size}）</span>}
               </button>
               <div className="flex items-center gap-2">
                 {selectedIds.size > 0 && (
-                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
-                    onClick={() => trigger(shareApi.zipUrl(shareId, enteredPw, [...selectedIds]), `${share.file!.name}.zip`)}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs gap-1"
+                    onClick={() =>
+                      trigger(shareApi.zipUrl(shareId, enteredPw, [...selectedIds]), `${share.file!.name}.zip`)
+                    }
+                  >
                     <Archive className="h-3 w-3" /> 下载所选 ({selectedIds.size})
                   </Button>
                 )}
-                <Button size="sm" className="h-7 text-xs gap-1"
-                  onClick={() => trigger(shareApi.zipUrl(shareId, enteredPw), `${share.file!.name}.zip`)}>
+                <Button
+                  size="sm"
+                  className="h-7 text-xs gap-1"
+                  onClick={() => trigger(shareApi.zipUrl(shareId, enteredPw), `${share.file!.name}.zip`)}
+                >
                   <Archive className="h-3.5 w-3.5" /> 全部 ZIP
                 </Button>
               </div>
@@ -234,14 +264,24 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
           ) : (
             <div className="divide-y max-h-[480px] overflow-y-auto">
               {children.map((child) => (
-                <div key={child.id} className="flex items-center gap-3 px-5 py-3 hover:bg-accent/30 transition-colors group">
+                <div
+                  key={child.id}
+                  className="flex items-center gap-3 px-5 py-3 hover:bg-accent/30 transition-colors group"
+                >
                   {!child.isFolder ? (
-                    <button onClick={() => toggleOne(child.id)} className="flex-shrink-0 text-muted-foreground hover:text-primary">
-                      {selectedIds.has(child.id)
-                        ? <CheckSquare className="h-4 w-4 text-primary" />
-                        : <Square className="h-4 w-4" />}
+                    <button
+                      onClick={() => toggleOne(child.id)}
+                      className="flex-shrink-0 text-muted-foreground hover:text-primary"
+                    >
+                      {selectedIds.has(child.id) ? (
+                        <CheckSquare className="h-4 w-4 text-primary" />
+                      ) : (
+                        <Square className="h-4 w-4" />
+                      )}
                     </button>
-                  ) : <div className="w-4 flex-shrink-0" />}
+                  ) : (
+                    <div className="w-4 flex-shrink-0" />
+                  )}
 
                   <FileIcon mimeType={child.mimeType} isFolder={child.isFolder} size="sm" />
 
@@ -293,11 +333,20 @@ function ShareMeta({ share, inline = false }: { share: any; inline?: boolean }) 
     share.hasPassword && '已加密',
   ].filter(Boolean);
 
-  if (inline) return <>{items.map((item, i) => <span key={i}>{item}</span>)}</>;
+  if (inline)
+    return (
+      <>
+        {items.map((item, i) => (
+          <span key={i}>{item}</span>
+        ))}
+      </>
+    );
 
   return (
     <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground flex-wrap">
-      {items.map((item, i) => <span key={i}>{item}</span>)}
+      {items.map((item, i) => (
+        <span key={i}>{item}</span>
+      ))}
     </div>
   );
 }
@@ -347,15 +396,15 @@ function UploadLinkPage({ token }: { token: string }) {
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
       if (!entry || entry.status !== 'pending') continue;
-      setEntries((prev) => prev.map((e, idx) => idx === i ? { ...e, status: 'uploading' } : e));
+      setEntries((prev) => prev.map((e, idx) => (idx === i ? { ...e, status: 'uploading' } : e)));
       try {
         await shareApi.uploadViaLink(token, entry.file, enteredPw, (pct) => {
-          setEntries((prev) => prev.map((e, idx) => idx === i ? { ...e, progress: pct } : e));
+          setEntries((prev) => prev.map((e, idx) => (idx === i ? { ...e, progress: pct } : e)));
         });
-        setEntries((prev) => prev.map((e, idx) => idx === i ? { ...e, status: 'done', progress: 100 } : e));
+        setEntries((prev) => prev.map((e, idx) => (idx === i ? { ...e, status: 'done', progress: 100 } : e)));
       } catch (err: any) {
         const msg = err?.response?.data?.error?.message ?? err?.message ?? '上传失败';
-        setEntries((prev) => prev.map((e, idx) => idx === i ? { ...e, status: 'error', error: msg } : e));
+        setEntries((prev) => prev.map((e, idx) => (idx === i ? { ...e, status: 'error', error: msg } : e)));
       }
     }
     setIsUploading(false);
@@ -373,7 +422,12 @@ function UploadLinkPage({ token }: { token: string }) {
         </div>
       )}
       {isExpired && (
-        <StatusCard icon={<Clock className="h-7 w-7 text-amber-500" />} bg="bg-amber-500/10" title="链接已过期" desc="这个上传链接已超过有效期，无法访问。" />
+        <StatusCard
+          icon={<Clock className="h-7 w-7 text-amber-500" />}
+          bg="bg-amber-500/10"
+          title="链接已过期"
+          desc="这个上传链接已超过有效期，无法访问。"
+        />
       )}
       {(needsPw || wrongPw) && <PasswordPrompt isWrong={wrongPw} onSubmit={(pw) => setEnteredPw(pw)} />}
 
@@ -397,9 +451,7 @@ function UploadLinkPage({ token }: { token: string }) {
                       <Clock className="h-3 w-3" /> 过期 {formatDate(linkInfo.expiresAt)}
                     </span>
                   )}
-                  {linkInfo.allowedMimeTypes?.length && (
-                    <span>限 {linkInfo.allowedMimeTypes.join(', ')}</span>
-                  )}
+                  {linkInfo.allowedMimeTypes?.length && <span>限 {linkInfo.allowedMimeTypes.join(', ')}</span>}
                 </div>
               </div>
             </div>
@@ -409,7 +461,10 @@ function UploadLinkPage({ token }: { token: string }) {
           <div
             className="p-5 border-b"
             onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+            }}
           >
             <button
               onClick={() => inputRef.current?.click()}
@@ -420,8 +475,13 @@ function UploadLinkPage({ token }: { token: string }) {
               <span className="text-sm font-medium">点击或拖放文件到此处</span>
               <span className="text-xs opacity-60">支持多文件同时上传</span>
             </button>
-            <input ref={inputRef} type="file" multiple className="hidden"
-              onChange={(e) => e.target.files && addFiles(e.target.files)} />
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => e.target.files && addFiles(e.target.files)}
+            />
           </div>
 
           {/* Queue */}
@@ -441,7 +501,10 @@ function UploadLinkPage({ token }: { token: string }) {
                       <p className="text-xs text-muted-foreground">{formatBytes(entry.file.size)}</p>
                       {entry.status === 'uploading' && (
                         <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
-                          <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${entry.progress}%` }} />
+                          <div
+                            className="h-full bg-primary rounded-full transition-all"
+                            style={{ width: `${entry.progress}%` }}
+                          />
                         </div>
                       )}
                       {entry.status === 'error' && <p className="text-xs text-red-500 truncate">{entry.error}</p>}
@@ -469,9 +532,15 @@ function UploadLinkPage({ token }: { token: string }) {
                 : `${doneCount > 0 ? `${doneCount} 个已完成` : ''}${pendingCount > 0 ? `${doneCount > 0 ? '，' : ''}${pendingCount} 个待上传` : ''}`}
             </p>
             <Button onClick={handleUploadAll} disabled={pendingCount === 0 || isUploading}>
-              {isUploading
-                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> 上传中...</>
-                : <><Upload className="h-4 w-4 mr-2" /> 开始上传{pendingCount > 0 && ` (${pendingCount})`}</>}
+              {isUploading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" /> 上传中...
+                </>
+              ) : (
+                <>
+                  <Upload className="h-4 w-4 mr-2" /> 开始上传{pendingCount > 0 && ` (${pendingCount})`}
+                </>
+              )}
             </Button>
           </div>
         </div>

@@ -46,9 +46,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       const url: string = error.config?.url || '';
       const isPublicEndpoint =
-        url.includes('/api/share/') ||
-        url.includes('/api/auth/login') ||
-        url.includes('/api/auth/register');
+        url.includes('/api/share/') || url.includes('/api/auth/login') || url.includes('/api/auth/register');
       if (!isPublicEndpoint) {
         const { isAuthenticated } = useAuthStore.getState();
         if (isAuthenticated) {
@@ -201,8 +199,7 @@ export const shareApi = {
   delete: (id: string) => api.delete<ApiResponse<{ message: string }>>(`/api/share/${id}`),
 
   // ── 公开分享信息（含文件夹子文件列表）─────────────────────────────────
-  get: (id: string, password?: string) =>
-    api.get<ApiResponse<ShareInfo>>(`/api/share/${id}`, { params: { password } }),
+  get: (id: string, password?: string) => api.get<ApiResponse<ShareInfo>>(`/api/share/${id}`, { params: { password } }),
 
   // ── 单文件下载（文件分享直接下载 / 文件夹内单文件下载）──────────────
   download: (id: string, password?: string) =>
@@ -236,25 +233,22 @@ export const shareApi = {
 
   // ── 上传链接（有账号创建）────────────────────────────────────────────
   createUploadLink: (params: CreateUploadLinkParams) =>
-    api.post<ApiResponse<{
-      id: string;
-      folderId: string;
-      folderName: string;
-      uploadToken: string;
-      expiresAt: string;
-      uploadUrl: string;
-    }>>('/api/share/upload-link', params),
+    api.post<
+      ApiResponse<{
+        id: string;
+        folderId: string;
+        folderName: string;
+        uploadToken: string;
+        expiresAt: string;
+        uploadUrl: string;
+      }>
+    >('/api/share/upload-link', params),
 
   // ── 上传链接公开端点（无账号）────────────────────────────────────────
   getUploadLink: (token: string, password?: string) =>
     api.get<ApiResponse<UploadLinkInfo>>(`/api/share/upload/${token}`, { params: { password } }),
 
-  uploadViaLink: (
-    token: string,
-    file: File,
-    password?: string,
-    onProgress?: (pct: number) => void
-  ) => {
+  uploadViaLink: (token: string, file: File, password?: string, onProgress?: (pct: number) => void) => {
     const formData = new FormData();
     formData.append('file', file);
     if (password) formData.append('password', password);
@@ -312,17 +306,101 @@ export interface BucketFormData {
 
 export const PROVIDER_META: Record<
   StorageBucket['provider'],
-  { label: string; color: string; icon: string; regions?: string[]; endpointPlaceholder?: string; regionRequired?: boolean }
+  {
+    label: string;
+    color: string;
+    icon: string;
+    regions?: string[];
+    endpointPlaceholder?: string;
+    regionRequired?: boolean;
+  }
 > = {
-  r2: { label: 'Cloudflare R2', color: '#F6821F', icon: '☁️', endpointPlaceholder: 'https://<accountId>.r2.cloudflarestorage.com' },
-  s3: { label: 'Amazon S3', color: '#FF9900', icon: '🪣', regions: ['us-east-1','us-east-2','us-west-1','us-west-2','ap-east-1','ap-northeast-1','ap-northeast-2','ap-southeast-1','ap-southeast-2','eu-west-1','eu-central-1','sa-east-1'], regionRequired: true },
-  oss: { label: 'Aliyun OSS', color: '#FF6A00', icon: '🌐', regions: ['cn-hangzhou','cn-shanghai','cn-beijing','cn-shenzhen','cn-hongkong','ap-southeast-1','ap-northeast-1','us-west-1','eu-central-1'], regionRequired: true },
-  cos: { label: 'Tencent COS', color: '#1772F6', icon: '📦', regions: ['ap-guangzhou','ap-shanghai','ap-beijing','ap-chengdu','ap-chongqing','ap-hongkong','ap-singapore','na-ashburn','eu-frankfurt'], regionRequired: true },
-  obs: { label: 'Huawei OBS', color: '#CF0A2C', icon: '🏔️', regions: ['cn-north-4','cn-east-3','cn-south-1','cn-southwest-2','ap-southeast-3'], regionRequired: true },
-  b2: { label: 'Backblaze B2', color: '#D01F2E', icon: '🔥', endpointPlaceholder: 'https://s3.us-west-004.backblazeb2.com' },
+  r2: {
+    label: 'Cloudflare R2',
+    color: '#F6821F',
+    icon: '☁️',
+    endpointPlaceholder: 'https://<accountId>.r2.cloudflarestorage.com',
+  },
+  s3: {
+    label: 'Amazon S3',
+    color: '#FF9900',
+    icon: '🪣',
+    regions: [
+      'us-east-1',
+      'us-east-2',
+      'us-west-1',
+      'us-west-2',
+      'ap-east-1',
+      'ap-northeast-1',
+      'ap-northeast-2',
+      'ap-southeast-1',
+      'ap-southeast-2',
+      'eu-west-1',
+      'eu-central-1',
+      'sa-east-1',
+    ],
+    regionRequired: true,
+  },
+  oss: {
+    label: 'Aliyun OSS',
+    color: '#FF6A00',
+    icon: '🌐',
+    regions: [
+      'cn-hangzhou',
+      'cn-shanghai',
+      'cn-beijing',
+      'cn-shenzhen',
+      'cn-hongkong',
+      'ap-southeast-1',
+      'ap-northeast-1',
+      'us-west-1',
+      'eu-central-1',
+    ],
+    regionRequired: true,
+  },
+  cos: {
+    label: 'Tencent COS',
+    color: '#1772F6',
+    icon: '📦',
+    regions: [
+      'ap-guangzhou',
+      'ap-shanghai',
+      'ap-beijing',
+      'ap-chengdu',
+      'ap-chongqing',
+      'ap-hongkong',
+      'ap-singapore',
+      'na-ashburn',
+      'eu-frankfurt',
+    ],
+    regionRequired: true,
+  },
+  obs: {
+    label: 'Huawei OBS',
+    color: '#CF0A2C',
+    icon: '🏔️',
+    regions: ['cn-north-4', 'cn-east-3', 'cn-south-1', 'cn-southwest-2', 'ap-southeast-3'],
+    regionRequired: true,
+  },
+  b2: {
+    label: 'Backblaze B2',
+    color: '#D01F2E',
+    icon: '🔥',
+    endpointPlaceholder: 'https://s3.us-west-004.backblazeb2.com',
+  },
   minio: { label: 'MinIO', color: '#C72C41', icon: '🐘', endpointPlaceholder: 'http://your-minio-server:9000' },
-  custom: { label: '自定义 S3 兼容', color: '#6B7280', icon: '⚙️', endpointPlaceholder: 'https://your-s3-endpoint.com' },
-  telegram: { label: 'Telegram', color: '#26A5E4', icon: '✈️', endpointPlaceholder: 'https://api.telegram.org（可选，留空使用默认）' },
+  custom: {
+    label: '自定义 S3 兼容',
+    color: '#6B7280',
+    icon: '⚙️',
+    endpointPlaceholder: 'https://your-s3-endpoint.com',
+  },
+  telegram: {
+    label: 'Telegram',
+    color: '#26A5E4',
+    icon: '✈️',
+    endpointPlaceholder: 'https://api.telegram.org（可选，留空使用默认）',
+  },
 };
 
 export const bucketsApi = {
@@ -377,11 +455,9 @@ export const migrateApi = {
       params
     ),
 
-  get: (migrationId: string) =>
-    api.get<ApiResponse<MigrationStatus>>(`/api/migrate/${migrationId}`),
+  get: (migrationId: string) => api.get<ApiResponse<MigrationStatus>>(`/api/migrate/${migrationId}`),
 
-  cancel: (migrationId: string) =>
-    api.post<ApiResponse<{ message: string }>>(`/api/migrate/${migrationId}/cancel`),
+  cancel: (migrationId: string) => api.post<ApiResponse<{ message: string }>>(`/api/migrate/${migrationId}/cancel`),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -431,8 +507,10 @@ export interface RegistrationConfig {
 export const adminApi = {
   listUsers: () => api.get<ApiResponse<AdminUser[]>>('/api/admin/users'),
   getUser: (id: string) => api.get<ApiResponse<AdminUser>>(`/api/admin/users/${id}`),
-  patchUser: (id: string, data: { name?: string; role?: 'admin' | 'user'; storageQuota?: number; newPassword?: string }) =>
-    api.patch<ApiResponse<{ message: string }>>(`/api/admin/users/${id}`, data),
+  patchUser: (
+    id: string,
+    data: { name?: string; role?: 'admin' | 'user'; storageQuota?: number; newPassword?: string }
+  ) => api.patch<ApiResponse<{ message: string }>>(`/api/admin/users/${id}`, data),
   deleteUser: (id: string) => api.delete<ApiResponse<{ message: string }>>(`/api/admin/users/${id}`),
   getRegistration: () => api.get<ApiResponse<RegistrationConfig>>('/api/admin/registration'),
   setRegistration: (data: { open?: boolean; requireInviteCode?: boolean }) =>
@@ -442,20 +520,39 @@ export const adminApi = {
   revokeCode: (code: string) => api.delete<ApiResponse<{ message: string }>>(`/api/admin/registration/codes/${code}`),
   stats: () => api.get<ApiResponse<AdminStats>>('/api/admin/stats'),
   auditLogs: (params?: { userId?: string; action?: string; page?: number; limit?: number }) =>
-    api.get<ApiResponse<{ items: AuditLog[]; total: number; page: number; limit: number }>>('/api/admin/audit-logs', { params }),
+    api.get<ApiResponse<{ items: AuditLog[]; total: number; page: number; limit: number }>>('/api/admin/audit-logs', {
+      params,
+    }),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tasks
 // ─────────────────────────────────────────────────────────────────────────────
 export const tasksApi = {
-  create: (data: { fileName: string; fileSize: number; mimeType?: string; parentId?: string | null; bucketId?: string | null }) =>
-    api.post<ApiResponse<{ taskId: string; uploadId: string; r2Key: string; bucketId: string; totalParts: number; firstPartUrl: string }>>('/api/tasks/create', data),
+  create: (data: {
+    fileName: string;
+    fileSize: number;
+    mimeType?: string;
+    parentId?: string | null;
+    bucketId?: string | null;
+  }) =>
+    api.post<
+      ApiResponse<{
+        taskId: string;
+        uploadId: string;
+        r2Key: string;
+        bucketId: string;
+        totalParts: number;
+        firstPartUrl: string;
+      }>
+    >('/api/tasks/create', data),
   get: (taskId: string) => api.get<ApiResponse<UploadTask>>(`/api/tasks/${taskId}`),
   part: (data: { taskId: string; partNumber: number }) =>
     api.post<ApiResponse<{ partUrl: string; partNumber: number; expiresIn: number }>>('/api/tasks/part', data),
   partProxy: (formData: FormData) =>
-    api.post<ApiResponse<{ partNumber: number; etag: string }>>('/api/tasks/part-proxy', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+    api.post<ApiResponse<{ partNumber: number; etag: string }>>('/api/tasks/part-proxy', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
   partDone: (data: { taskId: string; partNumber: number; etag: string }) =>
     api.post<ApiResponse<{ partNumber: number; etag: string; uploadedParts: number[] }>>('/api/tasks/part-done', data),
   complete: (data: { taskId: string; parts: Array<{ partNumber: number; etag: string }> }) =>
@@ -478,7 +575,9 @@ export const downloadsApi = {
   create: (data: { url: string; fileName?: string; parentId?: string | null; bucketId?: string | null }) =>
     api.post<ApiResponse<{ id: string; url: string; fileName: string; status: string }>>('/api/downloads/create', data),
   list: (params?: { status?: string; page?: number; limit?: number }) =>
-    api.get<ApiResponse<{ items: DownloadTask[]; total: number; page: number; limit: number }>>('/api/downloads/list', { params }),
+    api.get<ApiResponse<{ items: DownloadTask[]; total: number; page: number; limit: number }>>('/api/downloads/list', {
+      params,
+    }),
   get: (taskId: string) => api.get<ApiResponse<DownloadTask>>(`/api/downloads/${taskId}`),
   update: (taskId: string, data: { fileName?: string; parentId?: string | null; bucketId?: string | null }) =>
     api.patch<ApiResponse<DownloadTask>>(`/api/downloads/${taskId}`, data),
@@ -511,15 +610,40 @@ export const batchApi = {
 // ─────────────────────────────────────────────────────────────────────────────
 export const searchApi = {
   query: (params: {
-    query?: string; parentId?: string; recursive?: boolean; tags?: string[]; mimeType?: string;
-    minSize?: number; maxSize?: number; createdAfter?: string; createdBefore?: string;
-    updatedAfter?: string; updatedBefore?: string; isFolder?: boolean; bucketId?: string;
-    sortBy?: 'name' | 'size' | 'createdAt' | 'updatedAt'; sortOrder?: 'asc' | 'desc'; page?: number; limit?: number;
+    query?: string;
+    parentId?: string;
+    recursive?: boolean;
+    tags?: string[];
+    mimeType?: string;
+    minSize?: number;
+    maxSize?: number;
+    createdAfter?: string;
+    createdBefore?: string;
+    updatedAfter?: string;
+    updatedBefore?: string;
+    isFolder?: boolean;
+    bucketId?: string;
+    sortBy?: 'name' | 'size' | 'createdAt' | 'updatedAt';
+    sortOrder?: 'asc' | 'desc';
+    page?: number;
+    limit?: number;
   }) => api.get<ApiResponse<FileSearchResult>>('/api/search', { params }),
   advanced: (data: {
-    conditions: Array<{ field: 'name' | 'mimeType' | 'size' | 'createdAt' | 'updatedAt' | 'tags'; operator: 'contains' | 'equals' | 'startsWith' | 'endsWith' | 'gt' | 'gte' | 'lt' | 'lte' | 'in'; value: string | number | string[] }>;
-    logic?: 'and' | 'or'; sortBy?: 'name' | 'size' | 'createdAt' | 'updatedAt'; sortOrder?: 'asc' | 'desc'; page?: number; limit?: number;
-  }) => api.post<ApiResponse<{ items: FileItem[]; total: number; page: number; limit: number; totalPages: number }>>('/api/search/advanced', data),
+    conditions: Array<{
+      field: 'name' | 'mimeType' | 'size' | 'createdAt' | 'updatedAt' | 'tags';
+      operator: 'contains' | 'equals' | 'startsWith' | 'endsWith' | 'gt' | 'gte' | 'lt' | 'lte' | 'in';
+      value: string | number | string[];
+    }>;
+    logic?: 'and' | 'or';
+    sortBy?: 'name' | 'size' | 'createdAt' | 'updatedAt';
+    sortOrder?: 'asc' | 'desc';
+    page?: number;
+    limit?: number;
+  }) =>
+    api.post<ApiResponse<{ items: FileItem[]; total: number; page: number; limit: number; totalPages: number }>>(
+      '/api/search/advanced',
+      data
+    ),
   suggestions: (params: { q: string; type: 'name' | 'tags' | 'mime' }) =>
     api.get<ApiResponse<string[]>>('/api/search/suggestions', { params }),
   recent: () => api.get<ApiResponse<FileItem[]>>('/api/search/recent'),
@@ -529,7 +653,10 @@ export const searchApi = {
 // Permissions & Tags
 // ─────────────────────────────────────────────────────────────────────────────
 export interface SearchableUser {
-  id: string; email: string; name: string | null; role: 'admin' | 'user';
+  id: string;
+  email: string;
+  name: string | null;
+  role: 'admin' | 'user';
 }
 
 export const permissionsApi = {
@@ -538,9 +665,23 @@ export const permissionsApi = {
   revoke: (data: { fileId: string; userId: string }) =>
     api.post<ApiResponse<{ message: string }>>('/api/permissions/revoke', data),
   getFilePermissions: (fileId: string) =>
-    api.get<ApiResponse<{ isOwner: boolean; permissions: Array<{ id: string; userId: string; permission: string; userName: string | null; userEmail: string; createdAt: string }> }>>(`/api/permissions/file/${fileId}`),
+    api.get<
+      ApiResponse<{
+        isOwner: boolean;
+        permissions: Array<{
+          id: string;
+          userId: string;
+          permission: string;
+          userName: string | null;
+          userEmail: string;
+          createdAt: string;
+        }>;
+      }>
+    >(`/api/permissions/file/${fileId}`),
   checkAccess: (fileId: string) =>
-    api.get<ApiResponse<{ hasAccess: boolean; permission: string | null; isOwner: boolean }>>(`/api/permissions/check/${fileId}`),
+    api.get<ApiResponse<{ hasAccess: boolean; permission: string | null; isOwner: boolean }>>(
+      `/api/permissions/check/${fileId}`
+    ),
   searchUsers: (query: string) =>
     api.get<ApiResponse<SearchableUser[]>>('/api/permissions/users/search', { params: { q: query } }),
   addTag: (data: { fileId: string; name: string; color?: string }) =>
@@ -558,14 +699,30 @@ export const permissionsApi = {
 // ─────────────────────────────────────────────────────────────────────────────
 export const previewApi = {
   getInfo: (fileId: string) =>
-    api.get<ApiResponse<{ id: string; name: string; size: number; mimeType: string | null; previewable: boolean; previewType: string; language: string | null; extension: string; canPreview: boolean }>>(`/api/preview/${fileId}/info`),
+    api.get<
+      ApiResponse<{
+        id: string;
+        name: string;
+        size: number;
+        mimeType: string | null;
+        previewable: boolean;
+        previewType: string;
+        language: string | null;
+        extension: string;
+        canPreview: boolean;
+      }>
+    >(`/api/preview/${fileId}/info`),
   getRaw: (fileId: string) =>
-    api.get<ApiResponse<{ content: string; mimeType: string | null; name: string; size: number }>>(`/api/preview/${fileId}/raw`),
+    api.get<ApiResponse<{ content: string; mimeType: string | null; name: string; size: number }>>(
+      `/api/preview/${fileId}/raw`
+    ),
   streamUrl: (fileId: string) => `${import.meta.env.VITE_API_URL || ''}/api/preview/${fileId}/stream`,
   thumbnailUrl: (fileId: string, width = 256, height = 256) =>
     `${import.meta.env.VITE_API_URL || ''}/api/preview/${fileId}/thumbnail?width=${width}&height=${height}`,
   getOffice: (fileId: string) =>
-    api.get<ApiResponse<{ fileName: string; mimeType: string; base64Content: string; size: number }>>(`/api/preview/${fileId}/office`),
+    api.get<ApiResponse<{ fileName: string; mimeType: string; base64Content: string; size: number }>>(
+      `/api/preview/${fileId}/office`
+    ),
 };
 
 export default api;

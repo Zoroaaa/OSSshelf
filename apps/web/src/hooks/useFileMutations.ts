@@ -16,10 +16,24 @@ import { getErrorMessage } from '@/utils';
 // 与后端 TG_MAX_CHUNKED_FILE_SIZE 保持一致（500MB）
 const TG_MAX_FILE_SIZE = 500 * 1024 * 1024;
 
-interface MoveMutationParams { id: string; targetParentId: string | null }
-interface RenameMutationParams { id: string; name: string }
-interface ShareMutationParams { fileId: string; password?: string; expiresAt?: string; downloadLimit?: number }
-interface BatchMoveParams { fileIds: string[]; targetParentId: string | null }
+interface MoveMutationParams {
+  id: string;
+  targetParentId: string | null;
+}
+interface RenameMutationParams {
+  id: string;
+  name: string;
+}
+interface ShareMutationParams {
+  fileId: string;
+  password?: string;
+  expiresAt?: string;
+  downloadLimit?: number;
+}
+interface BatchMoveParams {
+  fileIds: string[];
+  targetParentId: string | null;
+}
 
 export function useFileMutations() {
   const queryClient = useQueryClient();
@@ -73,9 +87,7 @@ export function useFileMutations() {
       const shareId = res.data.data?.id;
       if (shareId) {
         const url = `${window.location.origin}/share/${shareId}`;
-        navigator.clipboard.writeText(url).then(() =>
-          toast({ title: '分享链接已复制', description: url })
-        );
+        navigator.clipboard.writeText(url).then(() => toast({ title: '分享链接已复制', description: url }));
       }
       queryClient.invalidateQueries({ queryKey: ['shares'] });
     },
