@@ -20,10 +20,9 @@ import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { hashPassword } from '../lib/crypto';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
+import { getRegConfig, type RegConfig } from '../lib/utils';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-// ── Admin auth guard ──────────────────────────────────────────────────────
 
 app.use('*', authMiddleware);
 
@@ -37,18 +36,15 @@ app.use('*', async (c, next) => {
   if (!user || user.role !== 'admin') {
     return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '需要管理员权限' } }, 403);
   }
-  // Store full user for downstream handlers
   c.set('user', { id: user.id, email: user.email, role: user.role });
   await next();
 });
-
-// ── Schemas ───────────────────────────────────────────────────────────────
 
 const patchUserSchema = z
   .object({
     name: z.string().max(100).optional(),
     role: z.enum(['admin', 'user']).optional(),
-    storageQuota: z.number().int().min(0).optional(), // bytes; 0 = no quota
+    storageQuota: z.number().int().min(0).optional(),
     newPassword: z.string().min(6).optional(),
   })
   .refine((d) => Object.keys(d).length > 0, { message: '至少提供一个更新字段' });
@@ -58,27 +54,8 @@ const registrationSchema = z.object({
   requireInviteCode: z.boolean().optional(),
 });
 
-// ── KV key helpers ────────────────────────────────────────────────────────
-
-const REG_CONFIG_KEY = 'admin:registration_config';
 const INVITE_PREFIX = 'admin:invite:';
-
-interface RegistrationConfig {
-  open: boolean;
-  requireInviteCode: boolean;
-}
-
-async function getRegConfig(kv: KVNamespace): Promise<RegistrationConfig> {
-  const raw = await kv.get(REG_CONFIG_KEY);
-  if (!raw) return { open: true, requireInviteCode: false };
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return { open: true, requireInviteCode: false };
-  }
-}
-
-// ── GET /api/admin/users ──────────────────────────────────────────────────
+const REG_CONFIG_KEY = 'admin:registration_config';
 
 app.get('/users', async (c) => {
   const db = getDb(c.env.DB);
@@ -247,7 +224,7 @@ app.put('/registration', async (c) => {
   }
 
   const current = await getRegConfig(c.env.KV);
-  const updated: RegistrationConfig = { ...current, ...result.data };
+  const updated: RegConfig = { ...current, ...result.data };
   await c.env.KV.put(REG_CONFIG_KEY, JSON.stringify(updated));
 
   return c.json({ success: true, data: updated });

@@ -16,7 +16,19 @@ import { filesApi } from '@/services/api';
 import { formatBytes } from '@/utils';
 import { getFileCategory, getCategoryBg, isPreviewable } from '@/utils/fileTypes';
 import { cn } from '@/utils';
-import { CheckSquare, Square, Eye, Pencil, FolderInput, Download, Share2, Trash2, Database, User } from 'lucide-react';
+import {
+  CheckSquare,
+  Square,
+  Eye,
+  Pencil,
+  FolderInput,
+  Download,
+  Share2,
+  Trash2,
+  Database,
+  User,
+  Upload,
+} from 'lucide-react';
 import type { ItemProps } from '@/types/files';
 
 export function GridItem({
@@ -34,6 +46,7 @@ export function GridItem({
   onMove,
   onContextMenu,
   onTagClick,
+  onUploadLink,
 }: ItemProps) {
   const bg = getCategoryBg(getFileCategory(file.mimeType, file.isFolder));
   const canPreview = !file.isFolder && isPreviewable(file.mimeType);
@@ -111,6 +124,16 @@ export function GridItem({
         {canPreview && (
           <ActionBtn title="预览" onClick={() => onPreview(file)} light>
             <Eye className="h-3.5 w-3.5" />
+          </ActionBtn>
+        )}
+        {file.isFolder && onUploadLink && (
+          <ActionBtn title="创建上传链接" onClick={() => onUploadLink(file)} light>
+            <Upload className="h-3.5 w-3.5" />
+          </ActionBtn>
+        )}
+        {file.isFolder && (
+          <ActionBtn title="分享文件夹" onClick={() => onShare(file.id)} light>
+            <Share2 className="h-3.5 w-3.5" />
           </ActionBtn>
         )}
         <ActionBtn title="重命名" onClick={() => onRename(file)} light>

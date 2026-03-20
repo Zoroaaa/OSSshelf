@@ -11,15 +11,15 @@
  * - 移动端触摸手势
  */
 
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useFileStore, type ViewMode } from '@/stores/files';
 import { useAuthStore } from '@/stores/auth';
-import { filesApi, bucketsApi, permissionsApi, type StorageBucket } from '@/services/api';
+import { filesApi, bucketsApi, permissionsApi, shareApi, type StorageBucket } from '@/services/api';
 import { getPresignedDownloadUrl, presignUpload } from '@/services/presignUpload';
-import { uploadManager } from '@/services/uploadManager';
 import { useFileKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
+import { useFolderUpload } from '@/hooks/useFolderUpload';
 import { BreadcrumbNav, type BreadcrumbItem } from '@/components/ui/BreadcrumbNav';
 import { FilePreview } from '@/components/ui/FilePreview';
 import { RenameDialog } from '@/components/ui/RenameDialog';
@@ -52,6 +52,9 @@ import type { FileItem } from '@osshelf/shared';
 import { cn } from '@/utils';
 
 import { NewFolderDialog, ShareDialog, FileListContainer } from '@/components/files';
+import { UploadLinkDialog } from '@/components/files/ShareDialog';
+import { FolderPickerDialog } from '@/components/ui/FolderPickerDialog';
+import { MigrateBucketDialog } from '@/components/ui/MigrateBucketDialog';
 import { useFileMutations } from '@/hooks/useFileMutations';
 import { useFileDragDrop } from '@/hooks/useFileDragDrop';
 import { useFileSearch } from '@/hooks/useFileSearch';
@@ -112,6 +115,12 @@ export default function Files() {
     searchInputRef,
     resetNewFolderDialog,
   } = pageState;
+
+  // ── Phase 6 new state ──────────────────────────────────────────────────
+  const [uploadLinkFolder, setUploadLinkFolder] = useState<{ id: string; name: string } | null>(null);
+  const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const [showMigrateDialog, setShowMigrateDialog] = useState(false);
+  const [shareFileItem, setShareFileItem] = useState<{ id: string; isFolder: boolean } | null>(null);
 
   const fileSearch = useFileSearch({ folderId });
   const {
@@ -223,6 +232,20 @@ export default function Files() {
     checkTelegramLimit,
   } = fileMutations;
 
+  // Upload link creation
+  const createUploadLinkMutation = useMutation({
+    mutationFn: (params: Parameters<typeof shareApi.createUploadLink>[0]) => shareApi.createUploadLink(params),
+    onSuccess: (res) => {
+      const d = res.data.data;
+      if (d?.uploadToken) {
+        const url = `${window.location.origin}/upload/${d.uploadToken}`;
+        navigator.clipboard.writeText(url).then(() => toast({ title: '上传链接已复制', description: url }));
+      }
+      setUploadLinkFolder(null);
+    },
+    onError: () => toast({ title: '创建上传链接失败', variant: 'destructive' }),
+  });
+
   function getEffectiveBucket(): StorageBucket | null {
     const folderBucketId = (currentFolderInfo as any)?.bucketId ?? null;
     if (folderBucketId) {
@@ -232,7 +255,7 @@ export default function Files() {
   }
 
   const handleUpload = useCallback(
-    (file: File, key: string) => {
+    async (file: File, key: string) => {
       const bucket = getEffectiveBucket();
       const limitErr = checkTelegramLimit(file, bucket);
       if (limitErr) {
@@ -240,30 +263,33 @@ export default function Files() {
         return;
       }
       setUploadProgresses((p) => ({ ...p, [key]: 0 }));
-      uploadManager
-        .startUpload(file, folderId || null, null, (p) => setUploadProgresses((prev) => ({ ...prev, [key]: p })))
-        .then(() => {
-          setUploadProgresses((p) => {
-            const n = { ...p };
-            delete n[key];
-            return n;
-          });
-          queryClient.invalidateQueries({ queryKey: ['files', folderId] });
-          queryClient.invalidateQueries({ queryKey: ['stats'] });
-          toast({ title: '上传成功' });
-        })
-        .catch((e: any) => {
-          setUploadProgresses((p) => {
-            const n = { ...p };
-            delete n[key];
-            return n;
-          });
-          toast({
-            title: '上传失败',
-            description: e?.message || e?.response?.data?.error?.message,
-            variant: 'destructive',
-          });
+      try {
+        await presignUpload({
+          file,
+          parentId: folderId || null,
+          bucketId: bucket?.id ?? null,
+          onProgress: (progress) => setUploadProgresses((prev) => ({ ...prev, [key]: progress })),
         });
+        setUploadProgresses((p) => {
+          const n = { ...p };
+          delete n[key];
+          return n;
+        });
+        queryClient.invalidateQueries({ queryKey: ['files', folderId] });
+        queryClient.invalidateQueries({ queryKey: ['stats'] });
+        toast({ title: '上传成功' });
+      } catch (e: any) {
+        setUploadProgresses((p) => {
+          const n = { ...p };
+          delete n[key];
+          return n;
+        });
+        toast({
+          title: '上传失败',
+          description: e?.message || e?.response?.data?.error?.message,
+          variant: 'destructive',
+        });
+      }
     },
     [folderId, queryClient, toast, setUploadProgresses, checkTelegramLimit]
   );
@@ -271,6 +297,44 @@ export default function Files() {
   const { isDragActive, handleDragOver, handleDragLeave, handleDrop } = useFileDragDrop({
     folderId: folderId ?? null,
     setUploadProgresses,
+  });
+
+  const { uploadFilesWithRelativePath } = useFolderUpload({
+    currentFolderId: folderId ?? undefined,
+    onFileStart: (name, key) => setUploadProgresses((p) => ({ ...p, [key]: 0 })),
+    onFileProgress: (key, progress) => setUploadProgresses((p) => ({ ...p, [key]: progress })),
+    onFileDone: (key) => {
+      setUploadProgresses((p) => {
+        const n = { ...p };
+        delete n[key];
+        return n;
+      });
+    },
+    onFileError: (key, error) => {
+      setUploadProgresses((p) => {
+        const n = { ...p };
+        delete n[key];
+        return n;
+      });
+      toast({
+        title: '上传失败',
+        description: error?.response?.data?.error?.message || error?.message,
+        variant: 'destructive',
+      });
+    },
+    onAllDone: (stats) => {
+      if (stats) {
+        if (stats.failed === 0) {
+          toast({ title: '文件夹上传完成', description: `成功上传 ${stats.uploaded} 个文件` });
+        } else {
+          toast({
+            title: '文件夹上传完成（部分失败）',
+            description: `成功 ${stats.uploaded} 个，失败 ${stats.failed} 个`,
+            variant: 'destructive',
+          });
+        }
+      }
+    },
   });
 
   const handleDownload = useCallback(
@@ -287,21 +351,22 @@ export default function Files() {
         a.remove();
       } catch {
         try {
-          const res = await filesApi.download(file.id);
-          const url = window.URL.createObjectURL(res.data as Blob);
+          const downloadToken = token || useAuthStore.getState().token;
+          const downloadUrl = filesApi.downloadUrl(file.id, downloadToken ?? undefined);
           const a = document.createElement('a');
-          a.href = url;
+          a.href = downloadUrl;
           a.download = file.name;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
           document.body.appendChild(a);
           a.click();
-          window.URL.revokeObjectURL(url);
           a.remove();
         } catch {
           toast({ title: '下载失败', variant: 'destructive' });
         }
       }
     },
-    [toast]
+    [toast, token]
   );
 
   const handleFileClick = useCallback(
@@ -340,7 +405,15 @@ export default function Files() {
   const fileContextMenuCallbacks = {
     onOpen: handleFileClick,
     onDownload: handleDownload,
-    onShare: (file: FileItem) => setShareFileId(file.id),
+    onShare: (file: FileItem) => {
+      setShareFileItem({ id: file.id, isFolder: file.isFolder });
+      setShareFileId(file.id);
+    },
+    onUploadLink: (file: FileItem) => {
+      if (file.isFolder) {
+        setUploadLinkFolder({ id: file.id, name: file.name });
+      }
+    },
     onTags: (file: FileItem) => setTagsFile(file),
     onPermissions: (file: FileItem) => setPermissionFile(file),
     onFolderSettings: (file: FileItem) => setFolderSettingsFile(file),
@@ -434,8 +507,7 @@ export default function Files() {
   const handleShareConfirm = useCallback(
     (params: { password?: string; expiresAt?: string; downloadLimit?: number }) => {
       if (!shareFileId) return;
-      shareMutation.mutate({ fileId: shareFileId, ...params });
-      setShareFileId(null);
+      shareMutation.mutate({ fileId: shareFileId, ...params }, { onSuccess: () => setShareFileId(null) });
     },
     [shareFileId, shareMutation, setShareFileId]
   );
@@ -702,7 +774,7 @@ export default function Files() {
               multiple
               onChange={(e) => {
                 Array.from(e.target.files || []).forEach((file) => {
-                  const key = `${file.name}-${Date.now()}`;
+                  const key = `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
                   handleUpload(file, key);
                 });
                 e.target.value = '';
@@ -730,119 +802,19 @@ export default function Files() {
               directory=""
               multiple
               onChange={(e) => {
-                const files = Array.from(e.target.files || []);
-                if (files.length === 0) return;
-
-                const rootFolderName = files[0] ? ((files[0] as any).webkitRelativePath as string).split('/')[0] : '';
-                const totalFiles = files.length;
-                const folderPathSet = new Set<string>();
-
-                for (const file of files) {
-                  const relativePath = (file as any).webkitRelativePath as string;
-                  if (relativePath) {
-                    const parts = relativePath.split('/');
-                    for (let i = 1; i < parts.length; i++) {
-                      folderPathSet.add(parts.slice(0, i).join('/'));
-                    }
-                  }
-                }
-
-                const sortedFolderPaths = [...folderPathSet].sort((a, b) => {
-                  return a.split('/').length - b.split('/').length;
-                });
-
+                const files = e.target.files;
+                if (!files || files.length === 0) return;
+                const rootFolderName = (files[0] as any).webkitRelativePath?.split('/')[0] || '文件夹';
+                const folderCount = new Set(
+                  Array.from(files)
+                    .map((f) => (f as any).webkitRelativePath?.split('/').slice(0, -1).join('/'))
+                    .filter(Boolean)
+                ).size;
                 toast({
                   title: `开始上传文件夹 "${rootFolderName}"`,
-                  description: `${folderPathSet.size} 个文件夹，${totalFiles} 个文件`,
+                  description: `${folderCount} 个文件夹，${files.length} 个文件`,
                 });
-
-                const folderIdMap = new Map<string, string>();
-                let uploadedCount = 0;
-                let failedCount = 0;
-
-                const createFoldersAndUpload = async () => {
-                  for (const folderPath of sortedFolderPaths) {
-                    const parts = folderPath.split('/');
-                    const name = parts[parts.length - 1];
-                    if (!name) continue;
-                    const parentPath = parts.slice(0, -1).join('/');
-                    const parentId = parentPath
-                      ? (folderIdMap.get(parentPath) ?? folderId ?? null)
-                      : (folderId ?? null);
-
-                    try {
-                      const res = await filesApi.createFolder(name, parentId);
-                      const createdFolderId = res.data.data?.id;
-                      if (createdFolderId) {
-                        folderIdMap.set(folderPath, createdFolderId);
-                        queryClient.invalidateQueries({ queryKey: ['files', parentId ?? undefined] });
-                      }
-                    } catch (err: any) {
-                      console.warn(
-                        `创建文件夹 "${folderPath}" 失败:`,
-                        err?.response?.data?.error?.message || err?.message
-                      );
-                    }
-                  }
-
-                  for (const file of files) {
-                    const relativePath = (file as any).webkitRelativePath as string;
-                    const parts = relativePath.split('/');
-                    const parentPath = parts.slice(0, -1).join('/');
-                    const parentId = parentPath
-                      ? (folderIdMap.get(parentPath) ?? folderId ?? null)
-                      : (folderId ?? null);
-
-                    const key = `${file.name}-${Date.now()}-${Math.random()}`;
-                    setUploadProgresses((p) => ({ ...p, [key]: 0 }));
-
-                    try {
-                      await presignUpload({
-                        file,
-                        parentId,
-                        onProgress: (progress) => setUploadProgresses((p) => ({ ...p, [key]: progress })),
-                      });
-                      uploadedCount++;
-                      setUploadProgresses((p) => {
-                        const n = { ...p };
-                        delete n[key];
-                        return n;
-                      });
-                      queryClient.invalidateQueries({ queryKey: ['files', parentId ?? undefined] });
-                    } catch (err: any) {
-                      failedCount++;
-                      setUploadProgresses((p) => {
-                        const n = { ...p };
-                        delete n[key];
-                        return n;
-                      });
-                      toast({
-                        title: `上传 "${file.name}" 失败`,
-                        description: err?.response?.data?.error?.message || err?.message,
-                        variant: 'destructive',
-                      });
-                    }
-                  }
-
-                  queryClient.invalidateQueries({ queryKey: ['files'] });
-                  queryClient.invalidateQueries({ queryKey: ['files', folderId] });
-                  queryClient.invalidateQueries({ queryKey: ['stats'] });
-
-                  if (failedCount === 0) {
-                    toast({
-                      title: `文件夹 "${rootFolderName}" 上传完成`,
-                      description: `成功上传 ${uploadedCount} 个文件`,
-                    });
-                  } else {
-                    toast({
-                      title: `文件夹 "${rootFolderName}" 上传完成（部分失败）`,
-                      description: `成功 ${uploadedCount} 个，失败 ${failedCount} 个`,
-                      variant: 'destructive',
-                    });
-                  }
-                };
-
-                createFoldersAndUpload();
+                uploadFilesWithRelativePath(files);
                 e.target.value = '';
               }}
             />
@@ -891,14 +863,19 @@ export default function Files() {
           bucketId={newFolderBucketId}
           onNameChange={setNewFolderName}
           onBucketChange={setNewFolderBucketId}
-          onConfirm={() =>
-            newFolderName.trim() &&
-            createFolderMutation.mutate({
-              name: newFolderName.trim(),
-              parentId: folderId || null,
-              bucketId: newFolderBucketId,
-            })
-          }
+          onConfirm={() => {
+            if (!newFolderName.trim()) return;
+            createFolderMutation.mutate(
+              {
+                name: newFolderName.trim(),
+                parentId: folderId || null,
+                bucketId: newFolderBucketId,
+              },
+              {
+                onSuccess: () => resetNewFolderDialog(),
+              }
+            );
+          }}
           onCancel={resetNewFolderDialog}
           loading={createFolderMutation.isPending}
         />
@@ -907,17 +884,48 @@ export default function Files() {
       {shareFileId && (
         <ShareDialog
           fileId={shareFileId}
+          isFolder={shareFileItem?.isFolder ?? false}
           isPending={shareMutation.isPending}
           onConfirm={handleShareConfirm}
-          onCancel={() => setShareFileId(null)}
+          onCancel={() => {
+            setShareFileId(null);
+            setShareFileItem(null);
+          }}
         />
       )}
+
+      {/* Upload link folder picker */}
+      {showFolderPicker && (
+        <FolderPickerDialog
+          onConfirm={(id, name) => {
+            setUploadLinkFolder({ id, name });
+            setShowFolderPicker(false);
+          }}
+          onCancel={() => setShowFolderPicker(false)}
+        />
+      )}
+
+      {/* Upload link config dialog */}
+      {uploadLinkFolder && (
+        <UploadLinkDialog
+          folderId={uploadLinkFolder.id}
+          folderName={uploadLinkFolder.name}
+          isPending={createUploadLinkMutation.isPending}
+          onConfirm={(params) => createUploadLinkMutation.mutate({ folderId: uploadLinkFolder.id, ...params })}
+          onCancel={() => setUploadLinkFolder(null)}
+        />
+      )}
+
+      {/* Migrate bucket dialog */}
+      {showMigrateDialog && <MigrateBucketDialog onClose={() => setShowMigrateDialog(false)} />}
 
       {renameFile && (
         <RenameDialog
           currentName={renameFile.name}
           isPending={renameMutation.isPending}
-          onConfirm={(name) => renameMutation.mutate({ id: renameFile.id, name })}
+          onConfirm={(name) =>
+            renameMutation.mutate({ id: renameFile.id, name }, { onSuccess: () => setRenameFile(null) })
+          }
           onCancel={() => setRenameFile(null)}
         />
       )}
@@ -926,7 +934,9 @@ export default function Files() {
         <MoveFolderPicker
           excludeIds={[moveFile.id]}
           isPending={moveMutation.isPending}
-          onConfirm={(targetParentId) => moveMutation.mutate({ id: moveFile.id, targetParentId })}
+          onConfirm={(targetParentId) =>
+            moveMutation.mutate({ id: moveFile.id, targetParentId }, { onSuccess: () => setMoveFile(null) })
+          }
           onCancel={() => setMoveFile(null)}
         />
       )}
@@ -1024,13 +1034,23 @@ export default function Files() {
         onFileClick={handleFileClick}
         onToggleSelect={toggleFileSelection}
         onDownload={handleDownload}
-        onShare={setShareFileId}
+        onShare={(id) => {
+          // Find file in displayFiles to get isFolder
+          const f = displayFiles.find((x) => x.id === id);
+          setShareFileItem(f ? { id, isFolder: f.isFolder } : { id, isFolder: false });
+          setShareFileId(id);
+        }}
         onDelete={(file) => deleteMutation.mutate(file.id)}
         onRename={setRenameFile}
         onPreview={setPreviewFile}
         onMove={setMoveFile}
         onContextMenu={onContextMenu}
         onTagClick={handleTagClick}
+        onUploadLink={(file) => {
+          if (file.isFolder) {
+            setUploadLinkFolder({ id: file.id, name: file.name });
+          }
+        }}
       />
     </div>
   );

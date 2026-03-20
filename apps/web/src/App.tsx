@@ -56,8 +56,9 @@ function App() {
         <Route path="/register" element={<Register />} />
       </Route>
 
-      {/* Public share page */}
+      {/* Public share page & upload link */}
       <Route path="/share/:shareId" element={<SharePage />} />
+      <Route path="/upload/:uploadToken" element={<SharePage />} />
 
       {/* Protected */}
       <Route

@@ -53,12 +53,6 @@ const batchRenameSchema = z.object({
     .max(100),
 });
 
-const batchTagSchema = z.object({
-  fileIds: z.array(z.string().min(1)).min(1).max(100),
-  tags: z.array(z.string().min(1).max(50)).min(1).max(10),
-  action: z.enum(['add', 'remove', 'set']),
-});
-
 interface BatchResult {
   success: number;
   failed: number;

@@ -10,7 +10,7 @@
 
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight, Home } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn } from '@/utils';
 
 export interface BreadcrumbItem {
   id: string | null;

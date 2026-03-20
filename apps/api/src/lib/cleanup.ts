@@ -129,7 +129,12 @@ async function runTrashCleanup(
 async function runSessionCleanup(
   db: ReturnType<typeof getDb>,
   encKey: string
-): Promise<{ webdavSessionsCleaned: number; uploadTasksExpired: number; loginAttemptsCleaned: number; devicesCleaned: number }> {
+): Promise<{
+  webdavSessionsCleaned: number;
+  uploadTasksExpired: number;
+  loginAttemptsCleaned: number;
+  devicesCleaned: number;
+}> {
   const now = new Date().toISOString();
 
   // 清理过期 WebDAV sessions
@@ -174,9 +179,9 @@ async function runSessionCleanup(
 
   console.log(
     `Session cleanup: ${expiredWebdav.length} webdav sessions, ` +
-    `${expiredUploadTasks.length} upload tasks, ` +
-    `${oldLoginAttempts.length} login attempts, ` +
-    `${expiredDevices.length} inactive devices`
+      `${expiredUploadTasks.length} upload tasks, ` +
+      `${oldLoginAttempts.length} login attempts, ` +
+      `${expiredDevices.length} inactive devices`
   );
 
   return {

@@ -430,7 +430,7 @@ function TaskItem({
   onResumeUpload?: () => void;
 }) {
   const status = STATUS_CONFIG[task.status] ?? DEFAULT_STATUS;
-  const progress = task.totalParts > 0 ? Math.round((task.uploadedParts.length / task.totalParts) * 100) : 0;
+  const progress = task.progress ?? 0;
   const StatusIcon = status.icon;
 
   return (

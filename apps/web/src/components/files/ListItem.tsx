@@ -15,7 +15,19 @@ import { ActionBtn } from './ActionBtn';
 import { formatBytes, formatDate } from '@/utils';
 import { isPreviewable } from '@/utils/fileTypes';
 import { cn } from '@/utils';
-import { CheckSquare, Square, Eye, Pencil, FolderInput, Download, Share2, Trash2, Database, User } from 'lucide-react';
+import {
+  CheckSquare,
+  Square,
+  Eye,
+  Pencil,
+  FolderInput,
+  Download,
+  Share2,
+  Trash2,
+  Database,
+  User,
+  Upload,
+} from 'lucide-react';
 import type { ItemProps } from '@/types/files';
 
 export function ListItem({
@@ -32,6 +44,7 @@ export function ListItem({
   onMove,
   onContextMenu,
   onTagClick,
+  onUploadLink,
 }: ItemProps) {
   const canPreview = !file.isFolder && isPreviewable(file.mimeType);
   const { isMobile } = useResponsive();
@@ -110,6 +123,16 @@ export function ListItem({
         {canPreview && (
           <ActionBtn title="预览" onClick={() => onPreview(file)}>
             <Eye className="h-3.5 w-3.5" />
+          </ActionBtn>
+        )}
+        {file.isFolder && onUploadLink && (
+          <ActionBtn title="创建上传链接" onClick={() => onUploadLink(file)}>
+            <Upload className="h-3.5 w-3.5" />
+          </ActionBtn>
+        )}
+        {file.isFolder && (
+          <ActionBtn title="分享文件夹" onClick={() => onShare(file.id)}>
+            <Share2 className="h-3.5 w-3.5" />
           </ActionBtn>
         )}
         <ActionBtn title="重命名" onClick={() => onRename(file)}>

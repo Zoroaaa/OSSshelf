@@ -5,7 +5,6 @@
  * 功能:
  * - JWT令牌验证
  * - 用户身份注入
- * - 权限检查
  */
 
 import type { MiddlewareHandler } from 'hono';
@@ -42,21 +41,4 @@ export const authMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
   } catch {
     return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '令牌无效或已过期' } }, 401);
   }
-};
-
-export const optionalAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
-  const authHeader = c.req.header('Authorization');
-
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.slice(7);
-    try {
-      const decoded = await verifyJWT(token, c.env.JWT_SECRET);
-      c.set('userId', decoded.userId);
-      c.set('user', { id: decoded.userId, email: decoded.email, role: decoded.role });
-    } catch {
-      // continue without auth
-    }
-  }
-
-  await next();
 };

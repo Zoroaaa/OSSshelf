@@ -58,9 +58,10 @@ const updateBucketSchema = createBucketSchema.partial();
 function sanitize(bucket: typeof storageBuckets.$inferSelect) {
   const { accessKeyId, secretAccessKey, ...safe } = bucket;
   // Telegram Bot Token 以 "<id>:ABC..." 格式呈现，只显示前8字符
-  const displayAkId = bucket.provider === 'telegram'
-    ? accessKeyId.slice(0, 8) + '••••••••'
-    : accessKeyId.slice(0, 4) + '••••••••' + accessKeyId.slice(-4);
+  const displayAkId =
+    bucket.provider === 'telegram'
+      ? accessKeyId.slice(0, 8) + '••••••••'
+      : accessKeyId.slice(0, 4) + '••••••••' + accessKeyId.slice(-4);
   return {
     ...safe,
     accessKeyId: displayAkId,
@@ -345,10 +346,13 @@ app.post('/:id/test', async (c) => {
         },
       });
     } catch (err: any) {
-      return c.json({
-        success: false,
-        error: { code: 'CONNECTION_FAILED', message: err.message || 'Telegram 连接失败' },
-      }, 200);
+      return c.json(
+        {
+          success: false,
+          error: { code: 'CONNECTION_FAILED', message: err.message || 'Telegram 连接失败' },
+        },
+        200
+      );
     }
   }
 

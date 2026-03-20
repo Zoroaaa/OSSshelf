@@ -45,6 +45,16 @@ export interface FileItem {
   permissions?: FilePermission[];
 }
 
+export interface UploadedFile {
+  id: string;
+  name: string;
+  size: number;
+  mimeType: string | null;
+  path: string;
+  bucketId: string | null;
+  createdAt: string;
+}
+
 export type FileType = 'file' | 'folder';
 
 export interface FileTag {
@@ -157,6 +167,7 @@ export interface UploadTask {
   totalParts: number;
   uploadedParts: number[];
   status: UploadTaskStatus;
+  progress: number;
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;

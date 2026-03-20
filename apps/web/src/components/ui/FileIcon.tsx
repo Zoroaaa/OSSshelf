@@ -24,7 +24,7 @@ import {
   Package,
 } from 'lucide-react';
 import { getFileCategory, getCategoryColor, type FileCategory } from '@/utils/fileTypes';
-import { cn } from '@/lib/utils';
+import { cn } from '@/utils';
 
 interface FileIconProps {
   mimeType?: string | null;

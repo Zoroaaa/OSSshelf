@@ -48,8 +48,13 @@ ossshelf/
 │   │   │   │   ├── bucketResolver.ts  # 存储桶解析
 │   │   │   │   ├── cleanup.ts  # 清理任务
 │   │   │   │   ├── crypto.ts   # 加密工具
+│   │   │   │   ├── dedup.ts    # 文件去重
+│   │   │   │   ├── folderPolicy.ts # 文件夹策略
 │   │   │   │   ├── s3client.ts # S3 客户端
-│   │   │   │   └── telegramClient.ts # Telegram 客户端
+│   │   │   │   ├── telegramClient.ts # Telegram 客户端
+│   │   │   │   ├── telegramChunked.ts # Telegram 分片上传
+│   │   │   │   ├── utils.ts    # 工具函数
+│   │   │   │   └── zipStream.ts # ZIP 流式打包
 │   │   │   ├── middleware/
 │   │   │   │   ├── auth.ts     # 认证中间件
 │   │   │   │   ├── error.ts    # 错误处理
@@ -62,6 +67,7 @@ ossshelf/
 │   │   │   │   ├── cron.ts     # 定时任务
 │   │   │   │   ├── downloads.ts # 离线下载
 │   │   │   │   ├── files.ts    # 文件管理
+│   │   │   │   ├── migrate.ts  # 存储桶迁移
 │   │   │   │   ├── permissions.ts # 权限管理
 │   │   │   │   ├── presign.ts  # 预签名 URL
 │   │   │   │   ├── preview.ts  # 文件预览
@@ -81,9 +87,20 @@ ossshelf/
 │   └── web/                    # 前端应用
 │       ├── src/
 │       │   ├── components/     # UI 组件
+│       │   │   ├── files/      # 文件相关组件
+│       │   │   │   ├── ShareDialog.tsx # 分享对话框
+│       │   │   │   └── ...
+│       │   │   ├── layouts/    # 布局组件
+│       │   │   └── ui/         # 通用 UI 组件
+│       │   │       ├── MigrateBucketDialog.tsx # 迁移对话框
+│       │   │       └── ...
 │       │   ├── hooks/          # 自定义 Hooks
-│       │   ├── lib/            # 工具函数
+│       │   │   ├── useFolderUpload.ts # 文件夹上传
+│       │   │   └── ...
 │       │   ├── pages/          # 页面组件
+│       │   │   ├── SharePage.tsx # 分享页面（含上传链接）
+│       │   │   └── ...
+│       │   ├── services/       # API 服务
 │       │   ├── stores/         # Zustand 状态
 │       │   └── main.tsx        # 入口文件
 │       ├── vite.config.ts
@@ -134,9 +151,10 @@ ossshelf/
 | size               | INTEGER | 文件大小             |
 | r2_key             | TEXT    | 对象存储键           |
 | mime_type          | TEXT    | MIME 类型            |
-| hash               | TEXT    | 文件哈希             |
+| hash               | TEXT    | 文件哈希（用于去重） |
 | is_folder          | BOOLEAN | 是否为文件夹         |
 | allowed_mime_types | TEXT    | 文件夹允许的上传类型 |
+| ref_count          | INTEGER | 引用计数（去重机制） |
 | bucket_id          | TEXT    | 所属存储桶 ID        |
 | created_at         | TEXT    | 创建时间             |
 | updated_at         | TEXT    | 更新时间             |
@@ -149,7 +167,7 @@ ossshelf/
 | id                | TEXT    | 主键                     |
 | user_id           | TEXT    | 所属用户                 |
 | name              | TEXT    | 显示名称                 |
-| provider          | TEXT    | 提供商 (s3/r2/oss/cos等) |
+| provider          | TEXT    | 提供商 (s3/r2/oss/cos/telegram等) |
 | bucket_name       | TEXT    | 存储桶名称               |
 | endpoint          | TEXT    | 端点 URL                 |
 | region            | TEXT    | 区域                     |
@@ -167,16 +185,46 @@ ossshelf/
 
 #### shares (分享表)
 
-| 字段           | 类型    | 说明            |
-| -------------- | ------- | --------------- |
-| id             | TEXT    | 主键            |
-| file_id        | TEXT    | 关联文件 ID     |
-| user_id        | TEXT    | 创建者 ID       |
-| password       | TEXT    | 访问密码 (可选) |
-| expires_at     | TEXT    | 过期时间        |
-| download_limit | INTEGER | 下载次数限制    |
-| download_count | INTEGER | 已下载次数      |
-| created_at     | TEXT    | 创建时间        |
+| 字段                     | 类型    | 说明                    |
+| ------------------------ | ------- | ----------------------- |
+| id                       | TEXT    | 主键                    |
+| file_id                  | TEXT    | 关联文件 ID             |
+| user_id                  | TEXT    | 创建者 ID               |
+| password                 | TEXT    | 访问密码 (可选)         |
+| expires_at               | TEXT    | 过期时间                |
+| download_limit           | INTEGER | 下载次数限制            |
+| download_count           | INTEGER | 已下载次数              |
+| is_upload_link           | BOOLEAN | 是否为上传链接          |
+| upload_token             | TEXT    | 上传令牌（唯一）        |
+| max_upload_size          | INTEGER | 单文件大小上限          |
+| upload_allowed_mime_types| TEXT    | 允许的 MIME 类型 (JSON) |
+| max_upload_count         | INTEGER | 最多上传文件数          |
+| upload_count             | INTEGER | 已上传文件数            |
+| created_at               | TEXT    | 创建时间                |
+
+#### telegram_file_refs (Telegram 文件引用表)
+
+| 字段          | 类型    | 说明                     |
+| ------------- | ------- | ------------------------ |
+| id            | TEXT    | 主键                     |
+| file_id       | TEXT    | OSSshelf 内部文件 ID     |
+| r2_key        | TEXT    | 与 files.r2_key 对应     |
+| tg_file_id    | TEXT    | Telegram 返回的 file_id  |
+| tg_file_size  | INTEGER | Telegram 报告的文件大小  |
+| bucket_id     | TEXT    | 所属存储桶 ID            |
+| created_at    | TEXT    | 创建时间                 |
+
+#### telegram_file_chunks (Telegram 分片表)
+
+| 字段        | 类型    | 说明                     |
+| ----------- | ------- | ------------------------ |
+| id          | TEXT    | 主键                     |
+| group_id    | TEXT    | 同一文件所有分片共享的 UUID |
+| chunk_index | INTEGER | 0-based 分片序号         |
+| tg_file_id  | TEXT    | Telegram file_id（此分片）|
+| chunk_size  | INTEGER | 此块字节数               |
+| bucket_id   | TEXT    | 所属存储桶               |
+| created_at  | TEXT    | 创建时间                 |
 
 #### file_permissions (文件权限表)
 
@@ -217,6 +265,8 @@ ossshelf/
 | total_parts    | INTEGER | 总分片数          |
 | uploaded_parts | TEXT    | 已上传分片 (JSON) |
 | status         | TEXT    | 状态              |
+| progress       | INTEGER | 进度百分比        |
+| error_message  | TEXT    | 错误信息          |
 | created_at     | TEXT    | 创建时间          |
 | updated_at     | TEXT    | 更新时间          |
 | expires_at     | TEXT    | 过期时间          |
@@ -274,18 +324,6 @@ ossshelf/
 | user_agent | TEXT    | User Agent |
 | created_at | TEXT    | 创建时间   |
 
-#### telegram_file_refs (Telegram 文件引用表)
-
-| 字段          | 类型    | 说明                     |
-| ------------- | ------- | ------------------------ |
-| id            | TEXT    | 主键                     |
-| file_id       | TEXT    | OSSshelf 内部文件 ID     |
-| r2_key        | TEXT    | 与 files.r2_key 对应     |
-| tg_file_id    | TEXT    | Telegram 返回的 file_id  |
-| tg_file_size  | INTEGER | Telegram 报告的文件大小  |
-| bucket_id     | TEXT    | 所属存储桶 ID            |
-| created_at    | TEXT    | 创建时间                 |
-
 #### audit_logs (审计日志表)
 
 | 字段          | 类型 | 说明        |
@@ -318,9 +356,168 @@ ossshelf/
 | /api/permissions | permissions.ts | 权限与标签  |
 | /api/preview     | preview.ts     | 文件预览    |
 | /api/admin       | admin.ts       | 管理员接口  |
+| /api/migrate     | migrate.ts     | 存储桶迁移  |
 | /api/telegram    | telegram.ts    | Telegram 存储 |
 | /cron            | cron.ts        | 定时任务    |
 | /dav             | webdav.ts      | WebDAV 协议 |
+
+## 核心功能架构
+
+### Telegram 分片上传
+
+Telegram Bot API 单文件限制为 50MB，通过分片上传机制突破此限制，最大支持 2GB：
+
+```
+前端                          Worker                        Telegram
+  │                             │                              │
+  │  POST /api/tasks/create     │                              │
+  │ ──────────────────────────> │                              │
+  │                             │  返回 isTelegramUpload=true   │
+  │ <────────────────────────── │  totalParts, partSize        │
+  │                             │                              │
+  │  循环每个分片 (30MB)         │                              │
+  │  POST /api/tasks/telegram-part                             │
+  │ ──────────────────────────> │  sendDocument                │
+  │                             │ ────────────────────────────> │
+  │                             │ <──────────────────────────── │
+  │ <────────────────────────── │  返回 tgFileId               │
+  │                             │  存入 telegram_file_chunks    │
+  │                             │                              │
+  │  POST /api/tasks/complete   │                              │
+  │ ──────────────────────────> │  校验分片完整性               │
+  │                             │  写入 files + telegram_file_refs
+  │ <────────────────────────── │                              │
+```
+
+**关键参数**:
+- `TG_CHUNK_SIZE`: 30MB（单分片大小）
+- `TG_MAX_CHUNKED_FILE_SIZE`: 2GB（最大文件大小）
+
+### 存储桶迁移
+
+支持在不同存储桶之间迁移文件，包括跨 provider 迁移：
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Migration Flow                            │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  POST /api/migrate/start                                     │
+│  ├─ 验证 sourceBucketId / targetBucketId                     │
+│  ├─ 收集需要迁移的文件 ID（支持文件夹递归）                    │
+│  ├─ 创建 MigrationStatus 存入 KV                             │
+│  └─ waitUntil(runMigration) 异步执行                         │
+│                                                              │
+│  runMigration (后台执行)                                      │
+│  ├─ 逐文件处理                                               │
+│  │   ├─ 从来源读取 (S3/Telegram/R2)                          │
+│  │   ├─ 写入目标 (S3/Telegram)                               │
+│  │   ├─ 更新 files 表                                        │
+│  │   └─ 更新 bucket stats                                    │
+│  ├─ 每完成一个文件更新 KV 状态                                │
+│  └─ 支持取消（检查 KV status）                                │
+│                                                              │
+│  GET /api/migrate/:migrationId                               │
+│  └─ 返回 KV 中的 MigrationStatus                             │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**特性**:
+- 流式拷贝，不落盘
+- 实时进度追踪
+- 支持取消
+- 支持移动模式（迁移后删除来源）
+
+### 文件夹分享
+
+支持分享整个文件夹，浏览子文件并打包下载：
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   Folder Share Flow                          │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  创建分享                                                     │
+│  POST /api/share { fileId: folderId }                        │
+│                                                              │
+│  访问分享                                                     │
+│  GET /api/share/:shareId                                     │
+│  └─ 返回 children 列表（一层子文件）                          │
+│                                                              │
+│  下载单个子文件                                               │
+│  GET /api/share/:shareId/file/:fileId/download               │
+│                                                              │
+│  打包下载                                                     │
+│  GET /api/share/:shareId/zip?fileIds=id1,id2                 │
+│  ├─ 收集文件（支持筛选）                                      │
+│  ├─ ZipBuilder 流式打包                                      │
+│  └─ 返回 ZIP 文件                                            │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**限制**:
+- 单次 ZIP 最多 200 个文件
+- ZIP 总大小不超过 500MB
+
+### 上传链接
+
+允许未登录用户向指定文件夹上传文件：
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   Upload Link Flow                           │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  创建上传链接                                                 │
+│  POST /api/share/upload-link                                 │
+│  ├─ folderId: 目标文件夹                                      │
+│  ├─ maxUploadSize: 单文件大小上限                             │
+│  ├─ allowedMimeTypes: 允许的文件类型                          │
+│  └─ maxUploadCount: 最多上传数                                │
+│                                                              │
+│  获取上传链接信息                                             │
+│  GET /api/share/upload/:token                                │
+│                                                              │
+│  上传文件                                                     │
+│  POST /api/share/upload/:token                               │
+│  ├─ 验证链接有效性                                           │
+│  ├─ 检查文件大小限制                                         │
+│  ├─ 检查 MIME 类型限制                                       │
+│  ├─ 写入存储（以 folder owner 身份）                          │
+│  └─ 更新 uploadCount                                         │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 文件去重（Copy-on-Write）
+
+相同 hash + bucketId 的文件共享存储对象：
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   Dedup Flow                                 │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  上传前检查                                                   │
+│  checkAndClaimDedup(hash, bucketId, userId)                  │
+│  ├─ 查找同 hash + bucketId 的活跃文件                        │
+│  ├─ 若存在：ref_count += 1，返回 existingR2Key               │
+│  └─ 若不存在：返回 isDuplicate: false                        │
+│                                                              │
+│  删除文件                                                     │
+│  releaseFileRef(fileId)                                      │
+│  ├─ ref_count -= 1                                           │
+│  └─ 若 ref_count == 0，才删除存储对象                        │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**约束**:
+- hash 为 null 的文件不参与去重
+- 跨存储桶不去重
+- 已软删除的文件不作为去重目标
 
 ## 系统常量
 
@@ -333,6 +530,8 @@ ossshelf/
 | UPLOAD_CHUNK_SIZE     | 10 MB  | 分片上传大小   |
 | MULTIPART_THRESHOLD   | 100 MB | 分片上传阈值   |
 | MAX_CONCURRENT_PARTS  | 3      | 最大并发分片数 |
+| TG_CHUNK_SIZE         | 30 MB  | Telegram 分片大小 |
+| TG_MAX_CHUNKED_FILE_SIZE | 2 GB | Telegram 最大文件 |
 
 ### 时间限制
 
@@ -410,6 +609,12 @@ ossshelf/
 3. 并发上传分片（最多 3 个并发）
 4. 调用 `/api/presign/multipart/complete` 完成上传
 
+### Telegram 分片上传流程
+
+1. 调用 `/api/tasks/create`，返回 `isTelegramUpload: true`
+2. 循环调用 `/api/tasks/telegram-part` 上传每个分片（30MB）
+3. 调用 `/api/tasks/complete` 完成上传，后端写入文件记录
+
 ## 定时任务
 
 系统通过 Cloudflare Cron Triggers 执行定时任务：
@@ -428,3 +633,4 @@ ossshelf/
 4. **安全头**: 使用 Hono secure-headers 中间件
 5. **输入验证**: 使用 Zod 进行请求参数验证
 6. **审计日志**: 记录所有关键操作
+7. **密钥加密**: 存储桶密钥使用 AES-GCM 加密存储

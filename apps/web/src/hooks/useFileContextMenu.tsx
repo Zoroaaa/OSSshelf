@@ -28,6 +28,7 @@ import {
   Upload,
   FolderPlus,
   Clipboard,
+  Link2,
 } from 'lucide-react';
 
 export function useFileContextMenu() {
@@ -52,10 +53,16 @@ export function useFileContextMenu() {
         },
         {
           id: 'share',
-          label: '分享',
+          label: file.isFolder ? '分享文件夹' : '分享',
           icon: <Share2 className="h-4 w-4" />,
           action: () => callbacks.onShare(file),
-          disabled: file.isFolder,
+        },
+        {
+          id: 'uploadLink',
+          label: '创建上传链接',
+          icon: <Link2 className="h-4 w-4" />,
+          action: () => callbacks.onUploadLink?.(file),
+          disabled: !file.isFolder,
         },
         {
           id: 'tags',

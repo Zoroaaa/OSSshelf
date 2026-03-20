@@ -38,7 +38,10 @@ import {
   Save,
   Database,
   Wifi,
+  ArrowRightLeft,
 } from 'lucide-react';
+
+import { MigrateBucketDialog } from '@/components/ui/MigrateBucketDialog';
 
 // ── Provider Badge ────────────────────────────────────────────────────────
 function ProviderBadge({ provider }: { provider: StorageBucket['provider'] }) {
@@ -173,7 +176,10 @@ function BucketForm({ initial, onSave, onCancel, loading }: BucketFormProps) {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {field('显示名称', 'name', { required: true, placeholder: form.provider === 'telegram' ? '如：我的 Telegram 频道' : '如：我的 R2 存储桶' })}
+        {field('显示名称', 'name', {
+          required: true,
+          placeholder: form.provider === 'telegram' ? '如：我的 Telegram 频道' : '如：我的 R2 存储桶',
+        })}
         {form.provider === 'telegram' ? (
           <div className="space-y-1.5">
             <label className="text-sm font-medium flex items-center gap-1">
@@ -234,9 +240,15 @@ function BucketForm({ initial, onSave, onCancel, loading }: BucketFormProps) {
           <div className="rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3 space-y-1">
             <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">⚠️ 使用须知</p>
             <ul className="text-xs text-amber-600 dark:text-amber-500 space-y-0.5 list-disc list-inside">
-              <li>单文件上传上限 <strong>50 MB</strong>（Telegram Bot API 限制）</li>
-              <li>请确保 Bot 已被添加为目标频道/群组的<strong>管理员</strong></li>
-              <li>私人频道 Chat ID 通常以 <code>-100</code> 开头</li>
+              <li>
+                单文件上传上限 <strong>50 MB</strong>（Telegram Bot API 限制）
+              </li>
+              <li>
+                请确保 Bot 已被添加为目标频道/群组的<strong>管理员</strong>
+              </li>
+              <li>
+                私人频道 Chat ID 通常以 <code>-100</code> 开头
+              </li>
               <li>存储空间由 Telegram 服务器提供，理论无上限</li>
             </ul>
           </div>
@@ -405,6 +417,7 @@ interface BucketCardProps {
   onSetDefault: (id: string) => void;
   onToggle: (id: string) => void;
   onTest: (id: string) => void;
+  onMigrate: (id: string) => void;
   testResult?: { connected: boolean; message: string } | null;
   testLoading?: boolean;
 }
@@ -416,6 +429,7 @@ function BucketCard({
   onSetDefault,
   onToggle,
   onTest,
+  onMigrate,
   testResult,
   testLoading,
 }: BucketCardProps) {
@@ -541,6 +555,17 @@ function BucketCard({
             <Button
               variant="outline"
               size="sm"
+              onClick={() => onMigrate(bucket.id)}
+              className="text-xs"
+              title="将此存储桶的文件迁移到另一个存储桶"
+            >
+              <ArrowRightLeft className="h-3.5 w-3.5 mr-1.5" />
+              迁移文件
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => onDelete(bucket.id)}
               className="text-xs text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20"
             >
@@ -563,6 +588,7 @@ export default function Buckets() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { connected: boolean; message: string }>>({});
+  const [migrateSourceId, setMigrateSourceId] = useState<string | null>(null);
 
   const { data: buckets = [], isLoading } = useQuery({
     queryKey: ['buckets'],
@@ -735,6 +761,7 @@ export default function Buckets() {
               onSetDefault={(id) => setDefaultMutation.mutate(id)}
               onToggle={(id) => toggleMutation.mutate(id)}
               onTest={handleTest}
+              onMigrate={(id) => setMigrateSourceId(id)}
               testResult={testResults[bucket.id] ?? null}
               testLoading={testingId === bucket.id}
             />
@@ -775,6 +802,11 @@ export default function Buckets() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* Migrate bucket dialog */}
+      {migrateSourceId && (
+        <MigrateBucketDialog defaultSourceId={migrateSourceId} onClose={() => setMigrateSourceId(null)} />
       )}
 
       {/* Info card */}

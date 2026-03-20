@@ -1,5 +1,5 @@
 import { formatBytes } from '@/utils';
-import { cn } from '@/lib/utils';
+import { cn } from '@/utils';
 
 interface StorageBarProps {
   used: number;

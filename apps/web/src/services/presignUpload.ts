@@ -17,6 +17,7 @@
 
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
+import type { UploadedFile } from '@osshelf/shared';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -30,15 +31,6 @@ export const PART_SIZE = 10 * 1024 * 1024;
 const MAX_CONCURRENT_PARTS = 3;
 
 // ── Typed API response helpers ─────────────────────────────────────────────
-
-interface PresignUploadResponse {
-  useProxy?: boolean;
-  uploadUrl?: string;
-  fileId?: string;
-  r2Key?: string;
-  bucketId?: string;
-  expiresIn?: number;
-}
 
 interface PresignMultipartInitResponse {
   useProxy?: boolean;
@@ -99,20 +91,6 @@ export interface PresignUploadOptions {
   skipParts?: number[];
 }
 
-export interface UploadedFile {
-  id: string;
-  name: string;
-  size: number;
-  mimeType: string | null;
-  path: string;
-  bucketId: string | null;
-  createdAt: string;
-}
-
-/**
- * Upload a file using presigned URLs (with multipart for large files).
- * Falls back to proxy upload if no S3 bucket is configured.
- */
 export async function presignUpload({
   file,
   parentId = null,
@@ -123,7 +101,6 @@ export async function presignUpload({
   taskId,
   skipParts,
 }: PresignUploadOptions): Promise<UploadedFile> {
-  // 每次上传调用独立的 CORS 检测状态，避免模块级单例在 Workers 复用实例时污染其他用户的上传
   const uploadCtx = { corsErrorDetected: false };
   if (file.size > MULTIPART_THRESHOLD) {
     return multipartUpload({ file, parentId, bucketId, onProgress, onFallback, signal, taskId, skipParts }, uploadCtx);
@@ -139,7 +116,6 @@ async function singlePresignUpload(
 ): Promise<UploadedFile> {
   if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
 
-  // 通过 tasks/create 创建任务并获取预签名 PUT URL（小文件路径）
   const init = await apiPost<{
     taskId: string;
     fileId: string;
@@ -149,6 +125,9 @@ async function singlePresignUpload(
     uploadUrl?: string;
     isSmallFile?: boolean;
     useProxy?: boolean;
+    isTelegramUpload?: boolean;
+    totalParts?: number;
+    partSize?: number;
   }>('/api/tasks/create', {
     fileName: file.name,
     fileSize: file.size,
@@ -156,6 +135,17 @@ async function singlePresignUpload(
     parentId,
     bucketId,
   });
+
+  if (init.isTelegramUpload) {
+    return telegramProxyUpload({
+      file,
+      taskId: init.taskId,
+      totalParts: init.totalParts ?? 1,
+      partSize: init.partSize ?? file.size,
+      onProgress,
+      signal,
+    });
+  }
 
   if (init.useProxy) {
     onFallback?.();
@@ -167,6 +157,8 @@ async function singlePresignUpload(
   if (!uploadUrl) {
     throw new Error('预签名上传：服务器未返回上传 URL');
   }
+
+  await apiPost('/api/tasks/start', { taskId }).catch(() => {});
 
   try {
     await directPut(uploadUrl, file, file.type || 'application/octet-stream', onProgress, signal);
@@ -181,7 +173,6 @@ async function singlePresignUpload(
     throw error;
   }
 
-  // 通知服务端完成，入库
   const result = await apiPost<UploadedFile>('/api/tasks/complete', {
     taskId,
     parts: [{ partNumber: 1, etag: 'direct' }],
@@ -249,13 +240,28 @@ async function multipartUpload(
     skipParts = [...new Set([...skipParts, ...taskInfo.uploadedParts])];
   } else {
     // 使用 /api/tasks/create 创建任务记录，这样可以在任务页面追踪
-    const init = await apiPost<PresignMultipartInitResponse & { taskId?: string }>('/api/tasks/create', {
-      fileName: file.name,
-      fileSize: file.size,
-      mimeType: file.type || 'application/octet-stream',
-      parentId,
-      bucketId,
-    });
+    const init = await apiPost<PresignMultipartInitResponse & { taskId?: string; isTelegramUpload?: boolean }>(
+      '/api/tasks/create',
+      {
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: file.type || 'application/octet-stream',
+        parentId,
+        bucketId,
+      }
+    );
+
+    // Telegram 上传走专门的分片端点
+    if ((init as any).isTelegramUpload) {
+      return telegramProxyUpload({
+        file,
+        taskId: (init as any).taskId,
+        totalParts: (init as any).totalParts ?? 1,
+        partSize: (init as any).partSize ?? file.size,
+        onProgress,
+        signal,
+      });
+    }
 
     // 检查是否返回了 useProxy（兼容旧逻辑）
     if ('useProxy' in init && init.useProxy) {
@@ -601,6 +607,89 @@ async function proxyUpload({
   return res.data.data;
 }
 
+// ── Telegram proxy upload ─────────────────────────────────────────────────
+
+interface TelegramProxyUploadOptions {
+  file: File;
+  taskId: string;
+  totalParts: number;
+  partSize: number;
+  onProgress?: (percent: number) => void;
+  signal?: AbortSignal;
+}
+
+async function telegramProxyUpload({
+  file,
+  taskId,
+  totalParts,
+  partSize,
+  onProgress,
+  signal,
+}: TelegramProxyUploadOptions): Promise<UploadedFile> {
+  if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
+
+  await apiPost('/api/tasks/start', { taskId }).catch(() => {});
+
+  for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
+    if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
+
+    const start = (partNumber - 1) * partSize;
+    const end = Math.min(start + partSize, file.size);
+    const chunk = file.slice(start, end);
+
+    // 与 /part-proxy 完全一致的 multipart/form-data 格式
+    const formData = new FormData();
+    formData.append('taskId', taskId);
+    formData.append('partNumber', String(partNumber));
+    formData.append('chunk', chunk, file.name);
+
+    const res = await axios.post<{ success: boolean; error?: { message: string } }>(
+      `${API_BASE}/api/tasks/telegram-part`,
+      formData,
+      {
+        headers: { ...authHeaders() },
+        signal,
+        onUploadProgress: (e) => {
+          if (e.total && onProgress) {
+            const partProgress = e.loaded / e.total;
+            const overall = Math.round(((partNumber - 1 + partProgress) / totalParts) * 100);
+            onProgress(Math.min(overall, 99));
+          }
+        },
+      }
+    );
+
+    if (!res.data.success) {
+      throw new Error(res.data.error?.message || `分片 ${partNumber} 上传失败`);
+    }
+  }
+
+  // 全部分片完成，调 /complete 写入 files + telegramFileRefs
+  const completeRes = await apiPost<{
+    id: string;
+    name: string;
+    size: number;
+    mimeType?: string | null;
+    path: string;
+    bucketId: string;
+    createdAt: string;
+  }>('/api/tasks/complete', {
+    taskId,
+    parts: [],
+  });
+
+  onProgress?.(100);
+  return {
+    id: completeRes.id || taskId,
+    name: completeRes.name || file.name,
+    size: completeRes.size || file.size,
+    mimeType: completeRes.mimeType || file.type || 'application/octet-stream',
+    path: completeRes.path || '',
+    bucketId: completeRes.bucketId || '',
+    createdAt: completeRes.createdAt || new Date().toISOString(),
+  };
+}
+
 // ── Presigned download/preview URL helpers ─────────────────────────────────
 
 export interface PresignDownloadResult {
@@ -622,7 +711,11 @@ export async function getPresignedDownloadUrl(fileId: string): Promise<PresignDo
 
   // Fall back gracefully
   if (!data || data.useProxy) {
-    return { useProxy: true, url: `${API_BASE}/api/files/${fileId}/download` };
+    const token = useAuthStore.getState().token;
+    const proxyUrl = token
+      ? `${API_BASE}/api/files/${fileId}/download?token=${encodeURIComponent(token)}`
+      : `${API_BASE}/api/files/${fileId}/download`;
+    return { useProxy: true, url: proxyUrl };
   }
 
   return {

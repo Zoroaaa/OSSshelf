@@ -4,13 +4,17 @@
  *
  * 功能:
  * - 支持拖拽整个文件夹
+ * - 支持通过 input[webkitdirectory] 选择文件夹
  * - 解析webkitRelativePath重建目录结构
  * - 按正确顺序创建文件夹
  * - 批量上传文件
  *
  * 用法:
- *   const { uploadFolderEntries } = useFolderUpload({ currentFolderId, onProgress, onDone });
+ *   const { uploadFolderEntries, uploadFilesWithRelativePath } = useFolderUpload({ ... });
+ *   // 拖拽上传
  *   <div onDrop={(e) => uploadFolderEntries(e.dataTransfer.items)} />
+ *   // input 选择文件夹
+ *   <input webkitdirectory onChange={(e) => uploadFilesWithRelativePath(e.target.files)} />
  */
 
 import { useCallback } from 'react';
@@ -24,7 +28,7 @@ interface UseFolderUploadOptions {
   onFileProgress?: (key: string, progress: number) => void;
   onFileDone?: (key: string) => void;
   onFileError?: (key: string, error: any) => void;
-  onAllDone?: () => void;
+  onAllDone?: (stats?: { uploaded: number; failed: number }) => void;
 }
 
 export function useFolderUpload({
@@ -37,25 +41,93 @@ export function useFolderUpload({
 }: UseFolderUploadOptions) {
   const queryClient = useQueryClient();
 
-  // 核心处理函数：接受已同步提取好的 FileSystemEntry[]
-  // 必须在 drop 事件同步代码里提取 entry，再传入此函数
+  const uploadFilesWithRelativePath = useCallback(
+    async (fileList: FileList | File[]) => {
+      const files = Array.from(fileList);
+      if (files.length === 0) return;
+
+      const folderPaths = new Set<string>();
+      const filesWithPaths: { file: File; relativePath: string }[] = [];
+
+      for (const file of files) {
+        const relativePath = (file as any).webkitRelativePath as string;
+        if (!relativePath) {
+          filesWithPaths.push({ file, relativePath: file.name });
+          continue;
+        }
+        filesWithPaths.push({ file, relativePath });
+        const parts = relativePath.split('/');
+        for (let i = 1; i < parts.length; i++) {
+          folderPaths.add(parts.slice(0, i).join('/'));
+        }
+      }
+
+      const sortedFolderPaths = [...folderPaths].sort((a, b) => a.split('/').length - b.split('/').length);
+
+      const folderIdMap = new Map<string, string>();
+
+      for (const folderPath of sortedFolderPaths) {
+        const parts = folderPath.split('/');
+        const name = parts[parts.length - 1];
+        if (!name) continue;
+
+        const parentPath = parts.slice(0, -1).join('/');
+        const parentId = parentPath
+          ? (folderIdMap.get(parentPath) ?? currentFolderId ?? null)
+          : (currentFolderId ?? null);
+
+        try {
+          const res = await filesApi.createFolder(name, parentId);
+          const createdId = res.data.data?.id;
+          if (createdId) {
+            folderIdMap.set(folderPath, createdId);
+            queryClient.invalidateQueries({ queryKey: ['files', parentId ?? undefined] });
+          }
+        } catch (e: any) {
+          console.warn(`创建文件夹 "${folderPath}" 失败:`, e?.response?.data?.error?.message);
+        }
+      }
+
+      let uploadedCount = 0;
+      let failedCount = 0;
+
+      for (const { file, relativePath } of filesWithPaths) {
+        const parts = relativePath.split('/');
+        const parentPath = parts.slice(0, -1).join('/');
+        const parentId = parentPath
+          ? (folderIdMap.get(parentPath) ?? currentFolderId ?? null)
+          : (currentFolderId ?? null);
+
+        const key = `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        onFileStart?.(file.name, key);
+
+        try {
+          await presignUpload({
+            file,
+            parentId,
+            onProgress: (progress) => onFileProgress?.(key, progress),
+          });
+          uploadedCount++;
+          onFileDone?.(key);
+          queryClient.invalidateQueries({ queryKey: ['files', parentId ?? undefined] });
+        } catch (e: any) {
+          failedCount++;
+          onFileError?.(key, e);
+        }
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['files'] });
+      queryClient.invalidateQueries({ queryKey: ['stats'] });
+      onAllDone?.({ uploaded: uploadedCount, failed: failedCount });
+    },
+    [currentFolderId, queryClient, onFileStart, onFileProgress, onFileDone, onFileError, onAllDone]
+  );
+
   const uploadFolderEntriesDirect = useCallback(
     async (rootEntries: FileSystemEntry[]) => {
-      // 收集所有文件和文件夹，保留完整的相对路径
-      // folderPaths: 所有需要创建的文件夹路径（含根文件夹、空文件夹）
-      // files: 所有文件及其在目录树中的相对路径
       const folderPaths = new Set<string>();
       const files: { file: File; relativePath: string }[] = [];
 
-      /**
-       * 递归遍历 FileSystemEntry。
-       * parentPath 是「当前 entry 的父路径」，不含 entry 自身名字。
-       * 对目录：先把自己的完整路径记入 folderPaths，再递归子项。
-       * 对文件：把完整路径记入 files。
-       *
-       * 注意：readEntries 的回调不能是 async，否则内部 await 不会被等待。
-       * 用 Promise 链 + 递归 readAll 解决批量读取问题。
-       */
       const traverseEntry = (entry: FileSystemEntry, parentPath: string): Promise<void> => {
         const fullPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
 
@@ -69,12 +141,10 @@ export function useFolderUpload({
         }
 
         if (entry.isDirectory) {
-          // 先注册自己（含根文件夹、空文件夹）
           folderPaths.add(fullPath);
 
           const dirReader = (entry as FileSystemDirectoryEntry).createReader();
 
-          // readEntries 每次最多返回 100 条，需循环直到返回空数组
           const readBatch = (): Promise<void> =>
             new Promise<void>((resolve, reject) => {
               dirReader.readEntries((entries) => {
@@ -82,7 +152,6 @@ export function useFolderUpload({
                   resolve();
                   return;
                 }
-                // 串行处理本批次，再读下一批
                 entries
                   .reduce((chain, e) => chain.then(() => traverseEntry(e, fullPath)), Promise.resolve())
                   .then(() => readBatch())
@@ -103,22 +172,16 @@ export function useFolderUpload({
 
       if (files.length === 0 && folderPaths.size === 0) return;
 
-      // 按深度从浅到深排序，保证父文件夹先于子文件夹创建
-      const sortedFolderPaths = [...folderPaths].sort((a, b) => {
-        return a.split('/').length - b.split('/').length;
-      });
+      const sortedFolderPaths = [...folderPaths].sort((a, b) => a.split('/').length - b.split('/').length);
 
-      // folderPath -> 服务端生成的文件夹 ID
       const folderIdMap = new Map<string, string>();
 
-      // 依次创建文件夹
       for (const folderPath of sortedFolderPaths) {
         const parts = folderPath.split('/');
         const name = parts[parts.length - 1];
         if (!name) continue;
 
         const parentPath = parts.slice(0, -1).join('/');
-        // 父路径为空 → 父级是当前页面目录（currentFolderId）
         const parentId = parentPath
           ? (folderIdMap.get(parentPath) ?? currentFolderId ?? null)
           : (currentFolderId ?? null);
@@ -128,15 +191,13 @@ export function useFolderUpload({
           const createdId = res.data.data?.id;
           if (createdId) {
             folderIdMap.set(folderPath, createdId);
-            // 文件夹创建后立即刷新父级目录
             queryClient.invalidateQueries({ queryKey: ['files', parentId ?? undefined] });
           }
         } catch (e: any) {
-          console.warn(`Could not create folder "${folderPath}":`, e?.response?.data?.error?.message);
+          console.warn(`创建文件夹 "${folderPath}" 失败:`, e?.response?.data?.error?.message);
         }
       }
 
-      // 上传文件到各自所属的文件夹
       for (const { file, relativePath } of files) {
         const parts = relativePath.split('/');
         const parentPath = parts.slice(0, -1).join('/');
@@ -144,7 +205,7 @@ export function useFolderUpload({
           ? (folderIdMap.get(parentPath) ?? currentFolderId ?? null)
           : (currentFolderId ?? null);
 
-        const key = `${file.name}-${Date.now()}-${Math.random()}`;
+        const key = `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         onFileStart?.(file.name, key);
 
         try {
@@ -154,19 +215,17 @@ export function useFolderUpload({
             onProgress: (progress) => onFileProgress?.(key, progress),
           });
           onFileDone?.(key);
-          // 上传完后刷新该文件所在目录
           queryClient.invalidateQueries({ queryKey: ['files', parentId ?? undefined] });
         } catch (e) {
           onFileError?.(key, e);
         }
       }
 
-      // 全部完成后刷新所有 files 查询
       queryClient.invalidateQueries({ queryKey: ['files'] });
       onAllDone?.();
     },
     [currentFolderId, queryClient, onFileStart, onFileProgress, onFileDone, onFileError, onAllDone]
   );
 
-  return { uploadFolderEntriesDirect };
+  return { uploadFolderEntriesDirect, uploadFilesWithRelativePath };
 }

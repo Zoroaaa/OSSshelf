@@ -130,7 +130,10 @@ app.all('/*', async (c) => {
     default:
       return new Response('Method Not Allowed', {
         status: 405,
-        headers: { ...DAV_BASE_HEADERS, Allow: 'OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, PROPFIND, PROPPATCH, MOVE, COPY, LOCK, UNLOCK' },
+        headers: {
+          ...DAV_BASE_HEADERS,
+          Allow: 'OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, PROPFIND, PROPPATCH, MOVE, COPY, LOCK, UNLOCK',
+        },
       });
   }
 });
@@ -336,7 +339,7 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   let parentId: string | null = null;
 
   if (parentPath !== '/') {
-    let parentFolder = await findFileByPath(db, userId, parentPath);
+    const parentFolder = await findFileByPath(db, userId, parentPath);
     if (!parentFolder) {
       const pathParts = parentPath.split('/').filter(Boolean);
       let currentParentId: string | null = null;
@@ -344,7 +347,7 @@ async function handlePut(c: AppContext, userId: string, path: string) {
 
       for (const part of pathParts) {
         currentPath = currentPath ? `${currentPath}/${part}` : `/${part}`;
-        let folder = await findFileByPath(db, userId, currentPath);
+        const folder = await findFileByPath(db, userId, currentPath);
 
         if (!folder) {
           const folderId = crypto.randomUUID();

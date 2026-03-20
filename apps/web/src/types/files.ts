@@ -25,6 +25,7 @@ export interface ItemProps {
   onMove: (f: FileItem) => void;
   onContextMenu: (e: React.MouseEvent, file?: FileItem) => void;
   onTagClick?: (tagName: string) => void;
+  onUploadLink?: (f: FileItem) => void;
 }
 
 export interface GalleryItemProps {
@@ -33,14 +34,6 @@ export interface GalleryItemProps {
   onClick: () => void;
   onDelete: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
-}
-
-export interface ActionBtnProps {
-  title: string;
-  onClick: () => void;
-  danger?: boolean;
-  light?: boolean;
-  children: React.ReactNode;
 }
 
 export interface AdvancedSearchCondition {
@@ -67,6 +60,8 @@ export interface FileContextMenuCallbacks {
   onCopy: (file: FileItem) => void;
   onCut: (file: FileItem) => void;
   onDelete: (file: FileItem) => void;
+  /** 仅文件夹可用：创建上传链接 */
+  onUploadLink?: (file: FileItem) => void;
 }
 
 export interface BackgroundContextMenuCallbacks {

@@ -20,7 +20,7 @@ import { getPresignedPreviewUrl } from '@/services/presignUpload';
 import { formatBytes, formatDate } from '@/utils';
 import { isPreviewable } from '@/utils/fileTypes';
 import type { FileItem } from '@osshelf/shared';
-import { cn } from '@/lib/utils';
+import { cn } from '@/utils';
 
 interface PreviewInfo {
   id: string;

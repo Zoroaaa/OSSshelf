@@ -482,6 +482,78 @@ Content-Type: application/json
 
 ---
 
+## 存储桶迁移接口
+
+### 启动迁移任务
+
+```http
+POST /api/migrate/start
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "sourceBucketId": "来源存储桶ID",
+  "targetBucketId": "目标存储桶ID",
+  "fileIds": ["fileId1", "fileId2"],  // 可选，不传则迁移整个桶
+  "targetFolderId": "目标文件夹ID",   // 可选，不传则保持原位置
+  "deleteSource": false               // 可选，true = 移动模式
+}
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "migrationId": "uuid",
+    "total": 100,
+    "status": "running",
+    "message": "迁移任务已启动，共 100 个文件"
+  }
+}
+```
+
+### 查询迁移进度
+
+```http
+GET /api/migrate/<migrationId>
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "migrationId": "uuid",
+    "userId": "user-id",
+    "sourceBucketId": "source-id",
+    "targetBucketId": "target-id",
+    "total": 100,
+    "done": 50,
+    "failed": 2,
+    "results": [
+      { "fileId": "id", "fileName": "name", "status": "done", "newR2Key": "..." },
+      { "fileId": "id", "fileName": "name", "status": "failed", "error": "错误信息" }
+    ],
+    "status": "running",
+    "startedAt": "2024-01-01T00:00:00Z",
+    "updatedAt": "2024-01-01T00:05:00Z"
+  }
+}
+```
+
+### 取消迁移
+
+```http
+POST /api/migrate/<migrationId>/cancel
+Authorization: Bearer <token>
+```
+
+---
+
 ## 预签名上传接口
 
 ### 获取上传预签名 URL
@@ -654,7 +726,7 @@ Authorization: Bearer <token>
 
 ## 分享接口
 
-### 创建分享
+### 创建下载分享
 
 ```http
 POST /api/share
@@ -669,10 +741,113 @@ Content-Type: application/json
 }
 ```
 
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "share-id",
+    "fileId": "file-id",
+    "isFolder": false,
+    "expiresAt": "2024-12-31T23:59:59Z",
+    "downloadLimit": 10,
+    "createdAt": "2024-01-01T00:00:00Z",
+    "shareUrl": "/share/share-id"
+  }
+}
+```
+
+### 创建上传链接
+
+```http
+POST /api/share/upload-link
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "folderId": "文件夹ID",
+  "password": "访问密码",
+  "expiresAt": "2024-12-31T23:59:59Z",
+  "maxUploadSize": 104857600,
+  "allowedMimeTypes": ["image/*", "application/pdf"],
+  "maxUploadCount": 10
+}
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "share-id",
+    "folderId": "folder-id",
+    "folderName": "文件夹名称",
+    "uploadToken": "upload-token-uuid",
+    "expiresAt": "2024-12-31T23:59:59Z",
+    "maxUploadSize": 104857600,
+    "allowedMimeTypes": ["image/*", "application/pdf"],
+    "maxUploadCount": 10,
+    "createdAt": "2024-01-01T00:00:00Z",
+    "uploadUrl": "/upload/upload-token-uuid"
+  }
+}
+```
+
 ### 获取分享信息（公开）
 
 ```http
 GET /api/share/<shareId>?password=<密码>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "share-id",
+    "file": {
+      "id": "file-id",
+      "name": "文件名",
+      "size": 1024,
+      "mimeType": "application/pdf",
+      "isFolder": false
+    },
+    "children": null,
+    "expiresAt": "2024-12-31T23:59:59Z",
+    "downloadLimit": 10,
+    "downloadCount": 3,
+    "hasPassword": false
+  }
+}
+```
+
+**文件夹分享响应**（`isFolder: true`）:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "share-id",
+    "file": {
+      "id": "folder-id",
+      "name": "文件夹名",
+      "size": 0,
+      "mimeType": null,
+      "isFolder": true
+    },
+    "children": [
+      { "id": "child-id", "name": "子文件", "size": 1024, "mimeType": "image/png", "isFolder": false, "updatedAt": "..." },
+      { "id": "child-id2", "name": "子文件夹", "size": 0, "mimeType": null, "isFolder": true, "updatedAt": "..." }
+    ],
+    "expiresAt": "2024-12-31T23:59:59Z",
+    "downloadLimit": null,
+    "downloadCount": 0,
+    "hasPassword": true
+  }
+}
 ```
 
 ### 分享预览（公开，仅图片）
@@ -685,6 +860,54 @@ GET /api/share/<shareId>/preview?password=<密码>
 
 ```http
 GET /api/share/<shareId>/download?password=<密码>
+```
+
+### 下载文件夹分享的 ZIP（公开）
+
+```http
+GET /api/share/<shareId>/zip?password=<密码>&fileIds=id1,id2
+```
+
+- `fileIds`: 可选，逗号分隔的文件ID，不传则打包全部
+
+### 下载文件夹分享中的单个文件（公开）
+
+```http
+GET /api/share/<shareId>/file/<fileId>/download?password=<密码>
+```
+
+### 获取上传链接信息（公开）
+
+```http
+GET /api/share/upload/<uploadToken>?password=<密码>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "token": "upload-token-uuid",
+    "folderName": "文件夹名称",
+    "expiresAt": "2024-12-31T23:59:59Z",
+    "hasPassword": false,
+    "maxUploadSize": 5368709120,
+    "allowedMimeTypes": null,
+    "maxUploadCount": null,
+    "uploadCount": 0
+  }
+}
+```
+
+### 通过上传链接上传文件（公开）
+
+```http
+POST /api/share/upload/<uploadToken>
+Content-Type: multipart/form-data
+
+file: <二进制文件>
+password: <密码（可选）>
 ```
 
 ### 列出我的分享
@@ -1056,6 +1279,26 @@ Content-Type: application/json
 }
 ```
 
+**Telegram 存储桶响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "taskId": "uuid",
+    "fileId": "uuid",
+    "uploadId": "telegram-chunked:group-id",
+    "r2Key": "files/userId/fileId/large-file.iso",
+    "bucketId": "bucket-uuid",
+    "totalParts": 50,
+    "partSize": 31457280,
+    "isTelegramUpload": true,
+    "isSmallFile": false,
+    "expiresAt": "2024-01-02T00:00:00Z"
+  }
+}
+```
+
 ### 获取分片上传 URL
 
 ```http
@@ -1087,6 +1330,18 @@ Content-Type: application/json
 
 ```http
 POST /api/tasks/part-proxy
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+
+taskId: <taskId>
+partNumber: <partNumber>
+chunk: <二进制数据>
+```
+
+### Telegram 分片上传
+
+```http
+POST /api/tasks/telegram-part
 Authorization: Bearer <token>
 Content-Type: multipart/form-data
 

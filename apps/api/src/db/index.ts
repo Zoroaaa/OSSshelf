@@ -14,4 +14,6 @@ export function getDb(d1: D1Database) {
   return drizzle(d1, { schema });
 }
 
+export type DrizzleDb = ReturnType<typeof getDb>;
+
 export * from './schema';

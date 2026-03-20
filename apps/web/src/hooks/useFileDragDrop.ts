@@ -12,7 +12,7 @@ import { useState, useCallback } from 'react';
 import { useFolderUpload } from '@/hooks/useFolderUpload';
 import { useToast } from '@/components/ui/use-toast';
 import { useQueryClient } from '@tanstack/react-query';
-import { uploadManager } from '@/services/uploadManager';
+import { presignUpload } from '@/services/presignUpload';
 
 interface UseFileDragDropProps {
   folderId: string | null;
@@ -62,7 +62,7 @@ export function useFileDragDrop({ folderId, setUploadProgresses }: UseFileDragDr
   }, []);
 
   const handleDrop = useCallback(
-    (e: React.DragEvent) => {
+    async (e: React.DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
       setIsDragActive(false);
@@ -82,36 +82,36 @@ export function useFileDragDrop({ folderId, setUploadProgresses }: UseFileDragDr
       if (hasFolder) {
         uploadFolderEntriesDirect(entries);
       } else {
-        Array.from(e.dataTransfer.files).forEach((file) => {
+        for (const file of Array.from(e.dataTransfer.files)) {
           const key = `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
           setUploadProgresses((p) => ({ ...p, [key]: 0 }));
-          uploadManager
-            .startUpload(file, folderId || null, null, (progress) =>
-              setUploadProgresses((prev) => ({ ...prev, [key]: progress }))
-            )
-            .then(() => {
-              setUploadProgresses((p) => {
-                const n = { ...p };
-                delete n[key];
-                return n;
-              });
-              queryClient.invalidateQueries({ queryKey: ['files', folderId] });
-              queryClient.invalidateQueries({ queryKey: ['stats'] });
-              toast({ title: '上传成功' });
-            })
-            .catch((e: any) => {
-              setUploadProgresses((p) => {
-                const n = { ...p };
-                delete n[key];
-                return n;
-              });
-              toast({
-                title: '上传失败',
-                description: e?.message || e?.response?.data?.error?.message,
-                variant: 'destructive',
-              });
+          try {
+            await presignUpload({
+              file,
+              parentId: folderId || null,
+              onProgress: (progress) => setUploadProgresses((prev) => ({ ...prev, [key]: progress })),
             });
-        });
+            setUploadProgresses((p) => {
+              const n = { ...p };
+              delete n[key];
+              return n;
+            });
+            queryClient.invalidateQueries({ queryKey: ['files', folderId] });
+            queryClient.invalidateQueries({ queryKey: ['stats'] });
+            toast({ title: '上传成功' });
+          } catch (e: any) {
+            setUploadProgresses((p) => {
+              const n = { ...p };
+              delete n[key];
+              return n;
+            });
+            toast({
+              title: '上传失败',
+              description: e?.message || e?.response?.data?.error?.message,
+              variant: 'destructive',
+            });
+          }
+        }
       }
     },
     [folderId, uploadFolderEntriesDirect, setUploadProgresses, queryClient, toast]

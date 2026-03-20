@@ -1,12 +1,10 @@
 /**
  * api.ts
- * API服务层
+ * API服务层 — Phase 6 更新
  *
- * 功能:
- * - 封装所有后端API调用
- * - 统一请求/响应处理
- * - 自动注入认证令牌
- * - 错误处理与重试
+ * 新增：
+ * - shareApi：文件夹浏览、ZIP下载、子文件下载、上传链接（创建/信息/上传）
+ * - migrateApi：存储桶迁移（启动/查询/取消）
  */
 
 import axios from 'axios';
@@ -18,6 +16,7 @@ import type {
   ApiResponse,
   AuthLoginParams,
   AuthRegisterParams,
+  UploadedFile,
   AuthResponse,
   FileListParams,
   ShareCreateParams,
@@ -46,14 +45,9 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       const url: string = error.config?.url || '';
-      // 以下路径允许返回 401 而不触发全局登出：
-      //   - 分享链接（需要密码时返回 401）
-      //   - 登录/注册接口（凭证错误时返回 401）
       const isPublicEndpoint =
         url.includes('/api/share/') || url.includes('/api/auth/login') || url.includes('/api/auth/register');
-
       if (!isPublicEndpoint) {
-        // 确认当前确实处于已认证状态才执行登出（避免未登录时循环跳转）
         const { isAuthenticated } = useAuthStore.getState();
         if (isAuthenticated) {
           useAuthStore.getState().logout();
@@ -65,6 +59,9 @@ api.interceptors.response.use(
   }
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Auth
+// ─────────────────────────────────────────────────────────────────────────────
 export const authApi = {
   login: (params: AuthLoginParams) => api.post<ApiResponse<AuthResponse>>('/api/auth/login', params),
   register: (params: AuthRegisterParams) => api.post<ApiResponse<AuthResponse>>('/api/auth/register', params),
@@ -77,7 +74,8 @@ export const authApi = {
   getRegistrationConfig: () =>
     api.get<ApiResponse<{ open: boolean; requireInviteCode: boolean }>>('/api/auth/registration-config'),
   devices: () => api.get<ApiResponse<UserDevice[]>>('/api/auth/devices'),
-  deleteDevice: (deviceId: string) => api.delete<ApiResponse<{ message: string }>>(`/api/auth/devices/${encodeURIComponent(deviceId)}`),
+  deleteDevice: (deviceId: string) =>
+    api.delete<ApiResponse<{ message: string }>>(`/api/auth/devices/${encodeURIComponent(deviceId)}`),
 };
 
 export interface BucketStats {
@@ -101,6 +99,9 @@ export interface DashboardStats {
   bucketBreakdown: BucketStats[];
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Files
+// ─────────────────────────────────────────────────────────────────────────────
 export const filesApi = {
   list: (params?: Partial<FileListParams>) => api.get<ApiResponse<FileItem[]>>('/api/files', { params }),
   get: (id: string) => api.get<ApiResponse<FileItem>>(`/api/files/${id}`),
@@ -120,6 +121,7 @@ export const filesApi = {
     if (parentId) formData.append('parentId', parentId);
     return api.post<ApiResponse<FileItem>>('/api/files/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300_000, // 5min for large files
       onUploadProgress: (e) => {
         if (e.total && onProgress) onProgress(Math.round((e.loaded * 100) / e.total));
       },
@@ -132,7 +134,10 @@ export const filesApi = {
     const baseUrl = `${import.meta.env.VITE_API_URL || ''}/api/files/${id}/preview`;
     return token ? `${baseUrl}?token=${encodeURIComponent(token)}` : baseUrl;
   },
-  downloadUrl: (id: string) => `${import.meta.env.VITE_API_URL || ''}/api/files/${id}/download`,
+  downloadUrl: (id: string, token?: string) => {
+    const baseUrl = `${import.meta.env.VITE_API_URL || ''}/api/files/${id}/download`;
+    return token ? `${baseUrl}?token=${encodeURIComponent(token)}` : baseUrl;
+  },
 
   listTrash: () => api.get<ApiResponse<FileItem[]>>('/api/files/trash'),
   restoreTrash: (id: string) => api.post<ApiResponse<{ message: string }>>(`/api/files/trash/${id}/restore`),
@@ -140,23 +145,133 @@ export const filesApi = {
   emptyTrash: () => api.delete<ApiResponse<{ message: string }>>('/api/files/trash'),
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Share — 下载分享 + 文件夹浏览 + 上传链接
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ShareChildFile {
+  id: string;
+  name: string;
+  size: number;
+  mimeType: string | null;
+  isFolder: boolean;
+  updatedAt: string;
+}
+
+export interface ShareInfo {
+  id: string;
+  file: {
+    id: string;
+    name: string;
+    size: number;
+    mimeType: string | null;
+    isFolder: boolean;
+  };
+  /** 文件夹分享时，一级子文件列表（非递归） */
+  children: ShareChildFile[] | null;
+  expiresAt: string | null;
+  downloadLimit: number | null;
+  downloadCount: number;
+  hasPassword: boolean;
+}
+
+export interface UploadLinkInfo {
+  token: string;
+  folderName: string;
+  expiresAt: string | null;
+  hasPassword: boolean;
+  maxUploadSize: number;
+  allowedMimeTypes: string[] | null;
+  maxUploadCount: number | null;
+  uploadCount: number;
+}
+
+export interface CreateUploadLinkParams {
+  folderId: string;
+  password?: string;
+  expiresAt?: string;
+  maxUploadSize?: number;
+  allowedMimeTypes?: string[];
+  maxUploadCount?: number;
+}
+
 export const shareApi = {
+  // ── 下载分享（有账号）─────────────────────────────────────────────────
   create: (params: ShareCreateParams) => api.post<ApiResponse<Share>>('/api/share', params),
   list: () => api.get<ApiResponse<any[]>>('/api/share'),
   delete: (id: string) => api.delete<ApiResponse<{ message: string }>>(`/api/share/${id}`),
-  get: (id: string, password?: string) => api.get<ApiResponse<any>>(`/api/share/${id}`, { params: { password } }),
+
+  // ── 公开分享信息（含文件夹子文件列表）─────────────────────────────────
+  get: (id: string, password?: string) => api.get<ApiResponse<ShareInfo>>(`/api/share/${id}`, { params: { password } }),
+
+  // ── 单文件下载（文件分享直接下载 / 文件夹内单文件下载）──────────────
   download: (id: string, password?: string) =>
     api.get(`/api/share/${id}/download`, { params: { password }, responseType: 'blob' }),
   downloadUrl: (id: string, password?: string) =>
     `${import.meta.env.VITE_API_URL || ''}/api/share/${id}/download${
       password ? `?password=${encodeURIComponent(password)}` : ''
     }`,
+
+  // ── 文件夹内单文件下载 ────────────────────────────────────────────────
+  childDownloadUrl: (shareId: string, fileId: string, password?: string) =>
+    `${import.meta.env.VITE_API_URL || ''}/api/share/${shareId}/file/${fileId}/download${
+      password ? `?password=${encodeURIComponent(password)}` : ''
+    }`,
+
+  // ── 文件夹 ZIP 打包下载 ───────────────────────────────────────────────
+  zipUrl: (shareId: string, password?: string, fileIds?: string[]) => {
+    const base = `${import.meta.env.VITE_API_URL || ''}/api/share/${shareId}/zip`;
+    const params = new URLSearchParams();
+    if (password) params.set('password', password);
+    if (fileIds?.length) params.set('fileIds', fileIds.join(','));
+    const qs = params.toString();
+    return qs ? `${base}?${qs}` : base;
+  },
+
+  // ── 预览（仅图片）────────────────────────────────────────────────────
   previewUrl: (id: string, password?: string) =>
     `${import.meta.env.VITE_API_URL || ''}/api/share/${id}/preview${
       password ? `?password=${encodeURIComponent(password)}` : ''
     }`,
+
+  // ── 上传链接（有账号创建）────────────────────────────────────────────
+  createUploadLink: (params: CreateUploadLinkParams) =>
+    api.post<
+      ApiResponse<{
+        id: string;
+        folderId: string;
+        folderName: string;
+        uploadToken: string;
+        expiresAt: string;
+        uploadUrl: string;
+      }>
+    >('/api/share/upload-link', params),
+
+  // ── 上传链接公开端点（无账号）────────────────────────────────────────
+  getUploadLink: (token: string, password?: string) =>
+    api.get<ApiResponse<UploadLinkInfo>>(`/api/share/upload/${token}`, { params: { password } }),
+
+  uploadViaLink: (token: string, file: File, password?: string, onProgress?: (pct: number) => void) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (password) formData.append('password', password);
+    return api.post<ApiResponse<{ id: string; name: string; size: number; mimeType: string; createdAt: string }>>(
+      `/api/share/upload/${token}`,
+      formData,
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 300_000,
+        onUploadProgress: (e) => {
+          if (e.total && onProgress) onProgress(Math.round((e.loaded * 100) / e.total));
+        },
+      }
+    );
+  },
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Buckets
+// ─────────────────────────────────────────────────────────────────────────────
 export interface StorageBucket {
   id: string;
   userId: string;
@@ -276,12 +391,7 @@ export const PROVIDER_META: Record<
     icon: '🔥',
     endpointPlaceholder: 'https://s3.us-west-004.backblazeb2.com',
   },
-  minio: {
-    label: 'MinIO',
-    color: '#C72C41',
-    icon: '🐘',
-    endpointPlaceholder: 'http://your-minio-server:9000',
-  },
+  minio: { label: 'MinIO', color: '#C72C41', icon: '🐘', endpointPlaceholder: 'http://your-minio-server:9000' },
   custom: {
     label: '自定义 S3 兼容',
     color: '#6B7280',
@@ -310,8 +420,53 @@ export const bucketsApi = {
   delete: (id: string) => api.delete<ApiResponse<{ message: string }>>(`/api/buckets/${id}`),
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Migrate — 存储桶迁移
+// ─────────────────────────────────────────────────────────────────────────────
+export interface MigrationStatus {
+  migrationId: string;
+  userId: string;
+  sourceBucketId: string;
+  targetBucketId: string;
+  targetFolderId: string | null;
+  fileIds: string[];
+  total: number;
+  done: number;
+  failed: number;
+  results: Array<{
+    fileId: string;
+    fileName: string;
+    status: 'pending' | 'done' | 'failed';
+    error?: string;
+    newR2Key?: string;
+  }>;
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  startedAt: string;
+  updatedAt: string;
+}
+
+export const migrateApi = {
+  start: (params: {
+    sourceBucketId: string;
+    targetBucketId: string;
+    fileIds?: string[];
+    targetFolderId?: string | null;
+    deleteSource?: boolean;
+  }) =>
+    api.post<ApiResponse<{ migrationId: string; total: number; status: string; message: string }>>(
+      '/api/migrate/start',
+      params
+    ),
+
+  get: (migrationId: string) => api.get<ApiResponse<MigrationStatus>>(`/api/migrate/${migrationId}`),
+
+  cancel: (migrationId: string) => api.post<ApiResponse<{ message: string }>>(`/api/migrate/${migrationId}/cancel`),
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Telegram
+// ─────────────────────────────────────────────────────────────────────────────
 export const telegramApi = {
-  /** 测试临时 Bot Token / Chat ID（不保存） */
   test: (data: { botToken: string; chatId: string; apiBase?: string }) =>
     api.post<ApiResponse<{ connected: boolean; message: string; botName?: string; chatTitle?: string }>>(
       '/api/telegram/test',
@@ -319,6 +474,9 @@ export const telegramApi = {
     ),
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Admin
+// ─────────────────────────────────────────────────────────────────────────────
 export interface AdminUser {
   id: string;
   email: string;
@@ -357,32 +515,22 @@ export const adminApi = {
     data: { name?: string; role?: 'admin' | 'user'; storageQuota?: number; newPassword?: string }
   ) => api.patch<ApiResponse<{ message: string }>>(`/api/admin/users/${id}`, data),
   deleteUser: (id: string) => api.delete<ApiResponse<{ message: string }>>(`/api/admin/users/${id}`),
-
   getRegistration: () => api.get<ApiResponse<RegistrationConfig>>('/api/admin/registration'),
   setRegistration: (data: { open?: boolean; requireInviteCode?: boolean }) =>
     api.put<ApiResponse<RegistrationConfig>>('/api/admin/registration', data),
   generateCodes: (count = 1) =>
     api.post<ApiResponse<{ codes: string[]; createdAt: string }>>('/api/admin/registration/codes', { count }),
   revokeCode: (code: string) => api.delete<ApiResponse<{ message: string }>>(`/api/admin/registration/codes/${code}`),
-
   stats: () => api.get<ApiResponse<AdminStats>>('/api/admin/stats'),
-
   auditLogs: (params?: { userId?: string; action?: string; page?: number; limit?: number }) =>
     api.get<ApiResponse<{ items: AuditLog[]; total: number; page: number; limit: number }>>('/api/admin/audit-logs', {
       params,
     }),
 };
 
-export interface UploadedFile {
-  id: string;
-  name: string;
-  size: number;
-  mimeType: string | null;
-  path: string;
-  bucketId: string | null;
-  createdAt: string;
-}
-
+// ─────────────────────────────────────────────────────────────────────────────
+// Tasks
+// ─────────────────────────────────────────────────────────────────────────────
 export const tasksApi = {
   create: (data: {
     fileName: string;
@@ -423,6 +571,9 @@ export const tasksApi = {
   clearAll: () => api.delete<ApiResponse<{ message: string }>>('/api/tasks/clear-all'),
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Downloads
+// ─────────────────────────────────────────────────────────────────────────────
 export const downloadsApi = {
   create: (data: { url: string; fileName?: string; parentId?: string | null; bucketId?: string | null }) =>
     api.post<ApiResponse<{ id: string; url: string; fileName: string; status: string }>>('/api/downloads/create', data),
@@ -441,6 +592,9 @@ export const downloadsApi = {
   clearFailed: () => api.delete<ApiResponse<{ message: string; count: number }>>('/api/downloads/failed'),
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Batch
+// ─────────────────────────────────────────────────────────────────────────────
 export const batchApi = {
   delete: (fileIds: string[]) => api.post<ApiResponse<BatchOperationResult>>('/api/batch/delete', { fileIds }),
   move: (fileIds: string[], targetParentId: string | null) =>
@@ -454,6 +608,9 @@ export const batchApi = {
   restore: (fileIds: string[]) => api.post<ApiResponse<BatchOperationResult>>('/api/batch/restore', { fileIds }),
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Search
+// ─────────────────────────────────────────────────────────────────────────────
 export const searchApi = {
   query: (params: {
     query?: string;
@@ -495,6 +652,9 @@ export const searchApi = {
   recent: () => api.get<ApiResponse<FileItem[]>>('/api/search/recent'),
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Permissions & Tags
+// ─────────────────────────────────────────────────────────────────────────────
 export interface SearchableUser {
   id: string;
   email: string;
@@ -537,6 +697,9 @@ export const permissionsApi = {
     api.post<ApiResponse<Record<string, FileTag[]>>>('/api/permissions/tags/batch', { fileIds }),
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Preview
+// ─────────────────────────────────────────────────────────────────────────────
 export const previewApi = {
   getInfo: (fileId: string) =>
     api.get<
