@@ -1,23 +1,61 @@
 # OSSshelf API 文档
 
+本文档基于项目实际路由代码，详细描述 OSSshelf 的所有 API 接口。
+
+---
+
+## 📋 目录
+
+- [基础信息](#基础信息)
+- [认证接口](#认证接口)
+- [文件接口](#文件接口)
+- [回收站接口](#回收站接口)
+- [存储桶接口](#存储桶接口)
+- [Telegram 接口](#telegram-接口)
+- [存储桶迁移接口](#存储桶迁移接口)
+- [预签名上传接口](#预签名上传接口)
+- [分享接口](#分享接口)
+- [批量操作接口](#批量操作接口)
+- [搜索接口](#搜索接口)
+- [权限与标签接口](#权限与标签接口)
+- [上传任务接口](#上传任务接口)
+- [离线下载接口](#离线下载接口)
+- [预览接口](#预览接口)
+- [管理员接口](#管理员接口)
+- [定时任务接口](#定时任务接口)
+- [WebDAV 接口](#webdav-接口)
+
+---
+
 ## 基础信息
 
-- **Base URL**: `/api`
-- **认证方式**: Bearer Token (JWT)
-- **响应格式**: JSON
+### Base URL
 
-## 统一响应格式
+```
+https://your-api.workers.dev/api
+```
 
-### 成功响应
+### 认证方式
+
+- **Bearer Token (JWT)**: 大多数 API 使用此方式
+- **Basic Auth**: WebDAV 接口使用此方式
+
+### 响应格式
+
+JSON
+
+### 统一响应格式
+
+**成功响应**:
 
 ```json
 {
   "success": true,
-  "data": {}
+  "data": { ... }
 }
 ```
 
-### 错误响应
+**错误响应**:
 
 ```json
 {
@@ -29,32 +67,34 @@
 }
 ```
 
-## 错误码列表
+### 错误码（定义于 `packages/shared/src/constants/index.ts`）
 
-| 错误码                        | 描述                     |
-| ----------------------------- | ------------------------ |
-| UNAUTHORIZED                  | 未授权，Token 无效或过期 |
-| FORBIDDEN                     | 禁止访问，权限不足       |
-| NOT_FOUND                     | 资源不存在               |
-| VALIDATION_ERROR              | 参数验证失败             |
-| FILE_TOO_LARGE                | 文件大小超过限制         |
-| STORAGE_EXCEEDED              | 存储空间不足             |
-| SHARE_EXPIRED                 | 分享链接已过期           |
-| SHARE_PASSWORD_REQUIRED       | 分享需要密码             |
-| SHARE_PASSWORD_INVALID        | 分享密码错误             |
-| SHARE_DOWNLOAD_LIMIT_EXCEEDED | 分享下载次数已达上限     |
-| LOGIN_LOCKED                  | 登录已被锁定             |
-| PERMISSION_DENIED             | 权限不足                 |
-| TASK_EXPIRED                  | 上传任务已过期           |
-| INTERNAL_ERROR                | 服务器内部错误           |
-| REGISTRATION_CLOSED           | 注册已关闭               |
-| INVITE_CODE_REQUIRED          | 需要邀请码               |
-| INVITE_CODE_INVALID           | 邀请码无效               |
-| INVITE_CODE_USED              | 邀请码已使用             |
+| 错误码 | 描述 |
+|--------|------|
+| `UNAUTHORIZED` | 未授权，Token 无效或过期 |
+| `FORBIDDEN` | 禁止访问，权限不足 |
+| `NOT_FOUND` | 资源不存在 |
+| `VALIDATION_ERROR` | 参数验证失败 |
+| `FILE_TOO_LARGE` | 文件大小超过限制 |
+| `INVALID_FILE_TYPE` | 文件类型不允许 |
+| `STORAGE_EXCEEDED` | 存储空间不足 |
+| `SHARE_EXPIRED` | 分享链接已过期 |
+| `SHARE_PASSWORD_REQUIRED` | 分享需要密码 |
+| `SHARE_PASSWORD_INVALID` | 分享密码错误 |
+| `SHARE_DOWNLOAD_LIMIT_EXCEEDED` | 分享下载次数已达上限 |
+| `INTERNAL_ERROR` | 服务器内部错误 |
+| `LOGIN_LOCKED` | 登录已被锁定 |
+| `DEVICE_LIMIT_EXCEEDED` | 设备数量超限 |
+| `PERMISSION_DENIED` | 权限不足 |
+| `TASK_NOT_FOUND` | 任务不存在 |
+| `TASK_EXPIRED` | 上传任务已过期 |
+| `INVALID_URL` | URL 无效 |
 
 ---
 
 ## 认证接口
+
+路由文件: `apps/api/src/routes/auth.ts`
 
 ### 获取注册配置
 
@@ -62,7 +102,17 @@
 GET /api/auth/registration-config
 ```
 
-返回注册开关和邀请码要求配置。
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "open": true,
+    "requireInviteCode": false
+  }
+}
+```
 
 ### 用户注册
 
@@ -84,9 +134,18 @@ Content-Type: application/json
 {
   "success": true,
   "data": {
-    "user": { "id", "email", "name", "role", "storageQuota", "storageUsed", "createdAt", "updatedAt" },
+    "user": {
+      "id": "uuid",
+      "email": "user@example.com",
+      "name": "用户名",
+      "role": "user",
+      "storageQuota": 10737418240,
+      "storageUsed": 0,
+      "createdAt": "2024-01-01T00:00:00Z",
+      "updatedAt": "2024-01-01T00:00:00Z"
+    },
     "token": "jwt-token",
-    "deviceId": "设备ID"
+    "deviceId": "device-uuid"
   }
 }
 ```
@@ -111,9 +170,9 @@ Content-Type: application/json
 {
   "success": true,
   "data": {
-    "user": { "id", "email", "name", "role", "storageQuota", "storageUsed", "createdAt", "updatedAt" },
+    "user": { ... },
     "token": "jwt-token",
-    "deviceId": "设备ID"
+    "deviceId": "device-uuid"
   }
 }
 ```
@@ -179,27 +238,11 @@ GET /api/auth/stats
 Authorization: Bearer <token>
 ```
 
-**响应**:
-
-```json
-{
-  "success": true,
-  "data": {
-    "fileCount": 100,
-    "folderCount": 10,
-    "trashCount": 5,
-    "storageUsed": 1073741824,
-    "storageQuota": 10737418240,
-    "recentFiles": [],
-    "typeBreakdown": { "image": 524288000, "video": 314572800 },
-    "bucketBreakdown": []
-  }
-}
-```
-
 ---
 
 ## 文件接口
+
+路由文件: `apps/api/src/routes/files.ts`
 
 ### 列出文件
 
@@ -210,12 +253,12 @@ Authorization: Bearer <token>
 
 **查询参数**:
 
-- `parentId`: 父文件夹ID（可选）
-- `search`: 搜索关键词（可选）
-- `sortBy`: 排序字段，默认 `createdAt`
-- `sortOrder`: 排序方向，`asc` 或 `desc`，默认 `desc`
-
-**响应**: 返回文件列表，包含 `bucket`、`owner`、`accessPermission`、`isOwner` 字段。
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `parentId` | string | 父文件夹ID（可选，不传则列出根目录） |
+| `search` | string | 搜索关键词（可选） |
+| `sortBy` | string | 排序字段：`name`, `size`, `createdAt`, `updatedAt` |
+| `sortOrder` | string | 排序方向：`asc` 或 `desc` |
 
 ### 创建文件夹
 
@@ -250,8 +293,6 @@ GET /api/files/<fileId>
 Authorization: Bearer <token>
 ```
 
-**响应**: 包含 `bucket`、`owner`、`isOwner` 字段。
-
 ### 更新文件/文件夹
 
 ```http
@@ -276,8 +317,6 @@ Content-Type: application/json
   "allowedMimeTypes": ["image/*", "application/pdf"]
 }
 ```
-
-设置文件夹允许上传的文件类型，`null` 表示不限制。
 
 ### 移动文件
 
@@ -354,6 +393,8 @@ Authorization: Bearer <token>
 
 ## 存储桶接口
 
+路由文件: `apps/api/src/routes/buckets.ts`
+
 ### 列出存储桶
 
 ```http
@@ -393,12 +434,6 @@ Content-Type: application/json
 ```
 
 **支持的 provider**: `r2`, `s3`, `oss`, `cos`, `obs`, `b2`, `minio`, `custom`, `telegram`
-
-**Telegram 配置说明**:
-- `accessKeyId`: Telegram Bot Token
-- `bucketName`: Telegram Chat ID
-- `endpoint`: 可选的 Bot API 代理地址
-- `secretAccessKey`: 固定为 `telegram-no-secret`（占位符）
 
 ### 获取单个存储桶
 
@@ -452,6 +487,8 @@ Authorization: Bearer <token>
 
 ## Telegram 接口
 
+路由文件: `apps/api/src/routes/telegram.ts`
+
 ### 测试 Telegram Bot 连接
 
 ```http
@@ -462,7 +499,7 @@ Content-Type: application/json
 {
   "botToken": "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11",
   "chatId": "-1001234567890",
-  "apiBase": "https://api.telegram.org" // 可选代理
+  "apiBase": "https://api.telegram.org"
 }
 ```
 
@@ -484,6 +521,8 @@ Content-Type: application/json
 
 ## 存储桶迁移接口
 
+路由文件: `apps/api/src/routes/migrate.ts`
+
 ### 启动迁移任务
 
 ```http
@@ -494,11 +533,19 @@ Content-Type: application/json
 {
   "sourceBucketId": "来源存储桶ID",
   "targetBucketId": "目标存储桶ID",
-  "fileIds": ["fileId1", "fileId2"],  // 可选，不传则迁移整个桶
-  "targetFolderId": "目标文件夹ID",   // 可选，不传则保持原位置
-  "deleteSource": false               // 可选，true = 移动模式
+  "fileIds": ["fileId1", "fileId2"],
+  "targetFolderId": "目标文件夹ID",
+  "deleteSource": false
 }
 ```
+
+| 参数 | 说明 |
+|------|------|
+| `sourceBucketId` | 来源存储桶ID |
+| `targetBucketId` | 目标存储桶ID |
+| `fileIds` | 可选，不传则迁移整个桶 |
+| `targetFolderId` | 可选，不传则保持原位置 |
+| `deleteSource` | 可选，`true` = 移动模式 |
 
 **响应**:
 
@@ -521,30 +568,6 @@ GET /api/migrate/<migrationId>
 Authorization: Bearer <token>
 ```
 
-**响应**:
-
-```json
-{
-  "success": true,
-  "data": {
-    "migrationId": "uuid",
-    "userId": "user-id",
-    "sourceBucketId": "source-id",
-    "targetBucketId": "target-id",
-    "total": 100,
-    "done": 50,
-    "failed": 2,
-    "results": [
-      { "fileId": "id", "fileName": "name", "status": "done", "newR2Key": "..." },
-      { "fileId": "id", "fileName": "name", "status": "failed", "error": "错误信息" }
-    ],
-    "status": "running",
-    "startedAt": "2024-01-01T00:00:00Z",
-    "updatedAt": "2024-01-01T00:05:00Z"
-  }
-}
-```
-
 ### 取消迁移
 
 ```http
@@ -555,6 +578,8 @@ Authorization: Bearer <token>
 ---
 
 ## 预签名上传接口
+
+路由文件: `apps/api/src/routes/presign.ts`
 
 ### 获取上传预签名 URL
 
@@ -572,7 +597,7 @@ Content-Type: application/json
 }
 ```
 
-**响应**:
+**响应（小文件）**:
 
 ```json
 {
@@ -587,7 +612,16 @@ Content-Type: application/json
 }
 ```
 
-或返回 `{ "useProxy": true }` 表示应使用代理上传。
+**响应（需要代理）**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "useProxy": true
+  }
+}
+```
 
 ### 确认上传
 
@@ -620,22 +654,6 @@ Content-Type: application/json
   "mimeType": "application/octet-stream",
   "parentId": null,
   "bucketId": null
-}
-```
-
-**响应**:
-
-```json
-{
-  "success": true,
-  "data": {
-    "uploadId": "upload-id",
-    "fileId": "uuid",
-    "r2Key": "files/userId/fileId/large-file.iso",
-    "bucketId": "bucket-uuid",
-    "firstPartUrl": "https://...",
-    "expiresIn": 3600
-  }
 }
 ```
 
@@ -698,23 +716,6 @@ GET /api/presign/download/<fileId>
 Authorization: Bearer <token>
 ```
 
-**响应**:
-
-```json
-{
-  "success": true,
-  "data": {
-    "downloadUrl": "https://...",
-    "fileName": "example.zip",
-    "mimeType": "application/zip",
-    "size": 52428800,
-    "expiresIn": 21600
-  }
-}
-```
-
-或返回 `{ "useProxy": true, "proxyUrl": "/api/files/<fileId>/download" }`。
-
 ### 获取预览预签名 URL
 
 ```http
@@ -725,6 +726,8 @@ Authorization: Bearer <token>
 ---
 
 ## 分享接口
+
+路由文件: `apps/api/src/routes/share.ts`
 
 ### 创建下载分享
 
@@ -738,23 +741,6 @@ Content-Type: application/json
   "password": "访问密码",
   "expiresAt": "2024-12-31T23:59:59Z",
   "downloadLimit": 10
-}
-```
-
-**响应**:
-
-```json
-{
-  "success": true,
-  "data": {
-    "id": "share-id",
-    "fileId": "file-id",
-    "isFolder": false,
-    "expiresAt": "2024-12-31T23:59:59Z",
-    "downloadLimit": 10,
-    "createdAt": "2024-01-01T00:00:00Z",
-    "shareUrl": "/share/share-id"
-  }
 }
 ```
 
@@ -775,79 +761,10 @@ Content-Type: application/json
 }
 ```
 
-**响应**:
-
-```json
-{
-  "success": true,
-  "data": {
-    "id": "share-id",
-    "folderId": "folder-id",
-    "folderName": "文件夹名称",
-    "uploadToken": "upload-token-uuid",
-    "expiresAt": "2024-12-31T23:59:59Z",
-    "maxUploadSize": 104857600,
-    "allowedMimeTypes": ["image/*", "application/pdf"],
-    "maxUploadCount": 10,
-    "createdAt": "2024-01-01T00:00:00Z",
-    "uploadUrl": "/upload/upload-token-uuid"
-  }
-}
-```
-
 ### 获取分享信息（公开）
 
 ```http
 GET /api/share/<shareId>?password=<密码>
-```
-
-**响应**:
-
-```json
-{
-  "success": true,
-  "data": {
-    "id": "share-id",
-    "file": {
-      "id": "file-id",
-      "name": "文件名",
-      "size": 1024,
-      "mimeType": "application/pdf",
-      "isFolder": false
-    },
-    "children": null,
-    "expiresAt": "2024-12-31T23:59:59Z",
-    "downloadLimit": 10,
-    "downloadCount": 3,
-    "hasPassword": false
-  }
-}
-```
-
-**文件夹分享响应**（`isFolder: true`）:
-
-```json
-{
-  "success": true,
-  "data": {
-    "id": "share-id",
-    "file": {
-      "id": "folder-id",
-      "name": "文件夹名",
-      "size": 0,
-      "mimeType": null,
-      "isFolder": true
-    },
-    "children": [
-      { "id": "child-id", "name": "子文件", "size": 1024, "mimeType": "image/png", "isFolder": false, "updatedAt": "..." },
-      { "id": "child-id2", "name": "子文件夹", "size": 0, "mimeType": null, "isFolder": true, "updatedAt": "..." }
-    ],
-    "expiresAt": "2024-12-31T23:59:59Z",
-    "downloadLimit": null,
-    "downloadCount": 0,
-    "hasPassword": true
-  }
-}
 ```
 
 ### 分享预览（公开，仅图片）
@@ -868,8 +785,6 @@ GET /api/share/<shareId>/download?password=<密码>
 GET /api/share/<shareId>/zip?password=<密码>&fileIds=id1,id2
 ```
 
-- `fileIds`: 可选，逗号分隔的文件ID，不传则打包全部
-
 ### 下载文件夹分享中的单个文件（公开）
 
 ```http
@@ -880,24 +795,6 @@ GET /api/share/<shareId>/file/<fileId>/download?password=<密码>
 
 ```http
 GET /api/share/upload/<uploadToken>?password=<密码>
-```
-
-**响应**:
-
-```json
-{
-  "success": true,
-  "data": {
-    "token": "upload-token-uuid",
-    "folderName": "文件夹名称",
-    "expiresAt": "2024-12-31T23:59:59Z",
-    "hasPassword": false,
-    "maxUploadSize": 5368709120,
-    "allowedMimeTypes": null,
-    "maxUploadCount": null,
-    "uploadCount": 0
-  }
-}
 ```
 
 ### 通过上传链接上传文件（公开）
@@ -928,6 +825,8 @@ Authorization: Bearer <token>
 
 ## 批量操作接口
 
+路由文件: `apps/api/src/routes/batch.ts`
+
 ### 批量删除（移至回收站）
 
 ```http
@@ -937,19 +836,6 @@ Content-Type: application/json
 
 {
   "fileIds": ["id1", "id2", "id3"]
-}
-```
-
-**响应**:
-
-```json
-{
-  "success": true,
-  "data": {
-    "success": 3,
-    "failed": 0,
-    "errors": []
-  }
 }
 ```
 
@@ -1023,48 +909,31 @@ Content-Type: application/json
 
 ## 搜索接口
 
+路由文件: `apps/api/src/routes/search.ts`
+
 ### 搜索文件
 
 ```http
-GET /api/search?query=keyword&parentId=folderId&recursive=true&tags=tag1,tag2&mimeType=image/*&minSize=0&maxSize=10485760&createdAfter=2024-01-01T00:00:00Z&createdBefore=2024-12-31T23:59:59Z&isFolder=false&bucketId=bucket-id&sortBy=createdAt&sortOrder=desc&page=1&limit=50
+GET /api/search?query=keyword&parentId=folderId&tags=tag1,tag2&mimeType=image/*&minSize=0&maxSize=10485760&createdAfter=2024-01-01T00:00:00Z&createdBefore=2024-12-31T23:59:59Z&isFolder=false&bucketId=bucket-id&sortBy=createdAt&sortOrder=desc&page=1&limit=50
 Authorization: Bearer <token>
 ```
 
 **查询参数**:
 
-- `query`: 搜索关键词
-- `parentId`: 搜索范围（文件夹ID）
-- `recursive`: 是否递归搜索子文件夹
-- `tags`: 标签过滤（逗号分隔）
-- `mimeType`: MIME类型过滤（支持通配符如 `image/*`）
-- `minSize` / `maxSize`: 文件大小范围（字节）
-- `createdAfter` / `createdBefore`: 创建时间范围
-- `updatedAfter` / `updatedBefore`: 更新时间范围
-- `isFolder`: 是否只搜索文件夹
-- `bucketId`: 存储桶过滤
-- `sortBy`: 排序字段（`name`, `size`, `createdAt`, `updatedAt`）
-- `sortOrder`: 排序方向（`asc`, `desc`）
-- `page` / `limit`: 分页
-
-**响应**:
-
-```json
-{
-  "success": true,
-  "data": {
-    "items": [],
-    "total": 100,
-    "page": 1,
-    "limit": 50,
-    "totalPages": 2,
-    "aggregations": {
-      "types": { "image": 50, "video": 30 },
-      "mimeTypes": { "image/jpeg": 30, "image/png": 20 },
-      "sizeRange": { "min": 1024, "max": 10485760 }
-    }
-  }
-}
-```
+| 参数 | 说明 |
+|------|------|
+| `query` | 搜索关键词 |
+| `parentId` | 搜索范围（文件夹ID） |
+| `tags` | 标签过滤（逗号分隔） |
+| `mimeType` | MIME类型过滤（支持通配符如 `image/*`） |
+| `minSize` / `maxSize` | 文件大小范围（字节） |
+| `createdAfter` / `createdBefore` | 创建时间范围 |
+| `updatedAfter` / `updatedBefore` | 更新时间范围 |
+| `isFolder` | 是否只搜索文件夹 |
+| `bucketId` | 存储桶过滤 |
+| `sortBy` | 排序字段（`name`, `size`, `createdAt`, `updatedAt`） |
+| `sortOrder` | 排序方向（`asc`, `desc`） |
+| `page` / `limit` | 分页 |
 
 ### 高级搜索
 
@@ -1110,6 +979,8 @@ Authorization: Bearer <token>
 
 ## 权限与标签接口
 
+路由文件: `apps/api/src/routes/permissions.ts`
+
 ### 授予权限
 
 ```http
@@ -1146,38 +1017,11 @@ GET /api/permissions/file/<fileId>
 Authorization: Bearer <token>
 ```
 
-**响应**:
-
-```json
-{
-  "success": true,
-  "data": {
-    "isOwner": true,
-    "permissions": [
-      { "id", "userId", "permission", "grantedBy", "userName", "userEmail", "createdAt" }
-    ]
-  }
-}
-```
-
 ### 检查权限
 
 ```http
 GET /api/permissions/check/<fileId>
 Authorization: Bearer <token>
-```
-
-**响应**:
-
-```json
-{
-  "success": true,
-  "data": {
-    "hasAccess": true,
-    "permission": "admin",
-    "isOwner": true
-  }
-}
 ```
 
 ### 搜索用户（用于授权）
@@ -1244,6 +1088,8 @@ Content-Type: application/json
 
 ## 上传任务接口
 
+路由文件: `apps/api/src/routes/tasks.ts`
+
 ### 创建上传任务
 
 ```http
@@ -1260,46 +1106,7 @@ Content-Type: application/json
 }
 ```
 
-**响应**:
-
-```json
-{
-  "success": true,
-  "data": {
-    "taskId": "uuid",
-    "fileId": "uuid",
-    "uploadId": "upload-id",
-    "r2Key": "files/userId/fileId/large-file.iso",
-    "bucketId": "bucket-uuid",
-    "totalParts": 100,
-    "partSize": 52428800,
-    "firstPartUrl": "https://...",
-    "expiresAt": "2024-01-02T00:00:00Z"
-  }
-}
-```
-
-**Telegram 存储桶响应**:
-
-```json
-{
-  "success": true,
-  "data": {
-    "taskId": "uuid",
-    "fileId": "uuid",
-    "uploadId": "telegram-chunked:group-id",
-    "r2Key": "files/userId/fileId/large-file.iso",
-    "bucketId": "bucket-uuid",
-    "totalParts": 50,
-    "partSize": 31457280,
-    "isTelegramUpload": true,
-    "isSmallFile": false,
-    "expiresAt": "2024-01-02T00:00:00Z"
-  }
-}
-```
-
-### 获取分片上传 URL
+### 获取分片上传 URL（S3）
 
 ```http
 POST /api/tasks/part
@@ -1312,7 +1119,7 @@ Content-Type: application/json
 }
 ```
 
-### 标记分片完成
+### 标记分片完成（S3）
 
 ```http
 POST /api/tasks/part-done
@@ -1326,7 +1133,7 @@ Content-Type: application/json
 }
 ```
 
-### 代理上传分片
+### 代理上传分片（S3）
 
 ```http
 POST /api/tasks/part-proxy
@@ -1361,7 +1168,8 @@ Content-Type: application/json
   "taskId": "uuid",
   "parts": [
     { "partNumber": 1, "etag": "etag-1" }
-  ]
+  ],
+  "hash": "可选的文件哈希"
 }
 ```
 
@@ -1443,6 +1251,8 @@ Authorization: Bearer <token>
 ---
 
 ## 离线下载接口
+
+路由文件: `apps/api/src/routes/downloads.ts`
 
 ### 创建下载任务
 
@@ -1535,6 +1345,8 @@ Authorization: Bearer <token>
 
 ## 预览接口
 
+路由文件: `apps/api/src/routes/preview.ts`
+
 ### 获取预览信息
 
 ```http
@@ -1603,6 +1415,8 @@ Authorization: Bearer <token>
 
 ## 管理员接口
 
+路由文件: `apps/api/src/routes/admin.ts`
+
 所有管理员接口需要 `admin` 角色。
 
 ### 获取用户列表
@@ -1611,8 +1425,6 @@ Authorization: Bearer <token>
 GET /api/admin/users
 Authorization: Bearer <token>
 ```
-
-**响应**: 返回用户列表，包含 `fileCount` 和 `bucketCount`。
 
 ### 获取单个用户
 
@@ -1650,19 +1462,6 @@ GET /api/admin/registration
 Authorization: Bearer <token>
 ```
 
-**响应**:
-
-```json
-{
-  "success": true,
-  "data": {
-    "open": true,
-    "requireInviteCode": false,
-    "inviteCodes": [{ "code": "XXXX-XXXX-XXXX", "usedBy": null, "createdAt": "2024-01-01T00:00:00Z" }]
-  }
-}
-```
-
 ### 更新注册配置
 
 ```http
@@ -1688,18 +1487,6 @@ Content-Type: application/json
 }
 ```
 
-**响应**:
-
-```json
-{
-  "success": true,
-  "data": {
-    "codes": ["XXXX-XXXX-XXXX", "YYYY-YYYY-YYYY"],
-    "createdAt": "2024-01-01T00:00:00Z"
-  }
-}
-```
-
 ### 删除邀请码
 
 ```http
@@ -1714,27 +1501,6 @@ GET /api/admin/stats
 Authorization: Bearer <token>
 ```
 
-**响应**:
-
-```json
-{
-  "success": true,
-  "data": {
-    "userCount": 100,
-    "adminCount": 2,
-    "fileCount": 5000,
-    "folderCount": 200,
-    "bucketCount": 50,
-    "totalStorageUsed": 107374182400,
-    "totalStorageQuota": 1073741824000,
-    "providerBreakdown": {
-      "s3": { "bucketCount": 30, "storageUsed": 52428800000 },
-      "r2": { "bucketCount": 20, "storageUsed": 54945382400 }
-    }
-  }
-}
-```
-
 ### 获取审计日志
 
 ```http
@@ -1742,45 +1508,18 @@ GET /api/admin/audit-logs?page=1&limit=50&userId=user-id&action=user.login
 Authorization: Bearer <token>
 ```
 
-**响应**:
-
-```json
-{
-  "success": true,
-  "data": {
-    "items": [
-      {
-        "id": "log-id",
-        "userId": "user-id",
-        "userEmail": "user@example.com",
-        "action": "user.login",
-        "resourceType": "user",
-        "resourceId": "user-id",
-        "details": {},
-        "status": "success",
-        "errorMessage": null,
-        "ipAddress": "192.168.1.1",
-        "userAgent": "Mozilla/5.0...",
-        "createdAt": "2024-01-01T00:00:00Z"
-      }
-    ],
-    "total": 1000,
-    "page": 1,
-    "limit": 50
-  }
-}
-```
-
 ---
 
 ## 定时任务接口
+
+路由文件: `apps/api/src/routes/cron.ts`
 
 这些接口通常由 Cloudflare Cron Triggers 调用。
 
 ### 回收站清理
 
 ```http
-POST /api/cron/trash-cleanup
+POST /cron/trash-cleanup
 ```
 
 清理超过保留期的回收站文件。
@@ -1788,7 +1527,7 @@ POST /api/cron/trash-cleanup
 ### 会话清理
 
 ```http
-POST /api/cron/session-cleanup
+POST /cron/session-cleanup
 ```
 
 清理过期的 WebDAV 会话、上传任务和登录记录。
@@ -1796,7 +1535,7 @@ POST /api/cron/session-cleanup
 ### 分享清理
 
 ```http
-POST /api/cron/share-cleanup
+POST /cron/share-cleanup
 ```
 
 清理过期的分享链接。
@@ -1804,7 +1543,7 @@ POST /api/cron/share-cleanup
 ### 全量清理
 
 ```http
-POST /api/cron/all
+POST /cron/all
 ```
 
 执行所有清理任务。
@@ -1813,32 +1552,34 @@ POST /api/cron/all
 
 ## WebDAV 接口
 
+路由文件: `apps/api/src/routes/webdav.ts`
+
 WebDAV 协议端点: `/dav`
 
 ### 连接配置
 
-| 配置项     | 值                            |
-| ---------- | ----------------------------- |
+| 配置项 | 值 |
+|--------|-----|
 | 服务器地址 | `https://your-domain.com/dav` |
-| 用户名     | 注册邮箱                      |
-| 密码       | 账户密码                      |
-| 认证方式   | Basic Auth                    |
+| 用户名 | 注册邮箱 |
+| 密码 | 账户密码 |
+| 认证方式 | Basic Auth |
 
 ### 支持的操作
 
-| 操作        | 方法         | 描述                          |
-| ----------- | ------------ | ----------------------------- |
-| 列出目录    | PROPFIND     | Depth: 0 (当前), 1 (包含子项) |
-| 下载文件    | GET          | -                             |
-| 查看文件头  | HEAD         | -                             |
-| 上传文件    | PUT          | 自动创建父目录                |
-| 创建目录    | MKCOL        | -                             |
-| 删除        | DELETE       | 永久删除                      |
-| 移动/重命名 | MOVE         | 需要 Destination 头           |
-| 复制        | COPY         | 需要 Destination 头           |
-| 锁定资源    | LOCK         | 支持 Windows 资源管理器       |
-| 解锁资源    | UNLOCK       | 支持 Windows 资源管理器       |
-| 属性修改    | PROPPATCH    | 只读属性，返回 403             |
+| 操作 | 方法 | 描述 |
+|------|------|------|
+| 列出目录 | PROPFIND | Depth: 0 (当前), 1 (包含子项) |
+| 下载文件 | GET | - |
+| 查看文件头 | HEAD | - |
+| 上传文件 | PUT | 自动创建父目录 |
+| 创建目录 | MKCOL | - |
+| 删除 | DELETE | 永久删除 |
+| 移动/重命名 | MOVE | 需要 Destination 头 |
+| 复制 | COPY | 需要 Destination 头 |
+| 锁定资源 | LOCK | 支持 Windows 资源管理器 |
+| 解锁资源 | UNLOCK | 支持 Windows 资源管理器 |
+| 属性修改 | PROPPATCH | 只读属性，返回 403 |
 
 ### Windows 资源管理器兼容性优化
 

@@ -1,12 +1,41 @@
-# OSSshelf
+<div align="center">
 
-基于 Cloudflare 部署的多厂商 OSS 文件管理系统，支持 WebDAV 协议。
+# 🗄️ OSSshelf
 
-## 功能特性
+**基于 Cloudflare 的多厂商 OSS 文件管理系统**
+
+支持 WebDAV 协议 · 多存储提供商 · 大文件分片上传 · 文件分享
+
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-green.svg)](https://nodejs.org)
+[![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers-orange.svg)](https://workers.cloudflare.com)
+
+[功能特性](#-功能特性) • [快速开始](#-快速开始) • [部署指南](#-部署指南) • [使用说明](#-使用说明) • [API文档](#-api-文档)
+
+</div>
+
+---
+
+## 📋 目录
+
+- [功能特性](#-功能特性)
+- [技术栈](#-技术栈)
+- [系统限制](#-系统限制)
+- [快速开始](#-快速开始)
+- [部署指南](#-部署指南)
+- [使用说明](#-使用说明)
+- [项目结构](#-项目结构)
+- [API 文档](#-api-文档)
+- [开发命令](#-开发命令)
+- [常见问题](#-常见问题)
+
+---
+
+## ✨ 功能特性
 
 - 📁 **文件管理**: 文件上传、下载、预览、移动、重命名、删除
 - 🪣 **多存储支持**: 支持 Cloudflare R2、AWS S3、阿里云 OSS、腾讯云 COS、华为云 OBS、Backblaze B2、MinIO 等
-- 📦 **Telegram 存储**: 通过 Telegram Bot API 存储文件，支持大文件分片上传（最大2GB）
+- 📦 **Telegram 存储**: 通过 Telegram Bot API 存储文件，支持大文件分片上传（最大 2GB）
 - 🔄 **大文件上传**: 分片上传、断点续传、秒传
 - 🔗 **文件分享**: 支持文件/文件夹分享，密码保护、过期时间、下载次数限制
 - 📤 **上传链接**: 创建公开上传链接，允许他人无需登录上传文件到指定文件夹
@@ -21,570 +50,379 @@
 - 💾 **文件去重**: Copy-on-Write 机制，相同文件只存储一份
 - 👥 **多用户**: 用户管理、存储配额、审计日志
 - ⏰ **定时任务**: 自动清理回收站、过期分享
+- 🗑️ **回收站**: 删除文件进入回收站，30 天保留期，支持恢复
 
-## 技术栈
+### 🪣 支持的存储提供商
 
-| 组件   | 技术                                     |
-| ------ | ---------------------------------------- |
-| 前端   | React 18 + Vite 5 + Tailwind CSS 3       |
-| 后端   | Hono 4 + Cloudflare Workers              |
-| 数据库 | Cloudflare D1 (SQLite) + Drizzle ORM     |
-| 存储   | S3 兼容协议 (R2/S3/OSS/COS/OBS/B2/MinIO) + Telegram Bot API |
-| 认证   | JWT + bcrypt                             |
+| 提供商 | 说明 | 特点 |
+|--------|------|------|
+| Cloudflare R2 | 推荐 | 无出站流量费用 |
+| AWS S3 | 标准兼容 | 全球部署 |
+| 阿里云 OSS | 国内优化 | 低延迟 |
+| 腾讯云 COS | 国内优化 | 低延迟 |
+| 华为云 OBS | 国内优化 | 低延迟 |
+| Backblaze B2 | 高性价比 | 免费额度 |
+| MinIO | 私有部署 | 完全控制 |
+| Telegram | 免费 | 最大 2GB |
 
-## 快速开始
+---
+
+## 🔧 技术栈
+
+| 组件 | 技术 |
+|------|------|
+| 前端 | React 18 + Vite 5 + Tailwind CSS 3 |
+| 后端 | Hono 4 + Cloudflare Workers |
+| 数据库 | Cloudflare D1 (SQLite) + Drizzle ORM |
+| 存储 | S3 兼容协议 + Telegram Bot API |
+| 认证 | JWT + bcrypt |
+
+---
+
+## ⚙️ 系统限制
+
+以下常量定义于 `packages/shared/src/constants/index.ts` 和 `apps/api/src/lib/` 目录：
+
+### 文件限制
+
+| 常量 | 值 | 说明 | 定义位置 |
+|------|-----|------|----------|
+| `MAX_FILE_SIZE` | 5 GB | S3 兼容存储单文件最大 | shared/constants |
+| `DEFAULT_STORAGE_QUOTA` | 10 GB | 默认存储配额 | shared/constants |
+| `UPLOAD_CHUNK_SIZE` | 10 MB | S3 分片大小 | shared/constants |
+| `MULTIPART_THRESHOLD` | 100 MB | S3 分片上传阈值 | shared/constants |
+| `MAX_CONCURRENT_PARTS` | 3 | 最大并发分片数 | shared/constants |
+| `TG_MAX_FILE_SIZE` | 50 MB | Telegram 直传上限 | api/lib/telegramClient |
+| `TG_CHUNKED_THRESHOLD` | 49 MB | Telegram 分片阈值 | api/lib/telegramClient |
+| `TG_CHUNK_SIZE` | 30 MB | Telegram 分片大小 | api/lib/telegramChunked |
+| `TG_MAX_CHUNKED_FILE_SIZE` | 2 GB | Telegram 最大文件 | api/lib/telegramClient |
+
+### 时间限制
+
+| 常量 | 值 | 说明 |
+|------|-----|------|
+| `JWT_EXPIRY` | 7 天 | JWT 有效期 |
+| `WEBDAV_SESSION_EXPIRY` | 30 天 | WebDAV 会话有效期 |
+| `SHARE_DEFAULT_EXPIRY` | 7 天 | 分享默认有效期 |
+| `TRASH_RETENTION_DAYS` | 30 天 | 回收站保留天数 |
+| `DEVICE_SESSION_EXPIRY` | 30 天 | 设备会话有效期 |
+| `UPLOAD_TASK_EXPIRY` | 24 小时 | 上传任务有效期 |
+
+### 安全限制
+
+| 常量 | 值 | 说明 |
+|------|-----|------|
+| `LOGIN_MAX_ATTEMPTS` | 5 次 | 最大登录尝试次数 |
+| `LOGIN_LOCKOUT_DURATION` | 15 分钟 | 登录锁定时长 |
+
+---
+
+## 🚀 快速开始
 
 ### 环境要求
 
-- Node.js >= 20.0.0
-- pnpm >= 8.0.0
-- Cloudflare 账户
+- **Node.js** >= 20.0.0
+- **pnpm** >= 8.0.0
+- **Cloudflare 账户**（免费账户即可）
 
-### 安装
+### 本地开发
 
 ```bash
-# 克隆项目
+# 1. 克隆项目
 git clone https://github.com/your-repo/ossshelf.git
 cd ossshelf
 
-# 安装依赖
+# 2. 安装依赖
 pnpm install
 
-# 配置环境变量
-cp apps/api/wrangler.toml.example apps/api/wrangler.toml
-# 编辑 wrangler.toml，填入 D1 数据库 ID 和 KV 命名空间 ID
-
-# 创建数据库
+# 3. 创建 Cloudflare 资源（本地开发）
+wrangler login
 wrangler d1 create ossshelf-db
 wrangler kv:namespace create KV
 
-# 运行迁移
-pnpm db:migrate:local
+# 4. 配置 wrangler.toml
+cp apps/api/wrangler.toml.example apps/api/wrangler.toml
+# 编辑 wrangler.toml，填入 D1 数据库 ID 和 KV 命名空间 ID
 
-# 启动开发服务器
-pnpm dev:api  # API 服务
-pnpm dev:web  # 前端服务
+# 5. 运行数据库迁移
+pnpm db:migrate
+
+# 6. 启动开发服务器
+pnpm dev:api  # API 服务 (http://localhost:8787)
+pnpm dev:web  # 前端服务 (http://localhost:5173)
 ```
 
-### 访问
+### 访问地址
 
-- 前端: http://localhost:5173
-- API: http://localhost:8787
+| 服务 | 地址 |
+|------|------|
+| 前端 | http://localhost:5173 |
+| API | http://localhost:8787 |
+| WebDAV | http://localhost:8787/dav |
 
-## 使用指南
+---
 
-### 首次使用与管理员账户
+## 📦 部署指南
 
-**第一个注册的用户自动成为管理员**。系统检测到用户表为空时，首个注册用户会被赋予 `admin` 角色，拥有完整的管理权限。
+详细的部署文档请参阅 [docs/deployment.md](docs/deployment.md)。
 
-管理员可以：
-- 在「管理」页面管理所有用户（查看、编辑配额、重置密码、删除）
+### 前置准备
+
+1. **Cloudflare 账户** - 注册 [Cloudflare](https://dash.cloudflare.com/sign-up)
+2. **域名**（可选）- 绑定自定义域名
+3. **存储服务** - 准备好至少一个存储提供商的凭证
+
+### 一键部署步骤
+
+```bash
+# Step 1: 创建生产资源
+wrangler d1 create ossshelf-db
+wrangler kv:namespace create KV --preview false
+
+# 记录输出的 database_id 和 id，填入 wrangler.toml
+```
+
+```bash
+# Step 2: 配置 wrangler.toml
+cp apps/api/wrangler.toml.example apps/api/wrangler.toml
+```
+
+编辑 `apps/api/wrangler.toml`：
+
+```toml
+name = "ossshelf-api"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ossshelf-db"
+database_id = "你的D1数据库ID"  # ← 替换这里
+
+[[kv_namespaces]]
+binding = "KV"
+id = "你的KV命名空间ID"  # ← 替换这里
+
+[vars]
+ENVIRONMENT = "production"
+JWT_SECRET = "生成一个强随机字符串"  # ← 替换这里
+
+[triggers]
+crons = ["0 3 * * *"]  # 每天凌晨3点清理
+```
+
+```bash
+# Step 3: 设置加密密钥（用于加密存储桶凭证）
+wrangler secret put ENCRYPTION_KEY
+# 输入一个32字节的随机字符串，例如: openssl rand -base64 32
+
+# Step 4: 运行数据库迁移
+pnpm db:migrate
+
+# Step 5: 部署 API
+pnpm deploy:api
+
+# Step 6: 构建并部署前端
+pnpm build:web
+wrangler pages deploy apps/web/dist --project-name=ossshelf-web
+```
+
+### 部署验证
+
+```bash
+# 检查 API 是否正常运行
+curl https://your-api.workers.dev/api/auth/registration-config
+
+# 应返回: {"success":true,"data":{"open":true,"requireInviteCode":false}}
+```
+
+### 环境变量说明
+
+| 变量名 | 必填 | 说明 |
+|--------|------|------|
+| `JWT_SECRET` | ✅ | JWT 签名密钥，建议 32+ 字符随机字符串 |
+| `ENCRYPTION_KEY` | ✅ | 存储桶凭证加密密钥，32 字节 |
+
+---
+
+## 📖 使用说明
+
+### 首次使用
+
+> **重要**: 第一个注册的用户自动成为管理员，拥有完整管理权限。
+
+### 存储桶配置
+
+1. 登录后进入「设置」→「存储桶」
+2. 点击「添加存储桶」
+3. 选择存储提供商并填写配置：
+
+#### Cloudflare R2 配置示例
+
+```json
+{
+  "provider": "r2",
+  "bucketName": "my-bucket",
+  "endpoint": "https://<account-id>.r2.cloudflarestorage.com",
+  "region": "auto",
+  "accessKeyId": "你的 Access Key ID",
+  "secretAccessKey": "你的 Secret Access Key"
+}
+```
+
+#### Telegram 配置步骤
+
+1. 通过 [@BotFather](https://t.me/BotFather) 创建 Bot，获取 Token
+2. 创建频道或群组，将 Bot 添加为管理员
+3. 获取 Chat ID（转发消息到 [@userinfobot](https://t.me/userinfobot)）
+4. 在存储桶管理中选择 Telegram 提供商：
+
+```json
+{
+  "provider": "telegram",
+  "bucketName": "Chat ID（如 -1001234567890）",
+  "accessKeyId": "Bot Token（如 123456:ABC-DEF...）",
+  "secretAccessKey": "telegram-no-secret"
+}
+```
+
+### 文件上传
+
+| 方式 | 说明 |
+|------|------|
+| 拖拽上传 | 直接拖入页面 |
+| 点击上传 | 点击上传按钮选择文件 |
+| 文件夹上传 | 支持上传整个文件夹 |
+| 大文件 | ≥ 100MB 自动分片，支持断点续传 |
+
+### 文件分享
+
+1. 右键点击文件/文件夹 → 选择「分享」
+2. 设置选项：
+   - 密码保护（可选）
+   - 过期时间（可选）
+   - 下载次数限制（可选）
+3. 复制分享链接
+
+### WebDAV 连接
+
+| 配置项 | 值 |
+|--------|-----|
+| 服务器地址 | `https://your-domain.com/dav` |
+| 用户名 | 注册邮箱 |
+| 密码 | 账户密码 |
+| 认证方式 | Basic Auth |
+
+**Windows 资源管理器连接**：
+1. 打开「此电脑」
+2. 点击「映射网络驱动器」
+3. 输入 WebDAV 地址
+4. 输入邮箱和密码
+
+### 管理员功能
+
+管理员可在「管理」页面：
+- 管理所有用户（查看、编辑配额、重置密码、删除）
 - 控制注册开关（开放/关闭注册）
 - 生成和管理邀请码
 - 查看系统统计和审计日志
 
-### Fork 项目后的更新流程
+---
 
-如果你 Fork 了本项目，当上游有更新时，按以下步骤同步：
-
-```bash
-# 1. 添加上游仓库（仅需一次）
-git remote add upstream https://github.com/original-repo/ossshelf.git
-
-# 2. 拉取上游更新
-git fetch upstream
-git merge upstream/main
-
-# 3. 检查是否有新的数据库迁移文件
-ls apps/api/migrations/
-
-# 4. 如果有新的迁移文件，执行迁移
-pnpm db:migrate:local  # 本地开发环境
-pnpm db:migrate        # 生产环境
-
-# 5. 重新部署
-pnpm deploy:api
-```
-
-**重要提示**：
-- 每次更新后务必检查 `apps/api/migrations/` 目录是否有新增的 `.sql` 文件
-- 数据库迁移通常涉及表结构变更，不执行迁移可能导致功能异常
-- 迁移前建议备份重要数据
-
-### 核心功能操作说明
-
-#### 存储桶配置
-
-1. 登录后进入「存储桶」页面
-2. 点击「添加存储桶」选择存储提供商
-3. 填写配置信息（Endpoint、Access Key、Secret Key、Bucket 名称等）
-4. 点击「测试连接」验证配置
-5. 启用存储桶并设为默认（可选）
-
-支持的存储提供商：Cloudflare R2、AWS S3、阿里云 OSS、腾讯云 COS、华为云 OBS、Backblaze B2、MinIO、Telegram
-
-#### 文件上传
-
-- **拖拽上传**：直接将文件/文件夹拖入页面
-- **点击上传**：点击上传按钮选择文件
-- **大文件**：超过 100MB 自动启用分片上传，支持断点续传
-- **文件夹上传**：支持上传整个文件夹，自动保持目录结构
-
-#### 文件分享
-
-1. 右键点击文件/文件夹 → 选择「分享」
-2. 设置分享选项：
-   - 密码保护（可选）
-   - 过期时间（可选）
-   - 下载次数限制（可选）
-3. 复制分享链接发送给他人
-
-#### 上传链接
-
-允许他人无需登录上传文件到指定文件夹：
-
-1. 右键点击文件夹 → 选择「创建上传链接」
-2. 设置限制条件（文件大小、类型、数量等）
-3. 发送链接给上传者
-
-#### WebDAV 连接
-
-使用 WebDAV 客户端（如 Windows 资源管理器、Cyberduck、rclone）连接：
-
-| 配置项     | 值                            |
-| ---------- | ----------------------------- |
-| 服务器地址 | `https://your-domain.com/dav` |
-| 用户名     | 注册邮箱                      |
-| 密码       | 账户密码                      |
-| 认证方式   | Basic Auth                    |
-
-#### 离线下载
-
-1. 点击「离线下载」按钮
-2. 输入文件 URL
-3. 选择目标存储桶和文件夹
-4. 系统自动下载并保存到指定位置
-
-#### 存储桶迁移
-
-1. 进入「存储桶」页面
-2. 右键点击文件/文件夹 → 选择「迁移到其他存储桶」
-3. 选择目标存储桶
-4. 确认迁移（支持跨提供商迁移）
-
-### 用户管理（管理员）
-
-管理员在「管理」页面可以：
-
-- **查看用户列表**：显示所有用户的存储使用情况
-- **编辑用户**：修改昵称、角色、存储配额、重置密码
-- **删除用户**：删除用户及其所有数据
-- **注册控制**：
-  - 开放/关闭公开注册
-  - 启用邀请码机制
-  - 生成/撤销邀请码
-
-### 常见问题
-
-**Q: 忘记密码怎么办？**
-A: 联系管理员重置密码。如果是管理员忘记密码，需要通过数据库直接修改密码哈希。
-
-**Q: 文件删除后能恢复吗？**
-A: 文件删除后进入回收站，保留 30 天。在此期间可以从回收站恢复。
-
-**Q: 存储配额不够怎么办？**
-A: 联系管理员增加配额，或清理不需要的文件。
-
-**Q: Telegram 存储有什么限制？**
-A: 单文件最大 2GB，无法真正删除文件（仅删除消息引用），需要稳定的网络连接。
-
-## 项目结构
+## 📁 项目结构
 
 ```
 ossshelf/
 ├── apps/
-│   ├── api/          # 后端 API (Hono + Cloudflare Workers)
-│   └── web/          # 前端应用 (React + Vite)
+│   ├── api/                    # 后端 API 服务
+│   │   ├── src/
+│   │   │   ├── db/             # 数据库
+│   │   │   │   └── schema.ts   # 表结构定义
+│   │   │   ├── lib/            # 核心库
+│   │   │   │   ├── s3client.ts       # S3 客户端
+│   │   │   │   ├── telegramClient.ts # Telegram 客户端
+│   │   │   │   ├── telegramChunked.ts # Telegram 分片上传
+│   │   │   │   ├── crypto.ts    # 加密工具
+│   │   │   │   ├── dedup.ts     # 文件去重
+│   │   │   │   └── cleanup.ts   # 清理任务
+│   │   │   ├── middleware/     # 中间件
+│   │   │   ├── routes/         # API 路由
+│   │   │   │   ├── auth.ts      # 认证
+│   │   │   │   ├── files.ts     # 文件管理
+│   │   │   │   ├── buckets.ts   # 存储桶
+│   │   │   │   ├── share.ts     # 分享
+│   │   │   │   ├── tasks.ts     # 上传任务
+│   │   │   │   ├── presign.ts   # 预签名
+│   │   │   │   ├── search.ts    # 搜索
+│   │   │   │   ├── permissions.ts # 权限与标签
+│   │   │   │   ├── batch.ts     # 批量操作
+│   │   │   │   ├── downloads.ts # 离线下载
+│   │   │   │   ├── preview.ts   # 预览
+│   │   │   │   ├── admin.ts     # 管理员
+│   │   │   │   ├── migrate.ts   # 迁移
+│   │   │   │   ├── telegram.ts  # Telegram
+│   │   │   │   ├── cron.ts      # 定时任务
+│   │   │   │   └── webdav.ts    # WebDAV
+│   │   │   └── index.ts        # 入口
+│   │   ├── migrations/         # 数据库迁移
+│   │   │   ├── 0001_init.sql
+│   │   │   ├── 0002_optimization.sql
+│   │   │   ├── 0003_folder_upload_types.sql
+│   │   │   ├── 0004_telegram_storage.sql
+│   │   │   ├── 0005_dedup_and_upload_links.sql
+│   │   │   ├── 0006_upload_progress.sql
+│   │   │   └── 0007_phase7.sql
+│   │   └── wrangler.toml       # Cloudflare 配置
+│   └── web/                    # 前端应用
+│       ├── src/
+│       │   ├── components/     # UI 组件
+│       │   ├── hooks/          # 自定义 Hooks
+│       │   ├── pages/          # 页面组件
+│       │   ├── services/       # API 服务
+│       │   └── stores/         # 状态管理
+│       └── vite.config.ts
 ├── packages/
-│   └── shared/       # 共享代码 (常量、类型)
-└── docs/             # 文档
-    ├── api.md        # API 文档
-    ├── architecture.md # 架构文档
-    └── deployment.md # 部署文档
+│   └── shared/                 # 共享代码
+│       └── src/
+│           └── constants/
+│               └── index.ts    # 常量定义
+└── docs/                       # 文档
+    ├── api.md                  # API 文档
+    ├── architecture.md         # 架构文档
+    └── deployment.md           # 部署文档
 ```
 
-## 主要功能
+---
 
-### 文件管理
-
-- 拖拽上传、文件夹上传
-- 大文件分片上传（>= 100MB 自动启用）
-- 文件预览（图片、视频、音频、PDF、Office、代码）
-- 文件夹上传类型限制
-- 回收站（30天保留期）
-- 文件去重（Copy-on-Write）
-
-### 存储桶管理
-
-- 支持多个存储桶同时配置
-- 每个存储桶可独立设置配额
-- 支持的存储提供商：
-  - Cloudflare R2
-  - AWS S3
-  - 阿里云 OSS
-  - 腾讯云 COS
-  - 华为云 OBS
-  - Backblaze B2
-  - MinIO
-  - 自定义 S3 兼容存储
-  - Telegram (通过 Bot API)
-- **存储桶迁移**: 支持在不同存储桶之间迁移文件，支持跨 provider 迁移
-
-### Telegram 存储
-
-通过 Telegram Bot API 存储文件，利用 Telegram 的免费存储资源：
-
-**配置方法**：
-1. 创建一个 Telegram Bot（通过 @BotFather）
-2. 获取 Bot Token
-3. 创建一个频道或群组，将 Bot 添加为管理员
-4. 获取 Chat ID（频道/群组/私聊的 ID）
-5. 在存储桶管理中选择 Telegram 提供商并填入配置
-
-**特点**：
-- 支持自定义 Bot API 代理地址
-- 自动根据文件类型选择合适的上传方式
-- 支持文件预览和下载
-- 静默发送，不打扰聊天
-- **大文件分片上传**: 超过 49MB 的文件自动分片上传，最大支持 2GB
-
-**限制**：
-- 单文件最大 2GB（分片上传）
-- 小文件直传阈值 50MB
-- 单分片最大 30MB
-- 无法真正删除文件，只能删除消息引用
-- 需要稳定的网络连接到 Telegram API
-
-### 文件分享
-
-#### 下载分享
-
-- 公开/私密分享
-- 密码保护
-- 过期时间设置
-- 下载次数限制
-- **文件夹分享**: 支持浏览文件夹内容，可选择下载单个文件或打包 ZIP 下载全部/部分文件
-
-#### 上传链接
-
-- 创建公开上传链接，无需登录即可上传
-- 支持密码保护、过期时间
-- 可设置单文件大小上限
-- 可设置允许的文件类型
-- 可设置最多上传文件数
-- 自动继承目标文件夹的类型限制
-
-### 权限系统
-
-- 三级权限：只读、读写、管理
-- 文件/文件夹级别授权
-- 权限继承
-
-### WebDAV
-
-完整支持 WebDAV 协议，可使用任何 WebDAV 客户端连接，特别优化了 Windows 资源管理器兼容性：
-
-| 配置项     | 值                            |
-| ---------- | ----------------------------- |
-| 服务器地址 | `https://your-domain.com/dav` |
-| 用户名     | 注册邮箱                      |
-| 密码       | 账户密码                      |
-| 认证方式   | Basic Auth                    |
-
-**Windows 资源管理器优化**：
-- 修复 401 响应必须携带 DAV 头的问题
-- 确保 PROPFIND 响应路径与请求路径精确匹配
-- 实现 LOCK/UNLOCK 操作，解决 Windows 写操作卡死问题
-
-支持的操作：PROPFIND、GET、HEAD、PUT、MKCOL、DELETE、MOVE、COPY、LOCK、UNLOCK、PROPPATCH
-
-### 管理员功能
-
-- 用户管理（查看、编辑、删除）
-- 注册开关控制
-- 邀请码系统
-- 系统统计
-- 审计日志
-
-## API 文档
+## 📚 API 文档
 
 详细的 API 文档请参阅 [docs/api.md](docs/api.md)。
 
 ### API 路由概览
 
-| 路由前缀         | 说明       |
-| ---------------- | ---------- |
-| /api/auth        | 用户认证   |
-| /api/files       | 文件管理   |
-| /api/buckets     | 存储桶管理 |
-| /api/share       | 文件分享   |
-| /api/presign     | 预签名 URL |
-| /api/tasks       | 上传任务   |
-| /api/downloads   | 离线下载   |
-| /api/batch       | 批量操作   |
-| /api/search      | 文件搜索   |
-| /api/permissions | 权限管理   |
-| /api/preview     | 文件预览   |
-| /api/admin       | 管理员接口 |
-| /api/migrate     | 存储桶迁移 |
-| /api/telegram    | Telegram 存储 |
-| /cron            | 定时任务    |
-| /dav             | WebDAV     |
-
-## 部署
-
-详细的部署文档请参阅 [docs/deployment.md](docs/deployment.md)。
-
-### 快速部署
-
-```bash
-# 创建生产资源
-wrangler d1 create ossshelf-db
-wrangler kv:namespace create KV --preview false
-
-# 配置 wrangler.toml
-# 运行迁移
-pnpm db:migrate
-
-# 部署 API
-pnpm deploy:api
-
-# 构建并部署前端
-pnpm build:web
-wrangler pages deploy apps/web/dist --project-name=ossshelf-web
-```
-
-## 系统限制
-
-| 限制项            | 值      |
-| ----------------- | ------- |
-| 单文件最大大小    | 5 GB    |
-| 默认存储配额      | 10 GB   |
-| 分片上传阈值      | 100 MB  |
-| 分片大小          | 10 MB   |
-| 最大并发分片      | 3       |
-| JWT 有效期        | 7 天    |
-| WebDAV 会话有效期 | 30 天   |
-| 回收站保留期      | 30 天   |
-| 登录失败锁定次数  | 5 次    |
-| 登录锁定时长      | 15 分钟 |
-| Telegram 单文件上限 | 2 GB   |
-| Telegram 分片阈值 | 50 MB  |
-| Telegram 单分片大小 | 30 MB  |
-
-## 上传逻辑详解
-
-### S3 兼容存储上传流程
-
-S3 兼容存储（R2、AWS S3、阿里云 OSS、腾讯云 COS、华为云 OBS、Backblaze B2、MinIO 等）采用统一的上传逻辑：
-
-#### 常量定义
-
-| 常量 | 值 | 说明 |
-| ---- | -- | ---- |
-| `MULTIPART_THRESHOLD` | 100 MB | 分片上传阈值 |
-| `UPLOAD_CHUNK_SIZE` | 10 MB | 分片大小 |
-| `MAX_FILE_SIZE` | 5 GB | 单文件最大限制 |
-
-#### 上传流程图
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      文件上传请求                                │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-                    ┌─────────────────┐
-                    │  文件大小判断    │
-                    └─────────────────┘
-                              │
-              ┌───────────────┴───────────────┐
-              │                               │
-              ▼                               ▼
-    ┌─────────────────┐             ┌─────────────────┐
-    │  ≤ 100 MB       │             │  > 100 MB       │
-    │  小文件模式      │             │  分片上传模式    │
-    └─────────────────┘             └─────────────────┘
-              │                               │
-              ▼                               ▼
-    ┌─────────────────┐             ┌─────────────────┐
-    │ 1. POST /create │             │ 1. POST /create │
-    │    获取预签名URL │             │    创建分片任务  │
-    │                 │             │    uploadId     │
-    │ 2. PUT 直传     │             │                 │
-    │    到 S3        │             │ 2. 循环上传分片  │
-    │                 │             │    POST /part   │
-    │ 3. POST /complete│            │    获取预签名URL │
-    │    完成任务      │             │    PUT 分片到S3 │
-    │                 │             │                 │
-    │                 │             │ 3. POST /complete│
-    │                 │             │    合并分片      │
-    └─────────────────┘             └─────────────────┘
-```
-
-#### API 调用详情
-
-**小文件上传（≤ 100 MB）**：
-
-1. `POST /api/tasks/create` → 返回 `{ uploadUrl, taskId, isSmallFile: true }`
-2. `PUT {uploadUrl}` → 直接上传文件到 S3
-3. `POST /api/tasks/complete` → 完成任务，写入文件记录
-
-**大文件分片上传（> 100 MB）**：
-
-1. `POST /api/tasks/create` → 返回 `{ uploadId, taskId, totalParts, firstPartUrl }`
-2. 循环调用：
-   - `GET /api/tasks/part?taskId=&partNumber=` → 获取分片预签名 URL
-   - `PUT {partUrl}` → 上传分片到 S3
-   - `POST /api/tasks/part-done` → 记录分片完成
-3. `POST /api/tasks/complete` → 合并分片，写入文件记录
+| 路由前缀 | 说明 |
+|----------|------|
+| `/api/auth` | 用户认证 |
+| `/api/files` | 文件管理 |
+| `/api/buckets` | 存储桶管理 |
+| `/api/share` | 文件分享 |
+| `/api/presign` | 预签名 URL |
+| `/api/tasks` | 上传任务 |
+| `/api/downloads` | 离线下载 |
+| `/api/batch` | 批量操作 |
+| `/api/search` | 文件搜索 |
+| `/api/permissions` | 权限与标签 |
+| `/api/preview` | 文件预览 |
+| `/api/admin` | 管理员接口 |
+| `/api/migrate` | 存储桶迁移 |
+| `/api/telegram` | Telegram 存储 |
+| `/cron` | 定时任务 |
+| `/dav` | WebDAV |
 
 ---
 
-### Telegram 存储上传流程
-
-Telegram 存储通过 Bot API 实现，采用与 S3 类似但独立的分片逻辑：
-
-#### 常量定义
-
-| 常量 | 值 | 说明 |
-| ---- | -- | ---- |
-| `TG_CHUNK_THRESHOLD` | 50 MB | 分片上传阈值 |
-| `TG_CHUNK_SIZE` | 30 MB | 分片大小 |
-| `TG_MAX_FILE_SIZE` | 50 MB | 单文件直传上限（Bot API 限制） |
-| `TG_MAX_CHUNKED_FILE_SIZE` | 2 GB | 分片上传文件上限 |
-
-#### 上传流程图
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      文件上传请求                                │
-│                  (bucketId 指向 Telegram 桶)                   │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-                    ┌─────────────────┐
-                    │  文件大小判断    │
-                    └─────────────────┘
-                              │
-              ┌───────────────┴───────────────┐
-              │                               │
-              ▼                               ▼
-    ┌─────────────────┐             ┌─────────────────┐
-    │  ≤ 50 MB        │             │  > 50 MB        │
-    │  小文件模式      │             │  分片上传模式    │
-    └─────────────────┘             └─────────────────┘
-              │                               │
-              ▼                               ▼
-    ┌─────────────────┐             ┌─────────────────┐
-    │ uploadId        │             │ uploadId        │
-    │ = 'telegram'    │             │ = 'telegram-    │
-    │                 │             │   chunked:xxx'  │
-    └─────────────────┘             └─────────────────┘
-              │                               │
-              ▼                               ▼
-    ┌─────────────────┐             ┌─────────────────┐
-    │ 1. POST /create │             │ 1. POST /create │
-    │    isSmallFile  │             │    totalParts   │
-    │    = true       │             │    = ceil(size  │
-    │                 │             │      / 30MB)    │
-    │ 2. POST         │             │                 │
-    │    /telegram-   │             │ 2. 循环上传分片  │
-    │    part         │             │    POST         │
-    │    (整个文件)    │             │    /telegram-   │
-    │                 │             │    part         │
-    │ 3. POST /complete│            │    (每片≤30MB)  │
-    │    写入文件记录  │             │                 │
-    │    + TG引用     │             │ 3. POST /complete│
-    │                 │             │    写入文件记录  │
-    │                 │             │    + TG引用     │
-    │                 │             │    + 分片记录    │
-    └─────────────────┘             └─────────────────┘
-```
-
-#### API 调用详情
-
-**小文件上传（≤ 50 MB）**：
-
-1. `POST /api/tasks/create` → 返回 `{ taskId, uploadId: 'telegram', isSmallFile: true, isTelegramUpload: true }`
-2. `POST /api/tasks/telegram-part` (multipart/form-data)
-   - 字段：`taskId`, `partNumber=1`, `chunk=文件`
-   - 直接上传整个文件到 Telegram
-3. `POST /api/tasks/complete` → 写入 `files` 表 + `telegramFileRefs` 表
-
-**大文件分片上传（> 50 MB）**：
-
-1. `POST /api/tasks/create` → 返回 `{ taskId, uploadId: 'telegram-chunked:xxx', totalParts, isTelegramUpload: true }`
-2. 循环调用 `POST /api/tasks/telegram-part` (multipart/form-data)：
-   - 字段：`taskId`, `partNumber`, `chunk=分片`
-   - 每个分片独立上传到 Telegram
-   - 分片记录写入 `telegramFileChunks` 表
-3. `POST /api/tasks/complete` → 校验分片完整性，写入文件记录
-
-#### 数据库表结构
-
-| 表名 | 说明 |
-| ---- | ---- |
-| `files` | 文件元数据（所有存储类型共用） |
-| `telegramFileRefs` | Telegram 文件引用（tgFileId 映射） |
-| `telegramFileChunks` | Telegram 分片记录（大文件分片信息） |
-
-#### 分片下载逻辑
-
-下载时根据 `tgFileId` 前缀判断：
-
-- 普通 `tgFileId`：直接调用 Telegram API 下载
-- `chunked:xxx` 前缀：从 `telegramFileChunks` 读取分片列表，按顺序下载并合并
-
----
-
-### 前端上传逻辑
-
-前端 `presignUpload.ts` 根据后端返回的标志选择上传路径：
-
-```typescript
-// 判断是否需要分片
-if (file.size > MULTIPART_THRESHOLD) {
-  // S3 分片上传
-  return multipartUpload({ ... });
-}
-
-// 小文件上传
-const init = await apiPost('/api/tasks/create', { ... });
-
-if (init.isTelegramUpload) {
-  // Telegram 上传（小文件或分片）
-  return telegramProxyUpload({ ... });
-}
-
-if (init.uploadUrl) {
-  // S3 直传
-  await directPut(init.uploadUrl, file, ...);
-}
-```
-
-### 关键差异对比
-
-| 特性 | S3 兼容存储 | Telegram 存储 |
-| ---- | ---------- | ------------- |
-| 分片阈值 | 100 MB | 50 MB |
-| 分片大小 | 10 MB | 30 MB |
-| 单文件上限 | 5 GB | 2 GB |
-| 直传方式 | 预签名 URL | 代理上传 |
-| 分片存储 | S3 服务端合并 | 独立消息 + 虚拟合并 |
-| 删除支持 | 完整删除 | 仅删除引用 |
-
-## 开发命令
+## 💻 开发命令
 
 ```bash
 # 开发
@@ -600,7 +438,7 @@ pnpm deploy:api   # 部署 API 到 Cloudflare Workers
 
 # 数据库
 pnpm db:generate  # 生成数据库迁移
-pnpm db:migrate   # 运行数据库迁移
+pnpm db:migrate   # 运行数据库迁移（生产）
 pnpm db:studio    # 打开 Drizzle Studio
 
 # 代码质量
@@ -610,12 +448,75 @@ pnpm format       # 格式化代码
 pnpm typecheck    # 类型检查
 ```
 
-## 文档
+---
 
-- [API 文档](docs/api.md) - 完整的 API 接口文档
-- [架构文档](docs/architecture.md) - 系统架构和数据库设计
-- [部署文档](docs/deployment.md) - 部署和运维指南
+## ❓ 常见问题
 
-## 许可证
+### Q: 忘记密码怎么办？
+A: 联系管理员重置密码。如果是管理员忘记密码，需要通过数据库直接修改密码哈希。
 
-MIT
+### Q: 文件删除后能恢复吗？
+A: 文件删除后进入回收站，保留 30 天。在此期间可以从回收站恢复。
+
+### Q: 存储配额不够怎么办？
+A: 联系管理员增加配额，或清理不需要的文件。
+
+### Q: Telegram 存储有什么限制？
+A: 单文件最大 2GB，无法真正删除文件（仅删除消息引用），需要稳定的网络连接。
+
+### Q: WebDAV 连接失败？
+A: 
+1. 确认用户名密码正确（用户名是注册邮箱）
+2. 检查 Basic Auth 是否启用
+3. 确认 Workers 域名已配置 SSL
+
+### Q: 上传失败？
+A:
+1. 检查存储桶配置是否正确
+2. 确认 Access Key/Secret Key 权限
+3. 检查 CORS 配置
+
+### Q: 定时任务不执行？
+A:
+1. 确认 Cron Triggers 已配置
+2. 检查 wrangler.toml 中的 crons 配置
+3. 查看 Workers 日志排查错误
+
+---
+
+## 🔄 更新流程
+
+如果你 Fork 了本项目，当上游有更新时：
+
+```bash
+# 1. 添加上游仓库（仅需一次）
+git remote add upstream https://github.com/original-repo/ossshelf.git
+
+# 2. 拉取上游更新
+git fetch upstream
+git merge upstream/main
+
+# 3. 检查是否有新的数据库迁移文件
+ls apps/api/migrations/
+
+# 4. 如果有新的迁移文件，执行迁移
+pnpm db:migrate
+
+# 5. 重新部署
+pnpm deploy:api
+wrangler pages deploy apps/web/dist --project-name=ossshelf-web
+```
+
+---
+
+## 📄 许可证
+
+[MIT](LICENSE)
+
+---
+
+<div align="center">
+
+**如果这个项目对你有帮助，请给一个 ⭐️ Star 支持一下！**
+
+</div>
