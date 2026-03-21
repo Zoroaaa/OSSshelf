@@ -166,18 +166,26 @@ async function buildFolderCache(db: ReturnType<typeof getDb>, userId: string): P
   return cache;
 }
 
+function decodeName(name: string): string {
+  try { return decodeURIComponent(name); } catch { return name; }
+}
+
+function safeDecodeURIComponent(s: string): string {
+  try { return decodeURIComponent(s); } catch { return s; }
+}
+
 function buildLogicalPathFromCache(cache: FolderCache, parentId: string | null, fileName: string): string {
   if (!parentId) {
-    return `/${fileName}`;
+    return `/${decodeName(fileName)}`;
   }
 
-  const pathParts: string[] = [fileName];
+  const pathParts: string[] = [decodeName(fileName)];
   let currentId: string | null = parentId;
 
   while (currentId) {
     const folder = cache.get(currentId);
     if (!folder) break;
-    pathParts.unshift(folder.name);
+    pathParts.unshift(decodeName(folder.name));
     currentId = folder.parentId;
   }
 
@@ -239,7 +247,7 @@ function buildPropfindXML(items: FileRow[], rawPath: string, isRoot: boolean = f
     <href>${escapeXml(href)}</href>
     <propstat>
       <prop>
-        <displayname>${escapeXml(file.name)}</displayname>
+        <displayname>${escapeXml(decodeName(file.name))}</displayname>
         <getcontentlength>${file.size}</getcontentlength>
         <getlastmodified>${new Date(file.updatedAt).toUTCString()}</getlastmodified>
         <creationdate>${file.createdAt}</creationdate>
@@ -315,7 +323,7 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
 }
 
 async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path: string): Promise<File | undefined> {
-  // 策略1：直接精确匹配（WebDAV 上传写入的绝对路径格式 /a/b/file）
+  // 策略1：直接精确匹配路径字段（适配 WebDAV 上传，path 存储的是 URL 编码格式）
   const normalized = path.endsWith('/') ? path.slice(0, -1) : path;
 
   let file = await db
@@ -334,8 +342,8 @@ async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path
 
   if (file) return file;
 
-  // 策略2：按名称层级递归定位（兼容普通上传写入的 parentId/name 格式 path）
-  // 例：WebDAV 请求路径 /我的文件夹/子文件夹 → 逐级按 name + parentId 查找
+  // 策略2：按名称层级递归定位（适配非 WebDAV 上传，name/path 存储的是原始中文）
+  // WebDAV 请求路径中中文被编码为 %XX，需要 decode 后才能匹配数据库中的中文名称
   const parts = normalized.split('/').filter(Boolean);
   if (parts.length === 0) return undefined;
 
@@ -343,20 +351,29 @@ async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path
   let currentFile: File | undefined;
 
   for (const part of parts) {
-    currentFile = await db
-      .select()
-      .from(files)
-      .where(
-        and(
-          eq(files.userId, userId),
-          eq(files.name, part),
-          currentParentId ? eq(files.parentId, currentParentId) : isNull(files.parentId),
-          isNull(files.deletedAt)
-        )
-      )
-      .get();
+    // 同时尝试原始值（匹配 WebDAV 上传的编码名）和 decoded 值（匹配非 WebDAV 上传的中文名）
+    const decodedPart = safeDecodeURIComponent(part);
+    const nameCandidates = Array.from(new Set([part, decodedPart]));
 
-    if (!currentFile) return undefined;
+    let found: File | undefined;
+    for (const namePart of nameCandidates) {
+      found = await db
+        .select()
+        .from(files)
+        .where(
+          and(
+            eq(files.userId, userId),
+            eq(files.name, namePart),
+            currentParentId ? eq(files.parentId, currentParentId) : isNull(files.parentId),
+            isNull(files.deletedAt)
+          )
+        )
+        .get();
+      if (found) break;
+    }
+
+    if (!found) return undefined;
+    currentFile = found;
     currentParentId = currentFile.id;
   }
 
