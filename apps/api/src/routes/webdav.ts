@@ -333,7 +333,11 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
     }
   }
 
-  return new Response(buildPropfindXML(items, rawPath, true), {
+  const xmlBody = buildPropfindXML(items, rawPath, true);
+  // DEBUG: log path and all hrefs to diagnose duplicate entry issue
+  const hrefMatches = [...xmlBody.matchAll(/<href>([^<]+)<\/href>/g)].map(m => m[1]);
+  console.log('[PROPFIND DEBUG]', rawPath, 'depth='+depth, 'hrefs:', JSON.stringify(hrefMatches));
+  return new Response(xmlBody, {
     status: 207,
     headers: xmlHeaders,
   });
