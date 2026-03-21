@@ -37,7 +37,7 @@ const DAV_BASE_HEADERS = {
   'MS-Author-Via': 'DAV',
 };
 
-app.options('/*', (c) => {
+app.options('/*', (_c) => {
   return new Response(null, {
     status: 200,
     headers: {
@@ -151,10 +151,66 @@ function escapeXml(str: string): string {
 
 type FileRow = typeof files.$inferSelect;
 
+const pathCache = new Map<string, string>();
+
+function clearPathCache() {
+  pathCache.clear();
+}
+
+async function buildLogicalPath(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  parentId: string | null,
+  fileName: string
+): Promise<string> {
+  if (!parentId) {
+    return `/${fileName}`;
+  }
+
+  const cacheKey = `${parentId}:${fileName}`;
+  const cachedPath = pathCache.get(cacheKey);
+  if (cachedPath) {
+    return cachedPath;
+  }
+
+  const parent = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, parentId), eq(files.userId, userId), isNull(files.deletedAt)))
+    .get();
+
+  if (!parent) {
+    const result = `/${fileName}`;
+    pathCache.set(cacheKey, result);
+    return result;
+  }
+
+  const parentPath = await buildLogicalPath(db, userId, parent.parentId, parent.name);
+  const result = `${parentPath}/${fileName}`;
+  pathCache.set(cacheKey, result);
+  return result;
+}
+
+async function buildItemsWithLogicalPaths(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  items: FileRow[]
+): Promise<FileRow[]> {
+  const result: FileRow[] = [];
+  for (const file of items) {
+    const logicalPath = await buildLogicalPath(db, userId, file.parentId, file.name);
+    result.push({
+      ...file,
+      path: file.isFolder ? logicalPath + '/' : logicalPath,
+    });
+  }
+  return result;
+}
+
 /**
  * 构建 PROPFIND 响应 XML。
  *
- * @param items       当前目录下的文件/文件夹列表
+ * @param items       当前目录下的文件/文件夹列表（已包含正确的逻辑路径）
  * @param rawPath     原始请求路径（含 /dav 前缀，用于根节点 href 精确匹配）
  * @param isRoot      是否渲染根集合条目
  *
@@ -162,12 +218,12 @@ type FileRow = typeof files.$inferSelect;
  * 1. 根节点 <href> 使用 rawPath（即请求的原始路径），而非构造值，
  *    确保与 Windows 请求的路径精确匹配。
  * 2. 子项 <href> 统一加 /dav 前缀。
+ * 3. 使用递归构建的逻辑路径，而非数据库中可能为 UUID 格式的 path 字段。
  */
 function buildPropfindXML(items: FileRow[], rawPath: string, isRoot: boolean = false): string {
   const responses: string[] = [];
 
   if (isRoot) {
-    // 根节点 href 必须与请求路径精确匹配，Windows 会用它来验证路径合法性
     const rootHref = rawPath;
     responses.push(`
   <response>
@@ -216,6 +272,8 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
   const db = getDb(c.env.DB);
   const isRoot = path === '/' || path === '';
 
+  clearPathCache();
+
   const xmlHeaders = {
     'Content-Type': 'application/xml; charset=utf-8',
     ...DAV_BASE_HEADERS,
@@ -237,11 +295,13 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
     }
   }
 
-  const items = await db
+  const rawItems = await db
     .select()
     .from(files)
     .where(and(eq(files.userId, userId), parentCondition, isNull(files.deletedAt)))
     .all();
+
+  const items = await buildItemsWithLogicalPaths(db, userId, rawItems);
 
   if (depth === '0') {
     if (isRoot) {
@@ -251,7 +311,10 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
       });
     } else {
       const current = await findFileByPath(db, userId, path);
-      if (current) items.unshift(current);
+      if (current) {
+        const currentWithLogicalPath = await buildItemsWithLogicalPaths(db, userId, [current]);
+        items.unshift(...currentWithLogicalPath);
+      }
       return new Response(buildPropfindXML(items, rawPath, false), {
         status: 207,
         headers: xmlHeaders,

@@ -215,18 +215,12 @@ async function runShareCleanup(db: ReturnType<typeof getDb>): Promise<{ sharesCl
   return { sharesCleaned: expiredShares.length };
 }
 
-async function runAuditLogCleanup(
-  db: ReturnType<typeof getDb>,
-  env: Env
-): Promise<{ cleaned: number }> {
+async function runAuditLogCleanup(db: ReturnType<typeof getDb>, env: Env): Promise<{ cleaned: number }> {
   // 默认保留 90 天，通过 AUDIT_RETENTION_DAYS env var 配置
   const retentionDays = parseInt((env as any).AUDIT_RETENTION_DAYS || '90', 10);
   const threshold = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
 
-  const deleted = await db
-    .delete(auditLogs)
-    .where(lt(auditLogs.createdAt, threshold))
-    .returning({ id: auditLogs.id });
+  const deleted = await db.delete(auditLogs).where(lt(auditLogs.createdAt, threshold)).returning({ id: auditLogs.id });
 
   console.log(`Audit log cleanup: ${deleted.length} records older than ${retentionDays} days removed`);
   return { cleaned: deleted.length };

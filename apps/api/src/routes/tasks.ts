@@ -627,10 +627,7 @@ app.post('/telegram-part', async (c) => {
 
   const partNumber = parseInt(partNumberStr, 10);
   if (isNaN(partNumber) || partNumber < 1) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: 'partNumber 无效' } },
-      400
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: 'partNumber 无效' } }, 400);
   }
 
   const db = getDb(c.env.DB);
@@ -684,7 +681,8 @@ app.post('/telegram-part', async (c) => {
       const result = await tgUploadFile(tgConfig, chunkBuffer, task.fileName, task.mimeType, caption);
       tgFileId = result.fileId;
     } catch (e: any) {
-      await db.update(uploadTasks)
+      await db
+        .update(uploadTasks)
         .set({ status: 'failed', errorMessage: e?.message || 'Telegram 上传失败', updatedAt: now })
         .where(eq(uploadTasks.id, taskId));
       return c.json(
@@ -716,7 +714,8 @@ app.post('/telegram-part', async (c) => {
     const result = await tgUploadFile(tgConfig, chunkBuffer, chunkFileName, task.mimeType, caption);
     tgFileId = result.fileId;
   } catch (e: any) {
-    await db.update(uploadTasks)
+    await db
+      .update(uploadTasks)
       .set({ status: 'failed', errorMessage: e?.message || 'Telegram 上传分片失败', updatedAt: now })
       .where(eq(uploadTasks.id, taskId));
     return c.json(
@@ -1019,7 +1018,11 @@ app.post('/complete', async (c) => {
     // Telegram 小文件任务：写入 files + telegramFileRefs
     if (isTelegramSmall) {
       const uploadedParts: Array<{ partNumber: number; etag: string }> = (() => {
-        try { return JSON.parse(task.uploadedParts || '[]'); } catch { return []; }
+        try {
+          return JSON.parse(task.uploadedParts || '[]');
+        } catch {
+          return [];
+        }
       })();
 
       if (uploadedParts.length === 0) {
@@ -1115,7 +1118,11 @@ app.post('/complete', async (c) => {
 
       // ── 校验所有分片是否都已上传 ──────────────────────────────────────
       const uploadedParts: Array<{ partNumber: number; etag: string }> = (() => {
-        try { return JSON.parse(task.uploadedParts || '[]'); } catch { return []; }
+        try {
+          return JSON.parse(task.uploadedParts || '[]');
+        } catch {
+          return [];
+        }
       })();
 
       if (uploadedParts.length !== task.totalParts) {
@@ -1132,11 +1139,7 @@ app.post('/complete', async (c) => {
       }
 
       // 从 DB 二次确认分片记录完整性
-      const chunkRows = await db
-        .select()
-        .from(telegramFileChunks)
-        .where(eq(telegramFileChunks.groupId, groupId))
-        .all();
+      const chunkRows = await db.select().from(telegramFileChunks).where(eq(telegramFileChunks.groupId, groupId)).all();
 
       if (chunkRows.length !== task.totalParts) {
         return c.json(
@@ -1446,9 +1449,8 @@ app.get('/:taskId', async (c) => {
       success: true,
       data: {
         ...task,
-        uploadedParts: JSON.parse(task.uploadedParts || '[]').map(
-          (p: { partNumber: number; etag: string } | number) =>
-            typeof p === 'number' ? p : p.partNumber
+        uploadedParts: JSON.parse(task.uploadedParts || '[]').map((p: { partNumber: number; etag: string } | number) =>
+          typeof p === 'number' ? p : p.partNumber
         ),
         progress: task.progress ?? 0,
       },
@@ -1574,14 +1576,22 @@ app.post('/:taskId/retry', async (c) => {
   }
 
   if (new Date(task.expiresAt) < new Date()) {
-    return c.json({ success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '任务已过期，请重新上传' } }, 410);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '任务已过期，请重新上传' } },
+      410
+    );
   }
 
   const uploadedParts: Array<{ partNumber: number; etag: string }> = (() => {
-    try { return JSON.parse(task.uploadedParts || '[]'); } catch { return []; }
+    try {
+      return JSON.parse(task.uploadedParts || '[]');
+    } catch {
+      return [];
+    }
   })();
 
-  await db.update(uploadTasks)
+  await db
+    .update(uploadTasks)
     .set({
       status: 'pending',
       errorMessage: null,

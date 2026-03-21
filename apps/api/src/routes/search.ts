@@ -3,7 +3,7 @@
  * 文件搜索路由
  *
  * 功能:
- * - 关键词搜索
+ * - 关键词搜索（始终递归搜索子目录）
  * - 高级条件搜索
  * - 搜索建议
  * - 最近搜索记录
@@ -23,7 +23,6 @@ app.use('*', authMiddleware);
 const searchSchema = z.object({
   query: z.string().min(1).optional(),
   parentId: z.string().nullable().optional(),
-  recursive: z.boolean().optional(),
   tags: z.array(z.string()).optional(),
   mimeType: z.string().optional(),
   minSize: z.number().int().min(0).optional(),
@@ -57,14 +56,39 @@ const advancedSearchSchema = z.object({
   limit: z.number().int().min(1).max(100).default(50).optional(),
 });
 
+async function getAllDescendantFolderIds(
+  db: ReturnType<typeof getDb>,
+  parentFolderId: string
+): Promise<Set<string>> {
+  const folderIds = new Set<string>([parentFolderId]);
+  const queue = [parentFolderId];
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    const childFolders = await db
+      .select({ id: files.id })
+      .from(files)
+      .where(and(eq(files.parentId, currentId), eq(files.isFolder, true), isNull(files.deletedAt)))
+      .all();
+
+    for (const folder of childFolders) {
+      if (!folderIds.has(folder.id)) {
+        folderIds.add(folder.id);
+        queue.push(folder.id);
+      }
+    }
+  }
+
+  return folderIds;
+}
+
 app.get('/', async (c) => {
   const userId = c.get('userId')!;
   const query = c.req.query();
 
   const params = {
     query: query.query,
-    parentId: query.parentId,
-    recursive: query.recursive === 'true',
+    parentId: query.parentId || undefined,
     tags: query.tags ? query.tags.split(',').filter(Boolean) : undefined,
     mimeType: query.mimeType,
     minSize: query.minSize ? parseInt(query.minSize, 10) : undefined,
@@ -92,40 +116,13 @@ app.get('/', async (c) => {
   const searchParams = result.data;
   const db = getDb(c.env.DB);
 
-  async function getAllDescendantFolderIds(parentFolderId: string): Promise<Set<string>> {
-    const folderIds = new Set<string>([parentFolderId]);
-    const queue = [parentFolderId];
-
-    while (queue.length > 0) {
-      const currentId = queue.shift()!;
-      const childFolders = await db
-        .select({ id: files.id })
-        .from(files)
-        .where(and(eq(files.parentId, currentId), eq(files.isFolder, true), isNull(files.deletedAt)))
-        .all();
-
-      for (const folder of childFolders) {
-        if (!folderIds.has(folder.id)) {
-          folderIds.add(folder.id);
-          queue.push(folder.id);
-        }
-      }
-    }
-
-    return folderIds;
-  }
-
   const conditions: SQL[] = [eq(files.userId, userId), isNull(files.deletedAt)];
 
-  if (searchParams.parentId !== undefined) {
-    if (searchParams.parentId && searchParams.recursive) {
-      const folderIds = await getAllDescendantFolderIds(searchParams.parentId);
-      const folderIdArray = Array.from(folderIds);
-      if (folderIdArray.length > 0) {
-        conditions.push(inArray(files.parentId, folderIdArray));
-      }
-    } else {
-      conditions.push(searchParams.parentId ? eq(files.parentId, searchParams.parentId) : isNull(files.parentId));
+  if (searchParams.parentId) {
+    const folderIds = await getAllDescendantFolderIds(db, searchParams.parentId);
+    const folderIdArray = Array.from(folderIds);
+    if (folderIdArray.length > 0) {
+      conditions.push(inArray(files.parentId, folderIdArray));
     }
   }
 
@@ -259,22 +256,26 @@ app.get('/', async (c) => {
     max: sizes.length > 0 ? Math.max(...sizes) : 0,
   };
 
-  // 有关键词时异步写入搜索历史（去重：同词在最近20条内不重复写）
   if (searchParams.query) {
     const q = searchParams.query.trim();
-    db.select().from(searchHistory)
+    db.select()
+      .from(searchHistory)
       .where(and(eq(searchHistory.userId, userId), eq(searchHistory.query, q)))
       .get()
       .then((existing) => {
         if (!existing) {
-          db.insert(searchHistory).values({
-            id: crypto.randomUUID(),
-            userId,
-            query: q,
-            createdAt: new Date().toISOString(),
-          }).run().catch(() => {});
+          db.insert(searchHistory)
+            .values({
+              id: crypto.randomUUID(),
+              userId,
+              query: q,
+              createdAt: new Date().toISOString(),
+            })
+            .run()
+            .catch(() => {});
         }
-      }).catch(() => {});
+      })
+      .catch(() => {});
   }
 
   return c.json({
@@ -307,28 +308,36 @@ app.post('/advanced', async (c) => {
   const pageNum = page || 1;
   const limitNum = limit || 50;
 
-  // ── 分离 tag 条件（需要 JOIN，单独处理）和字段条件（可下推 SQL）──────────
-  const tagConditions = searchConditions.filter((c) => c.field === 'tags');
-  const fieldConditions = searchConditions.filter((c) => c.field !== 'tags');
+  const tagConditions = searchConditions.filter((cond) => cond.field === 'tags');
+  const fieldConditions = searchConditions.filter((cond) => cond.field !== 'tags');
 
-  // ── 字段条件 → SQL WHERE 子句 ────────────────────────────────────────────
   const baseConditions: SQL[] = [eq(files.userId, userId), isNull(files.deletedAt)];
 
-  function buildFieldSQL(cond: typeof fieldConditions[0]): SQL | null {
+  function buildFieldSQL(cond: (typeof fieldConditions)[0]): SQL | null {
     const { field, operator, value } = cond;
     const col = files[field as keyof typeof files.$inferSelect] as any;
     if (!col) return null;
     switch (operator) {
-      case 'contains':   return like(col, `%${value}%`);
-      case 'equals':     return sql`${col} = ${value}`;
-      case 'startsWith': return like(col, `${value}%`);
-      case 'endsWith':   return like(col, `%${value}`);
-      case 'gt':         return sql`${col} > ${value}`;
-      case 'gte':        return sql`${col} >= ${value}`;
-      case 'lt':         return sql`${col} < ${value}`;
-      case 'lte':        return sql`${col} <= ${value}`;
-      case 'in':         return Array.isArray(value) && value.length > 0 ? inArray(col, value) : null;
-      default:           return null;
+      case 'contains':
+        return like(col, `%${value}%`);
+      case 'equals':
+        return sql`${col} = ${value}`;
+      case 'startsWith':
+        return like(col, `${value}%`);
+      case 'endsWith':
+        return like(col, `%${value}`);
+      case 'gt':
+        return sql`${col} > ${value}`;
+      case 'gte':
+        return sql`${col} >= ${value}`;
+      case 'lt':
+        return sql`${col} < ${value}`;
+      case 'lte':
+        return sql`${col} <= ${value}`;
+      case 'in':
+        return Array.isArray(value) && value.length > 0 ? inArray(col, value) : null;
+      default:
+        return null;
     }
   }
 
@@ -342,11 +351,10 @@ app.post('/advanced', async (c) => {
     }
   }
 
-  // ── tag 条件：先查 fileTags 得到 fileId 集合 ─────────────────────────────
   let tagFileIdSet: Set<string> | null = null;
   if (tagConditions.length > 0) {
-    const allTagNames = tagConditions.flatMap((c) =>
-      Array.isArray(c.value) ? c.value : [c.value as string]
+    const allTagNames = tagConditions.flatMap((cond) =>
+      Array.isArray(cond.value) ? cond.value : [cond.value as string]
     );
     const tagRows = await db
       .select({ fileId: fileTags.fileId })
@@ -357,25 +365,31 @@ app.post('/advanced', async (c) => {
     if (tagFileIdSet.size > 0) {
       baseConditions.push(inArray(files.id, Array.from(tagFileIdSet)));
     } else {
-      // tag 无匹配 → 直接返回空
       return c.json({ success: true, data: { items: [], total: 0, page: pageNum, limit: limitNum, totalPages: 0 } });
     }
   }
 
-  // ── 排序 ─────────────────────────────────────────────────────────────────
-  const sortCol = {
-    name: files.name,
-    size: files.size,
-    createdAt: files.createdAt,
-    updatedAt: files.updatedAt,
-  }[sortBy || 'createdAt'] ?? files.createdAt;
+  const sortCol =
+    {
+      name: files.name,
+      size: files.size,
+      createdAt: files.createdAt,
+      updatedAt: files.updatedAt,
+    }[sortBy || 'createdAt'] ?? files.createdAt;
   const orderExpr = (sortOrder || 'desc') === 'asc' ? asc(sortCol) : desc(sortCol);
 
-  // ── 分页查询 ──────────────────────────────────────────────────────────────
   const [items, countRow] = await Promise.all([
-    db.select().from(files).where(and(...baseConditions)).orderBy(orderExpr)
-      .limit(limitNum).offset((pageNum - 1) * limitNum).all(),
-    db.select({ count: sql<number>`count(*)` }).from(files).where(and(...baseConditions)).get(),
+    db.select()
+      .from(files)
+      .where(and(...baseConditions))
+      .orderBy(orderExpr)
+      .limit(limitNum)
+      .offset((pageNum - 1) * limitNum)
+      .all(),
+    db.select({ count: sql<number>`count(*)` })
+      .from(files)
+      .where(and(...baseConditions))
+      .get(),
   ]);
 
   const total = countRow?.count ?? 0;
@@ -452,8 +466,6 @@ app.get('/recent', async (c) => {
   return c.json({ success: true, data: recentFiles });
 });
 
-// ── 搜索历史 ──────────────────────────────────────────────────────────────
-
 app.get('/history', async (c) => {
   const userId = c.get('userId')!;
   const db = getDb(c.env.DB);
@@ -471,8 +483,7 @@ app.delete('/history/:id', async (c) => {
   const userId = c.get('userId')!;
   const id = c.req.param('id');
   const db = getDb(c.env.DB);
-  await db.delete(searchHistory)
-    .where(and(eq(searchHistory.id, id), eq(searchHistory.userId, userId)));
+  await db.delete(searchHistory).where(and(eq(searchHistory.id, id), eq(searchHistory.userId, userId)));
   return c.json({ success: true });
 });
 

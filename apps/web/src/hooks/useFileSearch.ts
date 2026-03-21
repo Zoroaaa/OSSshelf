@@ -3,9 +3,8 @@
  * 文件搜索逻辑 Hook
  *
  * 功能:
- * - 普通搜索
+ * - 关键词搜索（始终递归搜索子目录）
  * - 标签搜索
- * - 递归搜索
  * - 高级搜索
  * - 搜索建议
  */
@@ -24,12 +23,24 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [tagSearchQuery, setTagSearchQuery] = useState<string | null>(null);
-  const [recursiveSearch, setRecursiveSearch] = useState(false);
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
   const [advancedConditions, setAdvancedConditions] = useState<AdvancedSearchCondition[]>([]);
   const [advancedLogic, setAdvancedLogic] = useState<AdvancedSearchLogic>('and');
   const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+
+  const { data: searchResults } = useQuery<FileItem[]>({
+    queryKey: ['search', folderId, searchQuery],
+    queryFn: async () => {
+      if (!searchQuery) return [];
+      const res = await searchApi.query({
+        query: searchQuery,
+        parentId: folderId || undefined,
+      });
+      return res.data.data?.items ?? [];
+    },
+    enabled: !!searchQuery,
+  });
 
   const { data: tagSearchResults } = useQuery<FileItem[]>({
     queryKey: ['tag-search', tagSearchQuery],
@@ -39,20 +50,6 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
       return res.data.data?.items ?? [];
     },
     enabled: !!tagSearchQuery,
-  });
-
-  const { data: recursiveSearchResults } = useQuery<FileItem[]>({
-    queryKey: ['recursive-search', folderId, searchQuery],
-    queryFn: async () => {
-      if (!searchQuery || !recursiveSearch) return [];
-      const res = await searchApi.query({
-        query: searchQuery,
-        parentId: folderId || undefined,
-        recursive: true,
-      });
-      return res.data.data?.items ?? [];
-    },
-    enabled: !!searchQuery && recursiveSearch,
   });
 
   const { data: advancedSearchResults } = useQuery<FileItem[]>({
@@ -122,8 +119,6 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
     setSearchQuery,
     tagSearchQuery,
     setTagSearchQuery,
-    recursiveSearch,
-    setRecursiveSearch,
     showAdvancedSearch,
     setShowAdvancedSearch,
     advancedConditions,
@@ -133,8 +128,8 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
     searchSuggestions,
     showSuggestions,
     setShowSuggestions,
+    searchResults,
     tagSearchResults,
-    recursiveSearchResults,
     advancedSearchResults,
     handleSearchInput,
     handleSuggestionClick,

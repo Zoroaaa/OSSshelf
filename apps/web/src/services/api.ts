@@ -563,7 +563,10 @@ export const tasksApi = {
   abort: (taskId: string) => api.post<ApiResponse<{ message: string }>>('/api/tasks/abort', { taskId }),
   pause: (taskId: string) => api.post<ApiResponse<{ message: string }>>(`/api/tasks/${taskId}/pause`),
   resume: (taskId: string) => api.post<ApiResponse<{ message: string }>>(`/api/tasks/${taskId}/resume`),
-  retry: (taskId: string) => api.post<ApiResponse<{ taskId: string; uploadId: string; totalParts: number; uploadedParts: number[] }>>(`/api/tasks/${taskId}/retry`),
+  retry: (taskId: string) =>
+    api.post<ApiResponse<{ taskId: string; uploadId: string; totalParts: number; uploadedParts: number[] }>>(
+      `/api/tasks/${taskId}/retry`
+    ),
   list: () => api.get<ApiResponse<UploadTask[]>>('/api/tasks/list'),
   delete: (taskId: string) => api.delete<ApiResponse<{ message: string }>>(`/api/tasks/${taskId}`),
   clear: () => api.delete<ApiResponse<{ message: string }>>('/api/tasks/clear'),
@@ -579,7 +582,10 @@ export const downloadsApi = {
   create: (data: { url: string; fileName?: string; parentId?: string | null; bucketId?: string | null }) =>
     api.post<ApiResponse<{ id: string; url: string; fileName: string; status: string }>>('/api/downloads/create', data),
   batch: (data: { urls: string[]; parentId?: string | null; bucketId?: string | null }) =>
-    api.post<ApiResponse<{ created: number; failed: number; failedItems: Array<{ url: string; error: string }> }>>('/api/downloads/batch', data),
+    api.post<ApiResponse<{ created: number; failed: number; failedItems: Array<{ url: string; error: string }> }>>(
+      '/api/downloads/batch',
+      data
+    ),
   list: (params?: { status?: string; page?: number; limit?: number }) =>
     api.get<ApiResponse<{ items: DownloadTask[]; total: number; page: number; limit: number }>>('/api/downloads/list', {
       params,
@@ -618,7 +624,6 @@ export const searchApi = {
   query: (params: {
     query?: string;
     parentId?: string;
-    recursive?: boolean;
     tags?: string[];
     mimeType?: string;
     minSize?: number;

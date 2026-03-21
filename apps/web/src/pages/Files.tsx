@@ -128,7 +128,7 @@ export default function Files() {
   const [showSearchHistory, setShowSearchHistory] = useState(false);
   const { data: searchHistoryData, refetch: refetchHistory } = useQuery({
     queryKey: ['search-history'],
-    queryFn: () => searchApi.history().then(r => r.data.data ?? []),
+    queryFn: () => searchApi.history().then((r) => r.data.data ?? []),
     enabled: false, // 手动触发
   });
 
@@ -140,8 +140,6 @@ export default function Files() {
     setSearchQuery,
     tagSearchQuery,
     setTagSearchQuery,
-    recursiveSearch,
-    setRecursiveSearch,
     showAdvancedSearch,
     setShowAdvancedSearch,
     advancedConditions,
@@ -151,8 +149,8 @@ export default function Files() {
     searchSuggestions,
     showSuggestions,
     setShowSuggestions,
+    searchResults,
     tagSearchResults,
-    recursiveSearchResults,
     advancedSearchResults,
     handleSearchInput,
     handleSuggestionClick,
@@ -215,8 +213,8 @@ export default function Files() {
     ? (tagSearchResults ?? [])
     : showAdvancedSearch && advancedConditions.length > 0
       ? (advancedSearchResults ?? [])
-      : recursiveSearch && recursiveSearchResults
-        ? (recursiveSearchResults ?? [])
+      : searchQuery && searchResults
+        ? (searchResults ?? [])
         : [...files]
             .filter((f) => !searchQuery || f.name.toLowerCase().includes(searchQuery.toLowerCase()))
             .sort((a, b) => {
@@ -553,7 +551,12 @@ export default function Files() {
               placeholder={tagSearchQuery ? `标签: ${tagSearchQuery}` : '搜索文件...'}
               value={searchInput}
               onChange={(e) => handleSearchInput(e.target.value)}
-              onBlur={() => setTimeout(() => { setShowSuggestions(false); setShowSearchHistory(false); }, 200)}
+              onBlur={() =>
+                setTimeout(() => {
+                  setShowSuggestions(false);
+                  setShowSearchHistory(false);
+                }, 200)
+              }
               onFocus={() => {
                 if (searchInput.length >= 2 && searchSuggestions.length > 0) {
                   setShowSuggestions(true);
@@ -602,49 +605,52 @@ export default function Files() {
               </div>
             )}
             {/* 搜索历史下拉（仅输入框为空时显示） */}
-            {showSearchHistory && !showSuggestions && searchInput.length === 0 && (searchHistoryData?.length ?? 0) > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-card border rounded-md shadow-lg z-50 max-h-56 overflow-auto">
-                <div className="flex items-center justify-between px-3 py-1.5 border-b">
-                  <span className="text-xs text-muted-foreground flex items-center gap-1">
-                    <History className="h-3 w-3" />
-                    搜索历史
-                  </span>
-                  <button
-                    className="text-xs text-muted-foreground hover:text-destructive transition-colors"
-                    onMouseDown={async () => {
-                      await searchApi.clearHistory();
-                      refetchHistory();
-                      setShowSearchHistory(false);
-                    }}
-                  >
-                    清空
-                  </button>
-                </div>
-                {searchHistoryData?.map((item) => (
-                  <div key={item.id} className="flex items-center group hover:bg-muted/50 transition-colors">
+            {showSearchHistory &&
+              !showSuggestions &&
+              searchInput.length === 0 &&
+              (searchHistoryData?.length ?? 0) > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-card border rounded-md shadow-lg z-50 max-h-56 overflow-auto">
+                  <div className="flex items-center justify-between px-3 py-1.5 border-b">
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <History className="h-3 w-3" />
+                      搜索历史
+                    </span>
                     <button
-                      className="flex-1 px-3 py-2 text-left text-sm"
-                      onMouseDown={() => {
-                        handleSuggestionClick(item.query);
+                      className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+                      onMouseDown={async () => {
+                        await searchApi.clearHistory();
+                        refetchHistory();
                         setShowSearchHistory(false);
                       }}
                     >
-                      {item.query}
-                    </button>
-                    <button
-                      className="px-2 py-2 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
-                      onMouseDown={async (e) => {
-                        e.stopPropagation();
-                        await searchApi.deleteHistory(item.id);
-                        refetchHistory();
-                      }}
-                    >
-                      <TrashIcon className="h-3 w-3" />
+                      清空
                     </button>
                   </div>
-                ))}
-              </div>
-            )}
+                  {searchHistoryData?.map((item) => (
+                    <div key={item.id} className="flex items-center group hover:bg-muted/50 transition-colors">
+                      <button
+                        className="flex-1 px-3 py-2 text-left text-sm"
+                        onMouseDown={() => {
+                          handleSuggestionClick(item.query);
+                          setShowSearchHistory(false);
+                        }}
+                      >
+                        {item.query}
+                      </button>
+                      <button
+                        className="px-2 py-2 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                        onMouseDown={async (e) => {
+                          e.stopPropagation();
+                          await searchApi.deleteHistory(item.id);
+                          refetchHistory();
+                        }}
+                      >
+                        <TrashIcon className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
           </div>
 
           {showAdvancedSearch && (
@@ -744,20 +750,6 @@ export default function Files() {
               </button>
             </div>
           )}
-
-          <button
-            onClick={() => setRecursiveSearch(!recursiveSearch)}
-            className={cn(
-              'flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-colors border',
-              recursiveSearch
-                ? 'bg-primary/10 border-primary/30 text-primary'
-                : 'bg-muted/50 border-transparent text-muted-foreground hover:text-foreground'
-            )}
-            title={recursiveSearch ? '当前：递归搜索子目录' : '点击启用递归搜索子目录'}
-          >
-            <FolderInput className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">递归</span>
-          </button>
 
           <Button variant="outline" size="sm" onClick={() => handleSort('name')} className="hidden sm:flex gap-1">
             名称{' '}
