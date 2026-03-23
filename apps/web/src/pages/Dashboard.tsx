@@ -15,7 +15,7 @@ import { authApi } from '@/services/api';
 import { useAuthStore } from '@/stores/auth';
 import { FileIcon } from '@/components/ui/FileIcon';
 import { StorageBar } from '@/components/ui/StorageBar';
-import { formatBytes, formatDate } from '@/utils';
+import { formatBytes, formatDate, decodeFileName } from '@/utils';
 import { PROVIDER_META } from '@/services/api';
 import { cn } from '@/utils';
 import {
@@ -165,7 +165,7 @@ export default function Dashboard() {
                     >
                       <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="sm" className="flex-shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{file.name}</p>
+                        <p className="text-sm font-medium truncate">{decodeFileName(file.name)}</p>
                         <p className="text-xs text-muted-foreground">{formatBytes(file.size)}</p>
                       </div>
                       <span className="text-xs text-muted-foreground flex-shrink-0">{formatDate(file.createdAt)}</span>

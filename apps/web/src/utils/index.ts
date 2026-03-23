@@ -45,3 +45,16 @@ export function getErrorMessage(error: unknown, fallback = '操作失败'): stri
   const err = error as any;
   return err?.response?.data?.error?.message || err?.message || fallback;
 }
+
+export function decodeFileName(name: string): string {
+  if (!name) return name;
+  try {
+    const decoded = decodeURIComponent(name);
+    if (decoded !== name && !decoded.includes('%')) {
+      return decoded;
+    }
+    return name;
+  } catch {
+    return name;
+  }
+}

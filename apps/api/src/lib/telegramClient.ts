@@ -170,7 +170,9 @@ export async function tgUploadStream(
   const preamble = [
     `--${boundary}\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n${config.chatId}`,
     `\r\n--${boundary}\r\nContent-Disposition: form-data; name="disable_notification"\r\n\r\ntrue`,
-    ...(caption ? [`\r\n--${boundary}\r\nContent-Disposition: form-data; name="caption"\r\n\r\n${caption.slice(0, 1024)}`] : []),
+    ...(caption
+      ? [`\r\n--${boundary}\r\nContent-Disposition: form-data; name="caption"\r\n\r\n${caption.slice(0, 1024)}`]
+      : []),
     `\r\n--${boundary}\r\nContent-Disposition: form-data; name="${fieldName}"; filename="${encodeURIComponent(fileName)}"\r\nContent-Type: ${mimeType || 'application/octet-stream'}\r\n\r\n`,
   ].join('');
 
@@ -225,19 +227,25 @@ export async function tgUploadStream(
   let tgFileId: string | null = null;
   let tgFileSize = 0;
 
-  if (msg.document) { tgFileId = msg.document.file_id; tgFileSize = msg.document.file_size || fileSize; }
-  else if (msg.audio) { tgFileId = msg.audio.file_id; tgFileSize = msg.audio.file_size || fileSize; }
-  else if (msg.video) { tgFileId = msg.video.file_id; tgFileSize = msg.video.file_size || fileSize; }
-  else if (msg.photo) {
+  if (msg.document) {
+    tgFileId = msg.document.file_id;
+    tgFileSize = msg.document.file_size || fileSize;
+  } else if (msg.audio) {
+    tgFileId = msg.audio.file_id;
+    tgFileSize = msg.audio.file_size || fileSize;
+  } else if (msg.video) {
+    tgFileId = msg.video.file_id;
+    tgFileSize = msg.video.file_size || fileSize;
+  } else if (msg.photo) {
     const largest = (msg.photo as any[]).sort((a: any, b: any) => (b.file_size || 0) - (a.file_size || 0))[0];
-    tgFileId = largest.file_id; tgFileSize = largest.file_size || fileSize;
+    tgFileId = largest.file_id;
+    tgFileSize = largest.file_size || fileSize;
   }
 
   if (!tgFileId) throw new Error('Telegram 响应中未找到 file_id');
 
   return { fileId: tgFileId, messageId: msg.message_id, fileSize: tgFileSize, mimeType: mimeType || undefined };
 }
-
 
 export async function tgGetFileInfo(config: TelegramBotConfig, tgFileId: string): Promise<TgFileInfo> {
   const url = botUrl(config, 'getFile');

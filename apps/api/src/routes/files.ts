@@ -62,6 +62,14 @@ const createFolderSchema = z.object({
   bucketId: z.string().nullable().optional(),
 });
 
+const createFileSchema = z.object({
+  name: z.string().min(1, '文件名称不能为空').max(255, '名称过长'),
+  content: z.string().optional().default(''),
+  parentId: z.string().nullable().optional(),
+  bucketId: z.string().nullable().optional(),
+  mimeType: z.string().optional(),
+});
+
 const updateFileSchema = z.object({
   name: z.string().min(1, '名称不能为空').max(255, '名称过长').optional(),
   parentId: z.string().nullable().optional(),
@@ -320,14 +328,14 @@ app.post('/upload', async (c) => {
     if (bkt?.provider === 'telegram') isTelegramBucket = true;
   }
 
-  // Telegram 文件大小检查（分片上传最大 200MB；≤49MB 直接上传，>49MB 自动分片）
+  // Telegram 文件大小检查（分片上传最大 2GB；≤50MB 直接上传，>50MB 自动分片）
   if (isTelegramBucket && uploadFile.size > TG_MAX_CHUNKED_FILE_SIZE) {
     return c.json(
       {
         success: false,
         error: {
           code: ERROR_CODES.FILE_TOO_LARGE,
-          message: `Telegram 存储桶文件上限 500MB，当前文件 ${(uploadFile.size / 1024 / 1024).toFixed(1)}MB`,
+          message: `Telegram 存储桶文件上限 2GB，当前文件 ${(uploadFile.size / 1024 / 1024 / 1024).toFixed(2)}GB`,
         },
       },
       413
@@ -739,6 +747,202 @@ app.post('/', async (c) => {
     if (b) bucketInfo = { id: b.id, name: b.name, provider: b.provider };
   }
   return c.json({ success: true, data: { ...newFolder, bucket: bucketInfo } });
+});
+
+// ── Create file (direct text content) ───────────────────────────────────────
+app.post('/create', async (c) => {
+  const userId = c.get('userId')!;
+  const body = await c.req.json();
+  const result = createFileSchema.safeParse(body);
+  if (!result.success)
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
+
+  const { name, content, parentId, bucketId: requestedBucketId, mimeType: providedMimeType } = result.data;
+  const db = getDb(c.env.DB);
+  const encKey = getEncryptionKey(c.env);
+
+  const fileMime = inferMimeType(name, providedMimeType);
+
+  const mimeCheck = await checkFolderMimeTypeRestriction(db, parentId, fileMime);
+  if (!mimeCheck.allowed) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.VALIDATION_ERROR,
+          message: `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
+        },
+      },
+      400
+    );
+  }
+
+  const existing = await db
+    .select()
+    .from(files)
+    .where(
+      and(
+        eq(files.userId, userId),
+        eq(files.name, name),
+        parentId ? eq(files.parentId, parentId) : isNull(files.parentId),
+        eq(files.isFolder, false),
+        isNull(files.deletedAt)
+      )
+    )
+    .get();
+  if (existing)
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '同名文件已存在' } }, 400);
+
+  const bucketConfig = await resolveBucketConfig(db, userId, encKey, requestedBucketId, parentId);
+  const effectiveBucketId = bucketConfig?.id ?? requestedBucketId ?? null;
+
+  let isTelegramBucket = false;
+  if (effectiveBucketId) {
+    const bkt = await db.select().from(storageBuckets).where(eq(storageBuckets.id, effectiveBucketId)).get();
+    if (bkt?.provider === 'telegram') isTelegramBucket = true;
+  }
+
+  const fileBuffer = new TextEncoder().encode(content || '');
+  const fileArrayBuffer = fileBuffer.buffer as ArrayBuffer;
+  const fileSize = fileBuffer.byteLength;
+
+  const user = await db.select().from(users).where(eq(users.id, userId)).get();
+  if (user && user.storageUsed + fileSize > user.storageQuota) {
+    return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: '用户存储配额已满' } }, 400);
+  }
+  if (bucketConfig) {
+    const quotaErr = await checkBucketQuota(db, bucketConfig.id, fileSize);
+    if (quotaErr)
+      return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: quotaErr } }, 400);
+  }
+
+  const fileId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const r2Key = `files/${userId}/${fileId}/${name}`;
+  const path = parentId ? `${parentId}/${name}` : `/${name}`;
+  const hash = await computeSha256Hex(fileArrayBuffer);
+
+  const dedupResult = await checkAndClaimDedup(db, hash, effectiveBucketId, userId);
+  const finalR2Key = dedupResult.isDuplicate ? dedupResult.existingR2Key! : r2Key;
+
+  if (!dedupResult.isDuplicate) {
+    if (isTelegramBucket && effectiveBucketId) {
+      const tgConfig = await resolveTgBucketConfig(db, effectiveBucketId, encKey);
+      if (!tgConfig) {
+        return c.json({ success: false, error: { code: 'TG_CONFIG_ERROR', message: '无法加载 Telegram 配置' } }, 500);
+      }
+      let tgFileId: string;
+      let tgFileSize: number;
+      try {
+        const caption = `📁 ${name}\n🗂 OSSshelf | ${now.slice(0, 10)}`;
+        const result = await tgUploadFile(tgConfig, fileArrayBuffer, name, fileMime, caption);
+        tgFileId = result.fileId;
+        tgFileSize = result.fileSize;
+      } catch (e: any) {
+        return c.json(
+          { success: false, error: { code: 'TG_UPLOAD_FAILED', message: e?.message || 'Telegram 上传失败' } },
+          502
+        );
+      }
+      await db.insert(telegramFileRefs).values({
+        id: crypto.randomUUID(),
+        fileId,
+        r2Key: finalR2Key,
+        tgFileId,
+        tgFileSize,
+        bucketId: effectiveBucketId,
+        createdAt: now,
+      });
+    } else if (bucketConfig) {
+      await s3Put(bucketConfig, finalR2Key, fileBuffer, fileMime, {
+        userId,
+        originalName: name,
+      });
+    } else if (c.env.FILES) {
+      await c.env.FILES.put(finalR2Key, fileArrayBuffer, {
+        httpMetadata: { contentType: fileMime },
+        customMetadata: { userId, originalName: name },
+      });
+    } else {
+      return c.json(
+        {
+          success: false,
+          error: { code: 'NO_STORAGE', message: '未配置存储桶，请先在「存储桶管理」中添加至少一个存储桶' },
+        },
+        400
+      );
+    }
+  } else if (isTelegramBucket && effectiveBucketId) {
+    const origRef = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.r2Key, finalR2Key)).get();
+    if (origRef) {
+      await db.insert(telegramFileRefs).values({
+        id: crypto.randomUUID(),
+        fileId,
+        r2Key: finalR2Key,
+        tgFileId: origRef.tgFileId,
+        tgFileSize: origRef.tgFileSize,
+        bucketId: effectiveBucketId,
+        createdAt: now,
+      });
+    }
+  }
+
+  await db.insert(files).values({
+    id: fileId,
+    userId,
+    parentId: parentId || null,
+    name,
+    path,
+    type: 'file',
+    size: fileSize,
+    r2Key: finalR2Key,
+    mimeType: fileMime || null,
+    hash,
+    refCount: 1,
+    isFolder: false,
+    bucketId: effectiveBucketId,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null,
+  });
+
+  if (user) {
+    await db
+      .update(users)
+      .set({ storageUsed: user.storageUsed + fileSize, updatedAt: now })
+      .where(eq(users.id, userId));
+  }
+
+  const physicalSizeDelta = dedupResult.isDuplicate ? 0 : fileSize;
+  if (isTelegramBucket && effectiveBucketId) {
+    await updateBucketStats(db, effectiveBucketId, physicalSizeDelta, 1);
+  } else if (bucketConfig) {
+    await updateBucketStats(db, bucketConfig.id, physicalSizeDelta, 1);
+  }
+
+  let bucketInfo: { id: string; name: string; provider: string } | null = null;
+  if (effectiveBucketId) {
+    const b = await db.select().from(storageBuckets).where(eq(storageBuckets.id, effectiveBucketId)).get();
+    if (b) bucketInfo = { id: b.id, name: b.name, provider: b.provider };
+  }
+
+  return c.json({
+    success: true,
+    data: {
+      id: fileId,
+      name,
+      size: fileSize,
+      mimeType: fileMime,
+      path,
+      bucketId: effectiveBucketId,
+      bucket: bucketInfo,
+      deduped: dedupResult.isDuplicate,
+      createdAt: now,
+    },
+  });
 });
 
 // ── Get single file ────────────────────────────────────────────────────────

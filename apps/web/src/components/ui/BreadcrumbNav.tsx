@@ -10,7 +10,7 @@
 
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight, Home } from 'lucide-react';
-import { cn } from '@/utils';
+import { cn, decodeFileName } from '@/utils';
 
 export interface BreadcrumbItem {
   id: string | null;
@@ -59,9 +59,9 @@ export function BreadcrumbNav({ items, className }: BreadcrumbNavProps) {
                   ? 'text-foreground font-medium cursor-default'
                   : 'text-muted-foreground hover:text-foreground cursor-pointer'
               )}
-              title={item.name}
+              title={decodeFileName(item.name)}
             >
-              {item.name}
+              {decodeFileName(item.name)}
             </button>
           </span>
         );

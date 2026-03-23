@@ -68,6 +68,8 @@ jobs:
           ENVIRONMENT = "production"
           JWT_SECRET = "${{ secrets.JWT_SECRET }}"
           TRASH_RETENTION_DAYS = "${{ secrets.TRASH_RETENTION_DAYS || '30' }}"
+          ALERT_TG_BOT_TOKEN = "${{ secrets.ALERT_TG_BOT_TOKEN }}"
+          ALERT_TG_CHAT_ID = "${{ secrets.ALERT_TG_CHAT_ID }}"
 
           [triggers]
           crons = ["0 3 * * *"]

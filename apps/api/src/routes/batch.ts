@@ -259,8 +259,109 @@ app.post('/copy', async (c) => {
     }
   }
 
-  let totalSize = 0;
-  const filesToCopy: (typeof files.$inferSelect)[] = [];
+  // ── 递归复制文件夹辅助函数 ────────────────────────────────────────────────
+  type CopyStats = { copiedFiles: number; copiedBytes: number };
+
+  async function copyFolderRecursive(
+    srcFolderId: string,
+    destParentId: string | null,
+    destBucketConfig: Awaited<ReturnType<typeof resolveBucketConfig>>
+  ): Promise<CopyStats> {
+    const stats: CopyStats = { copiedFiles: 0, copiedBytes: 0 };
+    if (!destBucketConfig) return stats;
+
+    const srcFolder = await db.select().from(files).where(eq(files.id, srcFolderId)).get();
+    if (!srcFolder) return stats;
+
+    // 在目标位置建同名文件夹
+    const newFolderId = crypto.randomUUID();
+    const newFolderPath = destParentId ? `${destParentId}/${srcFolder.name}` : `/${srcFolder.name}`;
+    await db.insert(files).values({
+      id: newFolderId,
+      userId,
+      parentId: destParentId,
+      name: srcFolder.name,
+      path: newFolderPath,
+      type: 'folder',
+      size: 0,
+      r2Key: `folders/${newFolderId}`,
+      mimeType: null,
+      hash: null,
+      refCount: 1,
+      isFolder: true,
+      bucketId: destBucketConfig.id,
+      allowedMimeTypes: srcFolder.allowedMimeTypes,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    // 复制直接子节点
+    const children = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.parentId, srcFolderId), eq(files.userId, userId), isNull(files.deletedAt)))
+      .all();
+
+    for (const child of children) {
+      if (child.isFolder) {
+        const subStats = await copyFolderRecursive(child.id, newFolderId, destBucketConfig);
+        stats.copiedFiles += subStats.copiedFiles;
+        stats.copiedBytes += subStats.copiedBytes;
+      } else {
+        try {
+          const srcBucketConfig = await resolveBucketConfig(db, userId, encKey, child.bucketId, child.parentId);
+          let fileContent: ArrayBuffer;
+          if (srcBucketConfig) {
+            const s3Res = await s3Get(srcBucketConfig, child.r2Key);
+            fileContent = await s3Res.arrayBuffer();
+          } else if (c.env.FILES) {
+            const obj = await c.env.FILES.get(child.r2Key);
+            if (!obj) throw new Error('源文件内容不存在');
+            fileContent = await obj.arrayBuffer();
+          } else {
+            throw new Error('无法获取源文件内容');
+          }
+
+          const newFileId = crypto.randomUUID();
+          const newR2Key = `files/${userId}/${newFileId}/${child.name}`;
+          const newPath = `${newFolderId}/${child.name}`;
+          await s3Put(destBucketConfig, newR2Key, fileContent, child.mimeType || 'application/octet-stream');
+          await db.insert(files).values({
+            id: newFileId,
+            userId,
+            parentId: newFolderId,
+            name: child.name,
+            path: newPath,
+            type: 'file',
+            size: child.size,
+            r2Key: newR2Key,
+            mimeType: child.mimeType,
+            hash: child.hash,
+            refCount: 1,
+            isFolder: false,
+            bucketId: destBucketConfig.id,
+            createdAt: now,
+            updatedAt: now,
+            deletedAt: null,
+          });
+          stats.copiedFiles++;
+          stats.copiedBytes += child.size;
+        } catch {
+          // 单个子文件失败不中断整个文件夹复制
+        }
+      }
+    }
+    return stats;
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const bucketConfig = await resolveBucketConfig(db, userId, encKey, targetBucketId, targetParentId);
+  if (!bucketConfig) {
+    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '未配置存储桶' } }, 400);
+  }
+
+  let totalCopiedSize = 0;
 
   for (const fileId of fileIds) {
     const file = await db
@@ -275,90 +376,64 @@ app.post('/copy', async (c) => {
       continue;
     }
 
-    if (file.isFolder) {
-      batchResult.failed++;
-      batchResult.errors.push({ id: fileId, error: '暂不支持复制文件夹' });
-      continue;
-    }
-
-    totalSize += file.size;
-    filesToCopy.push(file);
-  }
-
-  if (user.storageUsed + totalSize > user.storageQuota) {
-    return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: '存储空间不足' } }, 400);
-  }
-
-  const bucketConfig = await resolveBucketConfig(db, userId, encKey, targetBucketId, targetParentId);
-  if (!bucketConfig) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '未配置存储桶' } }, 400);
-  }
-
-  const quotaErr = await checkBucketQuota(db, bucketConfig.id, totalSize);
-  if (quotaErr) {
-    return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: quotaErr } }, 400);
-  }
-
-  for (const file of filesToCopy) {
     try {
-      const sourceBucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
-
-      let fileContent: ArrayBuffer;
-      if (sourceBucketConfig) {
-        const s3Res = await s3Get(sourceBucketConfig, file.r2Key);
-        fileContent = await s3Res.arrayBuffer();
-      } else if (c.env.FILES) {
-        const obj = await c.env.FILES.get(file.r2Key);
-        if (!obj) throw new Error('源文件内容不存在');
-        fileContent = await obj.arrayBuffer();
+      if (file.isFolder) {
+        // 文件夹递归复制
+        const stats = await copyFolderRecursive(file.id, targetParentId, bucketConfig);
+        totalCopiedSize += stats.copiedBytes;
+        batchResult.success++;
       } else {
-        throw new Error('无法获取源文件内容');
+        // 普通文件复制
+        const sourceBucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
+        let fileContent: ArrayBuffer;
+        if (sourceBucketConfig) {
+          const s3Res = await s3Get(sourceBucketConfig, file.r2Key);
+          fileContent = await s3Res.arrayBuffer();
+        } else if (c.env.FILES) {
+          const obj = await c.env.FILES.get(file.r2Key);
+          if (!obj) throw new Error('源文件内容不存在');
+          fileContent = await obj.arrayBuffer();
+        } else {
+          throw new Error('无法获取源文件内容');
+        }
+
+        const newFileId = crypto.randomUUID();
+        const newR2Key = `files/${userId}/${newFileId}/${file.name}`;
+        const newPath = targetParentId ? `${targetParentId}/${file.name}` : `/${file.name}`;
+        await s3Put(bucketConfig, newR2Key, fileContent, file.mimeType || 'application/octet-stream');
+        await db.insert(files).values({
+          id: newFileId,
+          userId,
+          parentId: targetParentId,
+          name: file.name,
+          path: newPath,
+          type: 'file',
+          size: file.size,
+          r2Key: newR2Key,
+          mimeType: file.mimeType,
+          hash: file.hash,
+          refCount: 1,
+          isFolder: false,
+          bucketId: bucketConfig.id,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
+        });
+        totalCopiedSize += file.size;
+        batchResult.success++;
       }
-
-      const newFileId = crypto.randomUUID();
-      const newR2Key = `files/${userId}/${newFileId}/${file.name}`;
-      const newPath = targetParentId ? `${targetParentId}/${file.name}` : `/${file.name}`;
-
-      await s3Put(bucketConfig, newR2Key, fileContent, file.mimeType || 'application/octet-stream');
-
-      await db.insert(files).values({
-        id: newFileId,
-        userId,
-        parentId: targetParentId,
-        name: file.name,
-        path: newPath,
-        type: 'file',
-        size: file.size,
-        r2Key: newR2Key,
-        mimeType: file.mimeType,
-        hash: file.hash,
-        isFolder: false,
-        bucketId: bucketConfig.id,
-        createdAt: now,
-        updatedAt: now,
-        deletedAt: null,
-      });
-
-      batchResult.success++;
     } catch (error) {
       batchResult.failed++;
-      batchResult.errors.push({ id: file.id, error: error instanceof Error ? error.message : '复制失败' });
+      batchResult.errors.push({ id: fileId, error: error instanceof Error ? error.message : '复制失败' });
     }
   }
 
-  if (batchResult.success > 0) {
-    // 仅统计实际成功复制的文件大小（而非按顺序截取），避免中间失败时统计偏差
-    const successIds = new Set(
-      filesToCopy.filter((_, i) => !batchResult.errors.some((e) => e.id === filesToCopy[i].id)).map((f) => f.id)
-    );
-    const copiedSize = filesToCopy
-      .filter((f) => !batchResult.errors.some((e) => e.id === f.id))
-      .reduce((sum, f) => sum + f.size, 0);
+  if (totalCopiedSize > 0) {
     await db
       .update(users)
-      .set({ storageUsed: user.storageUsed + copiedSize, updatedAt: now })
+      .set({ storageUsed: user.storageUsed + totalCopiedSize, updatedAt: now })
       .where(eq(users.id, userId));
-    await updateBucketStats(db, bucketConfig.id, copiedSize, batchResult.success);
+    await updateBucketStats(db, bucketConfig.id, totalCopiedSize, batchResult.success);
   }
 
   await createAuditLog({

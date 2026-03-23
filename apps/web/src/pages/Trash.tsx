@@ -14,7 +14,7 @@ import { filesApi } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { FileIcon } from '@/components/ui/FileIcon';
 import { useToast } from '@/components/ui/use-toast';
-import { formatBytes, formatDate } from '@/utils';
+import { formatBytes, formatDate, decodeFileName } from '@/utils';
 import { Trash2, RotateCcw, AlertTriangle, PackageOpen } from 'lucide-react';
 import type { FileItem } from '@osshelf/shared';
 
@@ -104,7 +104,7 @@ export default function Trash() {
               file={file}
               onRestore={() => restoreMutation.mutate(file.id)}
               onDelete={() => {
-                if (confirm(`永久删除 "${file.name}"？此操作不可撤销。`)) {
+                if (confirm(`永久删除 "${decodeFileName(file.name)}"？此操作不可撤销。`)) {
                   deleteOneMutation.mutate(file.id);
                 }
               }}
@@ -131,7 +131,7 @@ function TrashItem({ file, onRestore, onDelete, restorePending, deletePending }:
     <div className="flex items-center gap-3 px-4 py-3 hover:bg-accent/30 transition-colors group">
       <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="md" className="flex-shrink-0 opacity-60" />
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate text-muted-foreground">{file.name}</p>
+        <p className="text-sm font-medium truncate text-muted-foreground">{decodeFileName(file.name)}</p>
         <p className="text-xs text-muted-foreground/70">
           {file.isFolder ? '文件夹' : formatBytes(file.size)}
           {(file as any).deletedAt && <span className="ml-2">· 删除于 {formatDate((file as any).deletedAt)}</span>}

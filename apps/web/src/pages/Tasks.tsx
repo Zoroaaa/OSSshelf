@@ -17,6 +17,7 @@ import type { UploadTask } from '@osshelf/shared';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
+import { useResponsive } from '@/hooks/useResponsive';
 import { formatBytes, formatDate } from '@/utils';
 import { cn } from '@/utils';
 import {
@@ -35,6 +36,7 @@ import {
   ChevronDown,
   ChevronRight,
   Ban,
+  PauseCircle,
 } from 'lucide-react';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: typeof Clock }> = {
@@ -97,6 +99,7 @@ export default function Tasks() {
   const [resumingTaskId, setResumingTaskId] = useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { isMobile } = useResponsive();
 
   const {
     data: tasks = [],
@@ -108,27 +111,24 @@ export default function Tasks() {
     refetchInterval: 5000,
   });
 
-  // 初始化展开状态
-  const taskGroups = useMemo(() => groupTasksByDate(tasks), [tasks]);
+  const activeTasks = tasks.filter((t) => ['uploading', 'pending', 'paused'].includes(t.status));
+  const pendingOrUploadingTasks = tasks.filter((t) => ['uploading', 'pending'].includes(t.status));
+  const pausedTasks = tasks.filter((t) => t.status === 'paused');
+  const historyTasks = tasks.filter((t) => ['completed', 'failed', 'expired', 'aborted'].includes(t.status));
+  const completedTasks = tasks.filter((t) => t.status === 'completed');
+  const failedTasks = tasks.filter((t) => ['failed', 'expired', 'aborted'].includes(t.status));
 
-  // 设置默认展开状态 - 只在首次渲染时执行
+  const historyTaskGroups = useMemo(() => groupTasksByDate(historyTasks), [historyTasks]);
+
   useEffect(() => {
     const defaultExpanded = new Set<string>();
-    taskGroups.forEach((g) => {
+    historyTaskGroups.forEach((g: TaskGroup) => {
       if (g.defaultExpanded) {
         defaultExpanded.add(g.label);
       }
     });
     setExpandedGroups(defaultExpanded);
-  }, []);
-
-  const activeTasks = tasks.filter((t) => ['uploading', 'pending', 'paused'].includes(t.status));
-  const historyTasks = tasks.filter((t) => ['completed', 'failed', 'expired', 'aborted'].includes(t.status));
-  const completedTasks = tasks.filter((t) => t.status === 'completed');
-  const failedTasks = tasks.filter((t) => ['failed', 'expired', 'aborted'].includes(t.status));
-
-  // 只对历史任务按日期分组
-  const historyTaskGroups = useMemo(() => groupTasksByDate(historyTasks), [historyTasks]);
+  }, [historyTaskGroups]);
 
   const abortMutation = useMutation({
     mutationFn: (taskId: string) => tasksApi.abort(taskId),
@@ -210,6 +210,60 @@ export default function Tasks() {
       toast({
         title: '恢复失败',
         description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
+  });
+
+  const retryMutation = useMutation({
+    mutationFn: (taskId: string) => tasksApi.retry(taskId),
+    onSuccess: () => {
+      toast({ title: '任务已重置，请重新选择文件上传' });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    },
+    onError: (e: any) =>
+      toast({
+        title: '重试失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      }),
+  });
+
+  const pauseAllMutation = useMutation({
+    mutationFn: async () => {
+      const results = await Promise.allSettled(pendingOrUploadingTasks.map((t) => tasksApi.pause(t.id)));
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      if (failed > 0) {
+        throw new Error(`${failed} 个任务暂停失败`);
+      }
+    },
+    onSuccess: () => {
+      toast({ title: `已暂停 ${pendingOrUploadingTasks.length} 个任务` });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    },
+    onError: (e: any) =>
+      toast({
+        title: '批量暂停失败',
+        description: e.message,
+        variant: 'destructive',
+      }),
+  });
+
+  const deleteAllPausedMutation = useMutation({
+    mutationFn: async () => {
+      const results = await Promise.allSettled(pausedTasks.map((t) => tasksApi.delete(t.id)));
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      if (failed > 0) {
+        throw new Error(`${failed} 个任务删除失败`);
+      }
+    },
+    onSuccess: () => {
+      toast({ title: `已删除 ${pausedTasks.length} 个暂停的任务` });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    },
+    onError: (e: any) =>
+      toast({
+        title: '批量删除失败',
+        description: e.message,
         variant: 'destructive',
       }),
   });
@@ -296,28 +350,82 @@ export default function Tasks() {
     <div className="space-y-6">
       <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => handleFileSelect(e)} />
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold">上传任务</h1>
           <p className="text-muted-foreground text-sm mt-0.5">管理文件上传任务</p>
         </div>
-        <div className="flex items-center gap-2">
-          {completedTasks.length > 0 && (
-            <Button variant="outline" size="sm" onClick={() => clearCompletedMutation.mutate()}>
-              <CheckCircle2 className="h-4 w-4 mr-1.5" />
-              清空已完成
-            </Button>
+        <div className={cn('flex items-center gap-2', isMobile ? 'flex-col w-full' : 'flex-row')}>
+          {isMobile && (
+            <>
+              {pendingOrUploadingTasks.length > 0 && (
+                <Button variant="outline" size="sm" onClick={() => pauseAllMutation.mutate()} className="w-full">
+                  <PauseCircle className="h-4 w-4 mr-1.5" />
+                  一键暂停 ({pendingOrUploadingTasks.length})
+                </Button>
+              )}
+              {pausedTasks.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => deleteAllPausedMutation.mutate()}
+                  className="w-full text-red-500 hover:text-red-600"
+                >
+                  <Trash2 className="h-4 w-4 mr-1.5" />
+                  删除暂停中 ({pausedTasks.length})
+                </Button>
+              )}
+            </>
           )}
-          {failedTasks.length > 0 && (
-            <Button variant="outline" size="sm" onClick={() => clearFailedMutation.mutate()}>
-              <XCircle className="h-4 w-4 mr-1.5" />
-              清空失败
+          <div className={cn('flex items-center gap-2', isMobile && 'w-full')}>
+            {completedTasks.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => clearCompletedMutation.mutate()}
+                className={cn(isMobile && 'flex-1')}
+              >
+                <CheckCircle2 className="h-4 w-4 mr-1.5" />
+                {!isMobile && '清空已完成'}
+              </Button>
+            )}
+            {failedTasks.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => clearFailedMutation.mutate()}
+                className={cn(isMobile && 'flex-1')}
+              >
+                <XCircle className="h-4 w-4 mr-1.5" />
+                {!isMobile && '清空失败'}
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={() => refetch()} className={cn(isMobile && 'flex-1')}>
+              <RefreshCw className="h-4 w-4 mr-1.5" />
+              {!isMobile && '刷新'}
             </Button>
+          </div>
+          {!isMobile && (
+            <>
+              {pendingOrUploadingTasks.length > 0 && (
+                <Button variant="outline" size="sm" onClick={() => pauseAllMutation.mutate()}>
+                  <PauseCircle className="h-4 w-4 mr-1.5" />
+                  一键暂停 ({pendingOrUploadingTasks.length})
+                </Button>
+              )}
+              {pausedTasks.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => deleteAllPausedMutation.mutate()}
+                  className="text-red-500 hover:text-red-600"
+                >
+                  <Trash2 className="h-4 w-4 mr-1.5" />
+                  删除暂停中 ({pausedTasks.length})
+                </Button>
+              )}
+            </>
           )}
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="h-4 w-4 mr-1.5" />
-            刷新
-          </Button>
         </div>
       </div>
 
@@ -390,7 +498,12 @@ export default function Tasks() {
                       {expandedGroups.has(group.label) && (
                         <div className="space-y-3">
                           {group.tasks.map((task) => (
-                            <TaskItem key={task.id} task={task} onDelete={() => deleteMutation.mutate(task.id)} />
+                            <TaskItem
+                              key={task.id}
+                              task={task}
+                              onDelete={() => deleteMutation.mutate(task.id)}
+                              onRetry={task.status === 'failed' ? () => retryMutation.mutate(task.id) : undefined}
+                            />
                           ))}
                         </div>
                       )}
@@ -421,6 +534,7 @@ function TaskItem({
   onPause,
   onResume,
   onResumeUpload,
+  onRetry,
 }: {
   task: UploadTask;
   onAbort?: () => void;
@@ -428,71 +542,77 @@ function TaskItem({
   onPause?: () => void;
   onResume?: () => void;
   onResumeUpload?: () => void;
+  onRetry?: () => void;
 }) {
   const status = STATUS_CONFIG[task.status] ?? DEFAULT_STATUS;
   const progress = task.progress ?? 0;
   const StatusIcon = status.icon;
+  const { isMobile } = useResponsive();
 
   return (
-    <div className="flex items-center gap-4 p-4 rounded-lg border bg-muted/30">
-      <div
-        className={cn(
-          'w-10 h-10 rounded-lg flex items-center justify-center',
-          task.status === 'uploading'
-            ? 'bg-blue-500/10'
-            : task.status === 'paused'
-              ? 'bg-orange-500/10'
-              : task.status === 'completed'
-                ? 'bg-emerald-500/10'
-                : 'bg-muted'
-        )}
-      >
-        <FileText
+    <div
+      className={cn('flex items-center gap-4 p-4 rounded-lg border bg-muted/30', isMobile && 'flex-col items-start')}
+    >
+      <div className={cn('flex items-center gap-4', isMobile && 'w-full')}>
+        <div
           className={cn(
-            'h-5 w-5',
+            'w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0',
             task.status === 'uploading'
-              ? 'text-blue-500'
+              ? 'bg-blue-500/10'
               : task.status === 'paused'
-                ? 'text-orange-500'
+                ? 'bg-orange-500/10'
                 : task.status === 'completed'
-                  ? 'text-emerald-500'
-                  : 'text-muted-foreground'
+                  ? 'bg-emerald-500/10'
+                  : 'bg-muted'
           )}
-        />
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-sm truncate">{task.fileName}</span>
-          <span className={cn('flex items-center gap-1 text-xs', status.color)}>
-            <StatusIcon className={cn('h-3 w-3', task.status === 'uploading' && 'animate-spin')} />
-            {status.label}
-          </span>
+        >
+          <FileText
+            className={cn(
+              'h-5 w-5',
+              task.status === 'uploading'
+                ? 'text-blue-500'
+                : task.status === 'paused'
+                  ? 'text-orange-500'
+                  : task.status === 'completed'
+                    ? 'text-emerald-500'
+                    : 'text-muted-foreground'
+            )}
+          />
         </div>
-        <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
-          <span>{formatBytes(task.fileSize)}</span>
-          {task.totalParts > 1 && (
-            <span>
-              {task.uploadedParts.length} / {task.totalParts} 分片
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-sm truncate">{task.fileName}</span>
+            <span className={cn('flex items-center gap-1 text-xs', status.color)}>
+              <StatusIcon className={cn('h-3 w-3', task.status === 'uploading' && 'animate-spin')} />
+              {status.label}
             </span>
-          )}
-          <span>{formatDate(task.createdAt)}</span>
-        </div>
-        {(task.status === 'uploading' || task.status === 'pending' || task.status === 'paused') && (
-          <div className="mt-2">
-            <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
-              <div
-                className={cn('h-full transition-all', task.status === 'paused' ? 'bg-orange-500' : 'bg-primary')}
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">{progress}%</p>
           </div>
-        )}
-        {task.errorMessage && <p className="text-xs text-red-500 mt-1">{task.errorMessage}</p>}
+          <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+            <span>{formatBytes(task.fileSize)}</span>
+            {task.totalParts > 1 && (
+              <span>
+                {task.uploadedParts.length} / {task.totalParts} 分片
+              </span>
+            )}
+            <span>{formatDate(task.createdAt)}</span>
+          </div>
+          {(task.status === 'uploading' || task.status === 'pending' || task.status === 'paused') && (
+            <div className="mt-2">
+              <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+                <div
+                  className={cn('h-full transition-all', task.status === 'paused' ? 'bg-orange-500' : 'bg-primary')}
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">{progress}%</p>
+            </div>
+          )}
+          {task.errorMessage && <p className="text-xs text-red-500 mt-1">{task.errorMessage}</p>}
+        </div>
       </div>
 
-      <div className="flex items-center gap-1">
+      <div className={cn('flex items-center gap-1', isMobile && 'w-full justify-end flex-wrap')}>
         {task.status === 'uploading' && onPause && (
           <Button variant="outline" size="sm" onClick={onPause}>
             <Pause className="h-3.5 w-3.5 mr-1" />
@@ -521,6 +641,12 @@ function TaskItem({
           <Button variant="outline" size="sm" onClick={onAbort}>
             <XCircle className="h-3.5 w-3.5 mr-1" />
             取消
+          </Button>
+        )}
+        {task.status === 'failed' && onRetry && (
+          <Button variant="outline" size="sm" onClick={onRetry}>
+            <RotateCcw className="h-3.5 w-3.5 mr-1" />
+            重试
           </Button>
         )}
         <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-600" onClick={onDelete}>

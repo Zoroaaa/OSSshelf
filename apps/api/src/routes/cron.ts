@@ -11,7 +11,7 @@
 
 import { Hono } from 'hono';
 import { eq, and, isNotNull, lt } from 'drizzle-orm';
-import { getDb, files, users, shares, webdavSessions, uploadTasks, loginAttempts, userDevices } from '../db';
+import { getDb, files, users, shares, uploadTasks, loginAttempts, userDevices } from '../db';
 import { TRASH_RETENTION_DAYS, DEVICE_SESSION_EXPIRY, ERROR_CODES } from '@osshelf/shared';
 import type { Env } from '../types/env';
 import { s3Delete } from '../lib/s3client';
@@ -93,13 +93,6 @@ app.post('/cron/session-cleanup', async (c) => {
   const db = getDb(c.env.DB);
   const now = new Date().toISOString();
 
-  // 清理过期 WebDAV sessions
-  const expiredWebdav = await db
-    .delete(webdavSessions)
-    .where(lt(webdavSessions.expiresAt, now))
-    .returning({ id: webdavSessions.id });
-
-  // 清理过期上传任务
   const expiredUploadTasks = await db
     .select()
     .from(uploadTasks)
@@ -119,16 +112,11 @@ app.post('/cron/session-cleanup', async (c) => {
     await db.update(uploadTasks).set({ status: 'expired', updatedAt: now }).where(eq(uploadTasks.id, task.id));
   }
 
-  // 清理过期登录记录（保留 30 天）
   const oldLoginAttempts = await db
     .delete(loginAttempts)
     .where(lt(loginAttempts.createdAt, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()))
     .returning({ id: loginAttempts.id });
 
-  // 修复：清理超过 DEVICE_SESSION_EXPIRY（30天）未活跃的登录设备。
-  // 原逻辑写在 GET /api/auth/devices 里（阈值写死为 7 天），每次查列表时静默删除，
-  // 导致前端缓存持有的 deviceId 失效后点注销返回 404。
-  // 现统一在此处清理，使用 shared 常量保证与 auth.ts 中 DEVICE_SESSION_EXPIRY 语义一致。
   const deviceExpiryThreshold = new Date(Date.now() - DEVICE_SESSION_EXPIRY).toISOString();
   const expiredDevices = await db
     .delete(userDevices)
@@ -138,7 +126,6 @@ app.post('/cron/session-cleanup', async (c) => {
   return c.json({
     success: true,
     data: {
-      webdavSessionsCleaned: expiredWebdav.length,
       uploadTasksExpired: expiredUploadTasks.length,
       loginAttemptsCleaned: oldLoginAttempts.length,
       devicesCleaned: expiredDevices.length,

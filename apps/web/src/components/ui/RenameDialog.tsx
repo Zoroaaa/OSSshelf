@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { decodeFileName } from '@/utils';
 
 interface RenameDialogProps {
   currentName: string;
@@ -10,17 +11,18 @@ interface RenameDialogProps {
 }
 
 export function RenameDialog({ currentName, onConfirm, onCancel, isPending }: RenameDialogProps) {
-  const [name, setName] = useState(currentName);
+  const decodedName = decodeFileName(currentName);
+  const [name, setName] = useState(decodedName);
 
   useEffect(() => {
-    setName(currentName);
-  }, [currentName]);
+    setName(decodedName);
+  }, [decodedName]);
 
   const handleSubmit = () => {
     const trimmed = name.trim();
-    if (trimmed && trimmed !== currentName) {
+    if (trimmed && trimmed !== decodedName) {
       onConfirm(trimmed);
-    } else if (trimmed === currentName) {
+    } else if (trimmed === decodedName) {
       onCancel();
     }
   };

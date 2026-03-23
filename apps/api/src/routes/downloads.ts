@@ -551,4 +551,86 @@ app.post('/:taskId/resume', async (c) => {
   return c.json({ success: true, data: { message: '任务已恢复' } });
 });
 
+// ── POST /api/downloads/batch ─────────────────────────────────────────────
+// 批量 URL 导入：一次提交最多 50 条 URL
+const batchCreateSchema = z.object({
+  urls: z.array(z.string().url('请输入有效的 URL')).min(1).max(50),
+  parentId: z.string().nullable().optional(),
+  bucketId: z.string().nullable().optional(),
+});
+
+app.post('/batch', async (c) => {
+  const userId = c.get('userId')!;
+  const body = await c.req.json();
+  const result = batchCreateSchema.safeParse(body);
+  if (!result.success) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
+  }
+
+  const { urls, parentId, bucketId } = result.data;
+  const db = getDb(c.env.DB);
+
+  const user = await db.select().from(users).where(eq(users.id, userId)).get();
+  if (!user) {
+    return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '用户不存在' } }, 401);
+  }
+
+  const encKey = getEncryptionKey(c.env);
+  const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, parentId);
+  if (!bucketConfig) {
+    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '未配置存储桶' } }, 400);
+  }
+
+  const created: string[] = [];
+  const failed: Array<{ url: string; error: string }> = [];
+  const now = new Date().toISOString();
+
+  for (const url of urls) {
+    if (!isValidUrl(url)) {
+      failed.push({ url, error: '无效 URL' });
+      continue;
+    }
+    try {
+      const taskId = crypto.randomUUID();
+      const fileName = getFileNameFromUrl(url);
+      await db.insert(downloadTasks).values({
+        id: taskId,
+        userId,
+        url,
+        fileName,
+        fileSize: null,
+        parentId: parentId || null,
+        bucketId: bucketConfig.id,
+        status: 'pending',
+        progress: 0,
+        errorMessage: null,
+        createdAt: now,
+        updatedAt: now,
+        completedAt: null,
+      });
+      c.executionCtx.waitUntil(
+        runDownload({
+          db,
+          userId,
+          taskId,
+          task: { url, fileName, parentId: parentId || null, bucketId: bucketConfig.id },
+          bucketConfig,
+          env: c.env,
+        })
+      );
+      created.push(taskId);
+    } catch {
+      failed.push({ url, error: '创建任务失败' });
+    }
+  }
+
+  return c.json({
+    success: true,
+    data: { created: created.length, failed: failed.length, failedItems: failed },
+  });
+});
+
 export default app;

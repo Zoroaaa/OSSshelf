@@ -81,7 +81,7 @@ export function useFolderUpload({
           const createdId = res.data.data?.id;
           if (createdId) {
             folderIdMap.set(folderPath, createdId);
-            queryClient.invalidateQueries({ queryKey: ['files', parentId ?? undefined] });
+            queryClient.invalidateQueries({ queryKey: ['files'] });
           }
         } catch (e: any) {
           console.warn(`创建文件夹 "${folderPath}" 失败:`, e?.response?.data?.error?.message);
@@ -109,7 +109,7 @@ export function useFolderUpload({
           });
           uploadedCount++;
           onFileDone?.(key);
-          queryClient.invalidateQueries({ queryKey: ['files', parentId ?? undefined] });
+          queryClient.invalidateQueries({ queryKey: ['files'] });
         } catch (e: any) {
           failedCount++;
           onFileError?.(key, e);
@@ -191,7 +191,7 @@ export function useFolderUpload({
           const createdId = res.data.data?.id;
           if (createdId) {
             folderIdMap.set(folderPath, createdId);
-            queryClient.invalidateQueries({ queryKey: ['files', parentId ?? undefined] });
+            queryClient.invalidateQueries({ queryKey: ['files'] });
           }
         } catch (e: any) {
           console.warn(`创建文件夹 "${folderPath}" 失败:`, e?.response?.data?.error?.message);
@@ -215,7 +215,7 @@ export function useFolderUpload({
             onProgress: (progress) => onFileProgress?.(key, progress),
           });
           onFileDone?.(key);
-          queryClient.invalidateQueries({ queryKey: ['files', parentId ?? undefined] });
+          queryClient.invalidateQueries({ queryKey: ['files'] });
         } catch (e) {
           onFileError?.(key, e);
         }

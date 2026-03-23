@@ -46,7 +46,10 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       const url: string = error.config?.url || '';
       const isPublicEndpoint =
-        url.includes('/api/share/') || url.includes('/api/auth/login') || url.includes('/api/auth/register');
+        url.includes('/api/share/') ||
+        url.includes('/api/direct/') ||
+        url.includes('/api/auth/login') ||
+        url.includes('/api/auth/register');
       if (!isPublicEndpoint) {
         const { isAuthenticated } = useAuthStore.getState();
         if (isAuthenticated) {
@@ -107,6 +110,13 @@ export const filesApi = {
   get: (id: string) => api.get<ApiResponse<FileItem>>(`/api/files/${id}`),
   createFolder: (name: string, parentId?: string | null, bucketId?: string | null) =>
     api.post<ApiResponse<FileItem>>('/api/files', { name, parentId, bucketId }),
+  createFile: (params: {
+    name: string;
+    content?: string;
+    parentId?: string | null;
+    bucketId?: string | null;
+    mimeType?: string;
+  }) => api.post<ApiResponse<FileItem>>('/api/files/create', params),
   update: (id: string, data: { name?: string; parentId?: string | null }) =>
     api.put<ApiResponse<{ message: string }>>(`/api/files/${id}`, data),
   updateSettings: (id: string, data: { allowedMimeTypes?: string[] | null }) =>
@@ -228,11 +238,47 @@ export const shareApi = {
     return qs ? `${base}?${qs}` : base;
   },
 
-  // ── 预览（仅图片）────────────────────────────────────────────────────
+  // ── 预览（图片/视频/音频/PDF/文本）────────────────────────────────────
   previewUrl: (id: string, password?: string) =>
     `${import.meta.env.VITE_API_URL || ''}/api/share/${id}/preview${
       password ? `?password=${encodeURIComponent(password)}` : ''
     }`,
+
+  streamUrl: (id: string, password?: string) =>
+    `${import.meta.env.VITE_API_URL || ''}/api/share/${id}/stream${
+      password ? `?password=${encodeURIComponent(password)}` : ''
+    }`,
+
+  getRawContent: (id: string, password?: string) =>
+    api.get<ApiResponse<{ content: string; mimeType: string }>>(`/api/share/${id}/raw`, { params: { password } }),
+
+  getPreviewInfo: (id: string, password?: string) =>
+    api.get<
+      ApiResponse<{
+        id: string;
+        name: string;
+        size: number;
+        mimeType: string | null;
+        previewType: string;
+        canPreview: boolean;
+      }>
+    >(`/api/share/${id}/preview-info`, { params: { password } }),
+
+  // ── 文件夹内子文件预览 ────────────────────────────────────────────────
+  childPreviewUrl: (shareId: string, fileId: string, password?: string) =>
+    `${import.meta.env.VITE_API_URL || ''}/api/share/${shareId}/file/${fileId}/preview${
+      password ? `?password=${encodeURIComponent(password)}` : ''
+    }`,
+
+  childStreamUrl: (shareId: string, fileId: string, password?: string) =>
+    `${import.meta.env.VITE_API_URL || ''}/api/share/${shareId}/file/${fileId}/stream${
+      password ? `?password=${encodeURIComponent(password)}` : ''
+    }`,
+
+  getChildRawContent: (shareId: string, fileId: string, password?: string) =>
+    api.get<ApiResponse<{ content: string; mimeType: string }>>(`/api/share/${shareId}/file/${fileId}/raw`, {
+      params: { password },
+    }),
 
   // ── 上传链接（有账号创建）────────────────────────────────────────────
   createUploadLink: (params: CreateUploadLinkParams) =>
@@ -563,6 +609,10 @@ export const tasksApi = {
   abort: (taskId: string) => api.post<ApiResponse<{ message: string }>>('/api/tasks/abort', { taskId }),
   pause: (taskId: string) => api.post<ApiResponse<{ message: string }>>(`/api/tasks/${taskId}/pause`),
   resume: (taskId: string) => api.post<ApiResponse<{ message: string }>>(`/api/tasks/${taskId}/resume`),
+  retry: (taskId: string) =>
+    api.post<ApiResponse<{ taskId: string; uploadId: string; totalParts: number; uploadedParts: number[] }>>(
+      `/api/tasks/${taskId}/retry`
+    ),
   list: () => api.get<ApiResponse<UploadTask[]>>('/api/tasks/list'),
   delete: (taskId: string) => api.delete<ApiResponse<{ message: string }>>(`/api/tasks/${taskId}`),
   clear: () => api.delete<ApiResponse<{ message: string }>>('/api/tasks/clear'),
@@ -577,6 +627,11 @@ export const tasksApi = {
 export const downloadsApi = {
   create: (data: { url: string; fileName?: string; parentId?: string | null; bucketId?: string | null }) =>
     api.post<ApiResponse<{ id: string; url: string; fileName: string; status: string }>>('/api/downloads/create', data),
+  batch: (data: { urls: string[]; parentId?: string | null; bucketId?: string | null }) =>
+    api.post<ApiResponse<{ created: number; failed: number; failedItems: Array<{ url: string; error: string }> }>>(
+      '/api/downloads/batch',
+      data
+    ),
   list: (params?: { status?: string; page?: number; limit?: number }) =>
     api.get<ApiResponse<{ items: DownloadTask[]; total: number; page: number; limit: number }>>('/api/downloads/list', {
       params,
@@ -615,7 +670,6 @@ export const searchApi = {
   query: (params: {
     query?: string;
     parentId?: string;
-    recursive?: boolean;
     tags?: string[];
     mimeType?: string;
     minSize?: number;
@@ -650,6 +704,9 @@ export const searchApi = {
   suggestions: (params: { q: string; type: 'name' | 'tags' | 'mime' }) =>
     api.get<ApiResponse<string[]>>('/api/search/suggestions', { params }),
   recent: () => api.get<ApiResponse<FileItem[]>>('/api/search/recent'),
+  history: () => api.get<ApiResponse<Array<{ id: string; query: string; createdAt: string }>>>('/api/search/history'),
+  deleteHistory: (id: string) => api.delete<ApiResponse<void>>(`/api/search/history/${id}`),
+  clearHistory: () => api.delete<ApiResponse<void>>('/api/search/history'),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -726,6 +783,30 @@ export const previewApi = {
     api.get<ApiResponse<{ fileName: string; mimeType: string; base64Content: string; size: number }>>(
       `/api/preview/${fileId}/office`
     ),
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Direct Link (直链)
+// ─────────────────────────────────────────────────────────────────────────────
+export interface DirectLinkInfo {
+  token: string;
+  fileId: string;
+  fileName: string;
+  directUrl: string;
+  expiresAt: string | null;
+  isPermanent: boolean;
+}
+
+export const directLinkApi = {
+  create: (fileId: string, expiresAt?: string | null) =>
+    api.post<ApiResponse<DirectLinkInfo>>('/api/direct', { fileId, expiresAt }),
+  get: (fileId: string) => api.get<ApiResponse<DirectLinkInfo | null>>(`/api/direct/file/${fileId}`),
+  delete: (fileId: string) => api.delete<ApiResponse<{ message: string }>>(`/api/direct/${fileId}`),
+  update: (fileId: string, expiresAt?: string | null) =>
+    api.put<ApiResponse<DirectLinkInfo>>(`/api/direct/${fileId}`, { expiresAt }),
+  directUrl: (token: string) => `${import.meta.env.VITE_API_URL || ''}/api/direct/${token}`,
+  previewUrl: (token: string) => `${import.meta.env.VITE_API_URL || ''}/api/direct/${token}/preview`,
+  infoUrl: (token: string) => `${import.meta.env.VITE_API_URL || ''}/api/direct/${token}/info`,
 };
 
 export default api;

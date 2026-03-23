@@ -5,6 +5,7 @@
 
 export { ActionBtn } from './ActionBtn';
 export { NewFolderDialog } from './NewFolderDialog';
+export { NewFileDialog, FILE_TEMPLATES, type FileTemplate } from './NewFileDialog';
 export { ShareDialog } from './ShareDialog';
 export { ListItem } from './ListItem';
 export { GridItem } from './GridItem';

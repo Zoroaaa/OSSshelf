@@ -53,17 +53,6 @@ CREATE TABLE IF NOT EXISTS shares (
 );
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- WebDAV 会话表
--- ═══════════════════════════════════════════════════════════════════════════
-CREATE TABLE IF NOT EXISTS webdav_sessions (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  token TEXT NOT NULL UNIQUE,
-  expires_at TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
-
--- ═══════════════════════════════════════════════════════════════════════════
 -- 存储桶配置表（多厂商支持）
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS storage_buckets (

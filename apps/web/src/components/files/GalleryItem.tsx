@@ -10,7 +10,7 @@
 
 import { useResponsive } from '@/hooks/useResponsive';
 import { filesApi } from '@/services/api';
-import { cn } from '@/utils';
+import { cn, decodeFileName } from '@/utils';
 import { Trash2 } from 'lucide-react';
 import { ActionBtn } from './ActionBtn';
 import type { GalleryItemProps } from '@/types/files';
@@ -26,7 +26,7 @@ export function GalleryItem({ file, token, onClick, onDelete, onContextMenu }: G
     >
       <img
         src={filesApi.previewUrl(file.id, token)}
-        alt={file.name}
+        alt={decodeFileName(file.name)}
         className="w-full block object-cover"
         loading="lazy"
       />
@@ -36,7 +36,7 @@ export function GalleryItem({ file, token, onClick, onDelete, onContextMenu }: G
           isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
         )}
       >
-        <p className="text-white text-xs font-medium truncate">{file.name}</p>
+        <p className="text-white text-xs font-medium truncate">{decodeFileName(file.name)}</p>
         <div className="flex gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
           <ActionBtn title="删除" onClick={onDelete} danger light>
             <Trash2 className="h-3 w-3" />

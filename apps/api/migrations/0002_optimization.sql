@@ -77,18 +77,6 @@ CREATE INDEX IF NOT EXISTS idx_buckets_provider
   ON storage_buckets(provider);
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- WebDAV会话表性能索引
--- ═══════════════════════════════════════════════════════════════════════════
-
--- 会话过期索引（清理过期会话）
-CREATE INDEX IF NOT EXISTS idx_webdav_expires
-  ON webdav_sessions(expires_at);
-
--- 用户WebDAV会话索引
-CREATE INDEX IF NOT EXISTS idx_webdav_user
-  ON webdav_sessions(user_id, expires_at);
-
--- ═══════════════════════════════════════════════════════════════════════════
 -- 用户表性能索引
 -- ═══════════════════════════════════════════════════════════════════════════
 

@@ -26,6 +26,7 @@ export interface ItemProps {
   onContextMenu: (e: React.MouseEvent, file?: FileItem) => void;
   onTagClick?: (tagName: string) => void;
   onUploadLink?: (f: FileItem) => void;
+  onDirectLink?: (f: FileItem) => void;
 }
 
 export interface GalleryItemProps {
@@ -62,6 +63,8 @@ export interface FileContextMenuCallbacks {
   onDelete: (file: FileItem) => void;
   /** 仅文件夹可用：创建上传链接 */
   onUploadLink?: (file: FileItem) => void;
+  /** 仅文件可用：直链管理 */
+  onDirectLink?: (file: FileItem) => void;
 }
 
 export interface BackgroundContextMenuCallbacks {
@@ -69,6 +72,7 @@ export interface BackgroundContextMenuCallbacks {
   onSelectAll: () => void;
   onUpload: () => void;
   onNewFolder: () => void;
+  onNewFile?: () => void;
   onPaste: () => void;
   hasClipboard: boolean;
   clipboardCount: number;

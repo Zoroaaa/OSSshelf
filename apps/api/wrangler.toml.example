@@ -29,6 +29,12 @@ id = "YOUR_KV_NAMESPACE_ID"
 [vars]
 ENVIRONMENT = "development"
 JWT_SECRET = "your-jwt-secret-change-in-production"
+# ── Cron 告警（可选）──────────────────────────────────────────────────────
+# 配置后，每次 cron 执行完成或失败时会向指定 Telegram Chat 发送通知。
+# ALERT_TG_BOT_TOKEN: 通过 @BotFather 创建的 Bot Token
+# ALERT_TG_CHAT_ID:   接收告警的 Chat ID（个人/群组均可，可通过 @userinfobot 获取）
+# ALERT_TG_BOT_TOKEN = "123456789:AAxxxxxxxxxxxxxxxxxxxx"
+# ALERT_TG_CHAT_ID = "-100xxxxxxxxxx"
 
 # ── Cron Triggers (定时任务) ─────────────────────────────────────────────
 # 每天凌晨 3 点执行回收站清理
@@ -37,6 +43,9 @@ crons = ["0 3 * * *"]
 
 [env.production]
 vars = { ENVIRONMENT = "production", JWT_SECRET = "YOUR_JWT_SECRET" }
+# 生产环境告警：
+# ALERT_TG_BOT_TOKEN = "YOUR_BOT_TOKEN"
+# ALERT_TG_CHAT_ID = "YOUR_CHAT_ID"
 
 # 生产环境 Cron 触发器
 [env.production.triggers]

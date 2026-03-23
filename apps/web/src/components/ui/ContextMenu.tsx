@@ -79,7 +79,10 @@ export function ContextMenu({ isOpen, position, items, onClose }: ContextMenuPro
       }
     };
 
+    let isScrollListenerReady = false;
+
     const handleScroll = () => {
+      if (!isScrollListenerReady) return;
       onClose();
     };
 
@@ -87,7 +90,12 @@ export function ContextMenu({ isOpen, position, items, onClose }: ContextMenuPro
     document.addEventListener('keydown', handleEscape);
     window.addEventListener('scroll', handleScroll, true);
 
+    const scrollTimeout = setTimeout(() => {
+      isScrollListenerReady = true;
+    }, 100);
+
     return () => {
+      clearTimeout(scrollTimeout);
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
       window.removeEventListener('scroll', handleScroll, true);

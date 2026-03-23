@@ -99,6 +99,7 @@ export default function Settings() {
   } = useQuery({
     queryKey: ['devices'],
     queryFn: () => authApi.devices().then((r) => r.data.data ?? []),
+    select: (data) => data.slice(0, 10),
   });
 
   const updateNameMutation = useMutation({

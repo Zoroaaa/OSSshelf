@@ -12,7 +12,7 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, isNull, isNotNull, desc, sql } from 'drizzle-orm';
+import { eq, and, isNull, isNotNull, desc, sql, gte, lte } from 'drizzle-orm';
 import { getDb, users, files, storageBuckets, auditLogs } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
@@ -227,6 +227,16 @@ app.put('/registration', async (c) => {
   const updated: RegConfig = { ...current, ...result.data };
   await c.env.KV.put(REG_CONFIG_KEY, JSON.stringify(updated));
 
+  await createAuditLog({
+    env: c.env,
+    userId: c.get('userId'),
+    action: 'admin.config_change',
+    resourceType: 'registration',
+    details: { before: current, after: updated },
+    ipAddress: getClientIp(c),
+    userAgent: getUserAgent(c),
+  });
+
   return c.json({ success: true, data: updated });
 });
 
@@ -240,15 +250,22 @@ app.post('/registration/codes', async (c) => {
   const now = new Date().toISOString();
 
   for (let i = 0; i < count; i++) {
-    // Format: XXXX-XXXX-XXXX (base32 style)
     const code = generateInviteCode();
-    await c.env.KV.put(
-      `${INVITE_PREFIX}${code}`,
-      JSON.stringify({ usedBy: null, createdAt: now }),
-      { expirationTtl: 60 * 60 * 24 * 30 } // 30 days
-    );
+    await c.env.KV.put(`${INVITE_PREFIX}${code}`, JSON.stringify({ usedBy: null, createdAt: now }), {
+      expirationTtl: 60 * 60 * 24 * 30,
+    });
     codes.push(code);
   }
+
+  await createAuditLog({
+    env: c.env,
+    userId: c.get('userId'),
+    action: 'admin.invite_code_generate',
+    resourceType: 'invite_code',
+    details: { count, codes },
+    ipAddress: getClientIp(c),
+    userAgent: getUserAgent(c),
+  });
 
   return c.json({ success: true, data: { codes, createdAt: now } });
 });
@@ -258,6 +275,17 @@ app.post('/registration/codes', async (c) => {
 app.delete('/registration/codes/:code', async (c) => {
   const code = c.req.param('code');
   await c.env.KV.delete(`${INVITE_PREFIX}${code}`);
+
+  await createAuditLog({
+    env: c.env,
+    userId: c.get('userId'),
+    action: 'admin.invite_code_revoke',
+    resourceType: 'invite_code',
+    details: { code },
+    ipAddress: getClientIp(c),
+    userAgent: getUserAgent(c),
+  });
+
   return c.json({ success: true, data: { message: '邀请码已撤销' } });
 });
 
@@ -270,10 +298,9 @@ app.get('/stats', async (c) => {
   const allFiles = await db.select().from(files).where(isNull(files.deletedAt)).all();
   const allBuckets = await db.select().from(storageBuckets).all();
 
-  const totalStorage = allUsers.reduce((sum, u) => sum + (u.storageUsed ?? 0), 0);
+  const totalStorage = allFiles.filter((f) => !f.isFolder).reduce((sum, f) => sum + f.size, 0);
   const totalQuota = allUsers.reduce((sum, u) => sum + (u.storageQuota ?? 0), 0);
 
-  // Per-provider breakdown
   const providerBreakdown: Record<string, { bucketCount: number; storageUsed: number }> = {};
   for (const b of allBuckets) {
     if (!providerBreakdown[b.provider]) {
@@ -288,7 +315,7 @@ app.get('/stats', async (c) => {
     data: {
       userCount: allUsers.length,
       adminCount: allUsers.filter((u) => u.role === 'admin').length,
-      fileCount: allFiles.length,
+      fileCount: allFiles.filter((f) => !f.isFolder).length,
       folderCount: allFiles.filter((f) => f.isFolder).length,
       bucketCount: allBuckets.length,
       totalStorageUsed: totalStorage,
@@ -305,12 +332,18 @@ app.get('/audit-logs', async (c) => {
   const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '20')));
   const userId = c.req.query('userId');
   const action = c.req.query('action');
+  const startDate = c.req.query('startDate');
+  const endDate = c.req.query('endDate');
+  const resourceType = c.req.query('resourceType');
 
   const db = getDb(c.env.DB);
 
   const conditions: any[] = [];
   if (userId) conditions.push(eq(auditLogs.userId, userId));
   if (action) conditions.push(eq(auditLogs.action, action));
+  if (resourceType) conditions.push(eq(auditLogs.resourceType, resourceType));
+  if (startDate) conditions.push(gte(auditLogs.createdAt, startDate));
+  if (endDate) conditions.push(lte(auditLogs.createdAt, endDate));
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 

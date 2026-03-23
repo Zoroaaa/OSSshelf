@@ -8,6 +8,14 @@
  * - 文件读写与目录管理
  * - 锁定与解锁（LOCK/UNLOCK，兼容 Windows 资源管理器与 WinSCP）
  *
+ * 路径存储格式说明：
+ * - WebDAV 上传：客户端写入时对路径/文件名做 URL 编码，name 和 path 字段存储编码格式
+ *   （如 name="%E5%9C%A3%E5%A2%9F.json"，path="/legado/%E5%9C%A3%E5%A2%9F.json"）
+ * - 非 WebDAV 上传（Web界面等）：name 和 path 字段存储原始中文
+ *   （如 name="个人项目"，path="/个人项目"）
+ * findFileByPath 策略1直接匹配 path 字段（命中 WebDAV 上传的记录），
+ * 策略2按 name+parentId 层级递归，同时尝试原始值和 decode 值（兼容两种格式）。
+ *
  * Windows 资源管理器兼容性说明：
  * - 所有 401 响应必须携带 DAV 头，否则 Mini-Redirector 不认为这是 WebDAV 服务器，
  *   直接报"输入的文件夹似乎无效"且不弹出密码框。
@@ -37,7 +45,7 @@ const DAV_BASE_HEADERS = {
   'MS-Author-Via': 'DAV',
 };
 
-app.options('/*', (c) => {
+app.options('/*', (_c) => {
   return new Response(null, {
     status: 200,
     headers: {
@@ -150,24 +158,101 @@ function escapeXml(str: string): string {
 }
 
 type FileRow = typeof files.$inferSelect;
+type FolderCache = Map<string, { name: string; parentId: string | null }>;
+
+/**
+ * 构建请求级文件夹缓存（id → {name, parentId}）。
+ * 每次请求独立构建，避免模块级共享 Map 在 Cloudflare Workers 并发请求间互相污染
+ * （原实现用全局 Map + clearPathCache，并发时会出现缓存被其他请求清空导致路径截断的问题）。
+ */
+async function buildFolderCache(db: ReturnType<typeof getDb>, userId: string): Promise<FolderCache> {
+  const cache: FolderCache = new Map();
+  const allFolders = await db
+    .select({ id: files.id, name: files.name, parentId: files.parentId })
+    .from(files)
+    .where(and(eq(files.userId, userId), eq(files.isFolder, true), isNull(files.deletedAt)))
+    .all();
+
+  for (const folder of allFolders) {
+    cache.set(folder.id, { name: folder.name, parentId: folder.parentId });
+  }
+  return cache;
+}
+
+// WebDAV 上传的 name 字段存储 URL 编码格式，displayname 输出时 decode 为可读中文
+function decodeName(name: string): string {
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return name;
+  }
+}
+
+// findFileByPath 策略2中对路径分段安全 decode，用于匹配非 WebDAV 上传的原始中文 name
+function safeDecodeURIComponent(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
+// 将路径各段统一 encode：先 decode（兼容已编码的 WebDAV name），再 encode，
+// 确保最终 href 格式统一为 URL 编码，与客户端请求路径格式一致。
+function encodePathSegments(path: string): string {
+  return path
+    .split('/')
+    .map((seg) => (seg ? encodeURIComponent(safeDecodeURIComponent(seg)) : seg))
+    .join('/');
+}
+
+function buildLogicalPathFromCache(cache: FolderCache, parentId: string | null, fileName: string): string {
+  // 使用数据库原始 name 拼接路径（不 decode），保持与数据库 path 字段一致的格式，
+  // 确保 href 与客户端下次请求的路径匹配（策略1可直接命中）。
+  // displayname 的 decode 在 buildPropfindXML 中单独处理。
+  if (!parentId) {
+    return `/${fileName}`;
+  }
+
+  const pathParts: string[] = [fileName];
+  let currentId: string | null = parentId;
+
+  while (currentId) {
+    const folder = cache.get(currentId);
+    if (!folder) break;
+    pathParts.unshift(folder.name);
+    currentId = folder.parentId;
+  }
+
+  return '/' + pathParts.join('/');
+}
+
+function buildItemsWithLogicalPaths(cache: FolderCache, items: FileRow[]): FileRow[] {
+  return items.map((file) => {
+    const logicalPath = buildLogicalPathFromCache(cache, file.parentId, file.name);
+    return {
+      ...file,
+      path: file.isFolder ? logicalPath + '/' : logicalPath,
+    };
+  });
+}
 
 /**
  * 构建 PROPFIND 响应 XML。
  *
- * @param items       当前目录下的文件/文件夹列表
- * @param rawPath     原始请求路径（含 /dav 前缀，用于根节点 href 精确匹配）
- * @param isRoot      是否渲染根集合条目
+ * @param items   当前目录下的文件/文件夹列表（path 字段已由 buildItemsWithLogicalPaths 重建为逻辑路径）
+ * @param rawPath 原始请求路径（含 /dav 前缀），用于根集合条目的 <href> 精确匹配
+ * @param isRoot  是否渲染根集合条目（自身 response 节点）
  *
- * 关键修复：
- * 1. 根节点 <href> 使用 rawPath（即请求的原始路径），而非构造值，
- *    确保与 Windows 请求的路径精确匹配。
- * 2. 子项 <href> 统一加 /dav 前缀。
+ * 注意：
+ * - 根节点 <href> 使用 rawPath 而非构造值，确保与客户端请求路径精确匹配（Windows 严格校验）
+ * - 子项 <href> = DAV_PREFIX + 逻辑路径（由 buildLogicalPathFromCache 从 parentId 链递归构建）
+ * - displayname 对 WebDAV 上传的编码文件名做 decode，统一展示为可读格式
  */
 function buildPropfindXML(items: FileRow[], rawPath: string, isRoot: boolean = false): string {
   const responses: string[] = [];
 
   if (isRoot) {
-    // 根节点 href 必须与请求路径精确匹配，Windows 会用它来验证路径合法性
     const rootHref = rawPath;
     responses.push(`
   <response>
@@ -189,14 +274,16 @@ function buildPropfindXML(items: FileRow[], rawPath: string, isRoot: boolean = f
     if (!logicalPath.startsWith('/')) logicalPath = '/' + logicalPath;
     if (file.isFolder && !logicalPath.endsWith('/')) logicalPath += '/';
 
-    const href = DAV_PREFIX + logicalPath;
+    // 对路径各段统一 encode，与 rawPath（自身节点 href）格式保持一致，
+    // 避免客户端因编码不一致把自身节点和子项当成两个不同路径
+    const href = DAV_PREFIX + encodePathSegments(logicalPath);
 
     responses.push(`
   <response>
     <href>${escapeXml(href)}</href>
     <propstat>
       <prop>
-        <displayname>${escapeXml(file.name)}</displayname>
+        <displayname>${escapeXml(decodeName(file.name))}</displayname>
         <getcontentlength>${file.size}</getcontentlength>
         <getlastmodified>${new Date(file.updatedAt).toUTCString()}</getlastmodified>
         <creationdate>${file.createdAt}</creationdate>
@@ -216,32 +303,36 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
   const db = getDb(c.env.DB);
   const isRoot = path === '/' || path === '';
 
+  // 构建请求级局部缓存，每次请求独立，避免并发请求间共享状态互相污染
+  const cache = await buildFolderCache(db, userId);
+
   const xmlHeaders = {
     'Content-Type': 'application/xml; charset=utf-8',
     ...DAV_BASE_HEADERS,
   };
 
   let parentCondition;
+  let resolvedParent: File | undefined;
 
   if (isRoot) {
     parentCondition = isNull(files.parentId);
   } else {
-    const parentFolder = await findFileByPath(db, userId, path);
-    if (parentFolder) {
-      parentCondition = eq(files.parentId, parentFolder.id);
+    resolvedParent = await findFileByPath(db, userId, path);
+    if (resolvedParent) {
+      parentCondition = eq(files.parentId, resolvedParent.id);
     } else {
-      return new Response(buildPropfindXML([], rawPath, false), {
-        status: 207,
-        headers: xmlHeaders,
-      });
+      // 路径不存在：返回 404，让 WebDAV 客户端知道目录不存在
+      return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
     }
   }
 
-  const items = await db
+  const rawItems = await db
     .select()
     .from(files)
     .where(and(eq(files.userId, userId), parentCondition, isNull(files.deletedAt)))
     .all();
+
+  const items = buildItemsWithLogicalPaths(cache, rawItems);
 
   if (depth === '0') {
     if (isRoot) {
@@ -250,8 +341,10 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
         headers: xmlHeaders,
       });
     } else {
-      const current = await findFileByPath(db, userId, path);
-      if (current) items.unshift(current);
+      if (resolvedParent) {
+        const currentWithLogicalPath = buildItemsWithLogicalPaths(cache, [resolvedParent]);
+        items.unshift(...currentWithLogicalPath);
+      }
       return new Response(buildPropfindXML(items, rawPath, false), {
         status: 207,
         headers: xmlHeaders,
@@ -265,30 +358,74 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
   });
 }
 
+/**
+ * 按逻辑路径查找文件或文件夹，兼容两种上传方式的存储格式：
+ *
+ * 策略1（直接匹配 path 字段）：
+ *   适配 WebDAV 上传——客户端写入时对路径做 URL 编码，数据库 path 存储编码格式，
+ *   WebDAV 请求的 pathname 同样保留编码（new URL().pathname 不自动解码），可直接命中。
+ *
+ * 策略2（按 name+parentId 层级递归）：
+ *   适配非 WebDAV 上传——数据库 name/path 存储原始中文，但 WebDAV 客户端请求路径
+ *   中的中文会被编码为 %XX 格式，需对每段 decode 后才能匹配；同时保留原始值以兼容
+ *   WebDAV 上传的编码名（策略1未命中时的兜底）。
+ */
 async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path: string): Promise<File | undefined> {
+  // 策略1：直接精确匹配 path 字段（命中 WebDAV 上传的编码路径）
+  const normalized = path.endsWith('/') ? path.slice(0, -1) : path;
+
   let file = await db
     .select()
     .from(files)
-    .where(and(eq(files.userId, userId), eq(files.path, path), isNull(files.deletedAt)))
+    .where(and(eq(files.userId, userId), eq(files.path, normalized), isNull(files.deletedAt)))
     .get();
 
   if (!file) {
     file = await db
       .select()
       .from(files)
-      .where(and(eq(files.userId, userId), eq(files.path, path + '/'), isNull(files.deletedAt)))
+      .where(and(eq(files.userId, userId), eq(files.path, normalized + '/'), isNull(files.deletedAt)))
       .get();
   }
 
-  if (!file && path.endsWith('/')) {
-    file = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.userId, userId), eq(files.path, path.slice(0, -1)), isNull(files.deletedAt)))
-      .get();
+  if (file) return file;
+
+  // 策略2：按名称层级递归定位（适配非 WebDAV 上传，name/path 存储的是原始中文）
+  // WebDAV 请求路径中中文被编码为 %XX，需要 decode 后才能匹配数据库中的中文名称
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts.length === 0) return undefined;
+
+  let currentParentId: string | null = null;
+  let currentFile: File | undefined;
+
+  for (const part of parts) {
+    // 同时尝试原始值（匹配 WebDAV 上传的编码名）和 decoded 值（匹配非 WebDAV 上传的中文名）
+    const decodedPart = safeDecodeURIComponent(part);
+    const nameCandidates = Array.from(new Set([part, decodedPart]));
+
+    let found: File | undefined;
+    for (const namePart of nameCandidates) {
+      found = await db
+        .select()
+        .from(files)
+        .where(
+          and(
+            eq(files.userId, userId),
+            eq(files.name, namePart),
+            currentParentId ? eq(files.parentId, currentParentId) : isNull(files.parentId),
+            isNull(files.deletedAt)
+          )
+        )
+        .get();
+      if (found) break;
+    }
+
+    if (!found) return undefined;
+    currentFile = found;
+    currentParentId = currentFile.id;
   }
 
-  return file;
+  return currentFile;
 }
 
 async function handleGet(c: AppContext, userId: string, path: string, headOnly: boolean) {

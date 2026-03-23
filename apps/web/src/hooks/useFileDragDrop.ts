@@ -96,7 +96,7 @@ export function useFileDragDrop({ folderId, setUploadProgresses }: UseFileDragDr
               delete n[key];
               return n;
             });
-            queryClient.invalidateQueries({ queryKey: ['files', folderId] });
+            queryClient.invalidateQueries({ queryKey: ['files'] });
             queryClient.invalidateQueries({ queryKey: ['stats'] });
             toast({ title: '上传成功' });
           } catch (e: any) {

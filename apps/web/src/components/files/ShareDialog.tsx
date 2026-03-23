@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Link2, Upload, ChevronDown, ChevronUp } from 'lucide-react';
+import { decodeFileName } from '@/utils';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Download share dialog (original, extended)
@@ -140,7 +141,7 @@ export function UploadLinkDialog({
           <h2 className="text-lg font-semibold">创建上传链接</h2>
         </div>
         <p className="text-xs text-muted-foreground mb-4">
-          目标文件夹：<span className="font-medium text-foreground">{folderName}</span>
+          目标文件夹：<span className="font-medium text-foreground">{decodeFileName(folderName)}</span>
           <br />
           生成的链接允许任何人无需登录即可上传文件到此文件夹
         </p>

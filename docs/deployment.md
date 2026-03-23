@@ -1,128 +1,431 @@
 # OSSshelf 部署文档
 
+本文档基于项目实际配置文件，提供完整的部署指南，确保您能够一次性成功部署 OSSshelf。
+
+---
+
+## 📋 目录
+
+- [部署架构概览](#部署架构概览)
+- [环境要求](#环境要求)
+- [快速部署](#快速部署)
+- [GitHub Secrets 配置](#github-secrets-配置)
+- [Cloudflare Pages 前端部署](#cloudflare-pages-前端部署)
+- [GitHub Actions 后端部署](#github-actions-后端部署)
+- [存储提供商配置](#存储提供商配置)
+- [自定义域名](#自定义域名)
+- [性能优化](#性能优化)
+- [监控与日志](#监控与日志)
+- [备份与恢复](#备份与恢复)
+- [故障排查](#故障排查)
+- [安全建议](#安全建议)
+- [更新部署](#更新部署)
+
+---
+
+## 部署架构概览
+
+本项目采用现代化的 CI/CD 部署方式：
+
+| 组件 | 部署平台 | 触发方式 |
+|------|----------|----------|
+| 前端 (Web) | Cloudflare Pages | GitHub 仓库连接，自动构建部署 |
+| 后端 (API) | Cloudflare Workers | GitHub Actions 自动部署 |
+
+```
+                         ┌─────────────────────────────────────┐
+                         │           GitHub 仓库                │
+                         │    (push to main 分支触发部署)        │
+                         └─────────────────┬───────────────────┘
+                                           │
+              ┌────────────────────────────┴────────────────────────────┐
+              │                                                         │
+              │                                                         │
+┌─────────────▼─────────────┐                           ┌──────────────▼────────────┐
+│   Cloudflare Pages        │                           │    GitHub Actions          │
+│   (前端自动构建部署)        │                           │    (后端自动部署)           │
+│   触发: push to main      │                           │    触发: apps/api/** 变更   │
+└─────────────┬─────────────┘                           └──────────────┬────────────┘
+              │                                                        │
+              │                                           ┌────────────▼────────────┐
+              │                                           │  Cloudflare Workers     │
+              │                                           │  (API 服务)              │
+              │                                           └────────────┬────────────┘
+              │                                                        │
+              │                                           ┌────────────▼────────────┐
+              │                                           │  D1 / KV / R2           │
+              │                                           │  (Cloudflare 资源)       │
+              │                                           └─────────────────────────┘
+              │
+┌─────────────▼─────────────┐
+│      用户浏览器            │
+│   https://your.pages.dev  │
+└───────────────────────────┘
+```
+
+---
+
 ## 环境要求
 
-- Node.js >= 20.0.0
-- pnpm >= 8.0.0
-- Cloudflare 账户
-- Cloudflare D1 (SQLite)
-- Cloudflare Workers
-- Cloudflare KV (可选，用于缓存和迁移状态)
+### 必需环境
+
+| 软件 | 版本要求 | 说明 |
+|------|----------|------|
+| Node.js | >= 20.0.0 | 推荐使用 LTS 版本 |
+| pnpm | >= 8.0.0 | 包管理器 |
+
+### Cloudflare 资源
+
+| 资源 | 说明 | 免费额度 |
+|------|------|----------|
+| Cloudflare 账户 | 注册地址：https://dash.cloudflare.com | 免费 |
+| D1 数据库 | SQLite 数据库 | 5GB 存储，500万行读取/天 |
+| KV 命名空间 | 键值存储 | 1GB 存储，10万次读取/天 |
+| Workers | 无服务器计算 | 10万次请求/天 |
+| Pages | 静态托管 | 无限制 |
+
+### GitHub 资源
+
+| 资源 | 说明 |
+|------|------|
+| GitHub 仓库 | 用于托管代码和触发 CI/CD |
+| GitHub Secrets | 存储敏感配置信息 |
+
+---
 
 ## 快速部署
 
-### 1. 创建 Cloudflare 资源
+### Step 1: Fork 或克隆项目
+
+将项目 Fork 到您的 GitHub 账户，或克隆后推送到您的仓库。
 
 ```bash
+git clone https://github.com/your-username/ossshelf.git
+cd ossshelf
+```
+
+### Step 2: 创建 Cloudflare 资源
+
+```bash
+# 安装 Wrangler CLI
+npm install -g wrangler
+
 # 登录 Cloudflare
 wrangler login
 
 # 创建 D1 数据库
 wrangler d1 create ossshelf-db
+# 记录输出的 database_id
 
-# 创建 KV 命名空间 (可选，用于迁移状态追踪)
-wrangler kv:namespace create KV
+# 创建 KV 命名空间
+wrangler kv:namespace create KV --preview false
+# 记录输出的 id
+
+# (可选) 创建 R2 存储桶用于文件存储
+wrangler r2 bucket create ossshelf-files
 ```
 
-### 2. 配置 wrangler.toml
+> **重要**: 请记录输出的 `database_id` 和 KV `id`，后续配置需要使用。
 
-复制并配置 `apps/api/wrangler.toml.example`:
+### Step 3: 配置 GitHub Secrets
 
-```toml
-name = "ossshelf-api"
-main = "src/index.ts"
-compatibility_date = "2024-01-01"
+在您的 GitHub 仓库中配置以下 Secrets：
 
-[[d1_databases]]
-binding = "DB"
-database_name = "ossshelf-db"
-database_id = "your-database-id"
+**进入仓库 → Settings → Secrets and variables → Actions → New repository secret**
 
-[[kv_namespaces]]
-binding = "KV"
-id = "your-kv-namespace-id"
-```
+| Secret 名称 | 说明 | 获取方式 |
+|-------------|------|----------|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API 令牌 | [创建教程](#获取-cloudflare-api-token) |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账户 ID | Dashboard 右侧边栏 |
+| `CLOUDFLARE_D1_DATABASE_ID` | D1 数据库 ID | Step 2 创建时获得 |
+| `CLOUDFLARE_KV_NAMESPACE_ID` | KV 命名空间 ID | Step 2 创建时获得 |
+| `JWT_SECRET` | JWT 签名密钥 | 生成 32+ 字符随机字符串 |
+| `TRASH_RETENTION_DAYS` | 回收站保留天数 | 可选，默认 30 |
 
-### 3. 环境变量
+#### 获取 Cloudflare API Token
 
-在 wrangler.toml 或 Cloudflare Dashboard 中配置以下 secrets:
+1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
+2. 点击右上角头像 → My Profile → API Tokens
+3. 点击「Create Token」
+4. 选择「Edit Cloudflare Workers」模板
+5. 配置权限：
+   - Account Resources: Include → Your Account
+   - Zone Resources: Include → All zones（或指定域名）
+6. 创建并复制 Token
+
+### Step 4: 运行数据库迁移
+
+首次部署前需要初始化数据库：
 
 ```bash
-# 设置 JWT 密钥
-wrangler secret put JWT_SECRET
-# 输入一个随机的强密码，用于签名 JWT token
+# 安装依赖
+pnpm install
 
-# 设置加密密钥 (用于加密存储桶密钥)
-wrangler secret put ENCRYPTION_KEY
-# 输入一个 32 字节的随机字符串
-
-# 设置管理员邮箱
-wrangler secret put ADMIN_EMAIL
-# 输入管理员邮箱地址
-```
-
-### 4. 运行数据库迁移
-
-```bash
-# 生成迁移 (首次)
-pnpm db:generate
+# 创建临时 wrangler.toml 用于本地迁移
+cp apps/api/wrangler.toml.example apps/api/wrangler.toml
+# 编辑 wrangler.toml 填入实际的 database_id 和 KV id
 
 # 运行迁移
 pnpm db:migrate
 ```
 
-### 5. 部署 API
+迁移文件位于 `apps/api/migrations/`：
+- `0001_init.sql` - 初始化表结构
+- `0002_optimization.sql` - 性能优化索引
+- `0003_folder_upload_types.sql` - 文件夹上传类型限制
+- `0004_telegram_storage.sql` - Telegram 存储支持
+- `0005_dedup_and_upload_links.sql` - 文件去重和上传链接
+- `0006_upload_progress.sql` - 上传进度追踪
+- `0007_phase7.sql` - 第七阶段功能
+
+### Step 5: 设置加密密钥
+
+存储桶凭证需要加密存储，设置加密密钥：
 
 ```bash
-pnpm deploy:api
+# 生成 32 字节随机密钥
+openssl rand -base64 32
+
+# 设置为 Cloudflare Worker Secret
+wrangler secret put ENCRYPTION_KEY --name ossshelf-api
+# 粘贴上面生成的密钥
 ```
 
-### 6. 部署前端
+### Step 6: 连接 Cloudflare Pages（前端部署）
+
+1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
+2. 进入 Workers & Pages → Create application → Pages → Connect to Git
+3. 选择您的 GitHub 仓库
+4. 配置构建设置：
+   - **项目名称**: `ossshelf-web`（或自定义）
+   - **生产分支**: `main`
+   - **构建命令**: `pnpm install && pnpm build:web`
+   - **构建输出目录**: `apps/web/dist`
+5. 添加环境变量：
+   - `VITE_API_URL`: 您的 API 地址（如 `https://ossshelf-api.your-subdomain.workers.dev`）
+6. 点击「Save and Deploy」
+
+首次部署后，每次推送到 main 分支都会自动触发前端构建和部署。
+
+### Step 7: 验证部署
 
 ```bash
-# 构建前端
-pnpm build:web
+# 测试 API
+curl https://your-api.workers.dev/api/auth/registration-config
 
-# 部署到 Cloudflare Pages
-wrangler pages deploy apps/web/dist --project-name=ossshelf-web
+# 预期返回：
+# {"success":true,"data":{"open":true,"requireInviteCode":false}}
+
+# 访问前端
+# 打开 https://your-project.pages.dev
 ```
 
-### 7. 配置定时任务
+---
 
-通过 Cloudflare Dashboard 或 wrangler.toml 配置 Cron Triggers:
+## GitHub Secrets 配置
 
-```toml
-# wrangler.toml
-[triggers]
-crons = ["0 3 * * *"]  # 每天凌晨 3 点
+### 必需 Secrets
 
-[[routes]]
-pattern = "/cron/*"
-zone_name = "your-domain.com"
+| Secret 名称 | 必需 | 说明 |
+|-------------|------|------|
+| `CLOUDFLARE_API_TOKEN` | ✅ | Workers 部署权限 |
+| `CLOUDFLARE_ACCOUNT_ID` | ✅ | Cloudflare 账户标识 |
+| `CLOUDFLARE_D1_DATABASE_ID` | ✅ | D1 数据库绑定 |
+| `CLOUDFLARE_KV_NAMESPACE_ID` | ✅ | KV 命名空间绑定 |
+| `JWT_SECRET` | ✅ | JWT 签名密钥 |
+
+### 可选 Secrets
+
+| Secret 名称 | 默认值 | 说明 |
+|-------------|--------|------|
+| `TRASH_RETENTION_DAYS` | 30 | 回收站文件保留天数 |
+| `ALERT_TG_BOT_TOKEN` | - | 告警 Telegram Bot Token，用于接收系统告警通知 |
+| `ALERT_TG_CHAT_ID` | - | 告警 Telegram Chat ID，指定告警消息发送目标 |
+
+#### 配置 Telegram 告警（可选）
+
+如需接收系统告警通知（如定时任务执行失败、存储异常等），可配置 Telegram Bot：
+
+1. **创建 Bot**：在 Telegram 中搜索 [@BotFather](https://t.me/BotFather)，发送 `/newbot` 创建 Bot，记录返回的 Token
+2. **获取 Chat ID**：
+   - **个人消息**：直接使用你的 User ID（转发任意消息到 [@userinfobot](https://t.me/userinfobot) 获取），需要先向 Bot 发送 `/start`
+   - **频道/群组**：创建频道或群组，将 Bot 添加为管理员，转发消息到 [@userinfobot](https://t.me/userinfobot) 获取 Chat ID（以 `-100` 开头）
+3. **配置 Secrets**：将 Token 和 Chat ID 添加到 GitHub Secrets
+
+### 配置示例
+
+GitHub Actions 工作流位于 `.github/workflows/deploy-api.yml`，会自动读取这些 Secrets 并生成 `wrangler.toml`：
+
+```yaml
+# 工作流会生成以下配置
+[[d1_databases]]
+binding = "DB"
+database_name = "r2shelf-db"
+database_id = "${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}"
+
+[vars]
+JWT_SECRET = "${{ secrets.JWT_SECRET }}"
+TRASH_RETENTION_DAYS = "${{ secrets.TRASH_RETENTION_DAYS || '30' }}"
 ```
+
+---
+
+## Cloudflare Pages 前端部署
+
+### 自动部署配置
+
+Cloudflare Pages 通过 GitHub 集成实现自动部署：
+
+| 触发条件 | 行为 |
+|----------|------|
+| Push 到 main 分支 | 自动构建并部署到生产环境 |
+| Pull Request | 生成预览部署（可选） |
+
+### 构建配置
+
+| 配置项 | 值 |
+|--------|-----|
+| 构建命令 | `pnpm install && pnpm build:web` |
+| 输出目录 | `apps/web/dist` |
+| Node.js 版本 | 20.x |
+| 包管理器 | pnpm |
+
+### 环境变量
+
+在 Cloudflare Pages 设置中配置：
+
+| 变量名 | 说明 |
+|--------|------|
+| `VITE_API_URL` | 后端 API 地址 |
+
+**设置路径**: Cloudflare Dashboard → Workers & Pages → 您的项目 → Settings → Environment variables
+
+### 手动触发部署
+
+如需手动触发前端部署：
+
+1. 进入 Cloudflare Dashboard → Workers & Pages → 您的项目
+2. 点击「View details」
+3. 点击「Retry deployment」
+
+---
+
+## GitHub Actions 后端部署
+
+### 工作流配置
+
+后端部署由 `.github/workflows/deploy-api.yml` 控制：
+
+```yaml
+name: Deploy API to Cloudflare Workers
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/api/**'
+      - 'packages/shared/**'
+      - '.github/workflows/deploy-api.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package
+        run: pnpm --filter @osshelf/shared build
+
+      - name: Generate wrangler.toml
+        # 动态生成配置文件
+
+      - name: Deploy to Cloudflare Workers
+        run: pnpm deploy:api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+```
+
+### 触发条件
+
+后端部署在以下情况自动触发：
+
+- `apps/api/` 目录下任何文件变更
+- `packages/shared/` 目录下任何文件变更
+- `.github/workflows/deploy-api.yml` 工作流文件变更
+
+### 查看部署状态
+
+1. 进入 GitHub 仓库 → Actions 标签页
+2. 选择「Deploy API to Cloudflare Workers」工作流
+3. 查看运行日志和状态
+
+### 手动触发部署
+
+如需手动触发后端部署，可以在 GitHub Actions 页面点击「Run workflow」按钮（需要在工作流中添加 `workflow_dispatch` 触发器）。
+
+---
 
 ## 存储提供商配置
 
-### Cloudflare R2
+支持的存储提供商定义于 `apps/api/src/routes/buckets.ts`：
+
+### Cloudflare R2（推荐）
+
+**优势**: 无出站流量费用，与 Workers 同区域低延迟
+
+**获取凭证**：
+1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
+2. 进入 R2 → 管理 R2 API 令牌
+3. 创建 API 令牌，权限选择「对象读和写」
+
+**配置示例**：
 
 ```json
 {
   "provider": "r2",
+  "name": "我的 R2 存储桶",
   "bucketName": "my-bucket",
-  "endpoint": "https://account-id.r2.cloudflarestorage.com",
+  "endpoint": "https://<account-id>.r2.cloudflarestorage.com",
   "region": "auto",
-  "accessKeyId": "your-access-key-id",
-  "secretAccessKey": "your-secret-access-key"
+  "accessKeyId": "你的 Access Key ID",
+  "secretAccessKey": "你的 Secret Access Key"
 }
 ```
 
-**特点**: 无出站流量费用，适合大量下载场景
-
 ### AWS S3
+
+**获取凭证**：
+1. 登录 AWS Console
+2. IAM → 用户 → 创建用户 → 添加权限 `AmazonS3FullAccess`
+3. 创建访问密钥
+
+**配置示例**：
 
 ```json
 {
   "provider": "s3",
+  "name": "我的 S3 存储桶",
   "bucketName": "my-bucket",
   "endpoint": "https://s3.amazonaws.com",
   "region": "us-east-1",
@@ -133,232 +436,505 @@ zone_name = "your-domain.com"
 
 ### 阿里云 OSS
 
+**获取凭证**：
+1. 登录阿里云控制台
+2. RAM → 用户 → 创建用户 → 添加权限 `AliyunOSSFullAccess`
+3. 创建 AccessKey
+
+**配置示例**：
+
 ```json
 {
   "provider": "oss",
+  "name": "我的 OSS 存储桶",
   "bucketName": "my-bucket",
   "endpoint": "https://oss-cn-hangzhou.aliyuncs.com",
   "region": "cn-hangzhou",
-  "accessKeyId": "your-access-key-id",
-  "secretAccessKey": "your-secret-access-key"
+  "accessKeyId": "你的 AccessKey ID",
+  "secretAccessKey": "你的 AccessKey Secret"
 }
 ```
 
 ### 腾讯云 COS
 
+**获取凭证**：
+1. 登录腾讯云控制台
+2. 访问管理 → API 密钥管理 → 新建密钥
+
+**配置示例**：
+
 ```json
 {
   "provider": "cos",
+  "name": "我的 COS 存储桶",
   "bucketName": "my-bucket-1234567890",
   "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
   "region": "ap-guangzhou",
-  "accessKeyId": "your-access-key-id",
-  "secretAccessKey": "your-secret-access-key"
+  "accessKeyId": "你的 SecretId",
+  "secretAccessKey": "你的 SecretKey"
 }
 ```
 
 ### 华为云 OBS
 
+**配置示例**：
+
 ```json
 {
   "provider": "obs",
+  "name": "我的 OBS 存储桶",
   "bucketName": "my-bucket",
   "endpoint": "https://obs.cn-south-1.myhuaweicloud.com",
   "region": "cn-south-1",
-  "accessKeyId": "your-access-key-id",
-  "secretAccessKey": "your-secret-access-key"
+  "accessKeyId": "你的 AK",
+  "secretAccessKey": "你的 SK"
 }
 ```
 
 ### Backblaze B2
 
+**获取凭证**：
+1. 登录 Backblaze B2
+2. Account → App Keys → Add New Application Key
+
+**配置示例**：
+
 ```json
 {
   "provider": "b2",
+  "name": "我的 B2 存储桶",
   "bucketName": "my-bucket",
   "endpoint": "https://s3.us-west-000.backblazeb2.com",
   "region": "us-west-000",
-  "accessKeyId": "your-application-key-id",
-  "secretAccessKey": "your-application-key"
+  "accessKeyId": "你的 keyID",
+  "secretAccessKey": "你的 applicationKey",
+  "pathStyle": true
 }
 ```
 
 ### MinIO
 
+**配置示例**：
+
 ```json
 {
   "provider": "minio",
+  "name": "我的 MinIO 存储桶",
   "bucketName": "my-bucket",
   "endpoint": "https://minio.example.com:9000",
   "region": "custom",
-  "accessKeyId": "your-access-key",
-  "secretAccessKey": "your-secret-key",
+  "accessKeyId": "你的 Access Key",
+  "secretAccessKey": "你的 Secret Key",
   "pathStyle": true
 }
 ```
 
-### Telegram Bot Storage
+> **注意**: MinIO 通常需要设置 `pathStyle: true`
+
+### Telegram Bot 存储
+
+**设置步骤**：
+
+1. **创建 Bot**
+   - 在 Telegram 中搜索 [@BotFather](https://t.me/BotFather)
+   - 发送 `/newbot` 并按提示创建 Bot
+   - 记录返回的 Token（格式：`123456:ABC-DEF...`）
+
+2. **创建频道/群组**
+   - 创建一个频道或群组用于存储文件
+   - 将 Bot 添加为管理员
+
+3. **获取 Chat ID**
+   - 方法一：转发频道消息到 [@userinfobot](https://t.me/userinfobot)
+   - 方法二：访问 `https://api.telegram.org/bot<TOKEN>/getUpdates`
+
+**配置示例**：
 
 ```json
 {
   "provider": "telegram",
-  "bucketName": "1234567890",
+  "name": "我的 Telegram 存储",
+  "bucketName": "-1001234567890",
   "endpoint": "https://api.telegram.org",
   "accessKeyId": "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11",
   "secretAccessKey": "telegram-no-secret"
 }
 ```
 
-**配置说明**:
-- `bucketName`: Telegram Chat ID (频道/群组/私聊的 ID)
-- `accessKeyId`: Telegram Bot Token
-- `endpoint`: 可选的 Bot API 代理地址 (如 https://api.telegram.org)
+**限制说明**（定义于 `apps/api/src/lib/telegramClient.ts`）：
 
-**Telegram Bot 设置步骤**:
-1. 通过 @BotFather 创建一个新的 Bot
-2. 获取 Bot Token
-3. 创建一个 Telegram 频道或群组
-4. 将 Bot 添加到频道/群组，并设置为管理员
-5. 获取频道/群组的 Chat ID (可以通过转发消息到 @userinfobot 或使用 Telegram API 获取)
+| 限制项 | 值 |
+|--------|-----|
+| 单文件最大 | 2 GB |
+| 小文件直传阈值 | 49 MB |
+| 分片大小 | 30 MB |
+| 文件删除 | 仅删除引用，无法真正删除 |
 
-## 部署架构
+---
 
+## 自定义域名
+
+### API 域名配置
+
+```bash
+# 添加自定义域名
+wrangler domains add ossshelf-api your-domain.com
+
+# 或在 wrangler.toml 中配置
+[[routes]]
+pattern = "api.your-domain.com/*"
+zone_name = "your-domain.com"
 ```
-                    ┌─────────────────┐
-                    │  Cloudflare      │
-                    │  Pages (前端)    │
-                    └────────┬────────┘
-                             │
-                    ┌────────▼────────┐
-                    │  Cloudflare     │
-                    │  Workers (API)  │
-                    └────────┬────────┘
-                             │
-        ┌────────────────────┼────────────────────┐
-        │                    │                    │
-┌───────▼───────┐   ┌───────▼───────┐   ┌───────▼───────┐
-│   Cloudflare  │   │   Cloudflare  │   │   Telegram    │
-│   D1 (DB)     │   │   KV (缓存)   │   │   Bot API     │
-└───────────────┘   └───────────────┘   └───────────────┘
-                                               │
-                    ┌────────────────────────────┼────────────────────────────┐
-                    │                            │                            │
-             ┌──────▼──────┐            ┌───────▼───────┐          ┌───────▼───────┐
-             │ Cloudflare  │            │    AWS S3     │          │  阿里云 OSS   │
-             │     R2      │            │               │          │               │
-             └─────────────┘            └───────────────┘          └───────────────┘
+
+### 前端域名配置
+
+1. 进入 Cloudflare Dashboard → Workers & Pages → 您的项目
+2. Settings → Custom domains
+3. 点击「Set up a custom domain」
+4. 输入域名并验证
+
+### CORS 配置
+
+如果前端和 API 使用不同域名，需要配置 CORS。在 `apps/api/src/index.ts` 中已默认配置：
+
+```typescript
+app.use('*', cors({
+  origin: ['https://your-frontend.pages.dev', 'https://your-domain.com'],
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+}));
 ```
+
+---
 
 ## 性能优化
 
 ### 1. 开启 Cloudflare CDN
 
 - 在 Cloudflare Dashboard 中添加域名
-- 开启 Proxy 模式
+- 开启 Proxy 模式（橙色云朵）
 - 配置页面规则缓存静态资源
 
-### 2. 预签名 URL
+### 2. 预签名 URL 优化
 
-- 大文件使用预签名 URL 直接上传到存储
-- 减少 Workers CPU 消耗
-- 支持更大的文件上传
+大文件使用预签名 URL 直接上传到存储，减少 Workers CPU 消耗：
 
-### 3. WebDAV 优化
+- 文件 ≤ 100MB：直接上传
+- 文件 > 100MB：分片上传
 
-- 使用 WebDAV 客户端连接
-- 支持 Windows 资源管理器直接访问
-- 优化了 LOCK/UNLOCK 操作
+### 3. 数据库索引
+
+系统已自动创建必要的索引（见 `apps/api/migrations/`），无需手动优化。
+
+### 4. KV 缓存策略
+
+- 迁移状态：实时更新
+- 预签名 URL：短期缓存
+
+---
 
 ## 监控与日志
 
-### 查看日志
+### 实时日志
 
 ```bash
-# 实时日志
+# 实时查看 Workers 日志
 wrangler tail
 
-# 特定时间段
-wrangler tail --from 2024-01-01 --to 2024-01-02
+# 过滤特定日志
+wrangler tail --format=json | jq 'select(.event.request.url | contains("api/files"))'
 ```
+
+### Cloudflare Dashboard 监控
+
+1. 进入 Workers & Pages
+2. 选择你的 Worker
+3. 查看「指标」和「日志」
+
+### GitHub Actions 日志
+
+1. 进入 GitHub 仓库 → Actions
+2. 选择具体的工作流运行
+3. 查看每个步骤的详细日志
 
 ### 设置告警
 
-在 Cloudflare Dashboard 中配置:
+在 Cloudflare Dashboard 中配置：
 - Workers 错误率告警
 - Workers 延迟告警
 - D1 查询超时告警
+
+---
 
 ## 备份与恢复
 
 ### 数据库备份
 
 ```bash
-# 导出
-wrangler d1 execute ossshelf-db --command=".backup ossshelf-backup.db"
+# 导出数据库
+wrangler d1 export ossshelf-db --output=backup.sql
 
-# 导入
-wrangler d1 execute ossshelf-db --command=".restore ossshelf-backup.db"
+# 导入数据库
+wrangler d1 execute ossshelf-db --file=backup.sql
+```
+
+### 定期备份脚本
+
+```bash
+#!/bin/bash
+DATE=$(date +%Y%m%d_%H%M%S)
+wrangler d1 export ossshelf-db --output="backup_${DATE}.sql"
+# 上传到存储桶或其他安全位置
 ```
 
 ### 存储桶备份
 
 - 定期使用存储提供商的管理控制台导出数据
 - 启用存储桶版本控制
-- 配置跨区域复制 (如有需要)
+- 配置跨区域复制（如有需要）
+
+---
 
 ## 故障排查
 
 ### 常见问题
 
-#### 1. 上传失败
+#### 1. GitHub Actions 部署失败：`Authentication error`
 
-- 检查存储桶配置是否正确
-- 确认 Access Key/Secret Key 权限
-- 检查 CORS 配置
+**原因**: Cloudflare API Token 无效或权限不足
 
-#### 2. WebDAV 连接失败
+**解决**: 
+- 检查 `CLOUDFLARE_API_TOKEN` Secret 是否正确
+- 确认 Token 有 Workers 编辑权限
 
-- 确认用户名密码正确
-- 检查 Basic Auth 是否启用
-- 确认 Workers 域名已配置 SSL
+#### 2. 前端部署失败：`Build failed`
 
-#### 3. 定时任务不执行
+**原因**: 构建命令或输出目录配置错误
 
-- 确认 Cron Triggers 已配置
-- 检查 wrangler.toml 中的 crons 配置
-- 查看 Workers 日志排查错误
+**解决**:
+- 确认构建命令为 `pnpm install && pnpm build:web`
+- 确认输出目录为 `apps/web/dist`
 
-#### 4. Telegram 上传失败
+#### 3. API 请求失败：`No such binding: DB`
 
-- 确认 Bot Token 有效
-- 检查 Bot 是否已添加到目标频道/群组
-- 确认 Bot 有发送文档权限
-- 检查网络连接到 Telegram API 是否正常
+**原因**: D1 数据库绑定配置错误
+
+**解决**: 检查 `CLOUDFLARE_D1_DATABASE_ID` Secret 是否正确
+
+```bash
+# 查看现有数据库
+wrangler d1 list
+
+# 查看数据库详情
+wrangler d1 info ossshelf-db
+```
+
+#### 4. 上传失败：`Storage exceeded`
+
+**原因**: 存储配额不足
+
+**解决**: 
+- 检查用户存储配额
+- 检查存储桶配额
+- 清理不需要的文件
+
+#### 5. WebDAV 连接失败
+
+**排查步骤**:
+1. 确认 API 地址正确
+2. 确认用户名是注册邮箱
+3. 检查 SSL 证书
+4. 查看 Workers 日志
+
+```bash
+# 测试 WebDAV 连接
+curl -X PROPFIND https://your-api.workers.dev/dav/ \
+  -u "email@example.com:password" \
+  -H "Depth: 0"
+```
+
+#### 6. 定时任务不执行
+
+**排查步骤**:
+1. 确认 Cron Triggers 已配置
+2. 查看 Workers 日志
+
+```bash
+# 手动触发定时任务
+curl -X POST https://your-api.workers.dev/cron/all
+```
+
+#### 7. Telegram 上传失败
+
+**排查步骤**:
+1. 确认 Bot Token 有效
+2. 检查 Bot 是否已添加到目标频道/群组
+3. 确认 Bot 有发送文档权限
+4. 测试连接：
+
+```bash
+curl "https://api.telegram.org/bot<TOKEN>/getMe"
+```
+
+#### 8. 前端无法访问 API
+
+**排查步骤**:
+1. 检查 CORS 配置
+2. 确认 `VITE_API_URL` 环境变量正确
+3. 检查浏览器控制台错误
+
+---
 
 ## 安全建议
 
-1. **启用 2FA**: 在 Cloudflare 账户中启用双因素认证
-2. **限制 IP**: 通过 Cloudflare Access 限制管理面板 IP
-3. **加密密钥**: 定期轮换 ENCRYPTION_KEY
-4. **日志审计**: 定期审查审计日志
-5. **备份**: 定期备份数据库和重要数据
+### 1. 密钥管理
+
+- ✅ 使用 GitHub Secrets 存储敏感信息
+- ✅ 使用 `wrangler secret` 存储运行时密钥
+- ✅ 定期轮换 JWT_SECRET 和 ENCRYPTION_KEY
+- ❌ 不要在代码中存储敏感信息
+
+### 2. 访问控制
+
+- 启用 Cloudflare Access 限制管理面板 IP
+- 配置防火墙规则限制异常请求
+
+### 3. 数据安全
+
+- 定期备份数据库
+- 启用存储桶版本控制
+- 定期审查审计日志
+
+### 4. 账户安全
+
+- 启用 Cloudflare 账户 2FA
+- 启用 GitHub 账户 2FA
+- 使用 API Token 代替 Global API Key
+- 定期检查账户活动
+
+---
 
 ## 更新部署
 
-```bash
-# 拉取最新代码
-git pull
+### 自动更新（推荐）
 
-# 安装依赖
-pnpm install
+项目已配置 CI/CD，更新非常简单：
+
+```bash
+# 1. 拉取最新代码
+git pull origin main
+
+# 2. 推送到 GitHub
+git push origin main
+```
+
+推送后：
+- **前端**: Cloudflare Pages 自动检测并重新构建部署
+- **后端**: 如果 `apps/api/` 有变更，GitHub Actions 自动部署
+
+### 数据库迁移
+
+如果更新包含数据库迁移：
+
+```bash
+# 检查是否有新迁移文件
+ls apps/api/migrations/
+
+# 执行迁移
+pnpm db:migrate
+```
+
+### 从 Fork 更新
+
+```bash
+# 1. 添加上游仓库（仅需一次）
+git remote add upstream https://github.com/original-repo/ossshelf.git
+
+# 2. 拉取上游更新
+git fetch upstream
+git merge upstream/main
+
+# 3. 解决冲突后推送
+git push origin main
+```
+
+### 回滚部署
+
+#### 回滚后端
+
+```bash
+# 查看部署历史
+wrangler deployments list
+
+# 回滚到指定版本
+wrangler rollback --version <version>
+```
+
+#### 回滚前端
+
+1. 进入 Cloudflare Dashboard → Workers & Pages → 您的项目
+2. 点击「View details」
+3. 在部署历史中选择要回滚的版本
+4. 点击「Rollback to this deployment」
+
+---
+
+## 附录：常用命令
+
+```bash
+# 开发
+pnpm dev:api          # 本地开发 API
+pnpm dev:web          # 本地开发前端
 
 # 构建
-pnpm build
+pnpm build:api        # 构建 API
+pnpm build:web        # 构建前端
 
-# 运行迁移
-pnpm db:migrate
+# 部署（通常由 CI/CD 自动执行）
+pnpm deploy:api       # 部署 API
 
-# 部署
-pnpm deploy:api
-wrangler pages deploy apps/web/dist --project-name=ossshelf-web
+# 数据库
+pnpm db:generate      # 生成迁移
+pnpm db:migrate       # 运行迁移
+pnpm db:studio        # 打开 Drizzle Studio
+
+# Cloudflare
+wrangler tail         # 实时日志
+wrangler d1 list      # 列出数据库
+wrangler kv:key list  # 列出 KV 键
+
+# 代码质量
+pnpm lint             # ESLint
+pnpm typecheck        # 类型检查
 ```
+
+---
+
+## 附录：部署检查清单
+
+### 首次部署
+
+- [ ] Fork 项目到 GitHub
+- [ ] 创建 Cloudflare D1 数据库
+- [ ] 创建 Cloudflare KV 命名空间
+- [ ] 配置 GitHub Secrets
+  - [ ] `CLOUDFLARE_API_TOKEN`
+  - [ ] `CLOUDFLARE_ACCOUNT_ID`
+  - [ ] `CLOUDFLARE_D1_DATABASE_ID`
+  - [ ] `CLOUDFLARE_KV_NAMESPACE_ID`
+  - [ ] `JWT_SECRET`
+  - [ ] `ALERT_TG_BOT_TOKEN`（可选）
+  - [ ] `ALERT_TG_CHAT_ID`（可选）
+- [ ] 运行数据库迁移
+- [ ] 设置 ENCRYPTION_KEY Secret
+- [ ] 连接 Cloudflare Pages
+- [ ] 配置前端环境变量 `VITE_API_URL`
+- [ ] 验证部署成功
+
+### 更新部署
+
+- [ ] 拉取最新代码
+- [ ] 检查数据库迁移
+- [ ] 推送到 GitHub
+- [ ] 验证自动部署成功

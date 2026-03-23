@@ -16,6 +16,11 @@ export function useFilesPageState() {
   const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [newFolderBucketId, setNewFolderBucketId] = useState<string | null>(null);
+  const [showNewFileDialog, setShowNewFileDialog] = useState(false);
+  const [newFileName, setNewFileName] = useState('');
+  const [newFileContent, setNewFileContent] = useState('');
+  const [newFileExtension, setNewFileExtension] = useState('.txt');
+  const [newFileParentId, setNewFileParentId] = useState<string | null>(null);
   const [uploadProgresses, setUploadProgresses] = useState<UploadProgress>({});
   const [shareFileId, setShareFileId] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
@@ -36,12 +41,24 @@ export function useFilesPageState() {
     setNewFolderBucketId(null);
   }, []);
 
+  const resetNewFileDialog = useCallback(() => {
+    setShowNewFileDialog(false);
+    setNewFileName('');
+    setNewFileContent('');
+    setNewFileExtension('.txt');
+    setNewFileParentId(null);
+  }, []);
+
   const resetShareDialog = useCallback(() => {
     setShareFileId(null);
   }, []);
 
   const openNewFolderDialog = useCallback(() => {
     setShowNewFolderDialog(true);
+  }, []);
+
+  const openNewFileDialog = useCallback(() => {
+    setShowNewFileDialog(true);
   }, []);
 
   const openShareDialog = useCallback((fileId: string) => {
@@ -55,6 +72,16 @@ export function useFilesPageState() {
     setNewFolderName,
     newFolderBucketId,
     setNewFolderBucketId,
+    showNewFileDialog,
+    setShowNewFileDialog,
+    newFileName,
+    setNewFileName,
+    newFileContent,
+    setNewFileContent,
+    newFileExtension,
+    setNewFileExtension,
+    newFileParentId,
+    setNewFileParentId,
     uploadProgresses,
     setUploadProgresses,
     shareFileId,
@@ -77,8 +104,10 @@ export function useFilesPageState() {
     folderInputRef,
     searchInputRef,
     resetNewFolderDialog,
+    resetNewFileDialog,
     resetShareDialog,
     openNewFolderDialog,
+    openNewFileDialog,
     openShareDialog,
   };
 }

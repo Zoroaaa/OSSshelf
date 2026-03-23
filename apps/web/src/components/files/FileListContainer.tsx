@@ -14,6 +14,7 @@ import { ListItem } from './ListItem';
 import { GridItem } from './GridItem';
 import { MasonryItem } from './MasonryItem';
 import { GalleryItem } from './GalleryItem';
+import { decodeFileName } from '@/utils';
 
 interface FileListContainerProps {
   viewMode: ViewMode;
@@ -36,6 +37,7 @@ interface FileListContainerProps {
   onContextMenu: (e: React.MouseEvent, file?: FileItem) => void;
   onTagClick: (tagName: string) => void;
   onUploadLink?: (file: FileItem) => void;
+  onDirectLink?: (file: FileItem) => void;
 }
 
 export function FileListContainer({
@@ -59,6 +61,7 @@ export function FileListContainer({
   onContextMenu,
   onTagClick,
   onUploadLink,
+  onDirectLink,
 }: FileListContainerProps) {
   const hasImages = imageFiles.length > 0;
 
@@ -85,7 +88,7 @@ export function FileListContainer({
             file={file}
             token={token}
             onClick={() => onPreview(file)}
-            onDelete={() => confirm(`删除 "${file.name}"？`) && onDelete(file)}
+            onDelete={() => confirm(`删除 "${decodeFileName(file.name)}"？`) && onDelete(file)}
             onContextMenu={(e) => onContextMenu(e, file)}
           />
         ))}
@@ -106,13 +109,14 @@ export function FileListContainer({
             onToggleSelect={onToggleSelect}
             onDownload={onDownload}
             onShare={onShare}
-            onDelete={(f) => confirm(`将 "${f.name}" 移入回收站？`) && onDelete(f)}
+            onDelete={(f) => confirm(`将 "${decodeFileName(f.name)}" 移入回收站？`) && onDelete(f)}
             onRename={onRename}
             onPreview={onPreview}
             onMove={onMove}
             onContextMenu={onContextMenu}
             onTagClick={onTagClick}
             onUploadLink={onUploadLink}
+            onDirectLink={onDirectLink}
           />
         ))}
       </div>
@@ -133,13 +137,14 @@ export function FileListContainer({
             onToggleSelect={onToggleSelect}
             onDownload={onDownload}
             onShare={onShare}
-            onDelete={(f) => confirm(`将 "${f.name}" 移入回收站？`) && onDelete(f)}
+            onDelete={(f) => confirm(`将 "${decodeFileName(f.name)}" 移入回收站？`) && onDelete(f)}
             onRename={onRename}
             onPreview={onPreview}
             onMove={onMove}
             onContextMenu={onContextMenu}
             onTagClick={onTagClick}
             onUploadLink={onUploadLink}
+            onDirectLink={onDirectLink}
           />
         ))}
       </div>
@@ -159,13 +164,14 @@ export function FileListContainer({
           onToggleSelect={onToggleSelect}
           onDownload={onDownload}
           onShare={onShare}
-          onDelete={(f) => confirm(`将 "${f.name}" 移入回收站？`) && onDelete(f)}
+          onDelete={(f) => confirm(`将 "${decodeFileName(f.name)}" 移入回收站？`) && onDelete(f)}
           onRename={onRename}
           onPreview={onPreview}
           onMove={onMove}
           onContextMenu={onContextMenu}
           onTagClick={onTagClick}
           onUploadLink={onUploadLink}
+          onDirectLink={onDirectLink}
         />
       ))}
     </div>

@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
+import { useResponsive } from '@/hooks/useResponsive';
 import { formatBytes, formatDate } from '@/utils';
 import { cn } from '@/utils';
 import {
@@ -109,6 +110,7 @@ function UsersTab() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { user: currentUser, updateUser } = useAuthStore();
+  const { isMobile } = useResponsive();
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [editForm, setEditForm] = useState<{
     name: string;
@@ -204,7 +206,7 @@ function UsersTab() {
               <div key={user.id} className="py-4 first:pt-0 last:pb-0">
                 {editingUser?.id === user.id ? (
                   <div className="space-y-3 bg-muted/30 p-4 rounded-lg">
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className={cn('grid gap-3', isMobile ? 'grid-cols-1' : 'grid-cols-2')}>
                       <div className="space-y-1.5">
                         <label className="text-xs font-medium">昵称</label>
                         <Input
@@ -225,7 +227,7 @@ function UsersTab() {
                         </select>
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className={cn('grid gap-3', isMobile ? 'grid-cols-1' : 'grid-cols-2')}>
                       <div className="space-y-1.5">
                         <label className="text-xs font-medium">存储配额 (GB)</label>
                         <Input
@@ -260,32 +262,39 @@ function UsersTab() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-semibold text-sm flex-shrink-0">
-                      {(user.name || user.email).charAt(0).toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-sm truncate">{user.name || user.email}</span>
-                        {user.role === 'admin' && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">
-                            管理员
+                  <div className={cn('flex items-center gap-3', isMobile && 'flex-col items-start')}>
+                    <div className="flex items-center gap-3 flex-1 min-w-0 w-full">
+                      <div className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-semibold text-sm flex-shrink-0">
+                        {(user.name || user.email).charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-sm truncate">{user.name || user.email}</span>
+                          {user.role === 'admin' && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">
+                              管理员
+                            </span>
+                          )}
+                        </div>
+                        <div
+                          className={cn(
+                            'flex items-center gap-3 text-xs text-muted-foreground mt-0.5',
+                            isMobile ? 'flex-wrap' : 'flex-nowrap'
+                          )}
+                        >
+                          <span className="flex items-center gap-1 truncate">
+                            <Mail className="h-3 w-3 flex-shrink-0" />
+                            <span className="truncate">{user.email}</span>
                           </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
-                        <span className="flex items-center gap-1">
-                          <Mail className="h-3 w-3" />
-                          {user.email}
-                        </span>
-                        <span>
-                          {formatBytes(user.storageUsed)} /{' '}
-                          {user.storageQuota ? formatBytes(user.storageQuota) : '无限制'}
-                        </span>
-                        <span>{user.fileCount} 文件</span>
+                          <span className="flex-shrink-0">
+                            {formatBytes(user.storageUsed)} /{' '}
+                            {user.storageQuota ? formatBytes(user.storageQuota) : '无限制'}
+                          </span>
+                          <span className="flex-shrink-0">{user.fileCount} 文件</span>
+                        </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className={cn('flex items-center gap-1', isMobile && 'w-full justify-end')}>
                       <Button variant="ghost" size="icon" onClick={() => startEdit(user)}>
                         <Edit3 className="h-4 w-4" />
                       </Button>
@@ -630,6 +639,7 @@ function AuditLogTab() {
   const [page, setPage] = useState(1);
   const [actionFilter, setActionFilter] = useState<string>('');
   const limit = 20;
+  const { isMobile } = useResponsive();
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin', 'audit-logs', page, actionFilter],
@@ -645,6 +655,8 @@ function AuditLogTab() {
     { value: 'user.login', label: '登录' },
     { value: 'user.logout', label: '登出' },
     { value: 'user.register', label: '注册' },
+    { value: 'user.update', label: '更新用户' },
+    { value: 'user.delete', label: '删除用户' },
     { value: 'file.upload', label: '文件上传' },
     { value: 'file.download', label: '文件下载' },
     { value: 'file.delete', label: '文件删除' },
@@ -658,6 +670,8 @@ function AuditLogTab() {
     { value: 'bucket.delete', label: '删除存储桶' },
     { value: 'admin.user_update', label: '管理用户' },
     { value: 'admin.config_change', label: '配置变更' },
+    { value: 'admin.invite_code_generate', label: '生成邀请码' },
+    { value: 'admin.invite_code_revoke', label: '撤销邀请码' },
   ];
 
   const ACTION_LABELS: Record<string, { label: string; color: string }> = {
@@ -679,12 +693,14 @@ function AuditLogTab() {
     'bucket.delete': { label: '删除存储桶', color: 'bg-rose-500/10 text-rose-500' },
     'admin.user_update': { label: '管理用户', color: 'bg-orange-500/10 text-orange-500' },
     'admin.config_change': { label: '配置变更', color: 'bg-slate-500/10 text-slate-500' },
+    'admin.invite_code_generate': { label: '生成邀请码', color: 'bg-lime-500/10 text-lime-500' },
+    'admin.invite_code_revoke': { label: '撤销邀请码', color: 'bg-red-500/10 text-red-500' },
   };
 
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className={cn('flex items-center gap-3', isMobile && 'flex-col items-start')}>
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-indigo-500/10 flex items-center justify-center">
               <FileText className="h-4 w-4 text-indigo-500" />
@@ -700,7 +716,7 @@ function AuditLogTab() {
               setActionFilter(e.target.value);
               setPage(1);
             }}
-            className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+            className={cn('h-9 rounded-md border border-input bg-background px-3 py-1 text-sm', isMobile && 'w-full')}
           >
             {ACTION_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -725,16 +741,27 @@ function AuditLogTab() {
                 color: 'bg-muted text-muted-foreground',
               };
               return (
-                <div key={log.id} className="flex items-center gap-4 p-3 rounded-lg border bg-muted/30">
-                  <div className={cn('px-2 py-1 rounded text-xs font-medium', actionInfo.color)}>
+                <div
+                  key={log.id}
+                  className={cn(
+                    'flex items-center gap-4 p-3 rounded-lg border bg-muted/30',
+                    isMobile && 'flex-col items-start'
+                  )}
+                >
+                  <div className={cn('px-2 py-1 rounded text-xs font-medium flex-shrink-0', actionInfo.color)}>
                     {actionInfo.label}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm truncate">{log.details || log.action}</p>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
-                      <span>{log.userName || log.userEmail}</span>
-                      {log.ipAddress && <span>· {log.ipAddress}</span>}
-                      <span>· {formatDate(log.createdAt)}</span>
+                  <div className="flex-1 min-w-0 w-full">
+                    <p className={cn('text-sm', isMobile ? 'line-clamp-2' : 'truncate')}>{log.details || log.action}</p>
+                    <div
+                      className={cn(
+                        'flex items-center gap-3 text-xs text-muted-foreground mt-0.5',
+                        isMobile && 'flex-wrap'
+                      )}
+                    >
+                      <span className="truncate">{log.userName || log.userEmail}</span>
+                      {log.ipAddress && <span className="flex-shrink-0">· {log.ipAddress}</span>}
+                      <span className="flex-shrink-0">· {formatDate(log.createdAt)}</span>
                     </div>
                   </div>
                 </div>

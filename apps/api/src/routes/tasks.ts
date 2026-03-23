@@ -44,8 +44,9 @@ import {
   type TelegramBotConfig,
 } from '../lib/telegramClient';
 import { needsChunking, tgUploadChunked, TG_CHUNK_SIZE, TG_CHUNK_THRESHOLD } from '../lib/telegramChunked';
-import { decryptSecret } from '../lib/s3client';
+import { decryptSecret, s3Delete } from '../lib/s3client';
 import { getUserOrFail, encodeFilename } from '../lib/utils';
+import { checkAndClaimDedup } from '../lib/dedup';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -76,6 +77,7 @@ const completeTaskSchema = z.object({
     )
     .min(0)
     .default([]),
+  hash: z.string().optional(),
 });
 
 app.post('/create', async (c) => {
@@ -625,10 +627,7 @@ app.post('/telegram-part', async (c) => {
 
   const partNumber = parseInt(partNumberStr, 10);
   if (isNaN(partNumber) || partNumber < 1) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: 'partNumber 无效' } },
-      400
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: 'partNumber 无效' } }, 400);
   }
 
   const db = getDb(c.env.DB);
@@ -682,6 +681,10 @@ app.post('/telegram-part', async (c) => {
       const result = await tgUploadFile(tgConfig, chunkBuffer, task.fileName, task.mimeType, caption);
       tgFileId = result.fileId;
     } catch (e: any) {
+      await db
+        .update(uploadTasks)
+        .set({ status: 'failed', errorMessage: e?.message || 'Telegram 上传失败', updatedAt: now })
+        .where(eq(uploadTasks.id, taskId));
       return c.json(
         { success: false, error: { code: 'TG_UPLOAD_ERROR', message: e?.message || 'Telegram 上传失败' } },
         500
@@ -711,6 +714,10 @@ app.post('/telegram-part', async (c) => {
     const result = await tgUploadFile(tgConfig, chunkBuffer, chunkFileName, task.mimeType, caption);
     tgFileId = result.fileId;
   } catch (e: any) {
+    await db
+      .update(uploadTasks)
+      .set({ status: 'failed', errorMessage: e?.message || 'Telegram 上传分片失败', updatedAt: now })
+      .where(eq(uploadTasks.id, taskId));
     return c.json(
       { success: false, error: { code: 'TG_UPLOAD_ERROR', message: e?.message || 'Telegram 上传分片失败' } },
       500
@@ -968,7 +975,7 @@ app.post('/complete', async (c) => {
     );
   }
 
-  const { taskId, parts } = result.data;
+  const { taskId, parts, hash } = result.data;
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
@@ -1011,7 +1018,11 @@ app.post('/complete', async (c) => {
     // Telegram 小文件任务：写入 files + telegramFileRefs
     if (isTelegramSmall) {
       const uploadedParts: Array<{ partNumber: number; etag: string }> = (() => {
-        try { return JSON.parse(task.uploadedParts || '[]'); } catch { return []; }
+        try {
+          return JSON.parse(task.uploadedParts || '[]');
+        } catch {
+          return [];
+        }
       })();
 
       if (uploadedParts.length === 0) {
@@ -1027,6 +1038,18 @@ app.post('/complete', async (c) => {
 
       const existingFile = await db.select().from(files).where(eq(files.id, fileId)).get();
       if (!existingFile) {
+        // ── CoW 去重（TG 小文件）─────────────────────────────────────────
+        let finalR2Key = task.r2Key;
+        let isDedupHit = false;
+        if (hash && task.bucketId) {
+          const dedupResult = await checkAndClaimDedup(db, hash, task.bucketId, userId);
+          if (dedupResult.isDuplicate && dedupResult.existingR2Key) {
+            finalR2Key = dedupResult.existingR2Key;
+            isDedupHit = true;
+          }
+        }
+        // ─────────────────────────────────────────────────────────────────
+
         await db.insert(files).values({
           id: fileId,
           userId,
@@ -1035,9 +1058,9 @@ app.post('/complete', async (c) => {
           path,
           type: 'file',
           size: task.fileSize,
-          r2Key: task.r2Key,
+          r2Key: finalR2Key,
           mimeType: task.mimeType,
-          hash: null,
+          hash: hash ?? null,
           refCount: 1,
           isFolder: false,
           bucketId: task.bucketId,
@@ -1046,15 +1069,18 @@ app.post('/complete', async (c) => {
           deletedAt: null,
         });
 
-        await db.insert(telegramFileRefs).values({
-          id: crypto.randomUUID(),
-          fileId,
-          r2Key: task.r2Key,
-          tgFileId,
-          tgFileSize: task.fileSize,
-          bucketId: task.bucketId!,
-          createdAt: now,
-        });
+        // 命中去重时不写新的 telegramFileRefs，复用旧记录的 tgFileId
+        if (!isDedupHit) {
+          await db.insert(telegramFileRefs).values({
+            id: crypto.randomUUID(),
+            fileId,
+            r2Key: finalR2Key,
+            tgFileId,
+            tgFileSize: task.fileSize,
+            bucketId: task.bucketId!,
+            createdAt: now,
+          });
+        }
 
         const user = await db.select().from(users).where(eq(users.id, userId)).get();
         if (user) {
@@ -1063,7 +1089,8 @@ app.post('/complete', async (c) => {
             .set({ storageUsed: user.storageUsed + task.fileSize, updatedAt: now })
             .where(eq(users.id, userId));
         }
-        await updateBucketStats(db, task.bucketId!, task.fileSize, 1);
+        const physicalDelta = isDedupHit ? 0 : task.fileSize;
+        await updateBucketStats(db, task.bucketId!, physicalDelta, 1);
       }
 
       await db
@@ -1091,7 +1118,11 @@ app.post('/complete', async (c) => {
 
       // ── 校验所有分片是否都已上传 ──────────────────────────────────────
       const uploadedParts: Array<{ partNumber: number; etag: string }> = (() => {
-        try { return JSON.parse(task.uploadedParts || '[]'); } catch { return []; }
+        try {
+          return JSON.parse(task.uploadedParts || '[]');
+        } catch {
+          return [];
+        }
       })();
 
       if (uploadedParts.length !== task.totalParts) {
@@ -1108,11 +1139,7 @@ app.post('/complete', async (c) => {
       }
 
       // 从 DB 二次确认分片记录完整性
-      const chunkRows = await db
-        .select()
-        .from(telegramFileChunks)
-        .where(eq(telegramFileChunks.groupId, groupId))
-        .all();
+      const chunkRows = await db.select().from(telegramFileChunks).where(eq(telegramFileChunks.groupId, groupId)).all();
 
       if (chunkRows.length !== task.totalParts) {
         return c.json(
@@ -1135,6 +1162,18 @@ app.post('/complete', async (c) => {
       // 检查是否已写入（幂等）
       const existingFile = await db.select().from(files).where(eq(files.id, fileId)).get();
       if (!existingFile) {
+        // ── CoW 去重（TG 分片）──────────────────────────────────────────
+        let finalR2Key = task.r2Key;
+        let isDedupHit = false;
+        if (hash && task.bucketId) {
+          const dedupResult = await checkAndClaimDedup(db, hash, task.bucketId, userId);
+          if (dedupResult.isDuplicate && dedupResult.existingR2Key) {
+            finalR2Key = dedupResult.existingR2Key;
+            isDedupHit = true;
+          }
+        }
+        // ─────────────────────────────────────────────────────────────────
+
         await db.insert(files).values({
           id: fileId,
           userId,
@@ -1143,9 +1182,9 @@ app.post('/complete', async (c) => {
           path,
           type: 'file',
           size: task.fileSize,
-          r2Key: task.r2Key,
+          r2Key: finalR2Key,
           mimeType: task.mimeType,
-          hash: null,
+          hash: hash ?? null,
           refCount: 1,
           isFolder: false,
           bucketId: task.bucketId,
@@ -1154,15 +1193,19 @@ app.post('/complete', async (c) => {
           deletedAt: null,
         });
 
-        await db.insert(telegramFileRefs).values({
-          id: crypto.randomUUID(),
-          fileId,
-          r2Key: task.r2Key,
-          tgFileId: virtualFileId,
-          tgFileSize: task.fileSize,
-          bucketId: task.bucketId!,
-          createdAt: now,
-        });
+        // 命中去重时不写新的 telegramFileRefs（分片记录已在 telegramFileChunks 里，
+        // 但 download 路由通过 telegramFileRefs.tgFileId 找旧记录即可）
+        if (!isDedupHit) {
+          await db.insert(telegramFileRefs).values({
+            id: crypto.randomUUID(),
+            fileId,
+            r2Key: finalR2Key,
+            tgFileId: virtualFileId,
+            tgFileSize: task.fileSize,
+            bucketId: task.bucketId!,
+            createdAt: now,
+          });
+        }
 
         const user = await db.select().from(users).where(eq(users.id, userId)).get();
         if (user) {
@@ -1171,7 +1214,8 @@ app.post('/complete', async (c) => {
             .set({ storageUsed: user.storageUsed + task.fileSize, updatedAt: now })
             .where(eq(users.id, userId));
         }
-        await updateBucketStats(db, task.bucketId!, task.fileSize, 1);
+        const physicalDelta = isDedupHit ? 0 : task.fileSize;
+        await updateBucketStats(db, task.bucketId!, physicalDelta, 1);
       }
 
       await db
@@ -1238,6 +1282,25 @@ app.post('/complete', async (c) => {
     const fileId = crypto.randomUUID();
     const path = task.parentId ? `${task.parentId}/${task.fileName}` : `/${task.fileName}`;
 
+    // ── CoW 去重：使用前端上报的 SHA-256 hash ─────────────────────────────
+    let finalR2Key = task.r2Key;
+    let finalRefCount = 1;
+    if (hash && task.bucketId) {
+      const dedupResult = await checkAndClaimDedup(db, hash, task.bucketId, userId);
+      if (dedupResult.isDuplicate && dedupResult.existingR2Key) {
+        // 命中去重：删除刚上传的冗余对象，复用现有 r2Key
+        try {
+          await s3Delete(bucketConfig, task.r2Key);
+        } catch (e) {
+          console.warn('dedup: failed to delete redundant S3 object', e);
+        }
+        finalR2Key = dedupResult.existingR2Key;
+        // 去重命中时 ref_count 已在 checkAndClaimDedup 内递增，新记录从 1 开始
+        finalRefCount = 1;
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
     await db.insert(files).values({
       id: fileId,
       userId,
@@ -1246,10 +1309,10 @@ app.post('/complete', async (c) => {
       path,
       type: 'file',
       size: task.fileSize,
-      r2Key: task.r2Key,
+      r2Key: finalR2Key,
       mimeType: task.mimeType,
-      hash: null,
-      refCount: 1,
+      hash: hash ?? null,
+      refCount: finalRefCount,
       isFolder: false,
       bucketId: task.bucketId,
       createdAt: now,
@@ -1386,9 +1449,8 @@ app.get('/:taskId', async (c) => {
       success: true,
       data: {
         ...task,
-        uploadedParts: JSON.parse(task.uploadedParts || '[]').map(
-          (p: { partNumber: number; etag: string } | number) =>
-            typeof p === 'number' ? p : p.partNumber
+        uploadedParts: JSON.parse(task.uploadedParts || '[]').map((p: { partNumber: number; etag: string } | number) =>
+          typeof p === 'number' ? p : p.partNumber
         ),
         progress: task.progress ?? 0,
       },
@@ -1486,6 +1548,68 @@ app.post('/:taskId/pause', async (c) => {
     .where(eq(uploadTasks.id, taskId));
 
   return c.json({ success: true, data: { message: '任务已暂停' } });
+});
+
+// ── POST /api/tasks/:taskId/retry ─────────────────────────────────────────
+// Telegram 上传失败后重试：清除 errorMessage、将状态重置为 pending
+// 前端重新从 uploadedParts 断点继续上传剩余分片即可
+app.post('/:taskId/retry', async (c) => {
+  const userId = c.get('userId')!;
+  const taskId = c.req.param('taskId');
+  const db = getDb(c.env.DB);
+
+  const task = await db
+    .select()
+    .from(uploadTasks)
+    .where(and(eq(uploadTasks.id, taskId), eq(uploadTasks.userId, userId)))
+    .get();
+
+  if (!task) {
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+  }
+
+  if (task.status !== 'failed') {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能重试失败的任务' } },
+      400
+    );
+  }
+
+  if (new Date(task.expiresAt) < new Date()) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '任务已过期，请重新上传' } },
+      410
+    );
+  }
+
+  const uploadedParts: Array<{ partNumber: number; etag: string }> = (() => {
+    try {
+      return JSON.parse(task.uploadedParts || '[]');
+    } catch {
+      return [];
+    }
+  })();
+
+  await db
+    .update(uploadTasks)
+    .set({
+      status: 'pending',
+      errorMessage: null,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(eq(uploadTasks.id, taskId));
+
+  return c.json({
+    success: true,
+    data: {
+      taskId,
+      uploadId: task.uploadId,
+      r2Key: task.r2Key,
+      totalParts: task.totalParts,
+      uploadedParts: uploadedParts.map((p) => p.partNumber),
+      // 前端用 uploadedParts 跳过已完成分片，从失败的分片继续
+    },
+  });
 });
 
 app.post('/:taskId/resume', async (c) => {

@@ -6,6 +6,7 @@ export interface Env {
   KV: KVNamespace;
   ENVIRONMENT: string;
   JWT_SECRET: string;
+  PUBLIC_URL?: string; // 公开访问URL，用于生成直链
 }
 
 export type Variables = {

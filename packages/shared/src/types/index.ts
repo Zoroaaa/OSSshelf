@@ -131,7 +131,9 @@ export type AuditAction =
   | 'bucket.update'
   | 'bucket.delete'
   | 'admin.user_update'
-  | 'admin.config_change';
+  | 'admin.config_change'
+  | 'admin.invite_code_generate'
+  | 'admin.invite_code_revoke';
 
 export interface LoginAttempt {
   id: string;

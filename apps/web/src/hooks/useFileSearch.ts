@@ -3,18 +3,20 @@
  * 文件搜索逻辑 Hook
  *
  * 功能:
- * - 普通搜索
+ * - 关键词搜索（始终递归搜索子目录）
  * - 标签搜索
- * - 递归搜索
  * - 高级搜索
  * - 搜索建议
+ * - 搜索防抖优化
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { searchApi } from '@/services/api';
 import type { FileItem } from '@osshelf/shared';
 import type { AdvancedSearchCondition, AdvancedSearchLogic } from '@/types/files';
+
+const SEARCH_DEBOUNCE_MS = 500;
 
 interface UseFileSearchProps {
   folderId: string | null | undefined;
@@ -24,12 +26,33 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [tagSearchQuery, setTagSearchQuery] = useState<string | null>(null);
-  const [recursiveSearch, setRecursiveSearch] = useState(false);
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
   const [advancedConditions, setAdvancedConditions] = useState<AdvancedSearchCondition[]>([]);
   const [advancedLogic, setAdvancedLogic] = useState<AdvancedSearchLogic>('and');
   const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
+
+  const { data: searchResults } = useQuery<FileItem[]>({
+    queryKey: ['search', folderId, searchQuery],
+    queryFn: async () => {
+      if (!searchQuery) return [];
+      const res = await searchApi.query({
+        query: searchQuery,
+        parentId: folderId || undefined,
+      });
+      return res.data.data?.items ?? [];
+    },
+    enabled: !!searchQuery,
+  });
 
   const { data: tagSearchResults } = useQuery<FileItem[]>({
     queryKey: ['tag-search', tagSearchQuery],
@@ -39,20 +62,6 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
       return res.data.data?.items ?? [];
     },
     enabled: !!tagSearchQuery,
-  });
-
-  const { data: recursiveSearchResults } = useQuery<FileItem[]>({
-    queryKey: ['recursive-search', folderId, searchQuery],
-    queryFn: async () => {
-      if (!searchQuery || !recursiveSearch) return [];
-      const res = await searchApi.query({
-        query: searchQuery,
-        parentId: folderId || undefined,
-        recursive: true,
-      });
-      return res.data.data?.items ?? [];
-    },
-    enabled: !!searchQuery && recursiveSearch,
   });
 
   const { data: advancedSearchResults } = useQuery<FileItem[]>({
@@ -71,10 +80,17 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
   const handleSearchInput = useCallback(
     async (value: string) => {
       setSearchInput(value);
-      setSearchQuery(value);
       if (tagSearchQuery) setTagSearchQuery(null);
 
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+
       if (value.length >= 2) {
+        debounceTimerRef.current = setTimeout(() => {
+          setSearchQuery(value);
+        }, SEARCH_DEBOUNCE_MS);
+
         try {
           const res = await searchApi.suggestions({ q: value, type: 'name' });
           setSearchSuggestions(res.data.data ?? []);
@@ -83,6 +99,7 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
           setSearchSuggestions([]);
         }
       } else {
+        setSearchQuery('');
         setSearchSuggestions([]);
         setShowSuggestions(false);
       }
@@ -122,8 +139,6 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
     setSearchQuery,
     tagSearchQuery,
     setTagSearchQuery,
-    recursiveSearch,
-    setRecursiveSearch,
     showAdvancedSearch,
     setShowAdvancedSearch,
     advancedConditions,
@@ -133,8 +148,8 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
     searchSuggestions,
     showSuggestions,
     setShowSuggestions,
+    searchResults,
     tagSearchResults,
-    recursiveSearchResults,
     advancedSearchResults,
     handleSearchInput,
     handleSuggestionClick,

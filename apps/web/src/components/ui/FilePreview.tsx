@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button';
 import { FileIcon } from '@/components/ui/FileIcon';
 import { filesApi, previewApi } from '@/services/api';
 import { getPresignedPreviewUrl } from '@/services/presignUpload';
-import { formatBytes, formatDate } from '@/utils';
+import { formatBytes, formatDate, decodeFileName } from '@/utils';
 import { isPreviewable } from '@/utils/fileTypes';
 import type { FileItem } from '@osshelf/shared';
 import { cn } from '@/utils';
@@ -231,7 +231,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
           {getOfficeIcon()}
         </div>
         <div>
-          <p className="font-medium">{file.name}</p>
+          <p className="font-medium">{decodeFileName(file.name)}</p>
           <p className="text-sm text-muted-foreground mt-1">{getOfficeTypeName()}</p>
           <p className="text-xs text-muted-foreground mt-2">{message || '暂不支持在线预览，请下载查看'}</p>
         </div>
@@ -266,7 +266,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
         <div className="flex items-center gap-3 px-4 py-3 border-b flex-shrink-0">
           <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="sm" />
           <div className="flex-1 min-w-0">
-            <p className="font-medium truncate text-sm">{file.name}</p>
+            <p className="font-medium truncate text-sm">{decodeFileName(file.name)}</p>
             <p className="text-xs text-muted-foreground">
               {formatBytes(file.size)} · {formatDate(file.updatedAt)}
               {previewInfo?.language && <span className="ml-2 opacity-60">({previewInfo.language})</span>}
@@ -298,7 +298,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
               <div className="text-center py-12 px-6 space-y-4">
                 <FileIcon mimeType={file.mimeType} size="lg" className="mx-auto" />
                 <div>
-                  <p className="font-medium">{file.name}</p>
+                  <p className="font-medium">{decodeFileName(file.name)}</p>
                   <p className="text-sm text-muted-foreground mt-1">{formatBytes(file.size)}</p>
                   <p className="text-sm text-muted-foreground">{file.mimeType || '未知类型'}</p>
                 </div>
@@ -316,7 +316,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
             <div className="flex items-center justify-center h-full">
               <img
                 src={resolvedUrl}
-                alt={file.name}
+                alt={decodeFileName(file.name)}
                 className="max-w-full max-h-full object-contain"
                 onError={() => setLoadError(true)}
               />
@@ -333,7 +333,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                     <Volume2 className="h-10 w-10 text-primary" />
                   </div>
                 </div>
-                <p className="text-center font-medium">{file.name}</p>
+                <p className="text-center font-medium">{decodeFileName(file.name)}</p>
                 <audio src={resolvedUrl} controls className="w-full" onError={() => setLoadError(true)} />
               </div>
             </div>
@@ -341,7 +341,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
             <iframe
               src={resolvedUrl}
               className="w-full h-full border-0"
-              title={file.name}
+              title={decodeFileName(file.name)}
               onError={() => setLoadError(true)}
             />
           ) : isText ? (

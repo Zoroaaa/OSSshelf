@@ -160,6 +160,13 @@ async function singlePresignUpload(
 
   await apiPost('/api/tasks/start', { taskId }).catch(() => {});
 
+  // 读取 buffer 并计算 SHA-256（用于服务端去重）
+  const fileBuffer = await file.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', fileBuffer);
+  const fileHash = Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
   try {
     await directPut(uploadUrl, file, file.type || 'application/octet-stream', onProgress, signal);
   } catch (error) {
@@ -176,6 +183,7 @@ async function singlePresignUpload(
   const result = await apiPost<UploadedFile>('/api/tasks/complete', {
     taskId,
     parts: [{ partNumber: 1, etag: 'direct' }],
+    hash: fileHash,
   });
 
   return result;
@@ -402,6 +410,7 @@ async function multipartUpload(
     const result = await apiPost<UploadedFile>('/api/tasks/complete', {
       taskId: taskId || uploadId,
       parts: allParts,
+      hash: await computeFileHash(file),
     });
 
     return result;
@@ -747,4 +756,20 @@ export async function getPresignedPreviewUrl(fileId: string): Promise<PresignDow
 
   const token = useAuthStore.getState().token;
   return { useProxy: true, url: `${API_BASE}/api/files/${fileId}/preview?token=${token}` };
+}
+
+// ── Hash helper ────────────────────────────────────────────────────────────
+// 大文件分片上传时不需要将整个文件读入内存——若文件已在内存中（singlePresign）
+// 则在调用处直接计算；此函数供 multipart 流程的 complete 阶段调用。
+// 注意：大文件调用此函数会阻塞主线程，生产中可改为 Web Worker，当前可接受。
+async function computeFileHash(file: File): Promise<string | undefined> {
+  try {
+    const buf = await file.arrayBuffer();
+    const hashBuf = await crypto.subtle.digest('SHA-256', buf);
+    return Array.from(new Uint8Array(hashBuf))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  } catch {
+    return undefined;
+  }
 }

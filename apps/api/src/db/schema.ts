@@ -51,6 +51,8 @@ export const files = sqliteTable(
     updatedAt: text('updated_at').notNull(),
     deletedAt: text('deleted_at'),
     bucketId: text('bucket_id'),
+    directLinkToken: text('direct_link_token').unique(),
+    directLinkExpiresAt: text('direct_link_expires_at'),
   },
   (table) => ({
     userParentIdx: index('idx_files_user_parent_active').on(table.userId, table.parentId),
@@ -61,6 +63,7 @@ export const files = sqliteTable(
     userUpdatedIdx: index('idx_files_user_updated').on(table.userId, table.updatedAt),
     userSizeIdx: index('idx_files_user_size').on(table.userId, table.size),
     hashIdx: index('idx_files_hash').on(table.hash),
+    directLinkTokenIdx: index('idx_files_direct_link_token').on(table.directLinkToken),
   })
 );
 
@@ -125,23 +128,6 @@ export const storageBuckets = sqliteTable(
     // 注意：每用户只允许一个默认桶由业务层保证（设置新默认桶前先清除旧默认），
     // 此处用普通索引以允许用户拥有多个存储桶记录
     userDefaultIdx: index('idx_storage_buckets_user_default').on(table.userId, table.isDefault),
-  })
-);
-
-export const webdavSessions = sqliteTable(
-  'webdav_sessions',
-  {
-    id: text('id').primaryKey(),
-    userId: text('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    token: text('token').notNull().unique(),
-    expiresAt: text('expires_at').notNull(),
-    createdAt: text('created_at').notNull(),
-  },
-  (table) => ({
-    expiresIdx: index('idx_webdav_expires').on(table.expiresAt),
-    userIdx: index('idx_webdav_user').on(table.userId, table.expiresAt),
   })
 );
 
@@ -339,5 +325,20 @@ export const telegramFileChunks = sqliteTable(
 );
 
 export type DbType = typeof import('./index').getDb;
+
+export const searchHistory = sqliteTable(
+  'search_history',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    query: text('query').notNull(),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    userCreatedIdx: index('idx_search_history_user').on(table.userId, table.createdAt),
+  })
+);
 
 export type File = typeof files.$inferSelect;
