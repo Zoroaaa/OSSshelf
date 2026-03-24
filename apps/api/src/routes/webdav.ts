@@ -334,51 +334,42 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
   });
 }
 
+/**
+ * 按逻辑路径查找文件或文件夹
+ * 修复逻辑：统一使用 safeDecodeURIComponent 对数据库字段和请求路径进行解码后再对比，
+ * 解决数据库中部分文件名为 URL 编码（%E5...），部分为原始中文导致的匹配失效问题。
+ */
 async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path: string): Promise<File | undefined> {
-  const normalized = normalizePath(path);
+  const normalizedReqPath = normalizePath(safeDecodeURIComponent(path));
 
-  // 策略1：直接精确匹配 path 字段
-  let file = await db
+  // 策略1：获取该用户所有文件，并在内存中通过解码后的路径进行匹配
+  // 这种方式最稳健，可以兼容数据库中各种编码/非编码的存储格式
+  const allFiles = await db
     .select()
     .from(files)
-    .where(
-      and(
-        eq(files.userId, userId),
-        or(eq(files.path, normalized), eq(files.path, normalized + '/')),
-        isNull(files.deletedAt)
-      )
-    )
-    .get();
+    .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
+    .all();
 
-  if (file) return file;
+  const matched = allFiles.find(f => {
+    const dbPathNormalized = normalizePath(safeDecodeURIComponent(f.path));
+    return dbPathNormalized === normalizedReqPath;
+  });
 
-  // 策略2：按名称层级递归定位
-  const parts = normalized.split('/').filter(Boolean);
+  if (matched) return matched;
+
+  // 策略2：如果策略1未命中（例如正在创建深层目录），使用层级递归查找
+  const parts = normalizedReqPath.split('/').filter(Boolean);
   if (parts.length === 0) return undefined;
 
   let currentParentId: string | null = null;
   let currentFile: File | undefined;
 
   for (const part of parts) {
-    const decodedPart = safeDecodeURIComponent(part);
-    const nameCandidates = Array.from(new Set([part, decodedPart]));
-
-    let found: File | undefined;
-    for (const namePart of nameCandidates) {
-      found = await db
-        .select()
-        .from(files)
-        .where(
-          and(
-            eq(files.userId, userId),
-            eq(files.name, namePart),
-            currentParentId ? eq(files.parentId, currentParentId) : isNull(files.parentId),
-            isNull(files.deletedAt)
-          )
-        )
-        .get();
-      if (found) break;
-    }
+    const found = allFiles.find(f => {
+      const dbNameDecoded = safeDecodeURIComponent(f.name);
+      const isSameParent = currentParentId ? f.parentId === currentParentId : f.parentId === null;
+      return dbNameDecoded === part && isSameParent;
+    });
 
     if (!found) return undefined;
     currentFile = found;
@@ -428,8 +419,10 @@ async function handleGet(c: AppContext, userId: string, path: string, headOnly: 
 
 async function handlePut(c: AppContext, userId: string, path: string) {
   const body = await c.req.arrayBuffer();
+  // 保持请求中的原始路径段（可能是编码的，也可能是中文），用于存储
   const normalizedPath = normalizePath(path);
-  const fileName = normalizedPath.split('/').pop() || 'untitled';
+  const pathParts = normalizedPath.split('/').filter(Boolean);
+  const fileName = pathParts.pop() || 'untitled';
   const parentPath = normalizedPath.lastIndexOf('/') > 0 ? normalizedPath.slice(0, normalizedPath.lastIndexOf('/')) : '/';
 
   const db = getDb(c.env.DB);
@@ -439,11 +432,12 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   if (parentPath !== '/') {
     const parentFolder = await findFileByPath(db, userId, parentPath);
     if (!parentFolder) {
-      const pathParts = parentPath.split('/').filter(Boolean);
+      // 递归创建父目录
+      const pParts = normalizePath(safeDecodeURIComponent(parentPath)).split('/').filter(Boolean);
       let currentParentId: string | null = null;
       let currentPath = '';
 
-      for (const part of pathParts) {
+      for (const part of pParts) {
         currentPath = currentPath ? `${currentPath}/${part}` : `/${part}`;
         const folder = await findFileByPath(db, userId, currentPath);
 
@@ -484,7 +478,7 @@ async function handlePut(c: AppContext, userId: string, path: string) {
 
   const fileId = existingFile?.id || crypto.randomUUID();
   const now = new Date().toISOString();
-  const mimeType = c.req.header('Content-Type') || 'application/octet-stream';
+  const mimeType = c.req.header('Content-Type') || 'application/json';
   const r2Key = `files/${userId}/${fileId}/${fileName}`;
 
   const bucketCfgP = await resolveBucketConfig(db, userId, encKeyP, null, parentId);
@@ -553,7 +547,8 @@ async function handlePut(c: AppContext, userId: string, path: string) {
 
 async function handleMkcol(c: AppContext, userId: string, path: string) {
   const normalizedPath = normalizePath(path);
-  const folderName = normalizedPath.split('/').pop() || 'untitled';
+  const pathParts = normalizedPath.split('/').filter(Boolean);
+  const folderName = pathParts.pop() || 'untitled';
   const parentPath = normalizedPath.lastIndexOf('/') > 0 ? normalizedPath.slice(0, normalizedPath.lastIndexOf('/')) : '/';
 
   const db = getDb(c.env.DB);
