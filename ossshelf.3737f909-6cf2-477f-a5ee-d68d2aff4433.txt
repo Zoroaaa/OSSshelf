@@ -1,0 +1,203 @@
+2026-03-24T02:03:21.982296Z	Cloning repository...
+2026-03-24T02:03:22.929302Z	From https://github.com/Zoroaaa/R2shelf
+2026-03-24T02:03:22.929682Z	 * branch            28808f54e9f2f4404c0ff3b1d0a1ab68a2e8cebb -> FETCH_HEAD
+2026-03-24T02:03:22.929756Z	
+2026-03-24T02:03:22.962762Z	HEAD is now at 28808f5 前端文件架构调整
+2026-03-24T02:03:22.96308Z	
+2026-03-24T02:03:23.003094Z	
+2026-03-24T02:03:23.003448Z	Using v2 root directory strategy
+2026-03-24T02:03:23.017139Z	Success: Finished cloning repository files
+2026-03-24T02:03:24.815533Z	Checking for configuration in a Wrangler configuration file (BETA)
+2026-03-24T02:03:24.816181Z	
+2026-03-24T02:03:25.918157Z	No Wrangler configuration file found. Continuing.
+2026-03-24T02:03:26.863987Z	Detected the following tools from environment: pnpm@8.15.0, nodejs@22.16.0
+2026-03-24T02:03:27.269372Z	Preparing pnpm@8.15.0 for immediate activation...
+2026-03-24T02:03:29.239Z	Installing project dependencies: pnpm install
+2026-03-24T02:03:29.785548Z	Scope: all 4 workspace projects
+2026-03-24T02:03:29.848013Z	Lockfile is up to date, resolution step is skipped
+2026-03-24T02:03:29.925934Z	Progress: resolved 1, reused 0, downloaded 0, added 0
+2026-03-24T02:03:30.029699Z	Packages: +568
+2026-03-24T02:03:30.030649Z	++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+2026-03-24T02:03:30.926341Z	Progress: resolved 568, reused 0, downloaded 164, added 164
+2026-03-24T02:03:31.92629Z	Progress: resolved 568, reused 0, downloaded 385, added 374
+2026-03-24T02:03:32.926717Z	Progress: resolved 568, reused 0, downloaded 566, added 566
+2026-03-24T02:03:33.927603Z	Progress: resolved 568, reused 0, downloaded 567, added 567
+2026-03-24T02:03:34.329224Z	Progress: resolved 568, reused 0, downloaded 568, added 568, done
+2026-03-24T02:03:34.554355Z	.../es5-ext@0.10.64/node_modules/es5-ext postinstall$  node -e "try{require('./_postinstall')}catch(e){}" || exit 0
+2026-03-24T02:03:35.453981Z	.../es5-ext@0.10.64/node_modules/es5-ext postinstall: Done
+2026-03-24T02:03:35.512855Z	.../esbuild@0.18.20/node_modules/esbuild postinstall$ node install.js
+2026-03-24T02:03:35.513447Z	.../esbuild@0.19.12/node_modules/esbuild postinstall$ node install.js
+2026-03-24T02:03:35.527095Z	.../node_modules/workerd postinstall$ node install.js
+2026-03-24T02:03:35.541219Z	.../esbuild@0.17.19/node_modules/esbuild postinstall$ node install.js
+2026-03-24T02:03:35.579307Z	.../esbuild@0.21.5/node_modules/esbuild postinstall$ node install.js
+2026-03-24T02:03:35.631702Z	.../esbuild@0.18.20/node_modules/esbuild postinstall: Done
+2026-03-24T02:03:35.634264Z	.../esbuild@0.19.12/node_modules/esbuild postinstall: Done
+2026-03-24T02:03:35.691713Z	.../esbuild@0.27.4/node_modules/esbuild postinstall$ node install.js
+2026-03-24T02:03:35.709951Z	.../esbuild@0.17.19/node_modules/esbuild postinstall: Done
+2026-03-24T02:03:35.734512Z	.../node_modules/workerd postinstall: Done
+2026-03-24T02:03:35.755034Z	.../esbuild@0.21.5/node_modules/esbuild postinstall: Done
+2026-03-24T02:03:35.809089Z	.../esbuild@0.27.4/node_modules/esbuild postinstall: Done
+2026-03-24T02:03:36.382341Z	.../sharp@0.33.5/node_modules/sharp install$ node install/check
+2026-03-24T02:03:37.322683Z	.../sharp@0.33.5/node_modules/sharp install: Done
+2026-03-24T02:03:37.50113Z	
+2026-03-24T02:03:37.50143Z	devDependencies:
+2026-03-24T02:03:37.501524Z	+ @typescript-eslint/eslint-plugin 7.18.0
+2026-03-24T02:03:37.501586Z	+ @typescript-eslint/parser 7.18.0
+2026-03-24T02:03:37.50164Z	+ eslint 8.57.1
+2026-03-24T02:03:37.501721Z	+ eslint-config-prettier 9.1.2
+2026-03-24T02:03:37.50182Z	+ eslint-plugin-prettier 5.5.5
+2026-03-24T02:03:37.501884Z	+ prettier 3.8.1
+2026-03-24T02:03:37.501949Z	+ typescript 5.9.3
+2026-03-24T02:03:37.502009Z	
+2026-03-24T02:03:37.556336Z	Done in 8.1s
+2026-03-24T02:03:37.665478Z	Executing user command: pnpm build:web
+2026-03-24T02:03:38.192568Z	
+2026-03-24T02:03:38.193219Z	> osshelf@0.1.0 build:web /opt/buildhome/repo
+2026-03-24T02:03:38.193325Z	> pnpm --filter @osshelf/shared build && pnpm --filter web build
+2026-03-24T02:03:38.193369Z	
+2026-03-24T02:03:38.590674Z	
+2026-03-24T02:03:38.5911Z	> @osshelf/shared@0.1.0 build /opt/buildhome/repo/packages/shared
+2026-03-24T02:03:38.591245Z	> tsup
+2026-03-24T02:03:38.591331Z	
+2026-03-24T02:03:38.978569Z	[34mCLI[39m Building entry: src/index.ts, src/constants/index.ts, src/types/index.ts
+2026-03-24T02:03:38.979637Z	[34mCLI[39m Using tsconfig: tsconfig.json
+2026-03-24T02:03:38.979825Z	[34mCLI[39m tsup v8.5.1
+2026-03-24T02:03:38.980844Z	[34mCLI[39m Using tsup config: /opt/buildhome/repo/packages/shared/tsup.config.ts
+2026-03-24T02:03:38.98534Z	[34mCLI[39m Target: es2022
+2026-03-24T02:03:38.986484Z	[34mCLI[39m Cleaning output folder
+2026-03-24T02:03:38.988102Z	[34mESM[39m Build start
+2026-03-24T02:03:39.010648Z	[32mESM[39m [1mdist/index.js               [22m[32m30.38 KB[39m
+2026-03-24T02:03:39.011493Z	[32mESM[39m [1mdist/types/index.js         [22m[32m33.00 B[39m
+2026-03-24T02:03:39.011743Z	[32mESM[39m [1mdist/constants/index.js     [22m[32m25.19 KB[39m
+2026-03-24T02:03:39.01196Z	[32mESM[39m [1mdist/index.js.map           [22m[32m41.18 KB[39m
+2026-03-24T02:03:39.01218Z	[32mESM[39m [1mdist/types/index.js.map     [22m[32m71.00 B[39m
+2026-03-24T02:03:39.012397Z	[32mESM[39m [1mdist/constants/index.js.map [22m[32m33.16 KB[39m
+2026-03-24T02:03:39.012563Z	[32mESM[39m ⚡️ Build success in 22ms
+2026-03-24T02:03:39.364074Z	[34mDTS[39m Build start
+2026-03-24T02:03:40.609238Z	[32mDTS[39m ⚡️ Build success in 1246ms
+2026-03-24T02:03:40.609547Z	[32mDTS[39m [1mdist/index.d.ts           [22m[32m1.62 KB[39m
+2026-03-24T02:03:40.609612Z	[32mDTS[39m [1mdist/constants/index.d.ts [22m[32m4.92 KB[39m
+2026-03-24T02:03:40.609667Z	[32mDTS[39m [1mdist/types/index.d.ts     [22m[32m6.06 KB[39m
+2026-03-24T02:03:41.111052Z	
+2026-03-24T02:03:41.111381Z	> web@0.1.0 build /opt/buildhome/repo/apps/web
+2026-03-24T02:03:41.11146Z	> tsc && vite build
+2026-03-24T02:03:41.111509Z	
+2026-03-24T02:03:48.707498Z	src/components/files/FilePreview.tsx(33,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.708601Z	src/components/files/FolderSettings.tsx(13,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.70871Z	src/components/files/VersionHistory.tsx(14,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.708761Z	src/components/files/dialogs/DirectLinkDialog.tsx(12,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.708798Z	src/components/files/dialogs/DirectLinkDialog.tsx(13,23): error TS2307: Cannot find module '@/components/ui/Input' or its corresponding type declarations.
+2026-03-24T02:03:48.708849Z	src/components/files/dialogs/DirectLinkDialog.tsx(209,34): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.708891Z	src/components/files/dialogs/DirectLinkDialog.tsx(263,32): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.708952Z	src/components/files/dialogs/FolderPickerDialog.tsx(13,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.708991Z	src/components/files/dialogs/MigrateBucketDialog.tsx(14,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.70903Z	src/components/files/dialogs/MoveFolderPicker.tsx(4,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.709066Z	src/components/files/dialogs/NewFileDialog.tsx(13,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.709144Z	src/components/files/dialogs/NewFileDialog.tsx(14,23): error TS2307: Cannot find module '@/components/ui/Input' or its corresponding type declarations.
+2026-03-24T02:03:48.70922Z	src/components/files/dialogs/NewFileDialog.tsx(491,28): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.709285Z	src/components/files/dialogs/NewFolderDialog.tsx(12,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.709364Z	src/components/files/dialogs/NewFolderDialog.tsx(13,23): error TS2307: Cannot find module '@/components/ui/Input' or its corresponding type declarations.
+2026-03-24T02:03:48.709425Z	src/components/files/dialogs/NewFolderDialog.tsx(57,24): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.709486Z	src/components/files/dialogs/NewFolderDialog.tsx(58,25): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.709531Z	src/components/files/dialogs/RenameDialog.tsx(2,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.709568Z	src/components/files/dialogs/RenameDialog.tsx(3,23): error TS2307: Cannot find module '@/components/ui/Input' or its corresponding type declarations.
+2026-03-24T02:03:48.709647Z	src/components/files/dialogs/RenameDialog.tsx(36,22): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.709715Z	src/components/files/dialogs/RenameDialog.tsx(37,23): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.709751Z	src/components/files/dialogs/ShareDialog.tsx(7,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.709796Z	src/components/files/dialogs/ShareDialog.tsx(8,23): error TS2307: Cannot find module '@/components/ui/Input' or its corresponding type declarations.
+2026-03-24T02:03:48.709849Z	src/components/files/dialogs/ShareDialog.tsx(52,70): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.709889Z	src/components/files/dialogs/ShareDialog.tsx(61,26): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.709949Z	src/components/files/dialogs/ShareDialog.tsx(71,26): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.709983Z	src/components/files/dialogs/ShareDialog.tsx(151,70): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.710019Z	src/components/files/dialogs/ShareDialog.tsx(160,26): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.710075Z	src/components/files/dialogs/ShareDialog.tsx(183,30): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.710116Z	src/components/files/dialogs/ShareDialog.tsx(193,30): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.710174Z	src/components/files/dialogs/ShareDialog.tsx(201,30): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.710221Z	src/components/files/permissions/FilePermissionManager.tsx(14,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.71031Z	src/components/files/permissions/FilePermissionManager.tsx(15,23): error TS2307: Cannot find module '@/components/ui/Input' or its corresponding type declarations.
+2026-03-24T02:03:48.710423Z	src/components/files/permissions/FilePermissionManager.tsx(133,75): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.710517Z	src/components/files/permissions/FilePermissionsDialog.tsx(14,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.710582Z	src/components/files/permissions/FilePermissionsDialog.tsx(15,23): error TS2307: Cannot find module '@/components/ui/Input' or its corresponding type declarations.
+2026-03-24T02:03:48.710622Z	src/components/files/permissions/FilePermissionsDialog.tsx(162,34): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.710667Z	src/components/files/tags/FileTagsManager.tsx(15,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.710702Z	src/components/files/tags/FileTagsManager.tsx(16,23): error TS2307: Cannot find module '@/components/ui/Input' or its corresponding type declarations.
+2026-03-24T02:03:48.71074Z	src/components/files/tags/FileTagsManager.tsx(111,24): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.710778Z	src/components/files/tags/FileTagsManager.tsx(112,25): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.710821Z	src/components/layouts/AuthLayout.tsx(12,25): error TS2307: Cannot find module '@/components/ui/Toaster' or its corresponding type declarations.
+2026-03-24T02:03:48.71087Z	src/components/layouts/MainLayout.tsx(16,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.711116Z	src/components/layouts/MainLayout.tsx(18,25): error TS2307: Cannot find module '@/components/ui/Toaster' or its corresponding type declarations.
+2026-03-24T02:03:48.711209Z	src/components/settings/DeviceManager.tsx(13,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.711283Z	src/components/share/ShareFilePreview.tsx(33,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.711331Z	src/components/ui/KeyboardShortcutsDialog.tsx(12,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.71142Z	src/components/ui/KeyboardShortcutsDialog.tsx(13,23): error TS2307: Cannot find module '@/components/ui/Input' or its corresponding type declarations.
+2026-03-24T02:03:48.711587Z	src/components/ui/KeyboardShortcutsDialog.tsx(104,26): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.712222Z	src/components/ui/PWAInstallPrompt.tsx(12,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.712664Z	src/components/ui/index.ts(6,58): error TS2307: Cannot find module './Button' or its corresponding type declarations.
+2026-03-24T02:03:48.712755Z	src/components/ui/index.ts(7,87): error TS2307: Cannot find module './Card' or its corresponding type declarations.
+2026-03-24T02:03:48.712909Z	src/components/ui/index.ts(8,40): error TS2307: Cannot find module './Input' or its corresponding type declarations.
+2026-03-24T02:03:48.713129Z	src/components/ui/index.ts(19,8): error TS2307: Cannot find module './Toast' or its corresponding type declarations.
+2026-03-24T02:03:48.713191Z	src/components/ui/index.ts(20,25): error TS2307: Cannot find module './Toaster' or its corresponding type declarations.
+2026-03-24T02:03:48.713231Z	src/components/ui/toaster.tsx(1,95): error TS2307: Cannot find module '@/components/ui/Toast' or its corresponding type declarations.
+2026-03-24T02:03:48.713377Z	src/components/ui/useToast.ts(2,58): error TS2307: Cannot find module '@/components/ui/Toast' or its corresponding type declarations.
+2026-03-24T02:03:48.713423Z	src/components/ui/useToast.ts(150,22): error TS7006: Parameter 'open' implicitly has an 'any' type.
+2026-03-24T02:03:48.713469Z	src/pages/Admin.tsx(16,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.713513Z	src/pages/Admin.tsx(17,23): error TS2307: Cannot find module '@/components/ui/Input' or its corresponding type declarations.
+2026-03-24T02:03:48.713552Z	src/pages/Admin.tsx(18,75): error TS2307: Cannot find module '@/components/ui/Card' or its corresponding type declarations.
+2026-03-24T02:03:48.713595Z	src/pages/Admin.tsx(214,38): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.713639Z	src/pages/Admin.tsx(236,38): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.713675Z	src/pages/Admin.tsx(245,38): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.713718Z	src/pages/Admin.tsx(486,28): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.713866Z	src/pages/Buckets.tsx(15,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.713924Z	src/pages/Buckets.tsx(16,23): error TS2307: Cannot find module '@/components/ui/Input' or its corresponding type declarations.
+2026-03-24T02:03:48.71397Z	src/pages/Buckets.tsx(17,75): error TS2307: Cannot find module '@/components/ui/Card' or its corresponding type declarations.
+2026-03-24T02:03:48.714005Z	src/pages/Buckets.tsx(137,20): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.714049Z	src/pages/Buckets.tsx(190,26): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.714089Z	src/pages/Buckets.tsx(216,28): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.714122Z	src/pages/Buckets.tsx(235,26): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.714158Z	src/pages/Buckets.tsx(264,28): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.714196Z	src/pages/Buckets.tsx(295,30): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.714235Z	src/pages/Buckets.tsx(318,30): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.714282Z	src/pages/Buckets.tsx(369,24): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.71434Z	src/pages/Downloads.tsx(10,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.714404Z	src/pages/Downloads.tsx(11,23): error TS2307: Cannot find module '@/components/ui/Input' or its corresponding type declarations.
+2026-03-24T02:03:48.714463Z	src/pages/Downloads.tsx(12,75): error TS2307: Cannot find module '@/components/ui/Card' or its corresponding type declarations.
+2026-03-24T02:03:48.71457Z	src/pages/Downloads.tsx(387,32): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.714645Z	src/pages/Downloads.tsx(395,32): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.714712Z	src/pages/Files.tsx(31,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.714773Z	src/pages/Login.tsx(16,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.714833Z	src/pages/Login.tsx(17,23): error TS2307: Cannot find module '@/components/ui/Input' or its corresponding type declarations.
+2026-03-24T02:03:48.714893Z	src/pages/Login.tsx(18,87): error TS2307: Cannot find module '@/components/ui/Card' or its corresponding type declarations.
+2026-03-24T02:03:48.714963Z	src/pages/Login.tsx(68,26): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.715026Z	src/pages/Login.tsx(81,26): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.715091Z	src/pages/Register.tsx(16,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.715157Z	src/pages/Register.tsx(17,23): error TS2307: Cannot find module '@/components/ui/Input' or its corresponding type declarations.
+2026-03-24T02:03:48.715217Z	src/pages/Register.tsx(18,87): error TS2307: Cannot find module '@/components/ui/Card' or its corresponding type declarations.
+2026-03-24T02:03:48.715286Z	src/pages/Register.tsx(154,26): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.715335Z	src/pages/Register.tsx(166,26): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.715457Z	src/pages/Register.tsx(179,26): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.715524Z	src/pages/Register.tsx(193,26): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.715592Z	src/pages/Register.tsx(210,28): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.715666Z	src/pages/Settings.tsx(18,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.715775Z	src/pages/Settings.tsx(19,23): error TS2307: Cannot find module '@/components/ui/Input' or its corresponding type declarations.
+2026-03-24T02:03:48.7161Z	src/pages/Settings.tsx(20,75): error TS2307: Cannot find module '@/components/ui/Card' or its corresponding type declarations.
+2026-03-24T02:03:48.716169Z	src/pages/Settings.tsx(202,28): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.716225Z	src/pages/Settings.tsx(204,29): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.716272Z	src/pages/Settings.tsx(241,28): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.716327Z	src/pages/Settings.tsx(261,28): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.716376Z	src/pages/Settings.tsx(296,26): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.716422Z	src/pages/Settings.tsx(523,28): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.71647Z	src/pages/SharePage.tsx(11,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.716526Z	src/pages/SharePage.tsx(12,23): error TS2307: Cannot find module '@/components/ui/Input' or its corresponding type declarations.
+2026-03-24T02:03:48.716589Z	src/pages/SharePage.tsx(82,22): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.716654Z	src/pages/SharePage.tsx(83,23): error TS7006: Parameter 'e' implicitly has an 'any' type.
+2026-03-24T02:03:48.71672Z	src/pages/Shares.tsx(10,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.716787Z	src/pages/Tasks.tsx(17,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.716847Z	src/pages/Tasks.tsx(18,75): error TS2307: Cannot find module '@/components/ui/Card' or its corresponding type declarations.
+2026-03-24T02:03:48.71691Z	src/pages/Trash.tsx(14,24): error TS2307: Cannot find module '@/components/ui/Button' or its corresponding type declarations.
+2026-03-24T02:03:48.755308Z	/opt/buildhome/repo/apps/web:
+2026-03-24T02:03:48.755652Z	 ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  web@0.1.0 build: `tsc && vite build`
+2026-03-24T02:03:48.755753Z	Exit status 2
+2026-03-24T02:03:50.249908Z	 ELIFECYCLE  Command failed with exit code 1.
+2026-03-24T02:03:50.275607Z	Failed: Error while executing user command. Exited with error code: 1
+2026-03-24T02:03:50.282944Z	Failed: build command exited with code: 1
+2026-03-24T02:03:51.780589Z	Failed: error occurred while running build command
