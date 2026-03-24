@@ -25,6 +25,7 @@ import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getRegConfig } from '../lib/utils';
+import { AppError, throwAppError } from '../middleware/error';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -178,10 +179,7 @@ app.post('/register', async (c) => {
   const result = registerSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.errors[0].message);
   }
 
   const { email, password, name, inviteCode } = result.data;
@@ -193,19 +191,16 @@ app.post('/register', async (c) => {
 
   if (!isFirstUser) {
     if (!regConfig.open) {
-      return c.json(
-        { success: false, error: { code: 'REGISTRATION_CLOSED', message: '注册已关闭，请联系管理员' } },
-        403
-      );
+      throwAppError('FEATURE_DISABLED', '注册已关闭，请联系管理员');
     }
     if (regConfig.requireInviteCode) {
       if (!inviteCode) {
-        return c.json({ success: false, error: { code: 'INVITE_CODE_REQUIRED', message: '需要邀请码才能注册' } }, 403);
+        throwAppError('VALIDATION_ERROR', '需要邀请码才能注册');
       }
       const codeKey = `${INVITE_PREFIX}${inviteCode.toUpperCase()}`;
       const codeMeta = await c.env.KV.get(codeKey);
       if (!codeMeta) {
-        return c.json({ success: false, error: { code: 'INVITE_CODE_INVALID', message: '邀请码无效或已过期' } }, 403);
+        throwAppError('VALIDATION_ERROR', '邀请码无效或已过期');
       }
       let meta: { usedBy: string | null } = { usedBy: null };
       try {
@@ -214,14 +209,14 @@ app.post('/register', async (c) => {
         /* ignore */
       }
       if (meta.usedBy) {
-        return c.json({ success: false, error: { code: 'INVITE_CODE_USED', message: '邀请码已被使用' } }, 403);
+        throwAppError('VALIDATION_ERROR', '邀请码已被使用');
       }
     }
   }
 
   const existingUser = await db.select().from(users).where(eq(users.email, email)).get();
   if (existingUser) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该邮箱已被注册' } }, 400);
+    throwAppError('EMAIL_ALREADY_REGISTERED');
   }
 
   const passwordHash = await hashPassword(password);
@@ -315,22 +310,13 @@ app.post('/login', async (c) => {
       ipAddress,
       userAgent,
     });
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.LOGIN_LOCKED,
-          message: `登录失败次数过多，请等待至 ${lockoutStatus.lockoutUntil} 后重试`,
-        },
-      },
-      429
-    );
+    throwAppError('LOGIN_LOCKED', `登录失败次数过多，请等待至 ${lockoutStatus.lockoutUntil} 后重试`);
   }
 
   const user = await db.select().from(users).where(eq(users.email, email)).get();
   if (!user) {
     await recordLoginAttempt(db, email, ipAddress || '', false, userAgent);
-    return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '邮箱或密码错误' } }, 401);
+    throwAppError('WRONG_PASSWORD', '邮箱或密码错误');
   }
 
   const isValid = await verifyPassword(password, user.passwordHash);
@@ -347,16 +333,7 @@ app.post('/login', async (c) => {
       ipAddress,
       userAgent,
     });
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.UNAUTHORIZED,
-          message: `邮箱或密码错误，剩余尝试次数: ${newLockoutStatus.remainingAttempts}`,
-        },
-      },
-      401
-    );
+    throwAppError('WRONG_PASSWORD', `邮箱或密码错误，剩余尝试次数: ${newLockoutStatus.remainingAttempts}`);
   }
 
   await recordLoginAttempt(db, email, ipAddress || '', true, userAgent);
@@ -422,7 +399,7 @@ app.get('/me', authMiddleware, async (c) => {
 
   const user = await db.select().from(users).where(eq(users.id, userId!)).get();
   if (!user) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '用户不存在' } }, 404);
+    throwAppError('USER_NOT_FOUND');
   }
 
   const activeFiles = await db
@@ -462,9 +439,9 @@ app.patch('/me', authMiddleware, async (c) => {
   const { name, currentPassword, newPassword } = result.data;
   const db = getDb(c.env.DB);
 
-  const user = await db.select().from(users).where(eq(users.id, userId)).get();
+  const user = await db.select().from(users).where(eq(users.id, userId!)).get();
   if (!user) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '用户不存在' } }, 404);
+    throwAppError('USER_NOT_FOUND');
   }
 
   const now = new Date().toISOString();
@@ -477,7 +454,7 @@ app.patch('/me', authMiddleware, async (c) => {
   if (newPassword && currentPassword) {
     const isValid = await verifyPassword(currentPassword, user.passwordHash);
     if (!isValid) {
-      return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '当前密码错误' } }, 401);
+      throwAppError('WRONG_PASSWORD', '当前密码错误');
     }
     updateData.passwordHash = await hashPassword(newPassword);
   }
@@ -525,17 +502,14 @@ app.delete('/me', authMiddleware, async (c) => {
   }
 
   const db = getDb(c.env.DB);
-  const user = await db.select().from(users).where(eq(users.id, userId)).get();
+  const user = await db.select().from(users).where(eq(users.id, userId!)).get();
   if (!user) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '用户不存在' } }, 404);
+    throwAppError('USER_NOT_FOUND');
   }
 
   const isValid = await verifyPassword(result.data.password, user.passwordHash);
   if (!isValid) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '密码错误，无法注销账户' } },
-      401
-    );
+    throwAppError('WRONG_PASSWORD', '密码错误，无法注销账户');
   }
 
   const authHeader = c.req.header('Authorization');

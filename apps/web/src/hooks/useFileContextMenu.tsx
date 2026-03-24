@@ -31,6 +31,7 @@ import {
   Link2,
   FilePlus,
   Link,
+  History,
 } from 'lucide-react';
 
 export function useFileContextMenu() {
@@ -72,6 +73,13 @@ export function useFileContextMenu() {
           icon: <Link2 className="h-4 w-4" />,
           action: () => callbacks.onUploadLink?.(file),
           disabled: !file.isFolder,
+        },
+        {
+          id: 'versionHistory',
+          label: '版本历史',
+          icon: <History className="h-4 w-4" />,
+          action: () => callbacks.onVersionHistory?.(file),
+          disabled: file.isFolder,
         },
         {
           id: 'tags',

@@ -22,6 +22,7 @@ import {
   UPLOAD_CHUNK_SIZE,
   inferMimeType,
 } from '@osshelf/shared';
+import { throwAppError } from '../middleware/error';
 import { getEncryptionKey } from '../lib/crypto';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
@@ -113,7 +114,7 @@ app.post('/create', async (c) => {
 
   const user = await getUserOrFail(db, userId);
   if (user.storageUsed + fileSize > user.storageQuota) {
-    return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: '用户存储配额已满' } }, 400);
+    throwAppError('STORAGE_EXCEEDED', '用户存储配额已满');
   }
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, requestedBucketId, parentId);
@@ -223,7 +224,7 @@ app.post('/create', async (c) => {
 
   const quotaErr = await checkBucketQuota(db, bucketConfig.id, fileSize);
   if (quotaErr) {
-    return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: quotaErr } }, 400);
+    throwAppError('STORAGE_EXCEEDED', quotaErr);
   }
 
   const taskId = crypto.randomUUID();
@@ -388,7 +389,7 @@ app.post('/start', async (c) => {
   const taskId = body.taskId as string;
 
   if (!taskId) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少任务ID' } }, 400);
+    throwAppError('VALIDATION_ERROR', '缺少任务ID');
   }
 
   const db = getDb(c.env.DB);
@@ -400,7 +401,7 @@ app.post('/start', async (c) => {
     .get();
 
   if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+    throwAppError('TASK_NOT_FOUND');
   }
 
   if (task.status !== 'pending') {
@@ -408,7 +409,7 @@ app.post('/start', async (c) => {
   }
 
   if (new Date(task.expiresAt) < new Date()) {
-    return c.json({ success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '上传任务已过期' } }, 410);
+    throwAppError('TASK_EXPIRED', '上传任务已过期');
   }
 
   await db
@@ -441,15 +442,15 @@ app.post('/part', async (c) => {
     .get();
 
   if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+    throwAppError('TASK_NOT_FOUND');
   }
 
   if (task.status === 'completed') {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '任务已完成' } }, 400);
+    throwAppError('VALIDATION_ERROR', '任务已完成');
   }
 
   if (new Date(task.expiresAt) < new Date()) {
-    return c.json({ success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '上传任务已过期' } }, 410);
+    throwAppError('TASK_EXPIRED', '上传任务已过期');
   }
 
   if (task.uploadId === 'telegram' || task.uploadId?.startsWith('telegram-chunked:')) {
@@ -502,7 +503,7 @@ app.post('/part-done', async (c) => {
     .get();
 
   if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+    throwAppError('TASK_NOT_FOUND');
   }
 
   if (task.status === 'completed') {
@@ -510,7 +511,7 @@ app.post('/part-done', async (c) => {
   }
 
   if (new Date(task.expiresAt) < new Date()) {
-    return c.json({ success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '上传任务已过期' } }, 410);
+    throwAppError('TASK_EXPIRED', '上传任务已过期');
   }
 
   // 存储 {partNumber, etag} 对象以支持断点续传时直接使用，无需再次调用 S3 ListParts
@@ -550,7 +551,7 @@ app.post('/part-proxy', async (c) => {
   const chunk = formData.get('chunk') as File | null;
 
   if (!taskId || !partNumber || !chunk) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少必要参数' } }, 400);
+    throwAppError('VALIDATION_ERROR', '缺少必要参数');
   }
 
   const db = getDb(c.env.DB);
@@ -563,11 +564,11 @@ app.post('/part-proxy', async (c) => {
     .get();
 
   if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+    throwAppError('TASK_NOT_FOUND');
   }
 
   if (new Date(task.expiresAt) < new Date()) {
-    return c.json({ success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '上传任务已过期' } }, 410);
+    throwAppError('TASK_EXPIRED', '上传任务已过期');
   }
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, task.bucketId, null);
@@ -627,7 +628,7 @@ app.post('/telegram-part', async (c) => {
 
   const partNumber = parseInt(partNumberStr, 10);
   if (isNaN(partNumber) || partNumber < 1) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: 'partNumber 无效' } }, 400);
+    throwAppError('VALIDATION_ERROR', 'partNumber 无效');
   }
 
   const db = getDb(c.env.DB);
@@ -640,7 +641,7 @@ app.post('/telegram-part', async (c) => {
     .get();
 
   if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+    throwAppError('TASK_NOT_FOUND');
   }
 
   if (!task.uploadId || (task.uploadId !== 'telegram' && !task.uploadId.startsWith('telegram-chunked:'))) {
@@ -650,7 +651,7 @@ app.post('/telegram-part', async (c) => {
     );
   }
   if (new Date(task.expiresAt) < new Date()) {
-    return c.json({ success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '上传任务已过期' } }, 410);
+    throwAppError('TASK_EXPIRED', '上传任务已过期');
   }
 
   const bucket = await db
@@ -788,10 +789,10 @@ app.post('/telegram-upload', async (c) => {
     .get();
 
   if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+    throwAppError('TASK_NOT_FOUND');
   }
   if (new Date(task.expiresAt) < new Date()) {
-    return c.json({ success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '上传任务已过期' } }, 410);
+    throwAppError('TASK_EXPIRED', '上传任务已过期');
   }
 
   const bucket = await db
@@ -987,7 +988,7 @@ app.post('/complete', async (c) => {
       .get();
 
     if (!task) {
-      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+      throwAppError('TASK_NOT_FOUND');
     }
 
     if (task.status === 'completed') {
@@ -995,7 +996,7 @@ app.post('/complete', async (c) => {
     }
 
     if (new Date(task.expiresAt) < new Date()) {
-      return c.json({ success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '上传任务已过期' } }, 410);
+      throwAppError('TASK_EXPIRED', '上传任务已过期');
     }
 
     const bucketConfig = await resolveBucketConfig(db, userId, encKey, task.bucketId, task.parentId);
@@ -1365,7 +1366,7 @@ app.post('/abort', async (c) => {
   const taskId = body.taskId as string;
 
   if (!taskId) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少任务ID' } }, 400);
+    throwAppError('VALIDATION_ERROR', '缺少任务ID');
   }
 
   const db = getDb(c.env.DB);
@@ -1378,7 +1379,7 @@ app.post('/abort', async (c) => {
     .get();
 
   if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+    throwAppError('TASK_NOT_FOUND');
   }
 
   if (task.status === 'completed') {
@@ -1418,7 +1419,7 @@ app.get('/:taskId', async (c) => {
     .get();
 
   if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+    throwAppError('TASK_NOT_FOUND');
   }
 
   if (task.status === 'completed') {
@@ -1441,7 +1442,7 @@ app.get('/:taskId', async (c) => {
       .update(uploadTasks)
       .set({ status: 'expired', updatedAt: new Date().toISOString() })
       .where(eq(uploadTasks.id, taskId));
-    return c.json({ success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '上传任务已过期' } }, 410);
+    throwAppError('TASK_EXPIRED', '上传任务已过期');
   }
 
   if (task.uploadId === 'telegram' || task.uploadId?.startsWith('telegram-chunked:')) {
@@ -1512,7 +1513,7 @@ app.delete('/:taskId', async (c) => {
     .get();
 
   if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+    throwAppError('TASK_NOT_FOUND');
   }
 
   await db.delete(uploadTasks).where(eq(uploadTasks.id, taskId));
@@ -1532,7 +1533,7 @@ app.post('/:taskId/pause', async (c) => {
     .get();
 
   if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+    throwAppError('TASK_NOT_FOUND');
   }
 
   if (task.status !== 'uploading' && task.status !== 'pending') {
@@ -1565,7 +1566,7 @@ app.post('/:taskId/retry', async (c) => {
     .get();
 
   if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+    throwAppError('TASK_NOT_FOUND');
   }
 
   if (task.status !== 'failed') {
@@ -1624,7 +1625,7 @@ app.post('/:taskId/resume', async (c) => {
     .get();
 
   if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+    throwAppError('TASK_NOT_FOUND');
   }
 
   if (task.status !== 'paused') {
@@ -1639,7 +1640,7 @@ app.post('/:taskId/resume', async (c) => {
       .update(uploadTasks)
       .set({ status: 'expired', updatedAt: new Date().toISOString() })
       .where(eq(uploadTasks.id, taskId));
-    return c.json({ success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '上传任务已过期' } }, 410);
+    throwAppError('TASK_EXPIRED', '上传任务已过期');
   }
 
   await db

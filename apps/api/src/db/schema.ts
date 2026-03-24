@@ -53,6 +53,9 @@ export const files = sqliteTable(
     bucketId: text('bucket_id'),
     directLinkToken: text('direct_link_token').unique(),
     directLinkExpiresAt: text('direct_link_expires_at'),
+    currentVersion: integer('current_version').default(1),
+    maxVersions: integer('max_versions').default(10),
+    versionRetentionDays: integer('version_retention_days').default(30),
   },
   (table) => ({
     userParentIdx: index('idx_files_user_parent_active').on(table.userId, table.parentId),
@@ -341,4 +344,29 @@ export const searchHistory = sqliteTable(
   })
 );
 
+export const fileVersions = sqliteTable(
+  'file_versions',
+  {
+    id: text('id').primaryKey(),
+    fileId: text('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    r2Key: text('r2_key').notNull(),
+    size: integer('size').default(0).notNull(),
+    mimeType: text('mime_type'),
+    hash: text('hash'),
+    refCount: integer('ref_count').default(1).notNull(),
+    changeSummary: text('change_summary'),
+    createdBy: text('created_by').references(() => users.id),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    fileCreatedIdx: index('idx_file_versions_file').on(table.fileId, table.createdAt),
+    hashIdx: index('idx_file_versions_hash').on(table.hash),
+    uniqueVersionIdx: uniqueIndex('idx_file_versions_unique').on(table.fileId, table.version),
+  })
+);
+
 export type File = typeof files.$inferSelect;
+export type FileVersion = typeof fileVersions.$inferSelect;

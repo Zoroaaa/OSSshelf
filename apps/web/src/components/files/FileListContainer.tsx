@@ -38,6 +38,7 @@ interface FileListContainerProps {
   onTagClick: (tagName: string) => void;
   onUploadLink?: (file: FileItem) => void;
   onDirectLink?: (file: FileItem) => void;
+  onVersionHistory?: (file: FileItem) => void;
 }
 
 export function FileListContainer({
@@ -62,6 +63,7 @@ export function FileListContainer({
   onTagClick,
   onUploadLink,
   onDirectLink,
+  onVersionHistory,
 }: FileListContainerProps) {
   const hasImages = imageFiles.length > 0;
 

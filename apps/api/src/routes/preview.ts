@@ -15,6 +15,7 @@ import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files, users } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES, CODE_HIGHLIGHT_EXTENSIONS, OFFICE_MIME_TYPES } from '@osshelf/shared';
+import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { s3Get } from '../lib/s3client';
 import { resolveBucketConfig } from '../lib/bucketResolver';
@@ -119,13 +120,8 @@ app.get('/:id/info', async (c) => {
     .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
     .get();
 
-  if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
-  }
-
-  if (file.isFolder) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '文件夹无法预览' } }, 400);
-  }
+  if (!file) throwAppError('FILE_NOT_FOUND');
+  if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '文件夹无法预览');
 
   const { previewable, type } = isPreviewable(file.mimeType, file.name);
 
@@ -160,13 +156,8 @@ app.get('/:id/raw', async (c) => {
     .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
     .get();
 
-  if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
-  }
-
-  if (file.isFolder) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '文件夹无法预览' } }, 400);
-  }
+  if (!file) throwAppError('FILE_NOT_FOUND');
+  if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '文件夹无法预览');
 
   if (file.size > MAX_PREVIEW_SIZE) {
     return c.json(
@@ -181,9 +172,7 @@ app.get('/:id/raw', async (c) => {
   }
 
   const s3Res = await s3Get(bucketConfig, file.r2Key);
-  if (!s3Res.ok) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件内容不存在' } }, 404);
-  }
+  if (!s3Res.ok) throwAppError('FILE_CONTENT_NOT_FOUND');
 
   const content = await s3Res.text();
 
@@ -210,13 +199,8 @@ app.get('/:id/stream', async (c) => {
     .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
     .get();
 
-  if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
-  }
-
-  if (file.isFolder) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '文件夹无法预览' } }, 400);
-  }
+  if (!file) throwAppError('FILE_NOT_FOUND');
+  if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '文件夹无法预览');
 
   const { type } = isPreviewable(file.mimeType, file.name);
   if (!['image', 'video', 'audio', 'pdf'].includes(type)) {
@@ -234,9 +218,7 @@ app.get('/:id/stream', async (c) => {
   const range = c.req.header('Range');
   const s3Res = await s3Get(bucketConfig, file.r2Key);
 
-  if (!s3Res.ok) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件内容不存在' } }, 404);
-  }
+  if (!s3Res.ok) throwAppError('FILE_CONTENT_NOT_FOUND');
 
   const headers: Record<string, string> = {
     'Content-Type': file.mimeType || 'application/octet-stream',
@@ -266,9 +248,7 @@ app.get('/:id/thumbnail', async (c) => {
     .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
     .get();
 
-  if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
-  }
+  if (!file) throwAppError('FILE_NOT_FOUND');
 
   if (!file.mimeType?.startsWith('image/')) {
     return c.json(
@@ -283,9 +263,7 @@ app.get('/:id/thumbnail', async (c) => {
   }
 
   const s3Res = await s3Get(bucketConfig, file.r2Key);
-  if (!s3Res.ok) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件内容不存在' } }, 404);
-  }
+  if (!s3Res.ok) throwAppError('FILE_CONTENT_NOT_FOUND');
 
   const imageBuffer = await s3Res.arrayBuffer();
 
@@ -310,12 +288,9 @@ app.get('/:id/office', async (c) => {
     .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
     .get();
 
-  if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
-  }
-
+  if (!file) throwAppError('FILE_NOT_FOUND');
   if (!OFFICE_MIME_TYPES.includes(file.mimeType as (typeof OFFICE_MIME_TYPES)[number])) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '不支持该文件类型' } }, 400);
+    throwAppError('FILE_PREVIEW_NOT_SUPPORTED', '不支持该文件类型');
   }
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
@@ -324,9 +299,7 @@ app.get('/:id/office', async (c) => {
   }
 
   const s3Res = await s3Get(bucketConfig, file.r2Key);
-  if (!s3Res.ok) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件内容不存在' } }, 404);
-  }
+  if (!s3Res.ok) throwAppError('FILE_CONTENT_NOT_FOUND');
 
   const fileBuffer = await s3Res.arrayBuffer();
   const base64Content = btoa(String.fromCharCode(...new Uint8Array(fileBuffer)));

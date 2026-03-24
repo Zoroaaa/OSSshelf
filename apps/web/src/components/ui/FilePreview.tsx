@@ -6,12 +6,16 @@
  * - 图片/视频/音频预览
  * - PDF文档预览
  * - 文本/代码预览
- * - Office文档预览（Word本地渲染）
+ * - Markdown 渲染预览
+ * - Office文档预览（Word/Excel本地渲染）
  * - 预览信息展示
  */
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { renderAsync } from 'docx-preview';
+import * as XLSX from 'xlsx';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { X, Download, Share2, FileText, Volume2, FileSpreadsheet, Presentation } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { FileIcon } from '@/components/ui/FileIcon';
@@ -49,6 +53,8 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   const [previewInfo, setPreviewInfo] = useState<PreviewInfo | null>(null);
   const [officeLoading, setOfficeLoading] = useState(false);
   const [officeError, setOfficeError] = useState<string | null>(null);
+  const [excelData, setExcelData] = useState<XLSX.WorkSheet | null>(null);
+  const [excelLoading, setExcelLoading] = useState(false);
   const overlayRef = useRef<HTMLDivElement>(null);
   const docxContainerRef = useRef<HTMLDivElement>(null);
 
@@ -57,12 +63,12 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   const isVideo = file.mimeType?.startsWith('video/');
   const isAudio = file.mimeType?.startsWith('audio/');
   const isPdf = file.mimeType === 'application/pdf';
+  const isMarkdown = file.mimeType === 'text/markdown' || file.name.endsWith('.md');
   const isText =
     file.mimeType?.startsWith('text/') ||
     file.mimeType === 'application/json' ||
     file.mimeType === 'application/xml' ||
     previewInfo?.previewType === 'code';
-
   const isWord =
     file.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
     file.mimeType === 'application/msword';
@@ -82,6 +88,8 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     setPreviewInfo(null);
     setOfficeLoading(false);
     setOfficeError(null);
+    setExcelData(null);
+    setExcelLoading(false);
 
     previewApi
       .getInfo(file.id)
@@ -91,7 +99,6 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
         }
       })
       .catch(() => {});
-
     getPresignedPreviewUrl(file.id)
       .then(({ url }) => {
         if (!cancelled) setResolvedUrl(url);
@@ -108,7 +115,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   }, [file.id, token]);
 
   useEffect(() => {
-    if (!isText || !canPreview || !resolvedUrl) return;
+    if ((!isText && !isMarkdown) || !canPreview || !resolvedUrl) return;
 
     previewApi
       .getRaw(file.id)
@@ -123,7 +130,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
           .then((t) => setTextContent(t))
           .catch(() => setLoadError(true));
       });
-  }, [file.id, resolvedUrl, isText, canPreview]);
+  }, [file.id, resolvedUrl, isText, isMarkdown, canPreview]);
 
   const loadDocxPreview = useCallback(async () => {
     if (!isWord || !resolvedUrl || !docxContainerRef.current) {
@@ -194,11 +201,43 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     }
   }, [isWord, resolvedUrl, file.size]);
 
+  const loadExcelPreview = useCallback(async () => {
+    if (!isExcel || !resolvedUrl) return;
+
+    setExcelLoading(true);
+    try {
+      const response = await fetch(resolvedUrl);
+      if (!response.ok) {
+        throw new Error(`文件加载失败: ${response.status}`);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      if (firstSheetName) {
+        const worksheet = workbook.Sheets[firstSheetName] || null;
+        setExcelData(worksheet);
+      } else {
+        setLoadError(true);
+      }
+    } catch (err) {
+      console.error('Excel preview error:', err);
+      setLoadError(true);
+    } finally {
+      setExcelLoading(false);
+    }
+  }, [isExcel, resolvedUrl]);
+
   useEffect(() => {
     if (isWord && resolvedUrl) {
       loadDocxPreview();
     }
   }, [isWord, resolvedUrl, loadDocxPreview]);
+
+  useEffect(() => {
+    if (isExcel && resolvedUrl) {
+      loadExcelPreview();
+    }
+  }, [isExcel, resolvedUrl, loadExcelPreview]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -222,6 +261,12 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     if (isExcel) return 'Excel 表格';
     if (isPpt) return 'PowerPoint 演示文稿';
     return 'Office 文档';
+  };
+
+  const renderExcelTable = () => {
+    if (!excelData) return null;
+    const html = XLSX.utils.sheet_to_html(excelData);
+    return <div className="w-full h-full overflow-auto" dangerouslySetInnerHTML={{ __html: html }} />;
   };
 
   const renderOfficeFallback = (message?: string) => (
@@ -258,7 +303,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
               ? 'w-full max-w-md'
               : isPdf || isOffice
                 ? 'w-[90vw] max-w-5xl h-[90vh]'
-                : isText
+                : isText || isMarkdown
                   ? 'w-[90vw] max-w-3xl max-h-[80vh]'
                   : 'w-full max-w-md'
         )}
@@ -344,6 +389,16 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
               title={decodeFileName(file.name)}
               onError={() => setLoadError(true)}
             />
+          ) : isMarkdown ? (
+            <div className="w-full h-full overflow-auto p-6 prose dark:prose-invert max-w-none">
+              {textContent !== null ? (
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{textContent}</ReactMarkdown>
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-center text-muted-foreground text-sm py-8">加载中...</p>
+                </div>
+              )}
+            </div>
           ) : isText ? (
             <div className="w-full h-full overflow-auto p-4">
               {textContent !== null ? (
@@ -384,7 +439,20 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                   />
                 </>
               ) : isExcel ? (
-                renderOfficeFallback('Excel 表格暂不支持在线预览')
+                <>
+                  {excelLoading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 z-10">
+                      <div className="text-muted-foreground text-sm">正在加载表格...</div>
+                    </div>
+                  )}
+                  {loadError ? (
+                    <div className="absolute inset-0 flex items-center justify-center z-10">
+                      {renderOfficeFallback('Excel 加载失败')}
+                    </div>
+                  ) : (
+                    <div className="w-full h-full overflow-auto bg-white dark:bg-gray-900">{renderExcelTable()}</div>
+                  )}
+                </>
               ) : isPpt ? (
                 renderOfficeFallback('PowerPoint 暂不支持在线预览')
               ) : (

@@ -65,6 +65,8 @@ export interface FileContextMenuCallbacks {
   onUploadLink?: (file: FileItem) => void;
   /** 仅文件可用：直链管理 */
   onDirectLink?: (file: FileItem) => void;
+  /** 仅文件可用：版本历史 */
+  onVersionHistory?: (file: FileItem) => void;
 }
 
 export interface BackgroundContextMenuCallbacks {

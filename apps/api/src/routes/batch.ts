@@ -16,6 +16,7 @@ import { eq, and, isNull, isNotNull, inArray } from 'drizzle-orm';
 import { getDb, files, users, storageBuckets } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
+import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { s3Delete, s3Put, s3Get } from '../lib/s3client';
@@ -150,7 +151,7 @@ app.post('/move', async (c) => {
       )
       .get();
     if (!targetFolder) {
-      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '目标文件夹不存在' } }, 404);
+      throwAppError('FOLDER_NOT_FOUND', '目标文件夹不存在');
     }
   }
 
@@ -243,7 +244,7 @@ app.post('/copy', async (c) => {
 
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
   if (!user) {
-    return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '用户不存在' } }, 401);
+    throwAppError('USER_NOT_FOUND');
   }
 
   if (targetParentId) {
@@ -255,7 +256,7 @@ app.post('/copy', async (c) => {
       )
       .get();
     if (!targetFolder) {
-      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '目标文件夹不存在' } }, 404);
+      throwAppError('FOLDER_NOT_FOUND', '目标文件夹不存在');
     }
   }
 

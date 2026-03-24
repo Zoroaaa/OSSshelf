@@ -30,6 +30,7 @@ import cronRoutes from './routes/cron';
 import telegramRoutes from './routes/telegram';
 import migrateRoutes from './routes/migrate';
 import directLinkRoutes from './routes/directLink';
+import versionsRoutes from './routes/versions';
 import { errorHandler } from './middleware/error';
 import { runAllCleanupTasks } from './lib/cleanup';
 import type { Env } from './types/env';
@@ -127,6 +128,7 @@ app.route('/api/preview', previewRoutes);
 app.route('/api/telegram', telegramRoutes);
 app.route('/api/migrate', migrateRoutes);
 app.route('/api/direct', directLinkRoutes);
+app.route('/api/versions', versionsRoutes);
 app.route('/cron', cronRoutes);
 app.route('/dav', webdavRoutes);
 

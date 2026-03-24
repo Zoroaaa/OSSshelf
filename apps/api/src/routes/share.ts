@@ -24,6 +24,7 @@ import { isChunkedFileId, tgDownloadChunked, needsChunking, tgUploadChunked } fr
 import { decryptSecret } from '../lib/s3client';
 import { ZipBuilder } from '../lib/zipStream';
 import { encodeFilename } from '../lib/utils';
+import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 
@@ -218,7 +219,7 @@ app.post('/', authMiddleware, async (c) => {
     .where(and(eq(files.id, fileId), eq(files.userId, userId)))
     .get();
   if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+    throwAppError('FILE_NOT_FOUND');
   }
 
   const shareId = crypto.randomUUID();
@@ -294,7 +295,7 @@ app.delete('/:id', authMiddleware, async (c) => {
     .where(and(eq(shares.id, shareId), eq(shares.userId, userId)))
     .get();
   if (!share) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '分享不存在' } }, 404);
+    throwAppError('SHARE_NOT_FOUND');
   }
 
   await db.delete(shares).where(eq(shares.id, shareId));
@@ -327,7 +328,7 @@ app.post('/upload-link', authMiddleware, async (c) => {
     .where(and(eq(files.id, folderId), eq(files.userId, userId), eq(files.isFolder, true), isNull(files.deletedAt)))
     .get();
   if (!folder) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件夹不存在' } }, 404);
+    throwAppError('FOLDER_NOT_FOUND');
   }
 
   const shareId = crypto.randomUUID();
@@ -387,7 +388,7 @@ app.get('/:id', async (c) => {
 
   const { share } = resolved;
   const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
-  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+  if (!file) throwAppError('FILE_NOT_FOUND');
 
   // 文件夹分享：返回一层子文件列表（不递归，支持前端分页浏览）
   let children: Array<{
@@ -477,7 +478,7 @@ app.get('/:id/preview', async (c) => {
 
   const { share } = resolved;
   const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
-  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+  if (!file) throwAppError('FILE_NOT_FOUND');
 
   if (!isPreviewableMimeType(file.mimeType)) {
     return c.json(
@@ -500,7 +501,7 @@ app.get('/:id/preview', async (c) => {
       headers: { 'Content-Type': file.mimeType!, 'Cache-Control': 'private, max-age=300' },
     });
   } catch (e: any) {
-    return c.json({ success: false, error: { code: 'FETCH_FAILED', message: e?.message } }, 502);
+    throwAppError('FILE_DOWNLOAD_FAILED', String(e?.message || '下载失败'));
   }
 });
 
@@ -517,7 +518,7 @@ app.get('/:id/stream', async (c) => {
 
   const { share } = resolved;
   const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
-  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+  if (!file) throwAppError('FILE_NOT_FOUND');
 
   if (!file.mimeType?.startsWith('video/') && !file.mimeType?.startsWith('audio/')) {
     return c.json(
@@ -561,7 +562,7 @@ app.get('/:id/stream', async (c) => {
       },
     });
   } catch (e: any) {
-    return c.json({ success: false, error: { code: 'FETCH_FAILED', message: e?.message } }, 502);
+    throwAppError('FILE_DOWNLOAD_FAILED', String(e?.message || '下载失败'));
   }
 });
 
@@ -578,7 +579,7 @@ app.get('/:id/raw', async (c) => {
 
   const { share } = resolved;
   const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
-  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+  if (!file) throwAppError('FILE_NOT_FOUND');
 
   const isTextFile =
     file.mimeType?.startsWith('text/') ||
@@ -607,7 +608,7 @@ app.get('/:id/raw', async (c) => {
     const text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
     return c.json({ success: true, data: { content: text, mimeType: file.mimeType } });
   } catch (e: any) {
-    return c.json({ success: false, error: { code: 'FETCH_FAILED', message: e?.message } }, 502);
+    throwAppError('FILE_DOWNLOAD_FAILED', String(e?.message || '下载失败'));
   }
 });
 
@@ -624,7 +625,7 @@ app.get('/:id/preview-info', async (c) => {
 
   const { share } = resolved;
   const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
-  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+  if (!file) throwAppError('FILE_NOT_FOUND');
 
   const previewType = getPreviewType(file.mimeType);
   const canPreview = isPreviewableMimeType(file.mimeType);
@@ -662,7 +663,7 @@ app.get('/:id/download', async (c) => {
   }
 
   const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
-  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+  if (!file) throwAppError('FILE_NOT_FOUND');
   if (file.isFolder) {
     return c.json(
       { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '文件夹请使用 /zip 端点下载' } },
@@ -686,7 +687,7 @@ app.get('/:id/download', async (c) => {
       },
     });
   } catch (e: any) {
-    return c.json({ success: false, error: { code: 'FETCH_FAILED', message: e?.message } }, 502);
+    throwAppError('FILE_DOWNLOAD_FAILED', String(e?.message || '下载失败'));
   }
 });
 
@@ -713,9 +714,9 @@ app.get('/:id/zip', async (c) => {
   }
 
   const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
-  if (!folder) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件夹不存在' } }, 404);
+  if (!folder) throwAppError('FOLDER_NOT_FOUND');
   if (!folder.isFolder) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '此分享不是文件夹' } }, 400);
+    throwAppError('VALIDATION_ERROR', '此分享不是文件夹');
   }
 
   const encKey = getEncryptionKey(c.env);
@@ -736,7 +737,7 @@ app.get('/:id/zip', async (c) => {
   }
 
   if (entries.length === 0) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '文件夹为空' } }, 400);
+    throwAppError('VALIDATION_ERROR', '文件夹为空');
   }
 
   // 安全限制：单次 ZIP 最多 200 个文件，总大小不超过 500MB
@@ -783,7 +784,7 @@ app.get('/:id/zip', async (c) => {
   }
 
   if (errors.length === entries.length) {
-    return c.json({ success: false, error: { code: 'FETCH_FAILED', message: '所有文件下载失败' } }, 502);
+    throwAppError('FILE_DOWNLOAD_FAILED', '所有文件下载失败');
   }
 
   // 更新下载计数（整个 ZIP 算一次下载）
@@ -821,7 +822,7 @@ app.get('/:id/file/:fileId/download', async (c) => {
   const { share } = resolved;
   const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
   if (!folder?.isFolder) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '分享文件夹不存在' } }, 404);
+    throwAppError('SHARE_FOLDER_NOT_FOUND', '分享文件夹不存在');
   }
 
   // 验证 childFileId 属于此文件夹（一级，防止路径遍历）
@@ -831,7 +832,7 @@ app.get('/:id/file/:fileId/download', async (c) => {
     .where(and(eq(files.id, childFileId), eq(files.parentId, folder.id), isNull(files.deletedAt)))
     .get();
   if (!childFile || childFile.isFolder) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+    throwAppError('FILE_NOT_FOUND');
   }
 
   const encKey = getEncryptionKey(c.env);
@@ -845,7 +846,7 @@ app.get('/:id/file/:fileId/download', async (c) => {
       },
     });
   } catch (e: any) {
-    return c.json({ success: false, error: { code: 'FETCH_FAILED', message: e?.message } }, 502);
+    throwAppError('FILE_DOWNLOAD_FAILED', String(e?.message || '下载失败'));
   }
 });
 
@@ -865,7 +866,7 @@ app.get('/:id/file/:fileId/preview', async (c) => {
   const { share } = resolved;
   const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
   if (!folder?.isFolder) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '分享文件夹不存在' } }, 404);
+    throwAppError('SHARE_FOLDER_NOT_FOUND', '分享文件夹不存在');
   }
 
   const childFile = await db
@@ -874,7 +875,7 @@ app.get('/:id/file/:fileId/preview', async (c) => {
     .where(and(eq(files.id, childFileId), eq(files.parentId, folder.id), isNull(files.deletedAt)))
     .get();
   if (!childFile || childFile.isFolder) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+    throwAppError('FILE_NOT_FOUND');
   }
 
   if (!isPreviewableMimeType(childFile.mimeType)) {
@@ -922,7 +923,7 @@ app.get('/:id/file/:fileId/stream', async (c) => {
   const { share } = resolved;
   const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
   if (!folder?.isFolder) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '分享文件夹不存在' } }, 404);
+    throwAppError('SHARE_FOLDER_NOT_FOUND', '分享文件夹不存在');
   }
 
   const childFile = await db
@@ -931,14 +932,11 @@ app.get('/:id/file/:fileId/stream', async (c) => {
     .where(and(eq(files.id, childFileId), eq(files.parentId, folder.id), isNull(files.deletedAt)))
     .get();
   if (!childFile || childFile.isFolder) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+    throwAppError('FILE_NOT_FOUND');
   }
 
   if (!childFile.mimeType?.startsWith('video/') && !childFile.mimeType?.startsWith('audio/')) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '仅支持视频/音频流式预览' } },
-      400
-    );
+    throwAppError('FILE_PREVIEW_NOT_SUPPORTED', '仅支持视频/音频流式预览');
   }
 
   const encKey = getEncryptionKey(c.env);
@@ -996,7 +994,7 @@ app.get('/:id/file/:fileId/raw', async (c) => {
   const { share } = resolved;
   const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
   if (!folder?.isFolder) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '分享文件夹不存在' } }, 404);
+    throwAppError('SHARE_FOLDER_NOT_FOUND', '分享文件夹不存在');
   }
 
   const childFile = await db
@@ -1005,7 +1003,7 @@ app.get('/:id/file/:fileId/raw', async (c) => {
     .where(and(eq(files.id, childFileId), eq(files.parentId, folder.id), isNull(files.deletedAt)))
     .get();
   if (!childFile || childFile.isFolder) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+    throwAppError('FILE_NOT_FOUND');
   }
 
   const isTextFile =
@@ -1058,7 +1056,7 @@ app.get('/upload/:token', async (c) => {
   const { share } = resolved;
   const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
   if (!folder)
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '目标文件夹不存在' } }, 404);
+    throwAppError('FOLDER_NOT_FOUND', '目标文件夹不存在');
 
   const parsedAllowedMimes: string[] | null = share.uploadAllowedMimeTypes
     ? JSON.parse(share.uploadAllowedMimeTypes)
@@ -1097,7 +1095,7 @@ app.post('/upload/:token', async (c) => {
   const uploadFile = formData.get('file') as File | null;
 
   if (!uploadFile) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请选择文件' } }, 400);
+    throwAppError('VALIDATION_ERROR', '请选择文件');
   }
 
   const db = getDb(c.env.DB);
@@ -1179,7 +1177,7 @@ app.post('/upload/:token', async (c) => {
   // 获取目标文件夹和存储桶配置（以文件夹 owner 身份写入）
   const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
   if (!folder) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '目标文件夹不存在' } }, 404);
+    throwAppError('FOLDER_NOT_FOUND', '目标文件夹不存在');
   }
 
   const folderOwnerId = folder.userId;
@@ -1187,7 +1185,7 @@ app.post('/upload/:token', async (c) => {
   const bucketConfig = await resolveBucketConfig(db, folderOwnerId, encKey, folder.bucketId, folder.id);
 
   if (!bucketConfig && !c.env.FILES) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶未配置' } }, 500);
+    throwAppError('NO_STORAGE_CONFIGURED', '存储桶未配置');
   }
 
   const fileId = crypto.randomUUID();
@@ -1202,7 +1200,7 @@ app.post('/upload/:token', async (c) => {
     isTelegram = true;
     const bkt = await db.select().from(storageBuckets).where(eq(storageBuckets.id, bucketConfig.id)).get();
     if (!bkt) {
-      return c.json({ success: false, error: { code: 'TG_CONFIG_ERROR', message: '无法加载 Telegram 配置' } }, 500);
+      throwAppError('TG_CONFIG_ERROR', '无法加载 Telegram 配置');
     }
     const botToken = await decryptSecret(bkt.accessKeyId, encKey);
     const tgConfig: TelegramBotConfig = {

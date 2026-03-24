@@ -60,7 +60,11 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
   const handleCreate = async () => {
     setIsPending(true);
     try {
-      const expiresAt = isPermanent ? null : (expiresDays ? new Date(Date.now() + Number(expiresDays) * 86400000).toISOString() : undefined);
+      const expiresAt = isPermanent
+        ? null
+        : expiresDays
+          ? new Date(Date.now() + Number(expiresDays) * 86400000).toISOString()
+          : undefined;
       const res = await directLinkApi.create(fileId, expiresAt);
       if (res.data.success && res.data.data) {
         setDirectLink(res.data.data);
@@ -76,7 +80,11 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
     if (!directLink) return;
     setIsPending(true);
     try {
-      const expiresAt = isPermanent ? null : (expiresDays ? new Date(Date.now() + Number(expiresDays) * 86400000).toISOString() : undefined);
+      const expiresAt = isPermanent
+        ? null
+        : expiresDays
+          ? new Date(Date.now() + Number(expiresDays) * 86400000).toISOString()
+          : undefined;
       const res = await directLinkApi.update(fileId, expiresAt);
       if (res.data.success && res.data.data) {
         setDirectLink(res.data.data);
@@ -128,10 +136,7 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      <div
-        className="bg-card border rounded-xl p-6 w-full max-w-md shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="bg-card border rounded-xl p-6 w-full max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 mb-4">
           <Link className="h-4 w-4 text-primary" />
           <h2 className="text-lg font-semibold">文件直链</h2>
@@ -150,11 +155,7 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
             <div className="bg-muted/50 rounded-lg p-3">
               <label className="text-xs text-muted-foreground mb-1 block">直链地址</label>
               <div className="flex items-center gap-2">
-                <Input
-                  readOnly
-                  value={directLink.directUrl}
-                  className="text-xs font-mono flex-1"
-                />
+                <Input readOnly value={directLink.directUrl} className="text-xs font-mono flex-1" />
                 <Button size="icon" variant="outline" onClick={handleCopy} title="复制链接">
                   {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
                 </Button>
@@ -234,9 +235,7 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
           </div>
         ) : (
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              创建直链后，任何人都可以通过该链接直接下载文件，无需登录。
-            </p>
+            <p className="text-sm text-muted-foreground">创建直链后，任何人都可以通过该链接直接下载文件，无需登录。</p>
 
             <div className="space-y-3">
               <div className="flex items-center gap-2">

@@ -14,6 +14,7 @@ import { eq, and, desc, sql } from 'drizzle-orm';
 import { getDb, downloadTasks, users, files, storageBuckets } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES, MAX_FILE_SIZE } from '@osshelf/shared';
+import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { s3Put } from '../lib/s3client';
@@ -195,13 +196,13 @@ app.post('/create', async (c) => {
 
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
   if (!user) {
-    return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '用户不存在' } }, 401);
+    throwAppError('USER_NOT_FOUND');
   }
 
   const encKey = getEncryptionKey(c.env);
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, parentId);
   if (!bucketConfig) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '未配置存储桶' } }, 400);
+    throwAppError('NO_STORAGE_CONFIGURED', '未配置存储桶');
   }
 
   const taskId = crypto.randomUUID();
@@ -349,7 +350,7 @@ app.get('/:taskId', async (c) => {
     .get();
 
   if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+    throwAppError('TASK_NOT_FOUND');
   }
 
   return c.json({ success: true, data: task });
@@ -377,7 +378,7 @@ app.patch('/:taskId', async (c) => {
     .get();
 
   if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+    throwAppError('TASK_NOT_FOUND');
   }
 
   if (task.status !== 'pending') {
@@ -419,7 +420,7 @@ app.delete('/:taskId', async (c) => {
     .get();
 
   if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+    throwAppError('TASK_NOT_FOUND');
   }
 
   if (task.status === 'downloading') {
@@ -446,7 +447,7 @@ app.post('/:taskId/retry', async (c) => {
     .get();
 
   if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+    throwAppError('TASK_NOT_FOUND');
   }
 
   if (task.status !== 'failed') {
@@ -496,7 +497,7 @@ app.post('/:taskId/pause', async (c) => {
     .get();
 
   if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+    throwAppError('TASK_NOT_FOUND');
   }
 
   if (task.status !== 'downloading' && task.status !== 'pending') {
@@ -529,7 +530,7 @@ app.post('/:taskId/resume', async (c) => {
     .get();
 
   if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+    throwAppError('TASK_NOT_FOUND');
   }
 
   if (task.status !== 'paused') {
@@ -575,13 +576,13 @@ app.post('/batch', async (c) => {
 
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
   if (!user) {
-    return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '用户不存在' } }, 401);
+    throwAppError('USER_NOT_FOUND');
   }
 
   const encKey = getEncryptionKey(c.env);
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, parentId);
   if (!bucketConfig) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '未配置存储桶' } }, 400);
+    throwAppError('NO_STORAGE_CONFIGURED', '未配置存储桶');
   }
 
   const created: string[] = [];

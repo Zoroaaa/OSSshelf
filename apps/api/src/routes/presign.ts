@@ -25,6 +25,7 @@ import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files, users, storageBuckets } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES, MAX_FILE_SIZE, OFFICE_MIME_TYPES, isPreviewableMimeType } from '@osshelf/shared';
+import { throwAppError } from '../middleware/error';
 import { getEncryptionKey } from '../lib/crypto';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
@@ -146,7 +147,7 @@ app.post('/upload', async (c) => {
 
   const user = await getUserOrFail(db, userId);
   if (user.storageUsed + fileSize > user.storageQuota) {
-    return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: '用户存储配额已满' } }, 400);
+    throwAppError('STORAGE_EXCEEDED', '用户存储配额已满');
   }
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, requestedBucketId, parentId);
@@ -164,7 +165,7 @@ app.post('/upload', async (c) => {
   // Check per-bucket quota
   const quotaErr = await checkBucketQuota(db, bucketConfig.id, fileSize);
   if (quotaErr) {
-    return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: quotaErr } }, 400);
+    throwAppError('STORAGE_EXCEEDED', quotaErr);
   }
 
   const fileId = crypto.randomUUID();
@@ -288,7 +289,7 @@ app.post('/multipart/init', async (c) => {
   // Quota checks
   const user = await getUserOrFail(db, userId);
   if (user.storageUsed + fileSize > user.storageQuota) {
-    return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: '用户存储配额已满' } }, 400);
+    throwAppError('STORAGE_EXCEEDED', '用户存储配额已满');
   }
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, requestedBucketId, parentId);
@@ -460,12 +461,8 @@ app.get('/download/:id', async (c) => {
     .from(files)
     .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
     .get();
-  if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
-  }
-  if (file.isFolder) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无法下载文件夹' } }, 400);
-  }
+  if (!file) throwAppError('FILE_NOT_FOUND');
+  if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '无法下载文件夹');
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
   if (!bucketConfig) {
@@ -500,12 +497,8 @@ app.get('/preview/:id', async (c) => {
     .from(files)
     .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
     .get();
-  if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
-  }
-  if (file.isFolder) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '文件夹无法预览' } }, 400);
-  }
+  if (!file) throwAppError('FILE_NOT_FOUND');
+  if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '文件夹无法预览');
 
   if (!isPreviewableMimeType(file.mimeType)) {
     return c.json(

@@ -21,6 +21,7 @@ import { and, eq, isNull, inArray } from 'drizzle-orm';
 import { getDb, files, storageBuckets, telegramFileRefs, users } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
+import { throwAppError } from '../middleware/error';
 import { getEncryptionKey } from '../lib/crypto';
 import { resolveBucketConfig, updateBucketStats } from '../lib/bucketResolver';
 import { s3Get, s3Put, s3Delete, decryptSecret, makeBucketConfigAsync, type S3BucketConfig } from '../lib/s3client';
@@ -189,10 +190,10 @@ app.post('/start', async (c) => {
   ]);
 
   if (!srcBucket) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '来源存储桶不存在或未激活' } }, 404);
+    throwAppError('BUCKET_NOT_FOUND', '来源存储桶不存在或未激活');
   }
   if (!tgtBucket) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '目标存储桶不存在或未激活' } }, 404);
+    throwAppError('BUCKET_NOT_FOUND', '目标存储桶不存在或未激活');
   }
 
   // 收集需要迁移的文件 ID
@@ -267,7 +268,7 @@ app.get('/:migrationId', async (c) => {
 
   const raw = await c.env.KV.get(kvKey(userId, migrationId));
   if (!raw) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '迁移任务不存在或已过期' } }, 404);
+    throwAppError('MIGRATION_NOT_FOUND', '迁移任务不存在或已过期');
   }
 
   const status: MigrationStatus = JSON.parse(raw);
@@ -281,7 +282,7 @@ app.post('/:migrationId/cancel', async (c) => {
 
   const raw = await c.env.KV.get(kvKey(userId, migrationId));
   if (!raw) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '迁移任务不存在或已过期' } }, 404);
+    throwAppError('MIGRATION_NOT_FOUND', '迁移任务不存在或已过期');
   }
 
   const status: MigrationStatus = JSON.parse(raw);

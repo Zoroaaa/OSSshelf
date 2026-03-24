@@ -14,6 +14,7 @@ import { eq, and, isNull, isNotNull, like, or, inArray, sql } from 'drizzle-orm'
 import { getDb, files, users, storageBuckets, filePermissions, telegramFileRefs } from '../db';
 import { checkFilePermission } from './permissions';
 import { authMiddleware } from '../middleware/auth';
+import { throwAppError } from '../middleware/error';
 import { ERROR_CODES, MAX_FILE_SIZE, isPreviewableMimeType, inferMimeType } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
@@ -109,24 +110,18 @@ app.get('/:id/preview', async (c) => {
       }
     }
   }
-  if (!userId) return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '未授权' } }, 401);
-
+  if (!userId) throwAppError('UNAUTHORIZED');
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
   const file = await db
     .select()
     .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+    .where(and(eq(files.id, fileId), eq(files.userId, userId!), isNull(files.deletedAt)))
     .get();
-  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
-  if (file.isFolder)
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无法预览文件夹' } }, 400);
-  if (!isPreviewableMimeType(file.mimeType))
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该文件类型不支持预览' } },
-      400
-    );
+  if (!file) throwAppError('FILE_NOT_FOUND');
+  if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '无法预览文件夹');
+  if (!isPreviewableMimeType(file.mimeType)) throwAppError('FILE_PREVIEW_NOT_SUPPORTED');
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
   const pvHeaders = {
     'Content-Type': file.mimeType || 'application/octet-stream',
@@ -147,7 +142,7 @@ app.get('/:id/preview', async (c) => {
       }
       const tgConfig = await resolveTgBucketConfig(db, file.bucketId, encKey);
       if (!tgConfig) {
-        return c.json({ success: false, error: { code: 'TG_CONFIG_ERROR', message: '无法加载 Telegram 配置' } }, 500);
+        throwAppError('TG_CONFIG_ERROR', '无法加载 Telegram 配置');
       }
       try {
         const body = isChunkedFileId(ref.tgFileId)
@@ -155,7 +150,7 @@ app.get('/:id/preview', async (c) => {
           : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
         return new Response(body, { headers: pvHeaders });
       } catch (e: any) {
-        return c.json({ success: false, error: { code: 'TG_DOWNLOAD_FAILED', message: e?.message } }, 502);
+        throwAppError('TG_DOWNLOAD_FAILED', String(e?.message || 'Telegram 下载失败'));
       }
     }
   }
@@ -166,10 +161,10 @@ app.get('/:id/preview', async (c) => {
   }
   if (c.env.FILES) {
     const obj = await c.env.FILES.get(file.r2Key);
-    if (!obj) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件内容不存在' } }, 404);
+    if (!obj) throwAppError('FILE_CONTENT_NOT_FOUND');
     return new Response(obj.body, { headers: pvHeaders });
   }
-  return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶未配置' } }, 500);
+  throwAppError('NO_STORAGE_CONFIGURED', '存储桶未配置');
 });
 
 // ── Download (before authMiddleware, supports token query param) ───────────
@@ -198,25 +193,20 @@ app.get('/:id/download', async (c) => {
       }
     }
   }
-  if (!userId) return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '未授权' } }, 401);
-
+  if (!userId) throwAppError('UNAUTHORIZED');
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
-
-  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read');
-  if (!hasAccess) {
-    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权下载此文件' } }, 403);
-  }
+  const { hasAccess } = await checkFilePermission(db, fileId, userId!, 'read');
+  if (!hasAccess) throwAppError('FILE_ACCESS_DENIED', '无权下载此文件');
 
   const file = await db
     .select()
     .from(files)
     .where(and(eq(files.id, fileId), isNull(files.deletedAt)))
     .get();
-  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
-  if (file.isFolder)
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无法下载文件夹' } }, 400);
+  if (!file) throwAppError('FILE_NOT_FOUND');
+  if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '无法下载文件夹');
   const bucketConfig = await resolveBucketConfig(db, file.userId, encKey, file.bucketId, file.parentId);
   const dlHeaders = {
     'Content-Type': file.mimeType || 'application/octet-stream',
@@ -237,7 +227,7 @@ app.get('/:id/download', async (c) => {
       }
       const tgConfig = await resolveTgBucketConfig(db, file.bucketId, encKey);
       if (!tgConfig) {
-        return c.json({ success: false, error: { code: 'TG_CONFIG_ERROR', message: '无法加载 Telegram 配置' } }, 500);
+        throwAppError('TG_CONFIG_ERROR', '无法加载 Telegram 配置');
       }
       try {
         const body = isChunkedFileId(ref.tgFileId)
@@ -259,10 +249,10 @@ app.get('/:id/download', async (c) => {
   }
   if (c.env.FILES) {
     const obj = await c.env.FILES.get(file.r2Key);
-    if (!obj) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件内容不存在' } }, 404);
+    if (!obj) throwAppError('FILE_CONTENT_NOT_FOUND');
     return new Response(obj.body, { headers: dlHeaders });
   }
-  return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶未配置' } }, 500);
+  throwAppError('NO_STORAGE_CONFIGURED', '存储桶未配置');
 });
 
 app.use('*', authMiddleware);
@@ -344,12 +334,12 @@ app.post('/upload', async (c) => {
 
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
   if (user && user.storageUsed + uploadFile.size > user.storageQuota) {
-    return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: '用户存储配额已满' } }, 400);
+    throwAppError('STORAGE_EXCEEDED', '用户存储配额已满');
   }
   if (bucketConfig) {
     const quotaErr = await checkBucketQuota(db, bucketConfig.id, uploadFile.size);
     if (quotaErr)
-      return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: quotaErr } }, 400);
+      throwAppError('STORAGE_EXCEEDED', quotaErr);
   }
 
   const fileId = crypto.randomUUID();
@@ -597,7 +587,7 @@ app.post('/trash/:id/restore', async (c) => {
     .where(and(eq(files.id, fileId), eq(files.userId, userId), isNotNull(files.deletedAt)))
     .get();
   if (!file)
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在或未被删除' } }, 404);
+    throwAppError('FILE_NOT_FOUND', '文件不存在或未被删除');
   await db.update(files).set({ deletedAt: null, updatedAt: new Date().toISOString() }).where(eq(files.id, fileId));
   return c.json({ success: true, data: { message: '已恢复' } });
 });
@@ -613,7 +603,7 @@ app.delete('/trash/:id', async (c) => {
     .from(files)
     .where(and(eq(files.id, fileId), eq(files.userId, userId), isNotNull(files.deletedAt)))
     .get();
-  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+  if (!file) throwAppError('FILE_NOT_FOUND');
   if (!file.isFolder) {
     // CoW 引用计数：仅最后一个引用归零时才删除存储对象
     const { shouldDeleteStorage } = await releaseFileRef(db, fileId);
@@ -693,7 +683,7 @@ app.post('/', async (c) => {
     )
     .get();
   if (existing)
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '同名文件夹已存在' } }, 400);
+    throwAppError('FOLDER_ALREADY_EXISTS', '同名文件夹已存在');
 
   let effectiveBucketId: string | null = null;
   if (requestedBucketId) {
@@ -794,7 +784,7 @@ app.post('/create', async (c) => {
     )
     .get();
   if (existing)
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '同名文件已存在' } }, 400);
+    throwAppError('FILE_ALREADY_EXISTS', '同名文件已存在');
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, requestedBucketId, parentId);
   const effectiveBucketId = bucketConfig?.id ?? requestedBucketId ?? null;
@@ -811,12 +801,12 @@ app.post('/create', async (c) => {
 
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
   if (user && user.storageUsed + fileSize > user.storageQuota) {
-    return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: '用户存储配额已满' } }, 400);
+    throwAppError('STORAGE_EXCEEDED', '用户存储配额已满');
   }
   if (bucketConfig) {
     const quotaErr = await checkBucketQuota(db, bucketConfig.id, fileSize);
     if (quotaErr)
-      return c.json({ success: false, error: { code: ERROR_CODES.STORAGE_EXCEEDED, message: quotaErr } }, 400);
+      throwAppError('STORAGE_EXCEEDED', quotaErr);
   }
 
   const fileId = crypto.randomUUID();
@@ -954,11 +944,11 @@ app.get('/:id', async (c) => {
   // 使用权限检查函数，允许被授权的用户访问
   const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'read');
   if (!hasAccess) {
-    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权访问此文件' } }, 403);
+    throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
   }
 
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
-  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+  if (!file) throwAppError('FILE_NOT_FOUND');
 
   let bucketInfo: { id: string; name: string; provider: string } | null = null;
   if (file.bucketId) {
@@ -996,11 +986,11 @@ app.put('/:id', async (c) => {
   // 使用权限检查函数，需要 write 权限
   const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'write');
   if (!hasAccess) {
-    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权修改此文件' } }, 403);
+    throwAppError('FILE_WRITE_DENIED', '无权修改此文件');
   }
 
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
-  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+  if (!file) throwAppError('FILE_NOT_FOUND');
 
   // 非所有者只能修改名称，不能移动位置
   const { name, parentId } = result.data;
@@ -1048,12 +1038,9 @@ app.put('/:id/settings', async (c) => {
     .from(files)
     .where(and(eq(files.id, fileId), eq(files.userId, userId)))
     .get();
-  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+  if (!file) throwAppError('FILE_NOT_FOUND');
   if (!file.isFolder)
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只有文件夹可以设置上传类型限制' } },
-      400
-    );
+    throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '只有文件夹可以设置上传类型限制');
 
   const { allowedMimeTypes } = result.data;
   const now = new Date().toISOString();
@@ -1093,18 +1080,12 @@ app.post('/:id/move', async (c) => {
     .from(files)
     .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
     .get();
-  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+  if (!file) throwAppError('FILE_NOT_FOUND');
   if (file.isFolder && targetParentId) {
     let checkId: string | null = targetParentId;
     while (checkId) {
       if (checkId === fileId)
-        return c.json(
-          {
-            success: false,
-            error: { code: ERROR_CODES.VALIDATION_ERROR, message: '不能将文件夹移动到自身或其子文件夹中' },
-          },
-          400
-        );
+        throwAppError('CANNOT_MOVE_TO_SUBFOLDER', '不能将文件夹移动到自身或其子文件夹中');
       const parent = await db.select().from(files).where(eq(files.id, checkId)).get();
       checkId = parent?.parentId ?? null;
     }
@@ -1141,7 +1122,7 @@ app.delete('/:id', async (c) => {
   // 使用权限检查函数，需要 admin 权限才能删除
   const { hasAccess } = await checkFilePermission(db, fileId, userId, 'admin');
   if (!hasAccess) {
-    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权删除此文件' } }, 403);
+    throwAppError('FILE_DELETE_DENIED', '无权删除此文件');
   }
 
   const file = await db
@@ -1149,7 +1130,7 @@ app.delete('/:id', async (c) => {
     .from(files)
     .where(and(eq(files.id, fileId), isNull(files.deletedAt)))
     .get();
-  if (!file) return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+  if (!file) throwAppError('FILE_NOT_FOUND');
   const now = new Date().toISOString();
   if (file.isFolder) await softDeleteFolder(db, fileId, now);
   await db.update(files).set({ deletedAt: now, updatedAt: now }).where(eq(files.id, fileId));

@@ -571,7 +571,8 @@ export async function s3Put(
   const extraHeaders: Record<string, string> = {};
   if (metadata) {
     for (const [k, v] of Object.entries(metadata)) {
-      extraHeaders[`x-amz-meta-${k.toLowerCase()}`] = v;
+      const encodedValue = /[^\x00-\x7F]/.test(v) ? `=?UTF-8?B?${btoa(unescape(encodeURIComponent(v)))}?=` : v;
+      extraHeaders[`x-amz-meta-${k.toLowerCase()}`] = encodedValue;
     }
   }
 

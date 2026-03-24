@@ -14,6 +14,7 @@ import { eq, and, inArray, like } from 'drizzle-orm';
 import { getDb, files, filePermissions, users, fileTags } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
+import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
@@ -103,12 +104,12 @@ app.post('/grant', async (c) => {
 
   const file = await checkFileOwnership(db, fileId, userId);
   if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在或无权限' } }, 404);
+    throwAppError('FILE_NOT_FOUND', '文件不存在或无权限');
   }
 
   const targetUser = await db.select().from(users).where(eq(users.id, targetUserId)).get();
   if (!targetUser) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '目标用户不存在' } }, 404);
+    throwAppError('USER_NOT_FOUND', '目标用户不存在');
   }
 
   const existing = await db
@@ -163,7 +164,7 @@ app.post('/revoke', async (c) => {
 
   const file = await checkFileOwnership(db, fileId, userId);
   if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在或无权限' } }, 404);
+    throwAppError('FILE_NOT_FOUND', '文件不存在或无权限');
   }
 
   await db
@@ -191,7 +192,7 @@ app.get('/file/:fileId', async (c) => {
 
   const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'read');
   if (!hasAccess) {
-    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权访问此文件' } }, 403);
+    throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
   }
 
   const permissions = await db
@@ -242,7 +243,7 @@ app.post('/tags/add', async (c) => {
 
   const { hasAccess } = await checkFilePermission(db, fileId, userId, 'write');
   if (!hasAccess) {
-    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权修改此文件' } }, 403);
+    throwAppError('FILE_WRITE_DENIED', '无权修改此文件');
   }
 
   const existing = await db
@@ -288,7 +289,7 @@ app.post('/tags/remove', async (c) => {
 
   const { hasAccess } = await checkFilePermission(db, fileId, userId, 'write');
   if (!hasAccess) {
-    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权修改此文件' } }, 403);
+    throwAppError('FILE_WRITE_DENIED', '无权修改此文件');
   }
 
   await db.delete(fileTags).where(and(eq(fileTags.fileId, fileId), eq(fileTags.name, tagName)));
@@ -303,7 +304,7 @@ app.get('/tags/file/:fileId', async (c) => {
 
   const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read');
   if (!hasAccess) {
-    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权访问此文件' } }, 403);
+    throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
   }
 
   const tags = await db.select().from(fileTags).where(eq(fileTags.fileId, fileId)).all();

@@ -14,6 +14,7 @@ import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, storageBuckets, files } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
+import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { getEncryptionKey } from '../lib/crypto';
@@ -195,7 +196,7 @@ app.get('/:id', async (c) => {
     .get();
 
   if (!bucket) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '存储桶不存在' } }, 404);
+    throwAppError('BUCKET_NOT_FOUND');
   }
 
   return c.json({ success: true, data: sanitize(bucket) });
@@ -226,7 +227,7 @@ app.put('/:id', async (c) => {
     .get();
 
   if (!bucket) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '存储桶不存在' } }, 404);
+    throwAppError('BUCKET_NOT_FOUND');
   }
 
   const data = result.data;
@@ -274,7 +275,7 @@ app.post('/:id/set-default', async (c) => {
     .get();
 
   if (!bucket) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '存储桶不存在' } }, 404);
+    throwAppError('BUCKET_NOT_FOUND');
   }
 
   // Unset all defaults, then set this one
@@ -298,7 +299,7 @@ app.post('/:id/toggle', async (c) => {
     .get();
 
   if (!bucket) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '存储桶不存在' } }, 404);
+    throwAppError('BUCKET_NOT_FOUND');
   }
 
   const now = new Date().toISOString();
@@ -323,7 +324,7 @@ app.post('/:id/test', async (c) => {
     .get();
 
   if (!bucket) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '存储桶不存在' } }, 404);
+    throwAppError('BUCKET_NOT_FOUND');
   }
 
   // ── Telegram 专用测试路径 ──────────────────────────────────────────────
@@ -361,7 +362,7 @@ app.post('/:id/test', async (c) => {
     const testResult = await testS3Connection(cfg);
     return c.json({ success: true, data: testResult });
   } catch (err: any) {
-    return c.json({ success: false, error: { code: 'CONNECTION_FAILED', message: err.message || '连接失败' } }, 200);
+    throwAppError('BUCKET_CONNECTION_FAILED', String(err.message || '连接失败'));
   }
 });
 
@@ -378,7 +379,7 @@ app.delete('/:id', async (c) => {
     .get();
 
   if (!bucket) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '存储桶不存在' } }, 404);
+    throwAppError('BUCKET_NOT_FOUND');
   }
 
   if (bucket.isDefault) {

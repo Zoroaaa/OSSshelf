@@ -6,62 +6,117 @@
  * - 全局异常捕获
  * - 统一错误响应格式
  * - 错误日志记录
+ * - 请求追踪
  */
 
-import type { MiddlewareHandler } from 'hono';
-import { ERROR_CODES } from '@osshelf/shared';
+import type { MiddlewareHandler, Context } from 'hono';
+import { ERROR_CODES, type ErrorCode } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 
 type AppEnv = { Bindings: Env; Variables: Variables };
 
-/**
- * 带 HTTP 状态码的业务错误，可在路由中直接 throw 以跳过逐层 return。
- * 例: throw new AppError(403, ERROR_CODES.FORBIDDEN, '无权操作')
- */
+export interface ErrorResponse {
+  success: false;
+  error: {
+    code: string;
+    name: string;
+    message: string;
+    details?: unknown;
+    stack?: string;
+    requestId: string;
+    timestamp: string;
+  };
+}
+
 export class AppError extends Error {
+  public readonly httpStatus: number;
+  public readonly details?: unknown;
+
   constructor(
-    public readonly statusCode: 400 | 401 | 403 | 404 | 409 | 429 | 500,
-    public readonly code: string,
-    message: string
+    public readonly errorCode: ErrorCode,
+    options?: { details?: unknown; message?: string }
   ) {
-    super(message);
-    this.name = 'AppError';
+    const errorInfo = ERROR_CODES[errorCode];
+    super(options?.message || errorInfo.message);
+    this.name = errorCode;
+    this.httpStatus = errorInfo.httpStatus;
+    this.details = options?.details;
   }
+
+  static fromCode(code: ErrorCode, message?: string): AppError {
+    return new AppError(code, { message });
+  }
+
+  static withDetails(code: ErrorCode, details: unknown, message?: string): AppError {
+    return new AppError(code, { details, message });
+  }
+}
+
+export function createErrorResponse(c: Context<AppEnv>, error: AppError | Error | unknown): Response {
+  const requestId = crypto.randomUUID();
+  const timestamp = new Date().toISOString();
+  const isDev = c.env.ENVIRONMENT === 'development';
+
+  if (error instanceof AppError) {
+    const errorInfo = ERROR_CODES[error.errorCode];
+    const response: ErrorResponse = {
+      success: false,
+      error: {
+        code: errorInfo.code,
+        name: error.errorCode,
+        message: error.message,
+        details: isDev ? error.details : undefined,
+        stack: isDev ? error.stack : undefined,
+        requestId,
+        timestamp,
+      },
+    };
+    return c.json(response, error.httpStatus as 400 | 401 | 403 | 404 | 409 | 410 | 413 | 429 | 500 | 502 | 503 | 507);
+  }
+
+  if (error instanceof Error) {
+    console.error('Unhandled error:', error);
+    const response: ErrorResponse = {
+      success: false,
+      error: {
+        code: 'G000',
+        name: 'INTERNAL_ERROR',
+        message: isDev ? error.message : '服务器内部错误',
+        details: isDev ? { originalError: error.message } : undefined,
+        stack: isDev ? error.stack : undefined,
+        requestId,
+        timestamp,
+      },
+    };
+    return c.json(response, 500);
+  }
+
+  console.error('Unknown error:', error);
+  const response: ErrorResponse = {
+    success: false,
+    error: {
+      code: 'G000',
+      name: 'INTERNAL_ERROR',
+      message: '服务器内部错误',
+      requestId,
+      timestamp,
+    },
+  };
+  return c.json(response, 500);
 }
 
 export const errorHandler: MiddlewareHandler<AppEnv> = async (c, next) => {
   try {
     await next();
   } catch (error) {
-    // 已知业务错误（AppError）直接序列化
-    if (error instanceof AppError) {
-      return c.json({ success: false, error: { code: error.code, message: error.message } }, error.statusCode);
-    }
-
-    console.error('Unhandled error:', error);
-
-    if (error instanceof Error) {
-      // 保留兜底的字符串映射，但不依赖它处理正常业务流程
-      const status = getErrorStatus(error.message);
-      return c.json({ success: false, error: { code: getErrorCode(error.message), message: error.message } }, status);
-    }
-
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '服务器内部错误' } }, 500);
+    return createErrorResponse(c, error);
   }
 };
 
-function getErrorStatus(message: string): 401 | 403 | 404 | 400 | 500 {
-  if (message.includes('未授权') || message.includes('token')) return 401;
-  if (message.includes('无权限') || message.includes('禁止')) return 403;
-  if (message.includes('不存在') || message.includes('未找到')) return 404;
-  if (message.includes('已存在') || message.includes('验证')) return 400;
-  return 500;
+export function throwAppError(code: ErrorCode, message?: string): never {
+  throw new AppError(code, { message });
 }
 
-function getErrorCode(message: string): string {
-  if (message.includes('未授权') || message.includes('token')) return ERROR_CODES.UNAUTHORIZED;
-  if (message.includes('无权限') || message.includes('禁止')) return ERROR_CODES.FORBIDDEN;
-  if (message.includes('不存在') || message.includes('未找到')) return ERROR_CODES.NOT_FOUND;
-  if (message.includes('验证')) return ERROR_CODES.VALIDATION_ERROR;
-  return ERROR_CODES.INTERNAL_ERROR;
+export function throwWithDetails(code: ErrorCode, details: unknown, message?: string): never {
+  throw new AppError(code, { details, message });
 }

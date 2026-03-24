@@ -57,6 +57,7 @@ import { cn, decodeFileName } from '@/utils';
 import { NewFolderDialog, NewFileDialog, FILE_TEMPLATES, ShareDialog, FileListContainer } from '@/components/files';
 import { UploadLinkDialog } from '@/components/files/ShareDialog';
 import { DirectLinkDialog } from '@/components/files/DirectLinkDialog';
+import { VersionHistory } from '@/components/ui/VersionHistory';
 import { FolderPickerDialog } from '@/components/ui/FolderPickerDialog';
 import { MigrateBucketDialog } from '@/components/ui/MigrateBucketDialog';
 import { useFileMutations } from '@/hooks/useFileMutations';
@@ -137,6 +138,9 @@ export default function Files() {
   const [showMigrateDialog, setShowMigrateDialog] = useState(false);
   const [shareFileItem, setShareFileItem] = useState<{ id: string; isFolder: boolean } | null>(null);
   const [directLinkFile, setDirectLinkFile] = useState<{ id: string; name: string } | null>(null);
+
+  // ── Phase 7.5: 版本历史 ────────────────────────────────────────────────────
+  const [versionHistoryFile, setVersionHistoryFile] = useState<FileItem | null>(null);
 
   // ── Phase 7: 搜索历史 ────────────────────────────────────────────────────
   const [showSearchHistory, setShowSearchHistory] = useState(false);
@@ -440,6 +444,11 @@ export default function Files() {
     onDirectLink: (file: FileItem) => {
       if (!file.isFolder) {
         setDirectLinkFile({ id: file.id, name: file.name });
+      }
+    },
+    onVersionHistory: (file: FileItem) => {
+      if (!file.isFolder) {
+        setVersionHistoryFile(file);
       }
     },
     onTags: (file: FileItem) => setTagsFile(file),
@@ -1162,6 +1171,20 @@ export default function Files() {
         />
       )}
 
+      {/* Version history dialog */}
+      {versionHistoryFile && (
+        <VersionHistory
+          fileId={versionHistoryFile.id}
+          fileName={versionHistoryFile.name}
+          mimeType={versionHistoryFile.mimeType}
+          onClose={() => setVersionHistoryFile(null)}
+          onVersionRestored={() => {
+            refetch();
+            toast({ title: '版本已恢复' });
+          }}
+        />
+      )}
+
       {renameFile && (
         <RenameDialog
           currentName={renameFile.name}
@@ -1299,6 +1322,11 @@ export default function Files() {
         onDirectLink={(file) => {
           if (!file.isFolder) {
             setDirectLinkFile({ id: file.id, name: file.name });
+          }
+        }}
+        onVersionHistory={(file) => {
+          if (!file.isFolder) {
+            setVersionHistoryFile(file);
           }
         }}
       />

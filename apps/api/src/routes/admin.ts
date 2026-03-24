@@ -16,6 +16,7 @@ import { eq, and, isNull, isNotNull, desc, sql, gte, lte } from 'drizzle-orm';
 import { getDb, users, files, storageBuckets, auditLogs } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
+import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { hashPassword } from '../lib/crypto';
@@ -29,12 +30,12 @@ app.use('*', authMiddleware);
 app.use('*', async (c, next) => {
   const userId = c.get('userId');
   if (!userId) {
-    return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '未授权' } }, 401);
+    throwAppError('UNAUTHORIZED');
   }
   const db = getDb(c.env.DB);
-  const user = await db.select().from(users).where(eq(users.id, userId)).get();
+  const user = await db.select().from(users).where(eq(users.id, userId!)).get();
   if (!user || user.role !== 'admin') {
-    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '需要管理员权限' } }, 403);
+    throwAppError('ADMIN_REQUIRED');
   }
   c.set('user', { id: user.id, email: user.email, role: user.role });
   await next();
@@ -101,9 +102,7 @@ app.get('/users/:id', async (c) => {
   const id = c.req.param('id');
   const db = getDb(c.env.DB);
   const user = await db.select().from(users).where(eq(users.id, id)).get();
-  if (!user) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '用户不存在' } }, 404);
-  }
+  if (!user) throwAppError('USER_NOT_FOUND');
   const { passwordHash: _pw, ...safe } = user;
   return c.json({ success: true, data: safe });
 });
@@ -123,9 +122,7 @@ app.patch('/users/:id', async (c) => {
 
   const db = getDb(c.env.DB);
   const user = await db.select().from(users).where(eq(users.id, id)).get();
-  if (!user) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '用户不存在' } }, 404);
-  }
+  if (!user) throwAppError('USER_NOT_FOUND');
 
   const now = new Date().toISOString();
   const updateData: Record<string, unknown> = { updatedAt: now };
@@ -167,9 +164,7 @@ app.delete('/users/:id', async (c) => {
 
   const db = getDb(c.env.DB);
   const user = await db.select().from(users).where(eq(users.id, id)).get();
-  if (!user) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '用户不存在' } }, 404);
-  }
+  if (!user) throwAppError('USER_NOT_FOUND');
 
   // Cascade: files + buckets + sessions are deleted via DB ON DELETE CASCADE
   await createAuditLog({
