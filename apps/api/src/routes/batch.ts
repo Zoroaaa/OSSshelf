@@ -20,7 +20,7 @@ import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { s3Delete, s3Put, s3Get } from '../lib/s3client';
-import { resolveBucketConfig, updateBucketStats, checkBucketQuota } from '../lib/bucketResolver';
+import { resolveBucketConfig, updateBucketStats, updateUserStorage, checkBucketQuota } from '../lib/bucketResolver';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getEncryptionKey } from '../lib/crypto';
 
@@ -430,10 +430,7 @@ app.post('/copy', async (c) => {
   }
 
   if (totalCopiedSize > 0) {
-    await db
-      .update(users)
-      .set({ storageUsed: user.storageUsed + totalCopiedSize, updatedAt: now })
-      .where(eq(users.id, userId));
+    await updateUserStorage(db, userId, totalCopiedSize);
     await updateBucketStats(db, bucketConfig.id, totalCopiedSize, batchResult.success);
   }
 
@@ -580,13 +577,7 @@ app.post('/permanent-delete', async (c) => {
   }
 
   if (totalFreed > 0) {
-    const user = await db.select().from(users).where(eq(users.id, userId)).get();
-    if (user) {
-      await db
-        .update(users)
-        .set({ storageUsed: Math.max(0, user.storageUsed - totalFreed), updatedAt: new Date().toISOString() })
-        .where(eq(users.id, userId));
-    }
+    await updateUserStorage(db, userId, -totalFreed);
   }
 
   return c.json({

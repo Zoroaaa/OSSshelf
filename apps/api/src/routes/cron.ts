@@ -10,12 +10,12 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, isNotNull, lt } from 'drizzle-orm';
-import { getDb, files, users, shares, uploadTasks, loginAttempts, userDevices } from '../db';
+import { eq, and, isNotNull, isNull, lt, sql } from 'drizzle-orm';
+import { getDb, files, users, shares, uploadTasks, loginAttempts, userDevices, fileVersions } from '../db';
 import { TRASH_RETENTION_DAYS, DEVICE_SESSION_EXPIRY, ERROR_CODES } from '@osshelf/shared';
 import type { Env } from '../types/env';
 import { s3Delete } from '../lib/s3client';
-import { resolveBucketConfig, updateBucketStats } from '../lib/bucketResolver';
+import { resolveBucketConfig, updateBucketStats, updateUserStorage } from '../lib/bucketResolver';
 import { getEncryptionKey } from '../lib/crypto';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -63,20 +63,19 @@ app.post('/cron/trash-cleanup', async (c) => {
   }
 
   for (const [userId, freedSize] of userStorageChanges) {
-    const user = await db.select().from(users).where(eq(users.id, userId)).get();
-    if (user) {
-      await db
-        .update(users)
-        .set({
-          storageUsed: Math.max(0, user.storageUsed - freedSize),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(users.id, userId));
-    }
+    await updateUserStorage(db, userId, -freedSize);
   }
 
+  // ── 清理过期直链 token ────────────────────────────────────────────────
+  const now = new Date().toISOString();
+  const expiredDirectLinks = await db
+    .update(files)
+    .set({ directLinkToken: null, directLinkExpiresAt: null })
+    .where(and(isNotNull(files.directLinkToken), isNotNull(files.directLinkExpiresAt), lt(files.directLinkExpiresAt, now)))
+    .returning({ id: files.id });
+
   console.log(
-    `Trash cleanup completed: ${deletedCount} files deleted, ${(freedBytes / 1024 / 1024).toFixed(2)} MB freed`
+    `Trash cleanup completed: ${deletedCount} files deleted, ${(freedBytes / 1024 / 1024).toFixed(2)} MB freed, ${expiredDirectLinks.length} direct links expired`
   );
 
   return c.json({
@@ -84,7 +83,8 @@ app.post('/cron/trash-cleanup', async (c) => {
     data: {
       deletedCount,
       freedBytes,
-      message: `已清理 ${deletedCount} 个过期文件，释放 ${(freedBytes / 1024 / 1024).toFixed(2)} MB 空间`,
+      expiredDirectLinks: expiredDirectLinks.length,
+      message: `已清理 ${deletedCount} 个过期文件，释放 ${(freedBytes / 1024 / 1024).toFixed(2)} MB 空间，清除 ${expiredDirectLinks.length} 个过期直链`,
     },
   });
 });
@@ -150,11 +150,95 @@ app.post('/cron/share-cleanup', async (c) => {
   });
 });
 
+// ── Version cleanup ────────────────────────────────────────────────────────
+app.post('/cron/version-cleanup', async (c) => {
+  const db = getDb(c.env.DB);
+  const encKey = getEncryptionKey(c.env);
+  const now = new Date().toISOString();
+
+  let deletedVersions = 0;
+  let errors = 0;
+
+  // 1. 按保留天数清理过期版本
+  const retentionExpired = await db
+    .select({
+      vId: fileVersions.id,
+      vR2Key: fileVersions.r2Key,
+      vRefCount: fileVersions.refCount,
+      fId: files.id,
+      fR2Key: files.r2Key,
+      fBucketId: files.bucketId,
+      fUserId: files.userId,
+      fCurrentVersion: files.currentVersion,
+      fVersion: fileVersions.version,
+      fRetentionDays: files.versionRetentionDays,
+      fCreatedAt: fileVersions.createdAt,
+    })
+    .from(fileVersions)
+    .innerJoin(files, eq(fileVersions.fileId, files.id))
+    .all();
+
+  // Group by fileId to apply per-file maxVersions limit and retention days
+  const byFile = new Map<string, typeof retentionExpired>();
+  for (const row of retentionExpired) {
+    const arr = byFile.get(row.fId) ?? [];
+    arr.push(row);
+    byFile.set(row.fId, arr);
+  }
+
+  for (const [, versionRows] of byFile) {
+    const file = versionRows[0];
+    const retentionMs = (file.fRetentionDays ?? 30) * 24 * 60 * 60 * 1000;
+    const cutoff = new Date(Date.now() - retentionMs).toISOString();
+    const currentVersion = file.fCurrentVersion ?? 1;
+
+    for (const row of versionRows) {
+      // Skip current version — never delete it via cron
+      if (row.fVersion === currentVersion) continue;
+
+      const isExpiredByTime = row.fCreatedAt < cutoff;
+      if (!isExpiredByTime) continue;
+
+      // Only delete physical object if this version has its own unique r2Key
+      const isUniqueKey = row.vR2Key !== file.fR2Key && row.vRefCount <= 1;
+
+      try {
+        await db.delete(fileVersions).where(eq(fileVersions.id, row.vId));
+
+        if (isUniqueKey) {
+          const bucketConfig = await resolveBucketConfig(db, file.fUserId, encKey, file.fBucketId);
+          if (bucketConfig) {
+            await s3Delete(bucketConfig, row.vR2Key).catch(() => {});
+          } else if (c.env.FILES) {
+            await (c.env.FILES as R2Bucket).delete(row.vR2Key).catch(() => {});
+          }
+        }
+        deletedVersions++;
+      } catch (e) {
+        console.error(`Version cleanup failed for version ${row.vId}:`, e);
+        errors++;
+      }
+    }
+  }
+
+  console.log(`Version cleanup: ${deletedVersions} versions deleted, ${errors} errors`);
+
+  return c.json({
+    success: true,
+    data: {
+      deletedVersions,
+      errors,
+      message: `已清理 ${deletedVersions} 个过期版本`,
+    },
+  });
+});
+
 app.post('/cron/all', async (c) => {
   const results = {
     trash: null as unknown,
     sessions: null as unknown,
     shares: null as unknown,
+    versions: null as unknown,
   };
 
   try {
@@ -185,6 +269,16 @@ app.post('/cron/all', async (c) => {
     results.shares = await shareRes.json();
   } catch (e) {
     results.shares = { error: String(e) };
+  }
+
+  try {
+    const versionRes = await fetch(new URL('/cron/version-cleanup', c.req.url), {
+      method: 'POST',
+      headers: c.req.raw.headers,
+    });
+    results.versions = await versionRes.json();
+  } catch (e) {
+    results.versions = { error: String(e) };
   }
 
   return c.json({

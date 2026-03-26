@@ -38,7 +38,7 @@ import {
   s3UploadPart,
   type MultipartPart,
 } from '../lib/s3client';
-import { resolveBucketConfig, updateBucketStats, checkBucketQuota } from '../lib/bucketResolver';
+import { resolveBucketConfig, updateBucketStats, updateUserStorage, checkBucketQuota } from '../lib/bucketResolver';
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 import { getUserOrFail, encodeFilename } from '../lib/utils';
 import { computeSha256Hex, checkAndClaimDedup, releaseFileRef } from '../lib/dedup';
@@ -234,14 +234,8 @@ app.post('/confirm', async (c) => {
     deletedAt: null,
   });
 
-  // Update user storage usage
-  const user = await db.select().from(users).where(eq(users.id, userId)).get();
-  if (user) {
-    await db
-      .update(users)
-      .set({ storageUsed: user.storageUsed + fileSize, updatedAt: now })
-      .where(eq(users.id, userId));
-  }
+  // Update user storage usage (atomic SQL, no read-then-write)
+  await updateUserStorage(db, userId, fileSize);
 
   // Update bucket stats
   if (bucketId) {
@@ -406,13 +400,7 @@ app.post('/multipart/complete', async (c) => {
     deletedAt: null,
   });
 
-  const user = await db.select().from(users).where(eq(users.id, userId)).get();
-  if (user) {
-    await db
-      .update(users)
-      .set({ storageUsed: user.storageUsed + fileSize, updatedAt: now })
-      .where(eq(users.id, userId));
-  }
+  await updateUserStorage(db, userId, fileSize);
   await updateBucketStats(db, bucketConfig.id, fileSize, 1);
 
   return c.json({
