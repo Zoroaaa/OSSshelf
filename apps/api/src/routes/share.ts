@@ -276,7 +276,7 @@ app.get('/', authMiddleware, async (c) => {
       ...share,
       file: file
         ? { id: file.id, name: file.name, size: file.size, mimeType: file.mimeType, isFolder: file.isFolder }
-        : null,
+        : null，
     };
   });
 
@@ -435,7 +435,7 @@ app.get('/:id', async (c) => {
   });
 });
 
-const MAX_PREVIEW_SIZE = 10 * 1024 * 1024;
+const MAX_PREVIEW_SIZE = 100 * 1024 * 1024;
 
 const PREVIEWABLE_MIME_PREFIXES = ['image/', 'video/', 'audio/', 'text/'];
 const PREVIEWABLE_MIME_TYPES = [
