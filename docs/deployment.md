@@ -626,16 +626,31 @@ zone_name = "your-domain.com"
 
 ### CORS 配置
 
+> **⚠️ 重要警告 - 部署前必须修改！**
+> 
+> 以下 CORS 配置中的 `origin` 域名已被硬编码为作者的前端域名。
+> **部署前请务必将其修改为您自己的前端域名，否则前端将无法正常访问 API，导致跨域错误！**
+> 
+> 修改位置：`apps/api/src/index.ts`
+
 如果前端和 API 使用不同域名，需要配置 CORS。在 `apps/api/src/index.ts` 中已默认配置：
 
 ```typescript
 app.use('*', cors({
+  // ⚠️ 部署时请将以下域名修改为您自己的前端域名！
+  // 示例：['https://your-project.pages.dev', 'https://your-custom-domain.com']
   origin: ['https://your-frontend.pages.dev', 'https://your-domain.com'],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
 }));
 ```
+
+**常见跨域错误示例**：
+- `Access to XMLHttpRequest at 'xxx' from origin 'xxx' has been blocked by CORS policy`
+- `Response to preflight request doesn't pass access control check`
+
+**解决方法**：将 `origin` 数组中的域名替换为您实际部署的前端域名。
 
 ---
 
