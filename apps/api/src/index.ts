@@ -39,6 +39,20 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.use('*', logger());
 app.use('*', prettyJSON());
+app.use('/dav/*', async (c, next) => {
+  if (c.req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        DAV: '1, 2',
+        'MS-Author-Via': 'DAV',
+        Allow: 'OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, PROPFIND, PROPPATCH, MOVE, COPY, LOCK, UNLOCK',
+        'Content-Length': '0',
+      },
+    });
+  }
+  await next();
+});
 app.use(
   '*',
   cors({
@@ -54,7 +68,6 @@ app.use(
       if (origin.endsWith('.neutronx.uk')) return origin;
       return allowedOrigins[0];
     },
-    // 修复：补充 LOCK 和 UNLOCK，与 webdav.ts 的 OPTIONS Allow 头保持一致
     allowMethods: [
       'GET',
       'POST',
@@ -80,10 +93,10 @@ app.use(
       'Accept',
       'Origin',
       'Cache-Control',
-      'Lock-Token', // LOCK/UNLOCK 需要
-      'If', // WebDAV 条件请求头
-      'Overwrite', // COPY/MOVE 覆盖控制
-      'Timeout', // LOCK 超时参数
+      'Lock-Token',
+      'If',
+      'Overwrite',
+      'Timeout',
     ],
     exposeHeaders: ['Content-Length', 'Content-Range', 'ETag', 'DAV', 'Lock-Token'],
     maxAge: 86400,

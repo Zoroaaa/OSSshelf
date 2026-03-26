@@ -1,0 +1,2511 @@
+[
+  {
+    "source": {
+      "message": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:58.734Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "path": "/dav/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a5191f4a6562"
+    },
+    "$metadata": {
+      "id": "01KMKYRTXEN5A3WEXTWMTR2B21",
+      "requestId": "9e22a5191f4a6562",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "message": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms"
+    }
+  },
+  {
+    "source": {
+      "message": "<-- OPTIONS /dav/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:58.734Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "path": "/dav/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a5191f4a6562"
+    },
+    "$metadata": {
+      "id": "01KMKYRTXEN5A3WEXTWMTR2B20",
+      "requestId": "9e22a5191f4a6562",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "message": "<-- OPTIONS /dav/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "<-- OPTIONS /dav/"
+    }
+  },
+  {
+    "source": {
+      "level": "info",
+      "message": "OPTIONS https://ossshelf-api.neutronx.uk/dav/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:58.734Z",
+    "$workers": {
+      "event": {
+        "request": {
+          "cf": {
+            "requestHeaderNames": {},
+            "isEUCountry": false,
+            "httpProtocol": "HTTP/1.1",
+            "clientAcceptEncoding": "gzip",
+            "requestPriority": "",
+            "colo": "AMS",
+            "asOrganization": "CHINANET Fujian province network",
+            "country": "CN",
+            "city": "Xiamen",
+            "continent": "AS",
+            "region": "Fujian",
+            "regionCode": "FJ",
+            "timezone": "Asia/Shanghai",
+            "longitude": "118.08187",
+            "latitude": "24.47979",
+            "postalCode": "361000",
+            "tlsVersion": "TLSv1.3",
+            "tlsCipher": "AEAD-CHACHA20-POLY1305-SHA256",
+            "tlsClientRandom": "nWRq9R4FLlZf2arFwV67EJcBpV44A5MKmPlNGrfaKOg=",
+            "tlsClientCiphersSha1": "Z5hJp4rGfwSOBwFfibDtLAP5rkI=",
+            "tlsClientExtensionsSha1": "nGReCXompqr3O9klDQ1bjqM/vl8=",
+            "tlsClientExtensionsSha1Le": "L/BFOsPBZnfg0yYtLLDMIRYvGlk=",
+            "tlsExportedAuthenticator": {
+              "clientHandshake": "5ff7ed6711cd16e0f50eba7176728230c23640f832a90d088e5e3a354f4dba58",
+              "serverHandshake": "3208a52bfba05fe6000b0e560677dfb9c6bef5d183b716fa759680aad7f5ea0b",
+              "clientFinished": "d5a4c7ee0f561c7ec3a5e4c9c4377a5f1002537c3b44738739ebe6851519ee56",
+              "serverFinished": "ef64e8ebd8e851b68fa8897f932660c209c8c1e9e8656116e6626e1de07f6d8c"
+            },
+            "tlsClientHelloLength": "508",
+            "tlsClientAuth": {
+              "certPresented": "0",
+              "certVerified": "NONE",
+              "certRevoked": "0",
+              "certIssuerDN": "",
+              "certSubjectDN": "",
+              "certIssuerDNRFC2253": "",
+              "certSubjectDNRFC2253": "",
+              "certIssuerDNLegacy": "",
+              "certSubjectDNLegacy": "",
+              "certSerial": "",
+              "certIssuerSerial": "",
+              "certSKI": "",
+              "certIssuerSKI": "",
+              "certFingerprintSHA1": "",
+              "certFingerprintSHA256": "",
+              "certNotBefore": "",
+              "certNotAfter": ""
+            },
+            "verifiedBotCategory": "",
+            "edgeRequestKeepAliveStatus": 1,
+            "clientTcpRtt": 287,
+            "clientQuicRtt": 0,
+            "asn": 4134,
+            "edgeL4": {
+              "deliveryRate": 14259
+            }
+          },
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "headers": {
+            "accept-charset": "utf-8",
+            "accept-encoding": "gzip, br",
+            "cf-connecting-ip": "117.30.85.191",
+            "cf-ipcountry": "CN",
+            "cf-ray": "9e22a5191f4a6562",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "connection": "Keep-Alive",
+            "content-length": "0",
+            "content-type": "text/xml",
+            "depth": "0",
+            "host": "ossshelf-api.neutronx.uk",
+            "user-agent": "Dart/3.9 (dart:io)",
+            "x-forwarded-proto": "https",
+            "x-real-ip": "117.30.85.191"
+          },
+          "path": "/dav/"
+        },
+        "rayId": "9e22a5191f4a6562",
+        "response": {
+          "status": 204
+        }
+      },
+      "truncated": false,
+      "scriptName": "ossshelf-api",
+      "outcome": "ok",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a5191f4a6562",
+      "cpuTimeMs": 1,
+      "wallTimeMs": 1
+    },
+    "$metadata": {
+      "id": "01KMKYRTXEN5A3WEXTWMTR2B1Z",
+      "requestId": "9e22a5191f4a6562",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "level": "info",
+      "message": "OPTIONS https://ossshelf-api.neutronx.uk/dav/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker-event",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "OPTIONS https://ossshelf-api.neutronx.uk/dav/"
+    }
+  },
+  {
+    "source": {
+      "message": "--> OPTIONS /dav/FlClash/backup.zip \u001b[32m204\u001b[0m 0ms"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:57.838Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/FlClash/backup.zip",
+          "method": "OPTIONS",
+          "path": "/dav/FlClash/backup.zip"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a5137dad9f63"
+    },
+    "$metadata": {
+      "id": "01KMKYRT1EPMQP3Q84PPQ420WY",
+      "requestId": "9e22a5137dad9f63",
+      "trigger": "OPTIONS /dav/FlClash/backup.zip",
+      "service": "ossshelf-api",
+      "message": "--> OPTIONS /dav/FlClash/backup.zip \u001b[32m204\u001b[0m 0ms",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "--> OPTIONS /dav/FlClash/<DOMAIN> \u001b[32m204\u001b[0m 0ms"
+    }
+  },
+  {
+    "source": {
+      "message": "<-- OPTIONS /dav/FlClash/backup.zip"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:57.838Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/FlClash/backup.zip",
+          "method": "OPTIONS",
+          "path": "/dav/FlClash/backup.zip"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a5137dad9f63"
+    },
+    "$metadata": {
+      "id": "01KMKYRT1EPMQP3Q84PPQ420WX",
+      "requestId": "9e22a5137dad9f63",
+      "trigger": "OPTIONS /dav/FlClash/backup.zip",
+      "service": "ossshelf-api",
+      "message": "<-- OPTIONS /dav/FlClash/backup.zip",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "<-- OPTIONS /dav/FlClash/<DOMAIN>"
+    }
+  },
+  {
+    "source": {
+      "level": "info",
+      "message": "OPTIONS https://ossshelf-api.neutronx.uk/dav/FlClash/backup.zip"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:57.838Z",
+    "$workers": {
+      "event": {
+        "request": {
+          "cf": {
+            "requestHeaderNames": {},
+            "isEUCountry": false,
+            "httpProtocol": "HTTP/1.1",
+            "clientAcceptEncoding": "gzip",
+            "requestPriority": "",
+            "colo": "AMS",
+            "asOrganization": "CHINANET FUJIAN PROVINCE NETWORK",
+            "country": "CN",
+            "city": "Xiamen",
+            "continent": "AS",
+            "region": "Fujian",
+            "regionCode": "FJ",
+            "timezone": "Asia/Shanghai",
+            "longitude": "118.08187",
+            "latitude": "24.47979",
+            "postalCode": "361000",
+            "tlsVersion": "TLSv1.3",
+            "tlsCipher": "AEAD-CHACHA20-POLY1305-SHA256",
+            "tlsClientRandom": "YJ7yWoTetK3DWpbm+0Yz2quif5XEXCM/LuhbHhfN0hY=",
+            "tlsClientCiphersSha1": "Z5hJp4rGfwSOBwFfibDtLAP5rkI=",
+            "tlsClientExtensionsSha1": "nGReCXompqr3O9klDQ1bjqM/vl8=",
+            "tlsClientExtensionsSha1Le": "L/BFOsPBZnfg0yYtLLDMIRYvGlk=",
+            "tlsExportedAuthenticator": {
+              "clientHandshake": "893fd6fec306ff68649af3685be5b62f03a71783ec02e4d2f3c96c72a4d6fb3a",
+              "serverHandshake": "1b2879c1316b26ef540294386f0d5c312c06a0aecf69d41050921d928071d1f6",
+              "clientFinished": "28a0b6e6b4c9204dd0e6c1ef50328d5d460b11107e84bfe57cd6a38f6e125f9c",
+              "serverFinished": "8b29d0566c38bed4cc33f01ee20c51a7ee3af809bd3d36855ca390ea666f9b80"
+            },
+            "tlsClientHelloLength": "508",
+            "tlsClientAuth": {
+              "certPresented": "0",
+              "certVerified": "NONE",
+              "certRevoked": "0",
+              "certIssuerDN": "",
+              "certSubjectDN": "",
+              "certIssuerDNRFC2253": "",
+              "certSubjectDNRFC2253": "",
+              "certIssuerDNLegacy": "",
+              "certSubjectDNLegacy": "",
+              "certSerial": "",
+              "certIssuerSerial": "",
+              "certSKI": "",
+              "certIssuerSKI": "",
+              "certFingerprintSHA1": "",
+              "certFingerprintSHA256": "",
+              "certNotBefore": "",
+              "certNotAfter": ""
+            },
+            "verifiedBotCategory": "",
+            "edgeRequestKeepAliveStatus": 1,
+            "clientTcpRtt": 254,
+            "clientQuicRtt": 0,
+            "asn": 4134,
+            "edgeL4": {
+              "deliveryRate": 17536
+            }
+          },
+          "url": "https://ossshelf-api.neutronx.uk/dav/FlClash/backup.zip",
+          "method": "OPTIONS",
+          "headers": {
+            "accept-charset": "utf-8",
+            "accept-encoding": "gzip, br",
+            "authorization": "********",
+            "cf-connecting-ip": "120.36.137.242",
+            "cf-ipcountry": "CN",
+            "cf-ray": "9e22a5137dad9f63",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "connection": "Keep-Alive",
+            "content-length": "0",
+            "content-type": "text/xml",
+            "depth": "0",
+            "host": "ossshelf-api.neutronx.uk",
+            "user-agent": "Dart/3.9 (dart:io)",
+            "x-forwarded-proto": "https",
+            "x-real-ip": "120.36.137.242"
+          },
+          "path": "/dav/FlClash/backup.zip"
+        },
+        "rayId": "9e22a5137dad9f63",
+        "response": {
+          "status": 204
+        }
+      },
+      "truncated": false,
+      "scriptName": "ossshelf-api",
+      "outcome": "ok",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a5137dad9f63",
+      "cpuTimeMs": 0,
+      "wallTimeMs": 0
+    },
+    "$metadata": {
+      "id": "01KMKYRT1EPMQP3Q84PPQ420WW",
+      "requestId": "9e22a5137dad9f63",
+      "trigger": "OPTIONS /dav/FlClash/backup.zip",
+      "service": "ossshelf-api",
+      "level": "info",
+      "message": "OPTIONS https://ossshelf-api.neutronx.uk/dav/FlClash/backup.zip",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker-event",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "OPTIONS https://ossshelf-api.neutronx.uk/dav/FlClash/backup.zip"
+    }
+  },
+  {
+    "source": {
+      "message": "--> MKCOL /dav/FlClash/ \u001b[33m405\u001b[0m 489ms"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:57.508Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/FlClash/",
+          "method": "MKCOL",
+          "path": "/dav/FlClash/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a50e5b169f63"
+    },
+    "$metadata": {
+      "id": "01KMKYRSQ4RS9XEH446F1JRD3X",
+      "requestId": "9e22a50e5b169f63",
+      "trigger": "MKCOL /dav/FlClash/",
+      "service": "ossshelf-api",
+      "message": "--> MKCOL /dav/FlClash/ \u001b[33m405\u001b[0m 489ms",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "--> MKCOL /dav/FlClash/ \u001b[33m405\u001b[0m 489ms"
+    }
+  },
+  {
+    "source": {
+      "message": "<-- MKCOL /dav/FlClash/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:57.019Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/FlClash/",
+          "method": "MKCOL",
+          "path": "/dav/FlClash/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a50e5b169f63"
+    },
+    "$metadata": {
+      "id": "01KMKYRS7V39Z333NE2ERZ7WKS",
+      "requestId": "9e22a50e5b169f63",
+      "trigger": "MKCOL /dav/FlClash/",
+      "service": "ossshelf-api",
+      "message": "<-- MKCOL /dav/FlClash/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "<-- MKCOL /dav/FlClash/"
+    }
+  },
+  {
+    "source": {
+      "level": "info",
+      "message": "MKCOL https://ossshelf-api.neutronx.uk/dav/FlClash/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:57.019Z",
+    "$workers": {
+      "event": {
+        "request": {
+          "cf": {
+            "requestHeaderNames": {},
+            "isEUCountry": false,
+            "httpProtocol": "HTTP/1.1",
+            "clientAcceptEncoding": "gzip",
+            "requestPriority": "",
+            "colo": "AMS",
+            "asOrganization": "CHINANET FUJIAN PROVINCE NETWORK",
+            "country": "CN",
+            "city": "Xiamen",
+            "continent": "AS",
+            "region": "Fujian",
+            "regionCode": "FJ",
+            "timezone": "Asia/Shanghai",
+            "longitude": "118.08187",
+            "latitude": "24.47979",
+            "postalCode": "361000",
+            "tlsVersion": "TLSv1.3",
+            "tlsCipher": "AEAD-CHACHA20-POLY1305-SHA256",
+            "tlsClientRandom": "YJ7yWoTetK3DWpbm+0Yz2quif5XEXCM/LuhbHhfN0hY=",
+            "tlsClientCiphersSha1": "Z5hJp4rGfwSOBwFfibDtLAP5rkI=",
+            "tlsClientExtensionsSha1": "nGReCXompqr3O9klDQ1bjqM/vl8=",
+            "tlsClientExtensionsSha1Le": "L/BFOsPBZnfg0yYtLLDMIRYvGlk=",
+            "tlsExportedAuthenticator": {
+              "clientHandshake": "893fd6fec306ff68649af3685be5b62f03a71783ec02e4d2f3c96c72a4d6fb3a",
+              "serverHandshake": "1b2879c1316b26ef540294386f0d5c312c06a0aecf69d41050921d928071d1f6",
+              "clientFinished": "28a0b6e6b4c9204dd0e6c1ef50328d5d460b11107e84bfe57cd6a38f6e125f9c",
+              "serverFinished": "8b29d0566c38bed4cc33f01ee20c51a7ee3af809bd3d36855ca390ea666f9b80"
+            },
+            "tlsClientHelloLength": "508",
+            "tlsClientAuth": {
+              "certPresented": "0",
+              "certVerified": "NONE",
+              "certRevoked": "0",
+              "certIssuerDN": "",
+              "certSubjectDN": "",
+              "certIssuerDNRFC2253": "",
+              "certSubjectDNRFC2253": "",
+              "certIssuerDNLegacy": "",
+              "certSubjectDNLegacy": "",
+              "certSerial": "",
+              "certIssuerSerial": "",
+              "certSKI": "",
+              "certIssuerSKI": "",
+              "certFingerprintSHA1": "",
+              "certFingerprintSHA256": "",
+              "certNotBefore": "",
+              "certNotAfter": ""
+            },
+            "verifiedBotCategory": "",
+            "edgeRequestKeepAliveStatus": 1,
+            "clientTcpRtt": 248,
+            "clientQuicRtt": 0,
+            "asn": 4134,
+            "edgeL4": {
+              "deliveryRate": 17536
+            }
+          },
+          "url": "https://ossshelf-api.neutronx.uk/dav/FlClash/",
+          "method": "MKCOL",
+          "headers": {
+            "accept-charset": "utf-8",
+            "accept-encoding": "gzip, br",
+            "authorization": "********",
+            "cf-connecting-ip": "120.36.137.242",
+            "cf-ipcountry": "CN",
+            "cf-ray": "9e22a50e5b169f63",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "connection": "Keep-Alive",
+            "content-length": "0",
+            "content-type": "text/xml",
+            "host": "ossshelf-api.neutronx.uk",
+            "user-agent": "Dart/3.9 (dart:io)",
+            "x-forwarded-proto": "https",
+            "x-real-ip": "120.36.137.242"
+          },
+          "path": "/dav/FlClash/"
+        },
+        "rayId": "9e22a50e5b169f63",
+        "response": {
+          "status": 405
+        }
+      },
+      "truncated": false,
+      "scriptName": "ossshelf-api",
+      "outcome": "ok",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a50e5b169f63",
+      "cpuTimeMs": 31,
+      "wallTimeMs": 511
+    },
+    "$metadata": {
+      "id": "01KMKYRS7V39Z333NE2ERZ7WKR",
+      "requestId": "9e22a50e5b169f63",
+      "trigger": "MKCOL /dav/FlClash/",
+      "service": "ossshelf-api",
+      "level": "info",
+      "message": "MKCOL https://ossshelf-api.neutronx.uk/dav/FlClash/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker-event",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "MKCOL https://ossshelf-api.neutronx.uk/dav/FlClash/"
+    }
+  },
+  {
+    "source": {
+      "message": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:56.782Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "path": "/dav/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a50cdc3cc276"
+    },
+    "$metadata": {
+      "id": "01KMKYRS0EMB07Q2GMZZQAJY2N",
+      "requestId": "9e22a50cdc3cc276",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "message": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms"
+    }
+  },
+  {
+    "source": {
+      "message": "<-- OPTIONS /dav/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:56.782Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "path": "/dav/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a50cdc3cc276"
+    },
+    "$metadata": {
+      "id": "01KMKYRS0EMB07Q2GMZZQAJY2M",
+      "requestId": "9e22a50cdc3cc276",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "message": "<-- OPTIONS /dav/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "<-- OPTIONS /dav/"
+    }
+  },
+  {
+    "source": {
+      "level": "info",
+      "message": "OPTIONS https://ossshelf-api.neutronx.uk/dav/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:56.782Z",
+    "$workers": {
+      "event": {
+        "request": {
+          "cf": {
+            "requestHeaderNames": {},
+            "isEUCountry": false,
+            "httpProtocol": "HTTP/1.1",
+            "clientAcceptEncoding": "gzip",
+            "requestPriority": "",
+            "colo": "AMS",
+            "asOrganization": "CHINANET Fujian province network",
+            "country": "CN",
+            "city": "Xiamen",
+            "continent": "AS",
+            "region": "Fujian",
+            "regionCode": "FJ",
+            "timezone": "Asia/Shanghai",
+            "longitude": "118.08187",
+            "latitude": "24.47979",
+            "postalCode": "361000",
+            "tlsVersion": "TLSv1.3",
+            "tlsCipher": "AEAD-CHACHA20-POLY1305-SHA256",
+            "tlsClientRandom": "Rqdw7JEbHCr9XcYFdcfAvqpBuS4VD59sS6ymW+dN09w=",
+            "tlsClientCiphersSha1": "Z5hJp4rGfwSOBwFfibDtLAP5rkI=",
+            "tlsClientExtensionsSha1": "nGReCXompqr3O9klDQ1bjqM/vl8=",
+            "tlsClientExtensionsSha1Le": "L/BFOsPBZnfg0yYtLLDMIRYvGlk=",
+            "tlsExportedAuthenticator": {
+              "clientHandshake": "64a991055ad4992b77265ab029dbbb94857df423d9164eafa7c626fa356d45b0",
+              "serverHandshake": "a6fbdf12ff6d28fc2665b63a3fe47aa95e6a85d98389b8c359880d05cf2aa113",
+              "clientFinished": "04adbc2535fae953c0bdeb181d82d9fe0b5576436e1e7ebc19024e6d14231fc8",
+              "serverFinished": "ef9aa57a5e3f7819df078e5344bccffe7dc0066a7607b2df991dfab1e34a23da"
+            },
+            "tlsClientHelloLength": "508",
+            "tlsClientAuth": {
+              "certPresented": "0",
+              "certVerified": "NONE",
+              "certRevoked": "0",
+              "certIssuerDN": "",
+              "certSubjectDN": "",
+              "certIssuerDNRFC2253": "",
+              "certSubjectDNRFC2253": "",
+              "certIssuerDNLegacy": "",
+              "certSubjectDNLegacy": "",
+              "certSerial": "",
+              "certIssuerSerial": "",
+              "certSKI": "",
+              "certIssuerSKI": "",
+              "certFingerprintSHA1": "",
+              "certFingerprintSHA256": "",
+              "certNotBefore": "",
+              "certNotAfter": ""
+            },
+            "verifiedBotCategory": "",
+            "edgeRequestKeepAliveStatus": 1,
+            "clientTcpRtt": 279,
+            "clientQuicRtt": 0,
+            "asn": 4134,
+            "edgeL4": {
+              "deliveryRate": 15493
+            }
+          },
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "headers": {
+            "accept-charset": "utf-8",
+            "accept-encoding": "gzip, br",
+            "cf-connecting-ip": "117.30.85.191",
+            "cf-ipcountry": "CN",
+            "cf-ray": "9e22a50cdc3cc276",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "connection": "Keep-Alive",
+            "content-length": "0",
+            "content-type": "text/xml",
+            "depth": "0",
+            "host": "ossshelf-api.neutronx.uk",
+            "user-agent": "Dart/3.9 (dart:io)",
+            "x-forwarded-proto": "https",
+            "x-real-ip": "117.30.85.191"
+          },
+          "path": "/dav/"
+        },
+        "rayId": "9e22a50cdc3cc276",
+        "response": {
+          "status": 204
+        }
+      },
+      "truncated": false,
+      "scriptName": "ossshelf-api",
+      "outcome": "ok",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a50cdc3cc276",
+      "cpuTimeMs": 10,
+      "wallTimeMs": 10
+    },
+    "$metadata": {
+      "id": "01KMKYRS0EMB07Q2GMZZQAJY2K",
+      "requestId": "9e22a50cdc3cc276",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "level": "info",
+      "message": "OPTIONS https://ossshelf-api.neutronx.uk/dav/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker-event",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "OPTIONS https://ossshelf-api.neutronx.uk/dav/"
+    }
+  },
+  {
+    "source": {
+      "message": "--> MKCOL /dav/FlClash/ \u001b[33m401\u001b[0m 0ms"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:56.748Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/FlClash/",
+          "method": "MKCOL",
+          "path": "/dav/FlClash/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a50caa159f63"
+    },
+    "$metadata": {
+      "id": "01KMKYRRZCT0SPPP84DET2T1GM",
+      "requestId": "9e22a50caa159f63",
+      "trigger": "MKCOL /dav/FlClash/",
+      "service": "ossshelf-api",
+      "message": "--> MKCOL /dav/FlClash/ \u001b[33m401\u001b[0m 0ms",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "--> MKCOL /dav/FlClash/ \u001b[33m401\u001b[0m 0ms"
+    }
+  },
+  {
+    "source": {
+      "message": "<-- MKCOL /dav/FlClash/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:56.748Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/FlClash/",
+          "method": "MKCOL",
+          "path": "/dav/FlClash/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a50caa159f63"
+    },
+    "$metadata": {
+      "id": "01KMKYRRZCT0SPPP84DET2T1GK",
+      "requestId": "9e22a50caa159f63",
+      "trigger": "MKCOL /dav/FlClash/",
+      "service": "ossshelf-api",
+      "message": "<-- MKCOL /dav/FlClash/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "<-- MKCOL /dav/FlClash/"
+    }
+  },
+  {
+    "source": {
+      "level": "info",
+      "message": "MKCOL https://ossshelf-api.neutronx.uk/dav/FlClash/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:56.748Z",
+    "$workers": {
+      "event": {
+        "request": {
+          "cf": {
+            "requestHeaderNames": {},
+            "isEUCountry": false,
+            "httpProtocol": "HTTP/1.1",
+            "clientAcceptEncoding": "gzip",
+            "requestPriority": "",
+            "colo": "AMS",
+            "asOrganization": "CHINANET FUJIAN PROVINCE NETWORK",
+            "country": "CN",
+            "city": "Xiamen",
+            "continent": "AS",
+            "region": "Fujian",
+            "regionCode": "FJ",
+            "timezone": "Asia/Shanghai",
+            "longitude": "118.08187",
+            "latitude": "24.47979",
+            "postalCode": "361000",
+            "tlsVersion": "TLSv1.3",
+            "tlsCipher": "AEAD-CHACHA20-POLY1305-SHA256",
+            "tlsClientRandom": "YJ7yWoTetK3DWpbm+0Yz2quif5XEXCM/LuhbHhfN0hY=",
+            "tlsClientCiphersSha1": "Z5hJp4rGfwSOBwFfibDtLAP5rkI=",
+            "tlsClientExtensionsSha1": "nGReCXompqr3O9klDQ1bjqM/vl8=",
+            "tlsClientExtensionsSha1Le": "L/BFOsPBZnfg0yYtLLDMIRYvGlk=",
+            "tlsExportedAuthenticator": {
+              "clientHandshake": "893fd6fec306ff68649af3685be5b62f03a71783ec02e4d2f3c96c72a4d6fb3a",
+              "serverHandshake": "1b2879c1316b26ef540294386f0d5c312c06a0aecf69d41050921d928071d1f6",
+              "clientFinished": "28a0b6e6b4c9204dd0e6c1ef50328d5d460b11107e84bfe57cd6a38f6e125f9c",
+              "serverFinished": "8b29d0566c38bed4cc33f01ee20c51a7ee3af809bd3d36855ca390ea666f9b80"
+            },
+            "tlsClientHelloLength": "508",
+            "tlsClientAuth": {
+              "certPresented": "0",
+              "certVerified": "NONE",
+              "certRevoked": "0",
+              "certIssuerDN": "",
+              "certSubjectDN": "",
+              "certIssuerDNRFC2253": "",
+              "certSubjectDNRFC2253": "",
+              "certIssuerDNLegacy": "",
+              "certSubjectDNLegacy": "",
+              "certSerial": "",
+              "certIssuerSerial": "",
+              "certSKI": "",
+              "certIssuerSKI": "",
+              "certFingerprintSHA1": "",
+              "certFingerprintSHA256": "",
+              "certNotBefore": "",
+              "certNotAfter": ""
+            },
+            "verifiedBotCategory": "",
+            "edgeRequestKeepAliveStatus": 1,
+            "clientTcpRtt": 247,
+            "clientQuicRtt": 0,
+            "asn": 4134,
+            "edgeL4": {
+              "deliveryRate": 17536
+            }
+          },
+          "url": "https://ossshelf-api.neutronx.uk/dav/FlClash/",
+          "method": "MKCOL",
+          "headers": {
+            "accept-charset": "utf-8",
+            "accept-encoding": "gzip, br",
+            "cf-connecting-ip": "120.36.137.242",
+            "cf-ipcountry": "CN",
+            "cf-ray": "9e22a50caa159f63",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "connection": "Keep-Alive",
+            "content-length": "0",
+            "content-type": "text/xml",
+            "host": "ossshelf-api.neutronx.uk",
+            "user-agent": "Dart/3.9 (dart:io)",
+            "x-forwarded-proto": "https",
+            "x-real-ip": "120.36.137.242"
+          },
+          "path": "/dav/FlClash/"
+        },
+        "rayId": "9e22a50caa159f63",
+        "response": {
+          "status": 401
+        }
+      },
+      "truncated": false,
+      "scriptName": "ossshelf-api",
+      "outcome": "ok",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a50caa159f63",
+      "cpuTimeMs": 1,
+      "wallTimeMs": 1
+    },
+    "$metadata": {
+      "id": "01KMKYRRZCT0SPPP84DET2T1GJ",
+      "requestId": "9e22a50caa159f63",
+      "trigger": "MKCOL /dav/FlClash/",
+      "service": "ossshelf-api",
+      "level": "info",
+      "message": "MKCOL https://ossshelf-api.neutronx.uk/dav/FlClash/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker-event",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "MKCOL https://ossshelf-api.neutronx.uk/dav/FlClash/"
+    }
+  },
+  {
+    "source": {
+      "message": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:51.080Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "path": "/dav/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a4e93b0366fe"
+    },
+    "$metadata": {
+      "id": "01KMKYRKE81FKSX043Q6WYWXMQ",
+      "requestId": "9e22a4e93b0366fe",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "message": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms"
+    }
+  },
+  {
+    "source": {
+      "message": "<-- OPTIONS /dav/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:51.080Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "path": "/dav/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a4e93b0366fe"
+    },
+    "$metadata": {
+      "id": "01KMKYRKE81FKSX043Q6WYWXMP",
+      "requestId": "9e22a4e93b0366fe",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "message": "<-- OPTIONS /dav/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "<-- OPTIONS /dav/"
+    }
+  },
+  {
+    "source": {
+      "level": "info",
+      "message": "OPTIONS https://ossshelf-api.neutronx.uk/dav/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:51.080Z",
+    "$workers": {
+      "event": {
+        "request": {
+          "cf": {
+            "requestHeaderNames": {},
+            "isEUCountry": false,
+            "httpProtocol": "HTTP/1.1",
+            "clientAcceptEncoding": "gzip",
+            "requestPriority": "",
+            "colo": "AMS",
+            "asOrganization": "CHINANET FUJIAN PROVINCE NETWORK",
+            "country": "CN",
+            "city": "Xiamen",
+            "continent": "AS",
+            "region": "Fujian",
+            "regionCode": "FJ",
+            "timezone": "Asia/Shanghai",
+            "longitude": "118.08187",
+            "latitude": "24.47979",
+            "postalCode": "361000",
+            "tlsVersion": "TLSv1.3",
+            "tlsCipher": "AEAD-CHACHA20-POLY1305-SHA256",
+            "tlsClientRandom": "X984eNT5ISKNHQWd620Kos2eKnZSRYL5lwtunvtyn1g=",
+            "tlsClientCiphersSha1": "Z5hJp4rGfwSOBwFfibDtLAP5rkI=",
+            "tlsClientExtensionsSha1": "nGReCXompqr3O9klDQ1bjqM/vl8=",
+            "tlsClientExtensionsSha1Le": "L/BFOsPBZnfg0yYtLLDMIRYvGlk=",
+            "tlsExportedAuthenticator": {
+              "clientHandshake": "97bf8bd33736da9ac132255ede105d547db829e015beffafc3850fc93c8fa240",
+              "serverHandshake": "9ac9e123163b5262f7b42ade60b75fdbd1be83c1e8267835e402983747fce4db",
+              "clientFinished": "6bfc7ff68b093e15690ba7432c848af906ce20ccb14fb5397e712b5287382380",
+              "serverFinished": "c13259694cb6fce30c2f3b504e15c4b82e99d6660541ce6bc17961e5ddfc0d87"
+            },
+            "tlsClientHelloLength": "508",
+            "tlsClientAuth": {
+              "certPresented": "0",
+              "certVerified": "NONE",
+              "certRevoked": "0",
+              "certIssuerDN": "",
+              "certSubjectDN": "",
+              "certIssuerDNRFC2253": "",
+              "certSubjectDNRFC2253": "",
+              "certIssuerDNLegacy": "",
+              "certSubjectDNLegacy": "",
+              "certSerial": "",
+              "certIssuerSerial": "",
+              "certSKI": "",
+              "certIssuerSKI": "",
+              "certFingerprintSHA1": "",
+              "certFingerprintSHA256": "",
+              "certNotBefore": "",
+              "certNotAfter": ""
+            },
+            "verifiedBotCategory": "",
+            "edgeRequestKeepAliveStatus": 1,
+            "clientTcpRtt": 263,
+            "clientQuicRtt": 0,
+            "asn": 4134,
+            "edgeL4": {
+              "deliveryRate": 11961
+            }
+          },
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "headers": {
+            "accept-charset": "utf-8",
+            "accept-encoding": "gzip, br",
+            "cf-connecting-ip": "120.36.137.242",
+            "cf-ipcountry": "CN",
+            "cf-ray": "9e22a4e93b0366fe",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "connection": "Keep-Alive",
+            "content-length": "0",
+            "content-type": "text/xml",
+            "depth": "0",
+            "host": "ossshelf-api.neutronx.uk",
+            "user-agent": "Dart/3.9 (dart:io)",
+            "x-forwarded-proto": "https",
+            "x-real-ip": "120.36.137.242"
+          },
+          "path": "/dav/"
+        },
+        "rayId": "9e22a4e93b0366fe",
+        "response": {
+          "status": 204
+        }
+      },
+      "truncated": false,
+      "scriptName": "ossshelf-api",
+      "outcome": "ok",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a4e93b0366fe",
+      "cpuTimeMs": 13,
+      "wallTimeMs": 13
+    },
+    "$metadata": {
+      "id": "01KMKYRKE81FKSX043Q6WYWXMN",
+      "requestId": "9e22a4e93b0366fe",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "level": "info",
+      "message": "OPTIONS https://ossshelf-api.neutronx.uk/dav/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker-event",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "OPTIONS https://ossshelf-api.neutronx.uk/dav/"
+    }
+  },
+  {
+    "source": {
+      "message": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:25.257Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "path": "/dav/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a447dc9b583d"
+    },
+    "$metadata": {
+      "id": "01KMKYQT79NMCAB5XPCF1BT4R7",
+      "requestId": "9e22a447dc9b583d",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "message": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms"
+    }
+  },
+  {
+    "source": {
+      "message": "<-- OPTIONS /dav/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:25.257Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "path": "/dav/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a447dc9b583d"
+    },
+    "$metadata": {
+      "id": "01KMKYQT79NMCAB5XPCF1BT4R6",
+      "requestId": "9e22a447dc9b583d",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "message": "<-- OPTIONS /dav/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "<-- OPTIONS /dav/"
+    }
+  },
+  {
+    "source": {
+      "level": "info",
+      "message": "OPTIONS https://ossshelf-api.neutronx.uk/dav/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:25.257Z",
+    "$workers": {
+      "event": {
+        "request": {
+          "cf": {
+            "requestHeaderNames": {},
+            "isEUCountry": false,
+            "httpProtocol": "HTTP/1.1",
+            "clientAcceptEncoding": "gzip",
+            "requestPriority": "",
+            "colo": "AMS",
+            "asOrganization": "CHINANET FUJIAN PROVINCE NETWORK",
+            "country": "CN",
+            "city": "Xiamen",
+            "continent": "AS",
+            "region": "Fujian",
+            "regionCode": "FJ",
+            "timezone": "Asia/Shanghai",
+            "longitude": "118.08187",
+            "latitude": "24.47979",
+            "postalCode": "361000",
+            "tlsVersion": "TLSv1.3",
+            "tlsCipher": "AEAD-CHACHA20-POLY1305-SHA256",
+            "tlsClientRandom": "XeZtvWTKMdx7VysnZK/J4N0ogWXUAJQQ2WHx0ZXVn9w=",
+            "tlsClientCiphersSha1": "Z5hJp4rGfwSOBwFfibDtLAP5rkI=",
+            "tlsClientExtensionsSha1": "nGReCXompqr3O9klDQ1bjqM/vl8=",
+            "tlsClientExtensionsSha1Le": "L/BFOsPBZnfg0yYtLLDMIRYvGlk=",
+            "tlsExportedAuthenticator": {
+              "clientHandshake": "fa5ff41c6953569cfd7427fcf24f3418cbf275b8faf79768aee9e67c68af6ca7",
+              "serverHandshake": "35c2684536f806f29178bfaddf923736c7b387fa5955a1637bd863fd75080639",
+              "clientFinished": "f8ed5c5161045d3c3e5333c1df3863f8cfa73a64522f76b0ab1f8f2beb9f47ea",
+              "serverFinished": "5f1677cb3c71aee5366f32d3699491e7592fb9f29c2f49208cb244ee51c6e354"
+            },
+            "tlsClientHelloLength": "508",
+            "tlsClientAuth": {
+              "certPresented": "0",
+              "certVerified": "NONE",
+              "certRevoked": "0",
+              "certIssuerDN": "",
+              "certSubjectDN": "",
+              "certIssuerDNRFC2253": "",
+              "certSubjectDNRFC2253": "",
+              "certIssuerDNLegacy": "",
+              "certSubjectDNLegacy": "",
+              "certSerial": "",
+              "certIssuerSerial": "",
+              "certSKI": "",
+              "certIssuerSKI": "",
+              "certFingerprintSHA1": "",
+              "certFingerprintSHA256": "",
+              "certNotBefore": "",
+              "certNotAfter": ""
+            },
+            "verifiedBotCategory": "",
+            "edgeRequestKeepAliveStatus": 1,
+            "clientTcpRtt": 277,
+            "clientQuicRtt": 0,
+            "asn": 4134,
+            "edgeL4": {
+              "deliveryRate": 13552
+            }
+          },
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "headers": {
+            "accept-charset": "utf-8",
+            "accept-encoding": "gzip, br",
+            "cf-connecting-ip": "120.36.137.242",
+            "cf-ipcountry": "CN",
+            "cf-ray": "9e22a447dc9b583d",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "connection": "Keep-Alive",
+            "content-length": "0",
+            "content-type": "text/xml",
+            "depth": "0",
+            "host": "ossshelf-api.neutronx.uk",
+            "user-agent": "Dart/3.9 (dart:io)",
+            "x-forwarded-proto": "https",
+            "x-real-ip": "120.36.137.242"
+          },
+          "path": "/dav/"
+        },
+        "rayId": "9e22a447dc9b583d",
+        "response": {
+          "status": 204
+        }
+      },
+      "truncated": false,
+      "scriptName": "ossshelf-api",
+      "outcome": "ok",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a447dc9b583d",
+      "cpuTimeMs": 9,
+      "wallTimeMs": 10
+    },
+    "$metadata": {
+      "id": "01KMKYQT79NMCAB5XPCF1BT4R5",
+      "requestId": "9e22a447dc9b583d",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "level": "info",
+      "message": "OPTIONS https://ossshelf-api.neutronx.uk/dav/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker-event",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "OPTIONS https://ossshelf-api.neutronx.uk/dav/"
+    }
+  },
+  {
+    "source": {
+      "message": "--> OPTIONS /dav/FlClash/backup.zip \u001b[32m204\u001b[0m 0ms"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:24.233Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/FlClash/backup.zip",
+          "method": "OPTIONS",
+          "path": "/dav/FlClash/backup.zip"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a4417c383d7f"
+    },
+    "$metadata": {
+      "id": "01KMKYQS79G3CEEZD19ECVXSAM",
+      "requestId": "9e22a4417c383d7f",
+      "trigger": "OPTIONS /dav/FlClash/backup.zip",
+      "service": "ossshelf-api",
+      "message": "--> OPTIONS /dav/FlClash/backup.zip \u001b[32m204\u001b[0m 0ms",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "--> OPTIONS /dav/FlClash/<DOMAIN> \u001b[32m204\u001b[0m 0ms"
+    }
+  },
+  {
+    "source": {
+      "message": "<-- OPTIONS /dav/FlClash/backup.zip"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:24.233Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/FlClash/backup.zip",
+          "method": "OPTIONS",
+          "path": "/dav/FlClash/backup.zip"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a4417c383d7f"
+    },
+    "$metadata": {
+      "id": "01KMKYQS79G3CEEZD19ECVXSAK",
+      "requestId": "9e22a4417c383d7f",
+      "trigger": "OPTIONS /dav/FlClash/backup.zip",
+      "service": "ossshelf-api",
+      "message": "<-- OPTIONS /dav/FlClash/backup.zip",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "<-- OPTIONS /dav/FlClash/<DOMAIN>"
+    }
+  },
+  {
+    "source": {
+      "level": "info",
+      "message": "OPTIONS https://ossshelf-api.neutronx.uk/dav/FlClash/backup.zip"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:24.233Z",
+    "$workers": {
+      "event": {
+        "request": {
+          "cf": {
+            "requestHeaderNames": {},
+            "isEUCountry": false,
+            "httpProtocol": "HTTP/1.1",
+            "clientAcceptEncoding": "gzip",
+            "requestPriority": "",
+            "colo": "AMS",
+            "asOrganization": "CHINANET Fujian province network",
+            "country": "CN",
+            "city": "Xiamen",
+            "continent": "AS",
+            "region": "Fujian",
+            "regionCode": "FJ",
+            "timezone": "Asia/Shanghai",
+            "longitude": "118.08187",
+            "latitude": "24.47979",
+            "postalCode": "361000",
+            "tlsVersion": "TLSv1.3",
+            "tlsCipher": "AEAD-CHACHA20-POLY1305-SHA256",
+            "tlsClientRandom": "y3h132tWJVup03TtstvObYMESikZjW2hg7vnOaMnzjM=",
+            "tlsClientCiphersSha1": "Z5hJp4rGfwSOBwFfibDtLAP5rkI=",
+            "tlsClientExtensionsSha1": "nGReCXompqr3O9klDQ1bjqM/vl8=",
+            "tlsClientExtensionsSha1Le": "L/BFOsPBZnfg0yYtLLDMIRYvGlk=",
+            "tlsExportedAuthenticator": {
+              "clientHandshake": "29c9852d0d06a5b351a31964f80db7f1d737b66fa12c906d6ec5af5dbb8b4e6d",
+              "serverHandshake": "3ddaf72e1a5eb07f1ab0eb630faaf0d9007bed9defa3fed0c147f6ad0f4327d0",
+              "clientFinished": "6cd6265978e788901b3c315ba1450c4d3696398deb750d7ea7f62d1ac7230ad7",
+              "serverFinished": "cd4c15dd5fb299cb084828474e7bf5498c71c43c0a08780de60b4132dfbecc91"
+            },
+            "tlsClientHelloLength": "508",
+            "tlsClientAuth": {
+              "certPresented": "0",
+              "certVerified": "NONE",
+              "certRevoked": "0",
+              "certIssuerDN": "",
+              "certSubjectDN": "",
+              "certIssuerDNRFC2253": "",
+              "certSubjectDNRFC2253": "",
+              "certIssuerDNLegacy": "",
+              "certSubjectDNLegacy": "",
+              "certSerial": "",
+              "certIssuerSerial": "",
+              "certSKI": "",
+              "certIssuerSKI": "",
+              "certFingerprintSHA1": "",
+              "certFingerprintSHA256": "",
+              "certNotBefore": "",
+              "certNotAfter": ""
+            },
+            "verifiedBotCategory": "",
+            "edgeRequestKeepAliveStatus": 1,
+            "clientTcpRtt": 265,
+            "clientQuicRtt": 0,
+            "asn": 4134,
+            "edgeL4": {
+              "deliveryRate": 13795
+            }
+          },
+          "url": "https://ossshelf-api.neutronx.uk/dav/FlClash/backup.zip",
+          "method": "OPTIONS",
+          "headers": {
+            "accept-charset": "utf-8",
+            "accept-encoding": "gzip, br",
+            "authorization": "********",
+            "cf-connecting-ip": "117.30.85.191",
+            "cf-ipcountry": "CN",
+            "cf-ray": "9e22a4417c383d7f",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "connection": "Keep-Alive",
+            "content-length": "0",
+            "content-type": "text/xml",
+            "depth": "0",
+            "host": "ossshelf-api.neutronx.uk",
+            "user-agent": "Dart/3.9 (dart:io)",
+            "x-forwarded-proto": "https",
+            "x-real-ip": "117.30.85.191"
+          },
+          "path": "/dav/FlClash/backup.zip"
+        },
+        "rayId": "9e22a4417c383d7f",
+        "response": {
+          "status": 204
+        }
+      },
+      "truncated": false,
+      "scriptName": "ossshelf-api",
+      "outcome": "ok",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a4417c383d7f",
+      "cpuTimeMs": 0,
+      "wallTimeMs": 0
+    },
+    "$metadata": {
+      "id": "01KMKYQS79G3CEEZD19ECVXSAJ",
+      "requestId": "9e22a4417c383d7f",
+      "trigger": "OPTIONS /dav/FlClash/backup.zip",
+      "service": "ossshelf-api",
+      "level": "info",
+      "message": "OPTIONS https://ossshelf-api.neutronx.uk/dav/FlClash/backup.zip",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker-event",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "OPTIONS https://ossshelf-api.neutronx.uk/dav/FlClash/backup.zip"
+    }
+  },
+  {
+    "source": {
+      "message": "--> MKCOL /dav/FlClash/ \u001b[32m201\u001b[0m 805ms"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:23.918Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/FlClash/",
+          "method": "MKCOL",
+          "path": "/dav/FlClash/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a43a7e133d7f"
+    },
+    "$metadata": {
+      "id": "01KMKYQRXENJP887BN9P5G9R0Q",
+      "requestId": "9e22a43a7e133d7f",
+      "trigger": "MKCOL /dav/FlClash/",
+      "service": "ossshelf-api",
+      "message": "--> MKCOL /dav/FlClash/ \u001b[32m201\u001b[0m 805ms",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "--> MKCOL /dav/FlClash/ \u001b[32m201\u001b[0m 805ms"
+    }
+  },
+  {
+    "source": {
+      "message": "<-- MKCOL /dav/FlClash/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:23.113Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/FlClash/",
+          "method": "MKCOL",
+          "path": "/dav/FlClash/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a43a7e133d7f"
+    },
+    "$metadata": {
+      "id": "01KMKYQR49DEWHV07VPJ9186GN",
+      "requestId": "9e22a43a7e133d7f",
+      "trigger": "MKCOL /dav/FlClash/",
+      "service": "ossshelf-api",
+      "message": "<-- MKCOL /dav/FlClash/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "<-- MKCOL /dav/FlClash/"
+    }
+  },
+  {
+    "source": {
+      "level": "info",
+      "message": "MKCOL https://ossshelf-api.neutronx.uk/dav/FlClash/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:23.113Z",
+    "$workers": {
+      "event": {
+        "request": {
+          "cf": {
+            "requestHeaderNames": {},
+            "isEUCountry": false,
+            "httpProtocol": "HTTP/1.1",
+            "clientAcceptEncoding": "gzip",
+            "requestPriority": "",
+            "colo": "AMS",
+            "asOrganization": "CHINANET Fujian province network",
+            "country": "CN",
+            "city": "Xiamen",
+            "continent": "AS",
+            "region": "Fujian",
+            "regionCode": "FJ",
+            "timezone": "Asia/Shanghai",
+            "longitude": "118.08187",
+            "latitude": "24.47979",
+            "postalCode": "361000",
+            "tlsVersion": "TLSv1.3",
+            "tlsCipher": "AEAD-CHACHA20-POLY1305-SHA256",
+            "tlsClientRandom": "y3h132tWJVup03TtstvObYMESikZjW2hg7vnOaMnzjM=",
+            "tlsClientCiphersSha1": "Z5hJp4rGfwSOBwFfibDtLAP5rkI=",
+            "tlsClientExtensionsSha1": "nGReCXompqr3O9klDQ1bjqM/vl8=",
+            "tlsClientExtensionsSha1Le": "L/BFOsPBZnfg0yYtLLDMIRYvGlk=",
+            "tlsExportedAuthenticator": {
+              "clientHandshake": "29c9852d0d06a5b351a31964f80db7f1d737b66fa12c906d6ec5af5dbb8b4e6d",
+              "serverHandshake": "3ddaf72e1a5eb07f1ab0eb630faaf0d9007bed9defa3fed0c147f6ad0f4327d0",
+              "clientFinished": "6cd6265978e788901b3c315ba1450c4d3696398deb750d7ea7f62d1ac7230ad7",
+              "serverFinished": "cd4c15dd5fb299cb084828474e7bf5498c71c43c0a08780de60b4132dfbecc91"
+            },
+            "tlsClientHelloLength": "508",
+            "tlsClientAuth": {
+              "certPresented": "0",
+              "certVerified": "NONE",
+              "certRevoked": "0",
+              "certIssuerDN": "",
+              "certSubjectDN": "",
+              "certIssuerDNRFC2253": "",
+              "certSubjectDNRFC2253": "",
+              "certIssuerDNLegacy": "",
+              "certSubjectDNLegacy": "",
+              "certSerial": "",
+              "certIssuerSerial": "",
+              "certSKI": "",
+              "certIssuerSKI": "",
+              "certFingerprintSHA1": "",
+              "certFingerprintSHA256": "",
+              "certNotBefore": "",
+              "certNotAfter": ""
+            },
+            "verifiedBotCategory": "",
+            "edgeRequestKeepAliveStatus": 1,
+            "clientTcpRtt": 263,
+            "clientQuicRtt": 0,
+            "asn": 4134,
+            "edgeL4": {
+              "deliveryRate": 13795
+            }
+          },
+          "url": "https://ossshelf-api.neutronx.uk/dav/FlClash/",
+          "method": "MKCOL",
+          "headers": {
+            "accept-charset": "utf-8",
+            "accept-encoding": "gzip, br",
+            "authorization": "********",
+            "cf-connecting-ip": "117.30.85.191",
+            "cf-ipcountry": "CN",
+            "cf-ray": "9e22a43a7e133d7f",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "connection": "Keep-Alive",
+            "content-length": "0",
+            "content-type": "text/xml",
+            "host": "ossshelf-api.neutronx.uk",
+            "user-agent": "Dart/3.9 (dart:io)",
+            "x-forwarded-proto": "https",
+            "x-real-ip": "117.30.85.191"
+          },
+          "path": "/dav/FlClash/"
+        },
+        "rayId": "9e22a43a7e133d7f",
+        "response": {
+          "status": 201
+        }
+      },
+      "truncated": false,
+      "scriptName": "ossshelf-api",
+      "outcome": "ok",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a43a7e133d7f",
+      "cpuTimeMs": 26,
+      "wallTimeMs": 827
+    },
+    "$metadata": {
+      "id": "01KMKYQR49DEWHV07VPJ9186GM",
+      "requestId": "9e22a43a7e133d7f",
+      "trigger": "MKCOL /dav/FlClash/",
+      "service": "ossshelf-api",
+      "level": "info",
+      "message": "MKCOL https://ossshelf-api.neutronx.uk/dav/FlClash/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker-event",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "MKCOL https://ossshelf-api.neutronx.uk/dav/FlClash/"
+    }
+  },
+  {
+    "source": {
+      "message": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:22.807Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "path": "/dav/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a4388c83f5f3"
+    },
+    "$metadata": {
+      "id": "01KMKYQQTQZ2H4J3S0PVYS702B",
+      "requestId": "9e22a4388c83f5f3",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "message": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms"
+    }
+  },
+  {
+    "source": {
+      "message": "<-- OPTIONS /dav/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:22.807Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "path": "/dav/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a4388c83f5f3"
+    },
+    "$metadata": {
+      "id": "01KMKYQQTQZ2H4J3S0PVYS702A",
+      "requestId": "9e22a4388c83f5f3",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "message": "<-- OPTIONS /dav/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "<-- OPTIONS /dav/"
+    }
+  },
+  {
+    "source": {
+      "level": "info",
+      "message": "OPTIONS https://ossshelf-api.neutronx.uk/dav/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:22.807Z",
+    "$workers": {
+      "event": {
+        "request": {
+          "cf": {
+            "requestHeaderNames": {},
+            "isEUCountry": false,
+            "httpProtocol": "HTTP/1.1",
+            "clientAcceptEncoding": "gzip",
+            "requestPriority": "",
+            "colo": "AMS",
+            "asOrganization": "CHINANET FUJIAN PROVINCE NETWORK",
+            "country": "CN",
+            "city": "Xiamen",
+            "continent": "AS",
+            "region": "Fujian",
+            "regionCode": "FJ",
+            "timezone": "Asia/Shanghai",
+            "longitude": "118.08187",
+            "latitude": "24.47979",
+            "postalCode": "361000",
+            "tlsVersion": "TLSv1.3",
+            "tlsCipher": "AEAD-CHACHA20-POLY1305-SHA256",
+            "tlsClientRandom": "xKZzKnAMp3zeh5658s44fC2f34O9k23tONNxDBpH+oQ=",
+            "tlsClientCiphersSha1": "Z5hJp4rGfwSOBwFfibDtLAP5rkI=",
+            "tlsClientExtensionsSha1": "nGReCXompqr3O9klDQ1bjqM/vl8=",
+            "tlsClientExtensionsSha1Le": "L/BFOsPBZnfg0yYtLLDMIRYvGlk=",
+            "tlsExportedAuthenticator": {
+              "clientHandshake": "7837d6f4c9d873b4f98c1541dad117bc36c1eb0e083153791c6ef3004929a07b",
+              "serverHandshake": "607596b3bf12fe75823eebc05494b5fb0dd0d02e6ad154a417a2efe6ec5b8076",
+              "clientFinished": "ff06b9dc546dd2f331cd782bd838ef22cc3a07c4f8f775db73e2bf44998e7382",
+              "serverFinished": "2c64533bc8a2efeae432d6fe6fffd863f6e4b96382f4fbf6c40a45c60d5d622a"
+            },
+            "tlsClientHelloLength": "508",
+            "tlsClientAuth": {
+              "certPresented": "0",
+              "certVerified": "NONE",
+              "certRevoked": "0",
+              "certIssuerDN": "",
+              "certSubjectDN": "",
+              "certIssuerDNRFC2253": "",
+              "certSubjectDNRFC2253": "",
+              "certIssuerDNLegacy": "",
+              "certSubjectDNLegacy": "",
+              "certSerial": "",
+              "certIssuerSerial": "",
+              "certSKI": "",
+              "certIssuerSKI": "",
+              "certFingerprintSHA1": "",
+              "certFingerprintSHA256": "",
+              "certNotBefore": "",
+              "certNotAfter": ""
+            },
+            "verifiedBotCategory": "",
+            "edgeRequestKeepAliveStatus": 1,
+            "clientTcpRtt": 264,
+            "clientQuicRtt": 0,
+            "asn": 4134,
+            "edgeL4": {
+              "deliveryRate": 13610
+            }
+          },
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "headers": {
+            "accept-charset": "utf-8",
+            "accept-encoding": "gzip, br",
+            "cf-connecting-ip": "120.36.137.242",
+            "cf-ipcountry": "CN",
+            "cf-ray": "9e22a4388c83f5f3",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "connection": "Keep-Alive",
+            "content-length": "0",
+            "content-type": "text/xml",
+            "depth": "0",
+            "host": "ossshelf-api.neutronx.uk",
+            "user-agent": "Dart/3.9 (dart:io)",
+            "x-forwarded-proto": "https",
+            "x-real-ip": "120.36.137.242"
+          },
+          "path": "/dav/"
+        },
+        "rayId": "9e22a4388c83f5f3",
+        "response": {
+          "status": 204
+        }
+      },
+      "truncated": false,
+      "scriptName": "ossshelf-api",
+      "outcome": "ok",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a4388c83f5f3",
+      "cpuTimeMs": 10,
+      "wallTimeMs": 10
+    },
+    "$metadata": {
+      "id": "01KMKYQQTQZ2H4J3S0PVYS7029",
+      "requestId": "9e22a4388c83f5f3",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "level": "info",
+      "message": "OPTIONS https://ossshelf-api.neutronx.uk/dav/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker-event",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "OPTIONS https://ossshelf-api.neutronx.uk/dav/"
+    }
+  },
+  {
+    "source": {
+      "message": "--> MKCOL /dav/FlClash/ \u001b[33m401\u001b[0m 0ms"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:22.807Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/FlClash/",
+          "method": "MKCOL",
+          "path": "/dav/FlClash/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a4388a073d7f"
+    },
+    "$metadata": {
+      "id": "01KMKYQQTQC3ZNC6JKWGMHDE9F",
+      "requestId": "9e22a4388a073d7f",
+      "trigger": "MKCOL /dav/FlClash/",
+      "service": "ossshelf-api",
+      "message": "--> MKCOL /dav/FlClash/ \u001b[33m401\u001b[0m 0ms",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "--> MKCOL /dav/FlClash/ \u001b[33m401\u001b[0m 0ms"
+    }
+  },
+  {
+    "source": {
+      "message": "<-- MKCOL /dav/FlClash/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:22.807Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/FlClash/",
+          "method": "MKCOL",
+          "path": "/dav/FlClash/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a4388a073d7f"
+    },
+    "$metadata": {
+      "id": "01KMKYQQTQC3ZNC6JKWGMHDE9E",
+      "requestId": "9e22a4388a073d7f",
+      "trigger": "MKCOL /dav/FlClash/",
+      "service": "ossshelf-api",
+      "message": "<-- MKCOL /dav/FlClash/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "<-- MKCOL /dav/FlClash/"
+    }
+  },
+  {
+    "source": {
+      "level": "info",
+      "message": "MKCOL https://ossshelf-api.neutronx.uk/dav/FlClash/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:22.807Z",
+    "$workers": {
+      "event": {
+        "request": {
+          "cf": {
+            "requestHeaderNames": {},
+            "isEUCountry": false,
+            "httpProtocol": "HTTP/1.1",
+            "clientAcceptEncoding": "gzip",
+            "requestPriority": "",
+            "colo": "AMS",
+            "asOrganization": "CHINANET Fujian province network",
+            "country": "CN",
+            "city": "Xiamen",
+            "continent": "AS",
+            "region": "Fujian",
+            "regionCode": "FJ",
+            "timezone": "Asia/Shanghai",
+            "longitude": "118.08187",
+            "latitude": "24.47979",
+            "postalCode": "361000",
+            "tlsVersion": "TLSv1.3",
+            "tlsCipher": "AEAD-CHACHA20-POLY1305-SHA256",
+            "tlsClientRandom": "y3h132tWJVup03TtstvObYMESikZjW2hg7vnOaMnzjM=",
+            "tlsClientCiphersSha1": "Z5hJp4rGfwSOBwFfibDtLAP5rkI=",
+            "tlsClientExtensionsSha1": "nGReCXompqr3O9klDQ1bjqM/vl8=",
+            "tlsClientExtensionsSha1Le": "L/BFOsPBZnfg0yYtLLDMIRYvGlk=",
+            "tlsExportedAuthenticator": {
+              "clientHandshake": "29c9852d0d06a5b351a31964f80db7f1d737b66fa12c906d6ec5af5dbb8b4e6d",
+              "serverHandshake": "3ddaf72e1a5eb07f1ab0eb630faaf0d9007bed9defa3fed0c147f6ad0f4327d0",
+              "clientFinished": "6cd6265978e788901b3c315ba1450c4d3696398deb750d7ea7f62d1ac7230ad7",
+              "serverFinished": "cd4c15dd5fb299cb084828474e7bf5498c71c43c0a08780de60b4132dfbecc91"
+            },
+            "tlsClientHelloLength": "508",
+            "tlsClientAuth": {
+              "certPresented": "0",
+              "certVerified": "NONE",
+              "certRevoked": "0",
+              "certIssuerDN": "",
+              "certSubjectDN": "",
+              "certIssuerDNRFC2253": "",
+              "certSubjectDNRFC2253": "",
+              "certIssuerDNLegacy": "",
+              "certSubjectDNLegacy": "",
+              "certSerial": "",
+              "certIssuerSerial": "",
+              "certSKI": "",
+              "certIssuerSKI": "",
+              "certFingerprintSHA1": "",
+              "certFingerprintSHA256": "",
+              "certNotBefore": "",
+              "certNotAfter": ""
+            },
+            "verifiedBotCategory": "",
+            "edgeRequestKeepAliveStatus": 1,
+            "clientTcpRtt": 254,
+            "clientQuicRtt": 0,
+            "asn": 4134,
+            "edgeL4": {
+              "deliveryRate": 13795
+            }
+          },
+          "url": "https://ossshelf-api.neutronx.uk/dav/FlClash/",
+          "method": "MKCOL",
+          "headers": {
+            "accept-charset": "utf-8",
+            "accept-encoding": "gzip, br",
+            "cf-connecting-ip": "117.30.85.191",
+            "cf-ipcountry": "CN",
+            "cf-ray": "9e22a4388a073d7f",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "connection": "Keep-Alive",
+            "content-length": "0",
+            "content-type": "text/xml",
+            "host": "ossshelf-api.neutronx.uk",
+            "user-agent": "Dart/3.9 (dart:io)",
+            "x-forwarded-proto": "https",
+            "x-real-ip": "117.30.85.191"
+          },
+          "path": "/dav/FlClash/"
+        },
+        "rayId": "9e22a4388a073d7f",
+        "response": {
+          "status": 401
+        }
+      },
+      "truncated": false,
+      "scriptName": "ossshelf-api",
+      "outcome": "ok",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a4388a073d7f",
+      "cpuTimeMs": 1,
+      "wallTimeMs": 1
+    },
+    "$metadata": {
+      "id": "01KMKYQQTQC3ZNC6JKWGMHDE9D",
+      "requestId": "9e22a4388a073d7f",
+      "trigger": "MKCOL /dav/FlClash/",
+      "service": "ossshelf-api",
+      "level": "info",
+      "message": "MKCOL https://ossshelf-api.neutronx.uk/dav/FlClash/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker-event",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "MKCOL https://ossshelf-api.neutronx.uk/dav/FlClash/"
+    }
+  },
+  {
+    "source": {
+      "message": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:05.539Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "path": "/dav/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a3cc9bb81936"
+    },
+    "$metadata": {
+      "id": "01KMKYQ6Z3WEP621NVNCA2P77K",
+      "requestId": "9e22a3cc9bb81936",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "message": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms"
+    }
+  },
+  {
+    "source": {
+      "message": "<-- OPTIONS /dav/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:05.539Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "path": "/dav/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a3cc9bb81936"
+    },
+    "$metadata": {
+      "id": "01KMKYQ6Z3WEP621NVNCA2P77J",
+      "requestId": "9e22a3cc9bb81936",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "message": "<-- OPTIONS /dav/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "<-- OPTIONS /dav/"
+    }
+  },
+  {
+    "source": {
+      "level": "info",
+      "message": "OPTIONS https://ossshelf-api.neutronx.uk/dav/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:05.539Z",
+    "$workers": {
+      "event": {
+        "request": {
+          "cf": {
+            "requestHeaderNames": {},
+            "isEUCountry": false,
+            "httpProtocol": "HTTP/1.1",
+            "clientAcceptEncoding": "gzip",
+            "requestPriority": "",
+            "colo": "AMS",
+            "asOrganization": "CHINANET Fujian province network",
+            "country": "CN",
+            "city": "Xiamen",
+            "continent": "AS",
+            "region": "Fujian",
+            "regionCode": "FJ",
+            "timezone": "Asia/Shanghai",
+            "longitude": "118.08187",
+            "latitude": "24.47979",
+            "postalCode": "361000",
+            "tlsVersion": "TLSv1.3",
+            "tlsCipher": "AEAD-CHACHA20-POLY1305-SHA256",
+            "tlsClientRandom": "EnbdgSiagHa0cSibmlrD8bGoHC/Bc8X919Yj0llOW+4=",
+            "tlsClientCiphersSha1": "Z5hJp4rGfwSOBwFfibDtLAP5rkI=",
+            "tlsClientExtensionsSha1": "nGReCXompqr3O9klDQ1bjqM/vl8=",
+            "tlsClientExtensionsSha1Le": "L/BFOsPBZnfg0yYtLLDMIRYvGlk=",
+            "tlsExportedAuthenticator": {
+              "clientHandshake": "d29e5e92d11b7dca2be758249c0ddc352d5080b2d6d48910552cf752b1dba16b",
+              "serverHandshake": "c5e170b52985f14ef36e69fa35f225812ba541238e200171de0531fe973a0f3e",
+              "clientFinished": "9d2b5f13df1087660a280a8767c0f39a16f8186463763a49832f72291385518a",
+              "serverFinished": "f311f0c43d8a0abd9255fd06b006044f03c3cc800a11627a5d9a5f03772d5b28"
+            },
+            "tlsClientHelloLength": "508",
+            "tlsClientAuth": {
+              "certPresented": "0",
+              "certVerified": "NONE",
+              "certRevoked": "0",
+              "certIssuerDN": "",
+              "certSubjectDN": "",
+              "certIssuerDNRFC2253": "",
+              "certSubjectDNRFC2253": "",
+              "certIssuerDNLegacy": "",
+              "certSubjectDNLegacy": "",
+              "certSerial": "",
+              "certIssuerSerial": "",
+              "certSKI": "",
+              "certIssuerSKI": "",
+              "certFingerprintSHA1": "",
+              "certFingerprintSHA256": "",
+              "certNotBefore": "",
+              "certNotAfter": ""
+            },
+            "verifiedBotCategory": "",
+            "edgeRequestKeepAliveStatus": 1,
+            "clientTcpRtt": 198,
+            "clientQuicRtt": 0,
+            "asn": 4134,
+            "edgeL4": {
+              "deliveryRate": 13165
+            }
+          },
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "headers": {
+            "accept-charset": "utf-8",
+            "accept-encoding": "gzip, br",
+            "cf-connecting-ip": "117.30.85.191",
+            "cf-ipcountry": "CN",
+            "cf-ray": "9e22a3cc9bb81936",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "connection": "Keep-Alive",
+            "content-length": "0",
+            "content-type": "text/xml",
+            "depth": "0",
+            "host": "ossshelf-api.neutronx.uk",
+            "user-agent": "Dart/3.9 (dart:io)",
+            "x-forwarded-proto": "https",
+            "x-real-ip": "117.30.85.191"
+          },
+          "path": "/dav/"
+        },
+        "rayId": "9e22a3cc9bb81936",
+        "response": {
+          "status": 204
+        }
+      },
+      "truncated": false,
+      "scriptName": "ossshelf-api",
+      "outcome": "ok",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a3cc9bb81936",
+      "cpuTimeMs": 10,
+      "wallTimeMs": 10
+    },
+    "$metadata": {
+      "id": "01KMKYQ6Z3WEP621NVNCA2P77H",
+      "requestId": "9e22a3cc9bb81936",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "level": "info",
+      "message": "OPTIONS https://ossshelf-api.neutronx.uk/dav/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker-event",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "OPTIONS https://ossshelf-api.neutronx.uk/dav/"
+    }
+  },
+  {
+    "source": {
+      "message": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:04.576Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "path": "/dav/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a3c68c3896f8"
+    },
+    "$metadata": {
+      "id": "01KMKYQ610AEC4TVZFPW5BFTSC",
+      "requestId": "9e22a3c68c3896f8",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "message": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "--> OPTIONS /dav/ \u001b[32m204\u001b[0m 0ms"
+    }
+  },
+  {
+    "source": {
+      "message": "<-- OPTIONS /dav/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:04.576Z",
+    "$workers": {
+      "truncated": false,
+      "event": {
+        "request": {
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "path": "/dav/"
+        }
+      },
+      "outcome": "ok",
+      "scriptName": "ossshelf-api",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a3c68c3896f8"
+    },
+    "$metadata": {
+      "id": "01KMKYQ610AEC4TVZFPW5BFTSB",
+      "requestId": "9e22a3c68c3896f8",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "message": "<-- OPTIONS /dav/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "<-- OPTIONS /dav/"
+    }
+  },
+  {
+    "source": {
+      "level": "info",
+      "message": "OPTIONS https://ossshelf-api.neutronx.uk/dav/"
+    },
+    "dataset": "cloudflare-workers",
+    "timestamp": "2026-03-26T02:14:04.576Z",
+    "$workers": {
+      "event": {
+        "request": {
+          "cf": {
+            "requestHeaderNames": {},
+            "isEUCountry": false,
+            "httpProtocol": "HTTP/1.1",
+            "clientAcceptEncoding": "gzip",
+            "requestPriority": "",
+            "colo": "AMS",
+            "asOrganization": "CHINANET Fujian province network",
+            "country": "CN",
+            "city": "Xiamen",
+            "continent": "AS",
+            "region": "Fujian",
+            "regionCode": "FJ",
+            "timezone": "Asia/Shanghai",
+            "longitude": "118.08187",
+            "latitude": "24.47979",
+            "postalCode": "361000",
+            "tlsVersion": "TLSv1.3",
+            "tlsCipher": "AEAD-CHACHA20-POLY1305-SHA256",
+            "tlsClientRandom": "R57zpjCsjtvgzsi9bbW0hg39TwovwUOvyeTy2vPTKRw=",
+            "tlsClientCiphersSha1": "Z5hJp4rGfwSOBwFfibDtLAP5rkI=",
+            "tlsClientExtensionsSha1": "nGReCXompqr3O9klDQ1bjqM/vl8=",
+            "tlsClientExtensionsSha1Le": "L/BFOsPBZnfg0yYtLLDMIRYvGlk=",
+            "tlsExportedAuthenticator": {
+              "clientHandshake": "45405ace9fa46be19c7698e72909684fb667eeef6cef1dc37399ac0c2b28843e",
+              "serverHandshake": "9bb07ef69be64aea8ad954b68f2ca33457fe7435707c82faff1fcbae71d09228",
+              "clientFinished": "f6df5c91cef914cfc67464d4a13dda271357558a907255b03c19b6e08f00d770",
+              "serverFinished": "3893d93297b60799bdfd70ee2af6afe8e5ca786d737745f29a8934da771b1edf"
+            },
+            "tlsClientHelloLength": "508",
+            "tlsClientAuth": {
+              "certPresented": "0",
+              "certVerified": "NONE",
+              "certRevoked": "0",
+              "certIssuerDN": "",
+              "certSubjectDN": "",
+              "certIssuerDNRFC2253": "",
+              "certSubjectDNRFC2253": "",
+              "certIssuerDNLegacy": "",
+              "certSubjectDNLegacy": "",
+              "certSerial": "",
+              "certIssuerSerial": "",
+              "certSKI": "",
+              "certIssuerSKI": "",
+              "certFingerprintSHA1": "",
+              "certFingerprintSHA256": "",
+              "certNotBefore": "",
+              "certNotAfter": ""
+            },
+            "verifiedBotCategory": "",
+            "edgeRequestKeepAliveStatus": 1,
+            "clientTcpRtt": 227,
+            "clientQuicRtt": 0,
+            "asn": 4134,
+            "edgeL4": {
+              "deliveryRate": 18040
+            }
+          },
+          "url": "https://ossshelf-api.neutronx.uk/dav/",
+          "method": "OPTIONS",
+          "headers": {
+            "accept-charset": "utf-8",
+            "accept-encoding": "gzip, br",
+            "cf-connecting-ip": "117.30.85.191",
+            "cf-ipcountry": "CN",
+            "cf-ray": "9e22a3c68c3896f8",
+            "cf-visitor": "{\"scheme\":\"https\"}",
+            "connection": "Keep-Alive",
+            "content-length": "0",
+            "content-type": "text/xml",
+            "depth": "0",
+            "host": "ossshelf-api.neutronx.uk",
+            "user-agent": "Dart/3.9 (dart:io)",
+            "x-forwarded-proto": "https",
+            "x-real-ip": "117.30.85.191"
+          },
+          "path": "/dav/"
+        },
+        "rayId": "9e22a3c68c3896f8",
+        "response": {
+          "status": 204
+        }
+      },
+      "truncated": false,
+      "scriptName": "ossshelf-api",
+      "outcome": "ok",
+      "eventType": "fetch",
+      "executionModel": "stateless",
+      "scriptVersion": {
+        "id": "c6d47914-1438-40bb-a4f9-32d92e20a96f"
+      },
+      "requestId": "9e22a3c68c3896f8",
+      "cpuTimeMs": 12,
+      "wallTimeMs": 12
+    },
+    "$metadata": {
+      "id": "01KMKYQ610AEC4TVZFPW5BFTSA",
+      "requestId": "9e22a3c68c3896f8",
+      "trigger": "OPTIONS /dav/",
+      "service": "ossshelf-api",
+      "level": "info",
+      "message": "OPTIONS https://ossshelf-api.neutronx.uk/dav/",
+      "account": "2f24288827c6b14fac807324df3a4ac2",
+      "type": "cf-worker-event",
+      "fingerprint": "9c209a6c563f24a1e97d289cd2acd1ef",
+      "origin": "fetch",
+      "messageTemplate": "OPTIONS https://ossshelf-api.neutronx.uk/dav/"
+    }
+  }
+]
