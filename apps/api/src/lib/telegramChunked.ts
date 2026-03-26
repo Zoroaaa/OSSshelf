@@ -12,11 +12,11 @@ import { telegramFileRefs, telegramFileChunks } from '../db/schema';
 import type { DrizzleDb } from '../db';
 import { tgUploadFile, tgGetFileInfo, tgGetDownloadUrl, type TelegramBotConfig } from './telegramClient';
 
-/** 分片阈值：50MB 以下不启用分片，直接上传 */
-export const TG_CHUNK_THRESHOLD = 50 * 1024 * 1024;
+/** 分片阈值：20MB 以下不启用分片，直接上传 */
+export const TG_CHUNK_THRESHOLD = 19 * 1024 * 1024;
 
-/** 单分片最大字节数（30 MB） */
-export const TG_CHUNK_SIZE = 30 * 1024 * 1024;
+/** 单分片最大字节数（20 MB） */
+export const TG_CHUNK_SIZE = 19 * 1024 * 1024;
 
 export function needsChunking(fileSize: number): boolean {
   return fileSize > TG_CHUNK_THRESHOLD;
