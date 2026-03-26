@@ -17,7 +17,7 @@ export default function AuthLayout() {
       <div className="w-full max-w-md p-8">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-primary">OSSshelf</h1>
-          <p className="text-muted-foreground mt-2">基于 Cloudflare 部署的多厂商 OSS 文件管理系统</p>
+          <p className="text-muted-foreground mt-2">赛智科技文件管理系统</p>
         </div>
         <Outlet />
       </div>
