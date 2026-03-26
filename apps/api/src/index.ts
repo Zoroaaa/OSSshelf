@@ -78,7 +78,7 @@ app.use(
       'MOVE',
       'HEAD',
       'LOCK',
-      'UNLOCK'，
+      'UNLOCK',
     ],
     allowHeaders: [
       'Content-Type',
@@ -105,7 +105,6 @@ app.use(
     crossOriginResourcePolicy: false,
     crossOriginEmbedderPolicy: false,
     crossOriginOpenerPolicy: false,
-    xFrameOptions: false, // 关键：关闭X-Frame-Options，允许iframe嵌套
   })
 );
 
