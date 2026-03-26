@@ -174,7 +174,22 @@ app.get('/:id/raw', async (c) => {
   const s3Res = await s3Get(bucketConfig, file.r2Key);
   if (!s3Res.ok) throwAppError('FILE_CONTENT_NOT_FOUND');
 
-  const content = await s3Res.text();
+  // 尝试使用 UTF-8 编码解析，如果失败则尝试 GBK 编码
+  let content: string;
+  try {
+    const arrayBuffer = await s3Res.arrayBuffer();
+    // 首先尝试 UTF-8 编码
+    content = new TextDecoder('utf-8').decode(arrayBuffer);
+    // 检查是否有乱码（包含无效字符）
+    if (/[\ufffd]/.test(content)) {
+      // 如果有乱码，尝试 GBK 编码
+      const decoder = new TextDecoder('gbk');
+      content = decoder.decode(arrayBuffer);
+    }
+  } catch {
+    // 如果解码失败，回退到默认的 text() 方法
+    content = await s3Res.text();
+  }
 
   return c.json({
     success: true,
