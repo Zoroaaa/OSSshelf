@@ -444,6 +444,13 @@ const PREVIEWABLE_MIME_TYPES = [
   'application/xml',
   'application/javascript',
   'application/typescript',
+  // Office 文件类型
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // docx
+  'application/msword', // doc
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // xlsx
+  'application/vnd.ms-excel', // xls
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation', // pptx
+  'application/vnd.ms-powerpoint', // ppt
 ];
 
 function isPreviewableMimeType(mimeType: string | null): boolean {
@@ -462,6 +469,10 @@ function getPreviewType(mimeType: string | null): string {
   if (mimeType.startsWith('text/')) return 'text';
   if (['application/json', 'application/xml', 'application/javascript', 'application/typescript'].includes(mimeType))
     return 'code';
+  // Office 文件类型
+  if (mimeType.includes('word') || mimeType.includes('document')) return 'office';
+  if (mimeType.includes('excel') || mimeType.includes('sheet')) return 'office';
+  if (mimeType.includes('powerpoint') || mimeType.includes('presentation')) return 'office';
   return 'unknown';
 }
 
