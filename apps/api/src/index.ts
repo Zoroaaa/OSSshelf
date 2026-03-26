@@ -39,20 +39,6 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.use('*', logger());
 app.use('*', prettyJSON());
-app.use('/dav/*', async (c, next) => {
-  if (c.req.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        DAV: '1, 2',
-        'MS-Author-Via': 'DAV',
-        Allow: 'OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, PROPFIND, PROPPATCH, MOVE, COPY, LOCK, UNLOCK',
-        'Content-Length': '0',
-      },
-    });
-  }
-  await next();
-});
 app.use(
   '*',
   cors({
@@ -103,6 +89,20 @@ app.use(
     credentials: true,
   })
 );
+app.use('/dav/*', async (c, next) => {
+  if (c.req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        DAV: '1, 2',
+        'MS-Author-Via': 'DAV',
+        Allow: 'OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, PROPFIND, PROPPATCH, MOVE, COPY, LOCK, UNLOCK',
+        'Content-Length': '0',
+      },
+    });
+  }
+  await next();
+});
 app.use(
   '*',
   secureHeaders({
