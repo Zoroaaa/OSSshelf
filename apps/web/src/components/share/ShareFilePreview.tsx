@@ -916,11 +916,8 @@ export function ShareFilePreview({
                   ) : null}
                 </>
               ) : isPpt ? (
-                {
-                  const resolvedUrl = fileUrl || previewUrl;
-                }
                 <iframe
-                  src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(resolvedUrl)}`}
+                  src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(getPreviewUrl())}`}
                   className="w-full h-full border-0"
                   title={decodeFileName(file.name)}
                   onError={() => setLoadError(true)}
