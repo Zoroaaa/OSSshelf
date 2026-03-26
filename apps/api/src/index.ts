@@ -39,21 +39,31 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.use('*', logger());
 app.use('*', prettyJSON());
+
+// ========== ✅ 修复完成的 CORS 配置 ==========
 app.use(
   '*',
   cors({
     origin: (origin) => {
       const allowedOrigins = [
         'https://ossshelf.neutronx.uk',
+        'https://ossshelf-avb.pages.dev',
+        'https://oss.lyks.eu.org',
+        'https://oss.wlycs.cn',
+        'https://ossapi.wlycs.cn',
         'http://localhost:3000',
         'http://localhost:5173',
         'http://127.0.0.1:3000',
         'http://127.0.0.1:5173',
       ];
+
       if (allowedOrigins.includes(origin)) return origin;
-      if (origin.endsWith('.neutronx.uk')) return origin;
-      return allowedOrigins[0];
+      if (origin?.endsWith('.neutronx.uk')) return origin;
+
+      // 修复：不返回非法域名，避免跨域爆炸
+      return '';
     },
+    credentials: true,
     allowMethods: [
       'GET',
       'POST',
@@ -68,7 +78,7 @@ app.use(
       'MOVE',
       'HEAD',
       'LOCK',
-      'UNLOCK',
+      'UNLOCK'，
     ],
     allowHeaders: [
       'Content-Type',
@@ -86,23 +96,9 @@ app.use(
     ],
     exposeHeaders: ['Content-Length', 'Content-Range', 'ETag', 'DAV', 'Lock-Token'],
     maxAge: 86400,
-    credentials: true,
   })
 );
-app.use('/dav/*', async (c, next) => {
-  if (c.req.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        DAV: '1, 2',
-        'MS-Author-Via': 'DAV',
-        Allow: 'OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, PROPFIND, PROPPATCH, MOVE, COPY, LOCK, UNLOCK',
-        'Content-Length': '0',
-      },
-    });
-  }
-  await next();
-});
+
 app.use(
   '*',
   secureHeaders({
