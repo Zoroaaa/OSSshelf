@@ -221,7 +221,7 @@ export default function MainLayout() {
           </div>
           {(!isCollapsed || isHovering) && (
             <div className="overflow-hidden">
-              <h1 className="text-base font-bold leading-none whitespace-nowrap">OSSshelf</h1>
+              <h1 className="text-base font-bold leading-none whitespace-nowrap">赛智科技</h1>
               <p className="text-xs text-muted-foreground mt-0.5 whitespace-nowrap">文件管理系统</p>
             </div>
           )}
