@@ -7,6 +7,7 @@ export interface Env {
   ENVIRONMENT: string;
   JWT_SECRET: string;
   PUBLIC_URL?: string; // 公开访问URL，用于生成直链
+  ALLOWED_ORIGINS?: string; // CORS允许的域名列表，逗号分隔
 }
 
 export type Variables = {
