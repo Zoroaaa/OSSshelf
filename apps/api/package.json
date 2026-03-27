@@ -10,7 +10,7 @@
     "deploy:worker": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "wrangler d1 migrations apply ossshelf-db",
+    "db:migrate": "wrangler d1 migrations apply ossshelf-db --remote",
     "db:migrate:local": "wrangler d1 migrations apply ossshelf-db --local",
     "db:studio": "drizzle-kit studio"
   },
