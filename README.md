@@ -31,6 +31,24 @@
 
 ---
 
+## 📢 版本更新
+
+详细的版本更新日志请参阅 [CHANGELOG.md](CHANGELOG.md)。
+
+### 最新版本 v3.4.0
+
+- 大幅强化文件预览功能
+- 预览大小限制提升至 30MB
+- 新增 EPUB 电子书预览
+- 新增字体文件预览（TTF/OTF/WOFF/WOFF2）
+- 新增 ZIP 压缩包内容列表预览
+- CSV 表格增强预览（搜索、排序、分页）
+- PowerPoint 幻灯片预览
+- PDF 分页预览与缩放控制
+- Excel 多工作表与样式保留预览
+
+---
+
 ## ✨ 功能特性
 
 - 📁 **文件管理**: 文件上传、下载、预览、移动、重命名、删除
@@ -42,7 +60,19 @@
 - 🔗 **文件直链**: 为文件生成公开访问直链，支持设置有效期，无需登录即可访问
 - 📤 **上传链接**: 创建公开上传链接，允许他人无需登录上传文件到指定文件夹
 - 📁 **文件夹上传**: 支持拖拽上传整个文件夹，自动重建目录结构
-- 📝 **文件预览**: 图片、视频、音频、PDF、Office 文档、代码高亮
+- 📝 **文件预览**: 图片、视频、音频、PDF、Office 文档、代码高亮、EPUB 电子书、字体文件、ZIP 压缩包、CSV 表格
+  - **图片**: JPEG/PNG/GIF/WebP/SVG/BMP/TIFF
+  - **视频**: MP4/WebM/OGG/MOV/AVI/MKV
+  - **音频**: MP3/WAV/OGG/AAC/FLAC/M4A
+  - **PDF**: 分页预览、缩放控制
+  - **Office**: Word/Excel/PowerPoint 本地渲染
+  - **代码**: 50+ 编程语言语法高亮
+  - **Markdown**: GFM 语法、数学公式、代码高亮
+  - **EPUB**: 电子书阅读器、目录导航
+  - **字体**: TTF/OTF/WOFF/WOFF2 字符预览
+  - **ZIP**: 压缩包内容列表、文件树展示
+  - **CSV**: 表格视图、搜索、排序、分页
+- 📜 **版本控制**: 文件历史版本管理、版本回滚、版本对比
 - 🔐 **权限管理**: 文件/文件夹级别的权限控制
 - 🏷️ **标签系统**: 为文件添加自定义标签
 - 🔍 **高级搜索**: 按名称、类型、大小、时间等条件搜索
@@ -56,28 +86,28 @@
 
 ### 🪣 支持的存储提供商
 
-| 提供商 | 说明 | 特点 |
-|--------|------|------|
-| Cloudflare R2 | 推荐 | 无出站流量费用 |
-| AWS S3 | 标准兼容 | 全球部署 |
-| 阿里云 OSS | 国内优化 | 低延迟 |
-| 腾讯云 COS | 国内优化 | 低延迟 |
-| 华为云 OBS | 国内优化 | 低延迟 |
-| Backblaze B2 | 高性价比 | 免费额度 |
-| MinIO | 私有部署 | 完全控制 |
-| Telegram | 免费 | 最大 2GB |
+| 提供商        | 说明     | 特点           |
+| ------------- | -------- | -------------- |
+| Cloudflare R2 | 推荐     | 无出站流量费用 |
+| AWS S3        | 标准兼容 | 全球部署       |
+| 阿里云 OSS    | 国内优化 | 低延迟         |
+| 腾讯云 COS    | 国内优化 | 低延迟         |
+| 华为云 OBS    | 国内优化 | 低延迟         |
+| Backblaze B2  | 高性价比 | 免费额度       |
+| MinIO         | 私有部署 | 完全控制       |
+| Telegram      | 免费     | 最大 2GB       |
 
 ---
 
 ## 🔧 技术栈
 
-| 组件 | 技术 |
-|------|------|
-| 前端 | React 18 + Vite 5 + Tailwind CSS 3 |
-| 后端 | Hono 4 + Cloudflare Workers |
+| 组件   | 技术                                 |
+| ------ | ------------------------------------ |
+| 前端   | React 18 + Vite 5 + Tailwind CSS 3   |
+| 后端   | Hono 4 + Cloudflare Workers          |
 | 数据库 | Cloudflare D1 (SQLite) + Drizzle ORM |
-| 存储 | S3 兼容协议 + Telegram Bot API |
-| 认证 | JWT + bcrypt |
+| 存储   | S3 兼容协议 + Telegram Bot API       |
+| 认证   | JWT + bcrypt                         |
 
 ---
 
@@ -87,35 +117,35 @@
 
 ### 文件限制
 
-| 常量 | 值 | 说明 | 定义位置 |
-|------|-----|------|----------|
-| `MAX_FILE_SIZE` | 5 GB | S3 兼容存储单文件最大 | shared/constants |
-| `DEFAULT_STORAGE_QUOTA` | 10 GB | 默认存储配额 | shared/constants |
-| `UPLOAD_CHUNK_SIZE` | 10 MB | S3 分片大小 | shared/constants |
-| `MULTIPART_THRESHOLD` | 100 MB | S3 分片上传阈值 | shared/constants |
-| `MAX_CONCURRENT_PARTS` | 3 | 最大并发分片数 | shared/constants |
-| `TG_MAX_FILE_SIZE` | 50 MB | Telegram 直传上限 | api/lib/telegramClient |
-| `TG_CHUNKED_THRESHOLD` | 49 MB | Telegram 分片阈值 | api/lib/telegramClient |
-| `TG_CHUNK_SIZE` | 30 MB | Telegram 分片大小 | api/lib/telegramChunked |
-| `TG_MAX_CHUNKED_FILE_SIZE` | 2 GB | Telegram 最大文件 | api/lib/telegramClient |
+| 常量                       | 值     | 说明                  | 定义位置                |
+| -------------------------- | ------ | --------------------- | ----------------------- |
+| `MAX_FILE_SIZE`            | 5 GB   | S3 兼容存储单文件最大 | shared/constants        |
+| `DEFAULT_STORAGE_QUOTA`    | 10 GB  | 默认存储配额          | shared/constants        |
+| `UPLOAD_CHUNK_SIZE`        | 10 MB  | S3 分片大小           | shared/constants        |
+| `MULTIPART_THRESHOLD`      | 100 MB | S3 分片上传阈值       | shared/constants        |
+| `MAX_CONCURRENT_PARTS`     | 3      | 最大并发分片数        | shared/constants        |
+| `TG_MAX_FILE_SIZE`         | 50 MB  | Telegram 直传上限     | api/lib/telegramClient  |
+| `TG_CHUNKED_THRESHOLD`     | 49 MB  | Telegram 分片阈值     | api/lib/telegramClient  |
+| `TG_CHUNK_SIZE`            | 30 MB  | Telegram 分片大小     | api/lib/telegramChunked |
+| `TG_MAX_CHUNKED_FILE_SIZE` | 2 GB   | Telegram 最大文件     | api/lib/telegramClient  |
 
 ### 时间限制
 
-| 常量 | 值 | 说明 |
-|------|-----|------|
-| `JWT_EXPIRY` | 7 天 | JWT 有效期 |
-| `WEBDAV_SESSION_EXPIRY` | 30 天 | WebDAV 会话有效期 |
-| `SHARE_DEFAULT_EXPIRY` | 7 天 | 分享默认有效期 |
-| `TRASH_RETENTION_DAYS` | 30 天 | 回收站保留天数 |
-| `DEVICE_SESSION_EXPIRY` | 30 天 | 设备会话有效期 |
-| `UPLOAD_TASK_EXPIRY` | 24 小时 | 上传任务有效期 |
+| 常量                    | 值      | 说明              |
+| ----------------------- | ------- | ----------------- |
+| `JWT_EXPIRY`            | 7 天    | JWT 有效期        |
+| `WEBDAV_SESSION_EXPIRY` | 30 天   | WebDAV 会话有效期 |
+| `SHARE_DEFAULT_EXPIRY`  | 7 天    | 分享默认有效期    |
+| `TRASH_RETENTION_DAYS`  | 30 天   | 回收站保留天数    |
+| `DEVICE_SESSION_EXPIRY` | 30 天   | 设备会话有效期    |
+| `UPLOAD_TASK_EXPIRY`    | 24 小时 | 上传任务有效期    |
 
 ### 安全限制
 
-| 常量 | 值 | 说明 |
-|------|-----|------|
-| `LOGIN_MAX_ATTEMPTS` | 5 次 | 最大登录尝试次数 |
-| `LOGIN_LOCKOUT_DURATION` | 15 分钟 | 登录锁定时长 |
+| 常量                     | 值      | 说明             |
+| ------------------------ | ------- | ---------------- |
+| `LOGIN_MAX_ATTEMPTS`     | 5 次    | 最大登录尝试次数 |
+| `LOGIN_LOCKOUT_DURATION` | 15 分钟 | 登录锁定时长     |
 
 ---
 
@@ -156,10 +186,10 @@ pnpm dev:web  # 前端服务 (http://localhost:5173)
 
 ### 访问地址
 
-| 服务 | 地址 |
-|------|------|
-| 前端 | http://localhost:5173 |
-| API | http://localhost:8787 |
+| 服务   | 地址                      |
+| ------ | ------------------------- |
+| 前端   | http://localhost:5173     |
+| API    | http://localhost:8787     |
 | WebDAV | http://localhost:8787/dav |
 
 ---
@@ -209,6 +239,7 @@ id = "你的KV命名空间ID"  # ← 替换这里
 [vars]
 ENVIRONMENT = "production"
 JWT_SECRET = "生成一个强随机字符串"  # ← 替换这里
+CORS_ORIGINS = "https://your-frontend.pages.dev"  # ← 替换为你的前端域名
 
 [triggers]
 crons = ["0 3 * * *"]  # 每天凌晨3点清理
@@ -241,10 +272,11 @@ curl https://your-api.workers.dev/api/auth/registration-config
 
 ### 环境变量说明
 
-| 变量名 | 必填 | 说明 |
-|--------|------|------|
-| `JWT_SECRET` | ✅ | JWT 签名密钥，建议 32+ 字符随机字符串 |
-| `ENCRYPTION_KEY` | ✅ | 存储桶凭证加密密钥，32 字节 |
+| 变量名           | 必填 | 说明                                  |
+| ---------------- | ---- | ------------------------------------- |
+| `JWT_SECRET`     | ✅   | JWT 签名密钥，建议 32+ 字符随机字符串 |
+| `ENCRYPTION_KEY` | ✅   | 存储桶凭证加密密钥，32 字节           |
+| `CORS_ORIGINS`   | ✅   | CORS 允许域名，多个用逗号分隔         |
 
 ---
 
@@ -291,12 +323,12 @@ curl https://your-api.workers.dev/api/auth/registration-config
 
 ### 文件上传
 
-| 方式 | 说明 |
-|------|------|
-| 拖拽上传 | 直接拖入页面 |
-| 点击上传 | 点击上传按钮选择文件 |
-| 文件夹上传 | 支持上传整个文件夹 |
-| 大文件 | ≥ 100MB 自动分片，支持断点续传 |
+| 方式       | 说明                           |
+| ---------- | ------------------------------ |
+| 拖拽上传   | 直接拖入页面                   |
+| 点击上传   | 点击上传按钮选择文件           |
+| 文件夹上传 | 支持上传整个文件夹             |
+| 大文件     | ≥ 100MB 自动分片，支持断点续传 |
 
 ### 文件分享
 
@@ -309,14 +341,15 @@ curl https://your-api.workers.dev/api/auth/registration-config
 
 ### WebDAV 连接
 
-| 配置项 | 值 |
-|--------|-----|
+| 配置项     | 值                            |
+| ---------- | ----------------------------- |
 | 服务器地址 | `https://your-domain.com/dav` |
-| 用户名 | 注册邮箱 |
-| 密码 | 账户密码 |
-| 认证方式 | Basic Auth |
+| 用户名     | 注册邮箱                      |
+| 密码       | 账户密码                      |
+| 认证方式   | Basic Auth                    |
 
 **Windows 资源管理器连接**：
+
 1. 打开「此电脑」
 2. 点击「映射网络驱动器」
 3. 输入 WebDAV 地址
@@ -325,6 +358,7 @@ curl https://your-api.workers.dev/api/auth/registration-config
 ### 管理员功能
 
 管理员可在「管理」页面：
+
 - 管理所有用户（查看、编辑配额、重置密码、删除）
 - 控制注册开关（开放/关闭注册）
 - 生成和管理邀请码
@@ -362,6 +396,7 @@ ossshelf/
 │   │   │   │   ├── batch.ts     # 批量操作
 │   │   │   │   ├── downloads.ts # 离线下载
 │   │   │   │   ├── preview.ts   # 预览
+│   │   │   │   ├── versions.ts  # 版本控制 (v3.3.0)
 │   │   │   │   ├── admin.ts     # 管理员
 │   │   │   │   ├── migrate.ts   # 迁移
 │   │   │   │   ├── telegram.ts  # Telegram
@@ -404,25 +439,26 @@ ossshelf/
 
 ### API 路由概览
 
-| 路由前缀 | 说明 |
-|----------|------|
-| `/api/auth` | 用户认证 |
-| `/api/files` | 文件管理 |
-| `/api/buckets` | 存储桶管理 |
-| `/api/share` | 文件分享 |
-| `/api/direct` | 文件直链 |
-| `/api/presign` | 预签名 URL |
-| `/api/tasks` | 上传任务 |
-| `/api/downloads` | 离线下载 |
-| `/api/batch` | 批量操作 |
-| `/api/search` | 文件搜索 |
-| `/api/permissions` | 权限与标签 |
-| `/api/preview` | 文件预览 |
-| `/api/admin` | 管理员接口 |
-| `/api/migrate` | 存储桶迁移 |
-| `/api/telegram` | Telegram 存储 |
-| `/cron` | 定时任务 |
-| `/dav` | WebDAV |
+| 路由前缀           | 说明              |
+| ------------------ | ----------------- |
+| `/api/auth`        | 用户认证          |
+| `/api/files`       | 文件管理          |
+| `/api/buckets`     | 存储桶管理        |
+| `/api/share`       | 文件分享          |
+| `/api/direct`      | 文件直链          |
+| `/api/presign`     | 预签名 URL        |
+| `/api/tasks`       | 上传任务          |
+| `/api/downloads`   | 离线下载          |
+| `/api/batch`       | 批量操作          |
+| `/api/search`      | 文件搜索          |
+| `/api/permissions` | 权限与标签        |
+| `/api/preview`     | 文件预览          |
+| `/api/versions`    | 版本控制 (v3.3.0) |
+| `/api/admin`       | 管理员接口        |
+| `/api/migrate`     | 存储桶迁移        |
+| `/api/telegram`    | Telegram 存储     |
+| `/cron`            | 定时任务          |
+| `/dav`             | WebDAV            |
 
 ---
 
@@ -457,31 +493,41 @@ pnpm typecheck    # 类型检查
 ## ❓ 常见问题
 
 ### Q: 忘记密码怎么办？
+
 A: 联系管理员重置密码。如果是管理员忘记密码，需要通过数据库直接修改密码哈希。
 
 ### Q: 文件删除后能恢复吗？
+
 A: 文件删除后进入回收站，保留 30 天。在此期间可以从回收站恢复。
 
 ### Q: 存储配额不够怎么办？
+
 A: 联系管理员增加配额，或清理不需要的文件。
 
 ### Q: Telegram 存储有什么限制？
+
 A: 单文件最大 2GB，无法真正删除文件（仅删除消息引用），需要稳定的网络连接。
 
 ### Q: WebDAV 连接失败？
-A: 
+
+A:
+
 1. 确认用户名密码正确（用户名是注册邮箱）
 2. 检查 Basic Auth 是否启用
 3. 确认 Workers 域名已配置 SSL
 
 ### Q: 上传失败？
+
 A:
+
 1. 检查存储桶配置是否正确
 2. 确认 Access Key/Secret Key 权限
 3. 检查 CORS 配置
 
 ### Q: 定时任务不执行？
+
 A:
+
 1. 确认 Cron Triggers 已配置
 2. 检查 wrangler.toml 中的 crons 配置
 3. 查看 Workers 日志排查错误

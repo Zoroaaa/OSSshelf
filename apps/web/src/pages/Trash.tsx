@@ -11,9 +11,9 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { filesApi } from '@/services/api';
-import { Button } from '@/components/ui/button';
-import { FileIcon } from '@/components/ui/FileIcon';
-import { useToast } from '@/components/ui/use-toast';
+import { Button } from '@/components/ui/Button';
+import { FileIcon } from '@/components/files/FileIcon';
+import { useToast } from '@/components/ui/useToast';
 import { formatBytes, formatDate, decodeFileName } from '@/utils';
 import { Trash2, RotateCcw, AlertTriangle, PackageOpen } from 'lucide-react';
 import type { FileItem } from '@osshelf/shared';

@@ -12,7 +12,7 @@ import { useResponsive } from '@/hooks/useResponsive';
 import { filesApi } from '@/services/api';
 import { cn, decodeFileName } from '@/utils';
 import { Trash2 } from 'lucide-react';
-import { ActionBtn } from './ActionBtn';
+import { ActionBtn } from '../ActionBtn';
 import type { GalleryItemProps } from '@/types/files';
 
 export function GalleryItem({ file, token, onClick, onDelete, onContextMenu }: GalleryItemProps) {

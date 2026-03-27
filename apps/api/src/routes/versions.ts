@@ -18,8 +18,8 @@ import { AppError, throwAppError } from '../middleware/error';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
-import { s3Get, s3Put, decryptSecret } from '../lib/s3client';
-import { resolveBucketConfig } from '../lib/bucketResolver';
+import { s3Get, s3Put, s3Delete, decryptSecret } from '../lib/s3client';
+import { resolveBucketConfig, updateBucketStats } from '../lib/bucketResolver';
 import { getEncryptionKey } from '../lib/crypto';
 import { computeSha256Hex, checkAndClaimDedup, releaseFileRef } from '../lib/dedup';
 
@@ -302,7 +302,29 @@ app.delete('/:fileId/versions/:version', async (c) => {
     throwAppError('VERSION_NOT_FOUND');
   }
 
+  // 检查同一 r2Key 是否还有其他版本引用（去重场景）
+  const sharedRefs = await db
+    .select({ id: fileVersions.id })
+    .from(fileVersions)
+    .where(and(eq(fileVersions.r2Key, version.r2Key), eq(fileVersions.fileId, fileId)))
+    .all();
+
+  const isLastRef = sharedRefs.length <= 1 && version.r2Key !== file.r2Key;
+
   await db.delete(fileVersions).where(eq(fileVersions.id, version.id));
+
+  // 若是最后一个引用且与主文件 r2Key 不同，清理物理对象
+  if (isLastRef) {
+    const encKey = getEncryptionKey(c.env);
+    const bucketConfig = await resolveBucketConfig(db, userId!, encKey, file.bucketId);
+    if (bucketConfig) {
+      await s3Delete(bucketConfig, version.r2Key).catch((e) =>
+        console.error(`Version r2Key delete failed ${version.r2Key}:`, e)
+      );
+    } else if (c.env.FILES) {
+      await (c.env.FILES as R2Bucket).delete(version.r2Key).catch(() => {});
+    }
+  }
 
   return c.json({
     success: true,

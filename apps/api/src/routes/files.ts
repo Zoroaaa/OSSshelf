@@ -11,7 +11,7 @@
 
 import { Hono } from 'hono';
 import { eq, and, isNull, isNotNull, like, or, inArray, sql } from 'drizzle-orm';
-import { getDb, files, users, storageBuckets, filePermissions, telegramFileRefs } from '../db';
+import { getDb, files, users, storageBuckets, filePermissions, telegramFileRefs, fileVersions } from '../db';
 import { checkFilePermission } from './permissions';
 import { authMiddleware } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
@@ -19,7 +19,7 @@ import { ERROR_CODES, MAX_FILE_SIZE, isPreviewableMimeType, inferMimeType } from
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { s3Put, s3Get, s3Delete, decryptSecret } from '../lib/s3client';
-import { resolveBucketConfig, updateBucketStats, checkBucketQuota } from '../lib/bucketResolver';
+import { resolveBucketConfig, updateBucketStats, updateUserStorage, checkBucketQuota } from '../lib/bucketResolver';
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 import { getEncryptionKey } from '../lib/crypto';
 import {
@@ -40,6 +40,40 @@ import {
 import { checkAndClaimDedup, releaseFileRef, computeSha256Hex } from '../lib/dedup';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// ── Shared auth helper for pre-middleware routes ───────────────────────────
+/**
+ * preview / download 路由位于 authMiddleware 挂载点之前，需手动解析 token。
+ * 支持 Authorization: Bearer <token> 和 ?token=<token> 两种方式。
+ */
+async function resolveUserFromRequest(
+  c: Parameters<typeof app.get>[1] extends (...args: infer A) => any ? A[0] : never
+): Promise<string | undefined> {
+  const jwtSecret = (c.env as Env).JWT_SECRET;
+  const { verifyJWT } = await import('../lib/crypto');
+
+  const authHeader = c.req.header('Authorization');
+  if (authHeader?.startsWith('Bearer ')) {
+    try {
+      const payload = await verifyJWT(authHeader.slice(7), jwtSecret);
+      if (payload?.userId) return payload.userId as string;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const queryToken = c.req.query('token');
+  if (queryToken) {
+    try {
+      const payload = await verifyJWT(queryToken, jwtSecret);
+      if (payload?.userId) return payload.userId as string;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return undefined;
+}
 
 // ── Telegram helper ────────────────────────────────────────────────────────
 async function resolveTgBucketConfig(
@@ -86,30 +120,7 @@ const moveFileSchema = z.object({
 
 // ── Preview (before authMiddleware, supports token query param) ─────────────
 app.get('/:id/preview', async (c) => {
-  let userId: string | undefined;
-  const authHeader = c.req.header('Authorization');
-  if (authHeader?.startsWith('Bearer ')) {
-    const token = authHeader.slice(7);
-    try {
-      const { verifyJWT } = await import('../lib/crypto');
-      const payload = await verifyJWT(token, c.env.JWT_SECRET);
-      if (payload?.userId) userId = payload.userId;
-    } catch {
-      /* ignore */
-    }
-  }
-  if (!userId) {
-    const queryToken = c.req.query('token');
-    if (queryToken) {
-      try {
-        const { verifyJWT } = await import('../lib/crypto');
-        const payload = await verifyJWT(queryToken, c.env.JWT_SECRET);
-        if (payload?.userId) userId = payload.userId;
-      } catch {
-        /* ignore */
-      }
-    }
-  }
+  const userId = await resolveUserFromRequest(c as any);
   if (!userId) throwAppError('UNAUTHORIZED');
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
@@ -121,7 +132,7 @@ app.get('/:id/preview', async (c) => {
     .get();
   if (!file) throwAppError('FILE_NOT_FOUND');
   if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '无法预览文件夹');
-  if (!isPreviewableMimeType(file.mimeType)) throwAppError('FILE_PREVIEW_NOT_SUPPORTED');
+  if (!isPreviewableMimeType(file.mimeType, file.name)) throwAppError('FILE_PREVIEW_NOT_SUPPORTED');
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
   const pvHeaders = {
     'Content-Type': file.mimeType || 'application/octet-stream',
@@ -169,30 +180,7 @@ app.get('/:id/preview', async (c) => {
 
 // ── Download (before authMiddleware, supports token query param) ───────────
 app.get('/:id/download', async (c) => {
-  let userId: string | undefined;
-  const authHeader = c.req.header('Authorization');
-  if (authHeader?.startsWith('Bearer ')) {
-    const token = authHeader.slice(7);
-    try {
-      const { verifyJWT } = await import('../lib/crypto');
-      const payload = await verifyJWT(token, c.env.JWT_SECRET);
-      if (payload?.userId) userId = payload.userId;
-    } catch {
-      /* ignore */
-    }
-  }
-  if (!userId) {
-    const queryToken = c.req.query('token');
-    if (queryToken) {
-      try {
-        const { verifyJWT } = await import('../lib/crypto');
-        const payload = await verifyJWT(queryToken, c.env.JWT_SECRET);
-        if (payload?.userId) userId = payload.userId;
-      } catch {
-        /* ignore */
-      }
-    }
-  }
+  const userId = await resolveUserFromRequest(c as any);
   if (!userId) throwAppError('UNAUTHORIZED');
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
@@ -338,8 +326,7 @@ app.post('/upload', async (c) => {
   }
   if (bucketConfig) {
     const quotaErr = await checkBucketQuota(db, bucketConfig.id, uploadFile.size);
-    if (quotaErr)
-      throwAppError('STORAGE_EXCEEDED', quotaErr);
+    if (quotaErr) throwAppError('STORAGE_EXCEEDED', quotaErr);
   }
 
   const fileId = crypto.randomUUID();
@@ -413,17 +400,22 @@ app.post('/upload', async (c) => {
   } else if (isTelegramBucket && effectiveBucketId) {
     // 去重命中 Telegram：为新 fileId 创建指向同一 tgFileId 的引用记录
     const origRef = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.r2Key, finalR2Key)).get();
-    if (origRef) {
-      await db.insert(telegramFileRefs).values({
-        id: crypto.randomUUID(),
-        fileId,
-        r2Key: finalR2Key,
-        tgFileId: origRef.tgFileId,
-        tgFileSize: origRef.tgFileSize,
-        bucketId: effectiveBucketId,
-        createdAt: now,
-      });
+    if (!origRef) {
+      // origRef 缺失说明去重状态不一致，报错而非静默跳过（避免创建无法下载的孤儿记录）
+      return c.json(
+        { success: false, error: { code: 'TG_REF_MISSING', message: 'Telegram 去重引用记录缺失，请重新上传' } },
+        500
+      );
     }
+    await db.insert(telegramFileRefs).values({
+      id: crypto.randomUUID(),
+      fileId,
+      r2Key: finalR2Key,
+      tgFileId: origRef.tgFileId,
+      tgFileSize: origRef.tgFileSize,
+      bucketId: effectiveBucketId,
+      createdAt: now,
+    });
   }
 
   await db.insert(files).values({
@@ -446,10 +438,7 @@ app.post('/upload', async (c) => {
   });
 
   if (user) {
-    await db
-      .update(users)
-      .set({ storageUsed: user.storageUsed + uploadFile.size, updatedAt: now })
-      .where(eq(users.id, userId));
+    await updateUserStorage(db, userId, uploadFile.size);
   }
   // bucket stats：去重命中时物理存储未增加（sizeDelta=0），fileCount 仍 +1
   const physicalSizeDelta = dedupResult.isDuplicate ? 0 : uploadFile.size;
@@ -586,8 +575,7 @@ app.post('/trash/:id/restore', async (c) => {
     .from(files)
     .where(and(eq(files.id, fileId), eq(files.userId, userId), isNotNull(files.deletedAt)))
     .get();
-  if (!file)
-    throwAppError('FILE_NOT_FOUND', '文件不存在或未被删除');
+  if (!file) throwAppError('FILE_NOT_FOUND', '文件不存在或未被删除');
   await db.update(files).set({ deletedAt: null, updatedAt: new Date().toISOString() }).where(eq(files.id, fileId));
   return c.json({ success: true, data: { message: '已恢复' } });
 });
@@ -610,13 +598,7 @@ app.delete('/trash/:id', async (c) => {
     if (shouldDeleteStorage) {
       await deleteFileFromStorage(c.env, db, userId, encKey, file);
     }
-    const user = await db.select().from(users).where(eq(users.id, userId)).get();
-    if (user) {
-      await db
-        .update(users)
-        .set({ storageUsed: Math.max(0, user.storageUsed - file.size), updatedAt: new Date().toISOString() })
-        .where(eq(users.id, userId));
-    }
+    await updateUserStorage(db, userId, -file.size);
   }
   await db.delete(files).where(eq(files.id, fileId));
   return c.json({ success: true, data: { message: '已永久删除' } });
@@ -644,12 +626,8 @@ app.delete('/trash', async (c) => {
     }
     await db.delete(files).where(eq(files.id, file.id));
   }
-  const user = await db.select().from(users).where(eq(users.id, userId)).get();
-  if (user && freedBytes > 0) {
-    await db
-      .update(users)
-      .set({ storageUsed: Math.max(0, user.storageUsed - freedBytes), updatedAt: new Date().toISOString() })
-      .where(eq(users.id, userId));
+  if (freedBytes > 0) {
+    await updateUserStorage(db, userId, -freedBytes);
   }
   return c.json({ success: true, data: { message: `已清空回收站，释放 ${trashed.length} 个文件` } });
 });
@@ -682,8 +660,7 @@ app.post('/', async (c) => {
       )
     )
     .get();
-  if (existing)
-    throwAppError('FOLDER_ALREADY_EXISTS', '同名文件夹已存在');
+  if (existing) throwAppError('FOLDER_ALREADY_EXISTS', '同名文件夹已存在');
 
   let effectiveBucketId: string | null = null;
   if (requestedBucketId) {
@@ -783,8 +760,7 @@ app.post('/create', async (c) => {
       )
     )
     .get();
-  if (existing)
-    throwAppError('FILE_ALREADY_EXISTS', '同名文件已存在');
+  if (existing) throwAppError('FILE_ALREADY_EXISTS', '同名文件已存在');
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, requestedBucketId, parentId);
   const effectiveBucketId = bucketConfig?.id ?? requestedBucketId ?? null;
@@ -805,8 +781,7 @@ app.post('/create', async (c) => {
   }
   if (bucketConfig) {
     const quotaErr = await checkBucketQuota(db, bucketConfig.id, fileSize);
-    if (quotaErr)
-      throwAppError('STORAGE_EXCEEDED', quotaErr);
+    if (quotaErr) throwAppError('STORAGE_EXCEEDED', quotaErr);
   }
 
   const fileId = crypto.randomUUID();
@@ -867,17 +842,21 @@ app.post('/create', async (c) => {
     }
   } else if (isTelegramBucket && effectiveBucketId) {
     const origRef = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.r2Key, finalR2Key)).get();
-    if (origRef) {
-      await db.insert(telegramFileRefs).values({
-        id: crypto.randomUUID(),
-        fileId,
-        r2Key: finalR2Key,
-        tgFileId: origRef.tgFileId,
-        tgFileSize: origRef.tgFileSize,
-        bucketId: effectiveBucketId,
-        createdAt: now,
-      });
+    if (!origRef) {
+      return c.json(
+        { success: false, error: { code: 'TG_REF_MISSING', message: 'Telegram 去重引用记录缺失，请重新上传' } },
+        500
+      );
     }
+    await db.insert(telegramFileRefs).values({
+      id: crypto.randomUUID(),
+      fileId,
+      r2Key: finalR2Key,
+      tgFileId: origRef.tgFileId,
+      tgFileSize: origRef.tgFileSize,
+      bucketId: effectiveBucketId,
+      createdAt: now,
+    });
   }
 
   await db.insert(files).values({
@@ -900,10 +879,7 @@ app.post('/create', async (c) => {
   });
 
   if (user) {
-    await db
-      .update(users)
-      .set({ storageUsed: user.storageUsed + fileSize, updatedAt: now })
-      .where(eq(users.id, userId));
+    await updateUserStorage(db, userId, fileSize);
   }
 
   const physicalSizeDelta = dedupResult.isDuplicate ? 0 : fileSize;
@@ -1039,8 +1015,7 @@ app.put('/:id/settings', async (c) => {
     .where(and(eq(files.id, fileId), eq(files.userId, userId)))
     .get();
   if (!file) throwAppError('FILE_NOT_FOUND');
-  if (!file.isFolder)
-    throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '只有文件夹可以设置上传类型限制');
+  if (!file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '只有文件夹可以设置上传类型限制');
 
   const { allowedMimeTypes } = result.data;
   const now = new Date().toISOString();
@@ -1084,8 +1059,7 @@ app.post('/:id/move', async (c) => {
   if (file.isFolder && targetParentId) {
     let checkId: string | null = targetParentId;
     while (checkId) {
-      if (checkId === fileId)
-        throwAppError('CANNOT_MOVE_TO_SUBFOLDER', '不能将文件夹移动到自身或其子文件夹中');
+      if (checkId === fileId) throwAppError('CANNOT_MOVE_TO_SUBFOLDER', '不能将文件夹移动到自身或其子文件夹中');
       const parent = await db.select().from(files).where(eq(files.id, checkId)).get();
       checkId = parent?.parentId ?? null;
     }
@@ -1151,13 +1125,10 @@ async function softDeleteFolder(db: ReturnType<typeof getDb>, folderId: string, 
 
 // ── Shared helper ──────────────────────────────────────────────────────────
 /**
- * 从对象存储中删除文件，更新 bucket 统计。
- * 注意：此函数不更新用户 storageUsed，由调用方统一批量更新以避免双重扣减。
- */
-/**
  * 从对象存储中物理删除文件，并更新 bucket 统计。
  * 此函数只应在 CoW ref_count 已归零时调用（由 releaseFileRef 判断）。
  * 注意：不更新用户 storageUsed，由调用方统一处理。
+ * 同时清理关联的 file_versions 记录（版本 r2Key 去重 + 物理删除）。
  */
 async function deleteFileFromStorage(
   env: Env,
@@ -1166,20 +1137,38 @@ async function deleteFileFromStorage(
   encKey: string,
   file: typeof files.$inferSelect
 ) {
+  // ── 收集版本独有的 r2Key（与主文件不同且 refCount <= 1）
+  const versions = await db
+    .select({ r2Key: fileVersions.r2Key, refCount: fileVersions.refCount })
+    .from(fileVersions)
+    .where(eq(fileVersions.fileId, file.id))
+    .all();
+
+  const versionKeysToDelete = new Set(
+    versions.filter((v) => v.r2Key !== file.r2Key && v.refCount <= 1).map((v) => v.r2Key)
+  );
+
   // ── Telegram 桶：清理 DB 引用（物理文件在 Telegram 服务器，无法强制删除）
   if (file.bucketId) {
     const bkt = await db.select().from(storageBuckets).where(eq(storageBuckets.id, file.bucketId)).get();
     if (bkt?.provider === 'telegram') {
-      // 清理分片记录（若为分片文件）
       const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.r2Key, file.r2Key)).get();
       if (ref && isChunkedFileId(ref.tgFileId)) {
         await tgDeleteChunked(db, ref.tgFileId);
       }
       await db.delete(telegramFileRefs).where(eq(telegramFileRefs.r2Key, file.r2Key));
+      for (const vKey of versionKeysToDelete) {
+        const vRef = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.r2Key, vKey)).get();
+        if (vRef) {
+          if (isChunkedFileId(vRef.tgFileId)) await tgDeleteChunked(db, vRef.tgFileId).catch(() => {});
+          await db.delete(telegramFileRefs).where(eq(telegramFileRefs.r2Key, vKey));
+        }
+      }
       await updateBucketStats(db, file.bucketId, -file.size, -1);
       return;
     }
   }
+
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
   if (bucketConfig) {
     try {
@@ -1187,9 +1176,15 @@ async function deleteFileFromStorage(
     } catch (e) {
       console.error(`S3 delete failed for ${file.r2Key}:`, e);
     }
+    for (const vKey of versionKeysToDelete) {
+      await s3Delete(bucketConfig, vKey).catch((e) => console.error(`S3 version delete failed ${vKey}:`, e));
+    }
     await updateBucketStats(db, bucketConfig.id, -file.size, -1);
   } else if (env.FILES) {
     await env.FILES.delete(file.r2Key);
+    for (const vKey of versionKeysToDelete) {
+      await env.FILES.delete(vKey).catch(() => {});
+    }
   }
 }
 

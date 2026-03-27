@@ -9,8 +9,8 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { Link, Copy, Trash2, RefreshCw, ExternalLink, Check, Infinity } from 'lucide-react';
 import { directLinkApi, type DirectLinkInfo } from '@/services/api';
 import { decodeFileName } from '@/utils';

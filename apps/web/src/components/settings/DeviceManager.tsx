@@ -10,8 +10,8 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { authApi } from '@/services/api';
-import { Button } from '@/components/ui/button';
-import { useToast } from '@/components/ui/use-toast';
+import { Button } from '@/components/ui/Button';
+import { useToast } from '@/components/ui/useToast';
 import { useAuthStore } from '@/stores/auth';
 import { formatDate } from '@/utils';
 import { cn } from '@/utils';

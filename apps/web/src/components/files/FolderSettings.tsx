@@ -10,8 +10,8 @@
 import { useState, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { filesApi } from '@/services/api';
-import { Button } from '@/components/ui/button';
-import { useToast } from '@/components/ui/use-toast';
+import { Button } from '@/components/ui/Button';
+import { useToast } from '@/components/ui/useToast';
 import { cn } from '@/utils';
 import {
   Settings,

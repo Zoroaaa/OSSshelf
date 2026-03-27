@@ -10,7 +10,7 @@
 
 import { useState, useCallback } from 'react';
 import { useFolderUpload } from '@/hooks/useFolderUpload';
-import { useToast } from '@/components/ui/use-toast';
+import { useToast } from '@/components/ui/useToast';
 import { useQueryClient } from '@tanstack/react-query';
 import { presignUpload } from '@/services/presignUpload';
 

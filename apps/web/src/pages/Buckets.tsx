@@ -11,11 +11,11 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { bucketsApi, telegramApi, PROVIDER_META, type StorageBucket, type BucketFormData } from '@/services/api';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { useToast } from '@/components/ui/use-toast';
+import { bucketsApi, PROVIDER_META, type StorageBucket, type BucketFormData } from '@/services/api';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
+import { useToast } from '@/components/ui/useToast';
 import { formatBytes } from '@/utils';
 import { cn } from '@/utils';
 import {
@@ -41,7 +41,7 @@ import {
   ArrowRightLeft,
 } from 'lucide-react';
 
-import { MigrateBucketDialog } from '@/components/ui/MigrateBucketDialog';
+import { MigrateBucketDialog } from '@/components/files/dialogs';
 
 // ── Provider Badge ────────────────────────────────────────────────────────
 function ProviderBadge({ provider }: { provider: StorageBucket['provider'] }) {

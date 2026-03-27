@@ -11,7 +11,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/Button';
 import { getErrorMessage } from '@/services/errorHandler';
 import api from '@/services/api';
 import { formatBytes } from '@/utils';

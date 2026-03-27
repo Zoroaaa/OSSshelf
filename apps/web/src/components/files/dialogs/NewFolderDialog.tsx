@@ -9,8 +9,8 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { bucketsApi, PROVIDER_META, type StorageBucket } from '@/services/api';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { cn } from '@/utils';
 import { Database } from 'lucide-react';
 

@@ -65,7 +65,50 @@ export default {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
       },
+      typography: {
+        DEFAULT: {
+          css: {
+            maxWidth: 'none',
+            pre: {
+              'background-color': 'hsl(var(--muted))',
+              'border-radius': 'var(--radius)',
+              padding: '1rem',
+              overflow: 'auto',
+            },
+            code: {
+              'background-color': 'hsl(var(--muted))',
+              'border-radius': 'calc(var(--radius) - 4px)',
+              padding: '0.25rem 0.5rem',
+              'font-weight': '400',
+            },
+            'code::before': {
+              content: '""',
+            },
+            'code::after': {
+              content: '""',
+            },
+            table: {
+              'border-collapse': 'collapse',
+              width: '100%',
+            },
+            th: {
+              'background-color': 'hsl(var(--muted))',
+              'font-weight': '600',
+              padding: '0.75rem 1rem',
+              'text-align': 'left',
+              border: '1px solid hsl(var(--border))',
+            },
+            td: {
+              padding: '0.75rem 1rem',
+              border: '1px solid hsl(var(--border))',
+            },
+            'tr:nth-child(even)': {
+              'background-color': 'hsl(var(--muted) / 0.3)',
+            },
+          },
+        },
+      },
     },
   },
-  plugins: [],
+  plugins: [require('@tailwindcss/typography')],
 };

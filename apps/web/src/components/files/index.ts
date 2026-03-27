@@ -4,11 +4,29 @@
  */
 
 export { ActionBtn } from './ActionBtn';
-export { NewFolderDialog } from './NewFolderDialog';
-export { NewFileDialog, FILE_TEMPLATES, type FileTemplate } from './NewFileDialog';
-export { ShareDialog } from './ShareDialog';
-export { ListItem } from './ListItem';
-export { GridItem } from './GridItem';
-export { MasonryItem } from './MasonryItem';
-export { GalleryItem } from './GalleryItem';
 export { FileListContainer } from './FileListContainer';
+export { FileIcon } from './FileIcon';
+export { FilePreview } from './FilePreview';
+export { FolderSettings } from './FolderSettings';
+export { StorageBar } from './StorageBar';
+export { VersionHistory } from './VersionHistory';
+
+export {
+  NewFileDialog,
+  NewFolderDialog,
+  ShareDialog,
+  UploadLinkDialog,
+  DirectLinkDialog,
+  RenameDialog,
+  FolderPickerDialog,
+  MoveFolderPicker,
+  MigrateBucketDialog,
+  FILE_TEMPLATES,
+  type FileTemplate,
+} from './dialogs';
+
+export { ListItem, GridItem, MasonryItem, GalleryItem } from './items';
+
+export { FilePermissionManager, FilePermissionsDialog } from './permissions';
+
+export { FileTagsDisplay, FileTagsManager, UserTagsList } from './tags';

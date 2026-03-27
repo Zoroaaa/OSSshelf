@@ -9,8 +9,8 @@
  */
 
 import { useResponsive } from '@/hooks/useResponsive';
-import { FileIcon } from '@/components/ui/FileIcon';
-import { FileTagsDisplay } from '@/components/ui/FileTagsDisplay';
+import { FileIcon } from '@/components/files/FileIcon';
+import { FileTagsDisplay } from '@/components/files/tags';
 import { filesApi } from '@/services/api';
 import { formatBytes, decodeFileName } from '@/utils';
 import { getFileCategory, getCategoryBg } from '@/utils/fileTypes';

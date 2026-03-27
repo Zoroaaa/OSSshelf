@@ -10,8 +10,8 @@
  */
 
 import { useState, useMemo, useCallback } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { cn } from '@/utils';
 import { FileText, Code, FileJson, FileCode, File, ChevronDown } from 'lucide-react';
 

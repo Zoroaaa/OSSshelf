@@ -11,9 +11,9 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { permissionsApi, type SearchableUser } from '@/services/api';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { useToast } from '@/components/ui/use-toast';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { useToast } from '@/components/ui/useToast';
 import { cn } from '@/utils';
 import { Shield, Plus, X, Loader2, User, Crown, Edit, Eye, Trash2 } from 'lucide-react';
 

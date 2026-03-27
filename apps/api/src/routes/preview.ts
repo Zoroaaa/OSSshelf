@@ -8,13 +8,27 @@
  * - 流媒体预览
  * - 缩略图生成
  * - Office文档预览
+ *
+ * ============================================================================
+ * 【重要提醒】修改此文件后必须同步更新：
+ *   - apps/web/src/components/files/FilePreview.tsx      # 文件管理预览组件
+ *   - apps/web/src/components/share/ShareFilePreview.tsx # 分享预览组件
+ *   - packages/shared/src/constants/previewTypes.ts      # 预览类型配置
+ * ============================================================================
  */
 
 import { Hono } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files, users } from '../db';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES, CODE_HIGHLIGHT_EXTENSIONS, OFFICE_MIME_TYPES } from '@osshelf/shared';
+import {
+  ERROR_CODES,
+  CODE_HIGHLIGHT_EXTENSIONS,
+  ALL_OFFICE_MIME_TYPES,
+  EPUB_MIME_TYPES,
+  FONT_MIME_TYPES,
+  ARCHIVE_PREVIEW_MIME_TYPES,
+} from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { s3Get } from '../lib/s3client';
@@ -24,7 +38,7 @@ import type { Context, MiddlewareHandler } from 'hono';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-const MAX_PREVIEW_SIZE = 10 * 1024 * 1024;
+const MAX_PREVIEW_SIZE = 30 * 1024 * 1024;
 
 type AppEnv = { Bindings: Env; Variables: Variables };
 
@@ -72,6 +86,15 @@ function isPreviewable(mimeType: string | null, fileName: string): { previewable
     if (CODE_HIGHLIGHT_EXTENSIONS[ext]) {
       return { previewable: true, type: 'code' };
     }
+    if (['.epub'].includes(ext)) {
+      return { previewable: true, type: 'epub' };
+    }
+    if (['.ttf', '.otf', '.woff', '.woff2'].includes(ext)) {
+      return { previewable: true, type: 'font' };
+    }
+    if (['.zip'].includes(ext)) {
+      return { previewable: true, type: 'archive' };
+    }
     return { previewable: false, type: 'unknown' };
   }
 
@@ -91,6 +114,9 @@ function isPreviewable(mimeType: string | null, fileName: string): { previewable
     if (mimeType === 'text/markdown' || fileName.endsWith('.md')) {
       return { previewable: true, type: 'markdown' };
     }
+    if (mimeType === 'text/csv' || fileName.endsWith('.csv')) {
+      return { previewable: true, type: 'csv' };
+    }
     return { previewable: true, type: 'text' };
   }
   if (mimeType === 'application/json' || mimeType === 'application/xml') {
@@ -102,8 +128,20 @@ function isPreviewable(mimeType: string | null, fileName: string): { previewable
     return { previewable: true, type: 'code' };
   }
 
-  if (OFFICE_MIME_TYPES.includes(mimeType as (typeof OFFICE_MIME_TYPES)[number])) {
+  if (ALL_OFFICE_MIME_TYPES.includes(mimeType as (typeof ALL_OFFICE_MIME_TYPES)[number])) {
     return { previewable: true, type: 'office' };
+  }
+
+  if (EPUB_MIME_TYPES.includes(mimeType as (typeof EPUB_MIME_TYPES)[number])) {
+    return { previewable: true, type: 'epub' };
+  }
+
+  if (FONT_MIME_TYPES.includes(mimeType as (typeof FONT_MIME_TYPES)[number])) {
+    return { previewable: true, type: 'font' };
+  }
+
+  if (ARCHIVE_PREVIEW_MIME_TYPES.includes(mimeType as (typeof ARCHIVE_PREVIEW_MIME_TYPES)[number])) {
+    return { previewable: true, type: 'archive' };
   }
 
   return { previewable: false, type: 'unknown' };
@@ -174,7 +212,21 @@ app.get('/:id/raw', async (c) => {
   const s3Res = await s3Get(bucketConfig, file.r2Key);
   if (!s3Res.ok) throwAppError('FILE_CONTENT_NOT_FOUND');
 
-  const content = await s3Res.text();
+  let content: string;
+  try {
+    const arrayBuffer = await s3Res.arrayBuffer();
+    content = new TextDecoder('utf-8', { fatal: false }).decode(arrayBuffer);
+    if (/[\ufffd]/.test(content)) {
+      try {
+        const gbkDecoder = new TextDecoder('gbk', { fatal: false });
+        content = gbkDecoder.decode(arrayBuffer);
+      } catch {
+        // GBK 解码失败，保持 UTF-8 结果
+      }
+    }
+  } catch {
+    content = await s3Res.text();
+  }
 
   return c.json({
     success: true,
@@ -289,7 +341,7 @@ app.get('/:id/office', async (c) => {
     .get();
 
   if (!file) throwAppError('FILE_NOT_FOUND');
-  if (!OFFICE_MIME_TYPES.includes(file.mimeType as (typeof OFFICE_MIME_TYPES)[number])) {
+  if (!ALL_OFFICE_MIME_TYPES.includes(file.mimeType as (typeof ALL_OFFICE_MIME_TYPES)[number])) {
     throwAppError('FILE_PREVIEW_NOT_SUPPORTED', '不支持该文件类型');
   }
 

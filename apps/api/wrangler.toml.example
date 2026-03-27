@@ -29,6 +29,9 @@ id = "YOUR_KV_NAMESPACE_ID"
 [vars]
 ENVIRONMENT = "development"
 JWT_SECRET = "your-jwt-secret-change-in-production"
+# CORS允许的域名，多个域名用逗号分隔（必填！部署时请修改为你的前端域名）
+# 示例：CORS_ORIGINS = "https://your-frontend.pages.dev,https://your-custom-domain.com"
+CORS_ORIGINS = "https://your-frontend.pages.dev"
 # ── Cron 告警（可选）──────────────────────────────────────────────────────
 # 配置后，每次 cron 执行完成或失败时会向指定 Telegram Chat 发送通知。
 # ALERT_TG_BOT_TOKEN: 通过 @BotFather 创建的 Bot Token
@@ -42,7 +45,7 @@ JWT_SECRET = "your-jwt-secret-change-in-production"
 crons = ["0 3 * * *"]
 
 [env.production]
-vars = { ENVIRONMENT = "production", JWT_SECRET = "YOUR_JWT_SECRET" }
+vars = { ENVIRONMENT = "production", JWT_SECRET = "YOUR_JWT_SECRET", CORS_ORIGINS = "https://your-frontend.pages.dev" }
 # 生产环境告警：
 # ALERT_TG_BOT_TOKEN = "YOUR_BOT_TOKEN"
 # ALERT_TG_CHAT_ID = "YOUR_CHAT_ID"

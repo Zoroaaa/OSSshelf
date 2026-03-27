@@ -7,11 +7,11 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { shareApi } from '@/services/api';
 import { formatBytes, formatDate } from '@/utils';
-import { Button } from '@/components/ui/button';
-import { FileIcon } from '@/components/ui/FileIcon';
-import { UploadLinkDialog } from '@/components/files/ShareDialog';
-import { FolderPickerDialog } from '@/components/ui/FolderPickerDialog';
-import { useToast } from '@/components/ui/use-toast';
+import { Button } from '@/components/ui/Button';
+import { FileIcon } from '@/components/files/FileIcon';
+import { UploadLinkDialog } from '@/components/files/dialogs';
+import { FolderPickerDialog } from '@/components/files/dialogs';
+import { useToast } from '@/components/ui/useToast';
 import {
   Link2,
   Trash2,

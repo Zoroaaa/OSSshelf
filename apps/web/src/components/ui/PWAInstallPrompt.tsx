@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/Button';
 import { Download, X, Smartphone } from 'lucide-react';
 import { cn } from '@/utils';
 

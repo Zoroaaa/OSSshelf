@@ -9,7 +9,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { filesApi, shareApi, batchApi, type StorageBucket } from '@/services/api';
-import { useToast } from '@/components/ui/use-toast';
+import { useToast } from '@/components/ui/useToast';
 import { useFileStore } from '@/stores/files';
 import { getErrorMessage } from '@/utils';
 

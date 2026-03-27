@@ -10,9 +10,9 @@
  */
 
 import { useResponsive } from '@/hooks/useResponsive';
-import { FileIcon } from '@/components/ui/FileIcon';
-import { FileTagsDisplay } from '@/components/ui/FileTagsDisplay';
-import { ActionBtn } from './ActionBtn';
+import { FileIcon } from '@/components/files/FileIcon';
+import { FileTagsDisplay } from '@/components/files/tags';
+import { ActionBtn } from '../ActionBtn';
 import { formatBytes, formatDate, decodeFileName } from '@/utils';
 import { isPreviewable } from '@/utils/fileTypes';
 import { cn } from '@/utils';

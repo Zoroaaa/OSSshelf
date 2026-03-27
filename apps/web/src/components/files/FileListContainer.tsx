@@ -10,10 +10,10 @@
 
 import type { FileItem } from '@osshelf/shared';
 import type { ViewMode } from '@/stores/files';
-import { ListItem } from './ListItem';
-import { GridItem } from './GridItem';
-import { MasonryItem } from './MasonryItem';
-import { GalleryItem } from './GalleryItem';
+import { ListItem } from './items';
+import { GridItem } from './items';
+import { MasonryItem } from './items';
+import { GalleryItem } from './items';
 import { decodeFileName } from '@/utils';
 
 interface FileListContainerProps {
@@ -63,7 +63,7 @@ export function FileListContainer({
   onTagClick,
   onUploadLink,
   onDirectLink,
-  onVersionHistory,
+  onVersionHistory: _onVersionHistory,
 }: FileListContainerProps) {
   const hasImages = imageFiles.length > 0;
 

@@ -15,11 +15,11 @@ import { useState } from 'react';
 import { useAuthStore } from '@/stores/auth';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { authApi } from '@/services/api';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { StorageBar } from '@/components/ui/StorageBar';
-import { useToast } from '@/components/ui/use-toast';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
+import { StorageBar } from '@/components/files/StorageBar';
+import { useToast } from '@/components/ui/useToast';
 import { formatBytes, formatDate } from '@/utils';
 import { cn } from '@/utils';
 import {

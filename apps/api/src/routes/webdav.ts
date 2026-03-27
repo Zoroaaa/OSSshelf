@@ -146,7 +146,7 @@ app.all('/*', async (c) => {
   }
 });
 
-// ── Helpers ───────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────
 
 function escapeXml(str: string): string {
   return str
@@ -468,8 +468,11 @@ async function handleGet(c: AppContext, userId: string, path: string, headOnly: 
 
 async function handlePut(c: AppContext, userId: string, path: string) {
   const body = await c.req.arrayBuffer();
-  const fileName = path.split('/').pop() || 'untitled';
-  const parentPath = path.lastIndexOf('/') > 0 ? path.slice(0, path.lastIndexOf('/')) : '/';
+  // 关键修复：先标准化路径，去除尾部斜杠，确保路径解析正确
+  const normalizedPath = path.endsWith('/') ? path.slice(0, -1) : path;
+  const fileName = normalizedPath.split('/').pop() || 'untitled';
+  const parentPath =
+    normalizedPath.lastIndexOf('/') > 0 ? normalizedPath.slice(0, normalizedPath.lastIndexOf('/')) : '/';
 
   const db = getDb(c.env.DB);
   const encKeyP = getEncryptionKey(c.env);
@@ -478,6 +481,7 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   if (parentPath !== '/') {
     const parentFolder = await findFileByPath(db, userId, parentPath);
     if (!parentFolder) {
+      // 自动创建父目录
       const pathParts = parentPath.split('/').filter(Boolean);
       let currentParentId: string | null = null;
       let currentPath = '';
@@ -519,7 +523,7 @@ async function handlePut(c: AppContext, userId: string, path: string) {
     }
   }
 
-  const existingFile = await findFileByPath(db, userId, path);
+  const existingFile = await findFileByPath(db, userId, normalizedPath);
 
   const fileId = existingFile?.id || crypto.randomUUID();
   const now = new Date().toISOString();
@@ -564,7 +568,7 @@ async function handlePut(c: AppContext, userId: string, path: string) {
       userId,
       parentId,
       name: fileName,
-      path,
+      path: normalizedPath,
       type: 'file',
       size: body.byteLength,
       r2Key,
@@ -591,8 +595,10 @@ async function handlePut(c: AppContext, userId: string, path: string) {
 }
 
 async function handleMkcol(c: AppContext, userId: string, path: string) {
-  const folderName = path.split('/').pop() || 'untitled';
-  const parentPath = path.lastIndexOf('/') > 0 ? path.slice(0, path.lastIndexOf('/')) : '/';
+  // 关键修复：先去除尾部斜杠，确保路径解析正确
+  const cleanPath = path.endsWith('/') ? path.slice(0, -1) : path;
+  const folderName = cleanPath.split('/').pop() || 'untitled';
+  const parentPath = cleanPath.lastIndexOf('/') > 0 ? cleanPath.slice(0, cleanPath.lastIndexOf('/')) : '/';
 
   const db = getDb(c.env.DB);
   let parentId: string | null = null;
@@ -603,7 +609,8 @@ async function handleMkcol(c: AppContext, userId: string, path: string) {
     parentId = parentFolder.id;
   }
 
-  const normalizedPath = path.endsWith('/') ? path : path + '/';
+  // 文件夹路径存储时带尾部斜杠
+  const normalizedPath = cleanPath + '/';
 
   const existing = await findFileByPath(db, userId, normalizedPath);
   if (existing) return new Response('Method Not Allowed: already exists', { status: 405, headers: DAV_BASE_HEADERS });
@@ -666,7 +673,9 @@ async function handleMove(c: AppContext, userId: string, path: string) {
   const destination = c.req.header('Destination');
   if (!destination) return new Response('Destination header required', { status: 400, headers: DAV_BASE_HEADERS });
 
-  const destPath = new URL(destination).pathname.replace(/^\/dav/, '') || '/';
+  const rawDestPath = new URL(destination).pathname.replace(/^\/dav/, '') || '/';
+  // 关键修复：标准化目标路径，去除尾部斜杠
+  const destPath = rawDestPath.endsWith('/') ? rawDestPath.slice(0, -1) : rawDestPath;
   const db = getDb(c.env.DB);
   const file = await findFileByPath(db, userId, path);
 
@@ -693,7 +702,9 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
   const destination = c.req.header('Destination');
   if (!destination) return new Response('Destination header required', { status: 400, headers: DAV_BASE_HEADERS });
 
-  const destPath = new URL(destination).pathname.replace(/^\/dav/, '') || '/';
+  const rawDestPath = new URL(destination).pathname.replace(/^\/dav/, '') || '/';
+  // 关键修复：标准化目标路径，去除尾部斜杠
+  const destPath = rawDestPath.endsWith('/') ? rawDestPath.slice(0, -1) : rawDestPath;
   const db = getDb(c.env.DB);
   const file = await findFileByPath(db, userId, path);
 

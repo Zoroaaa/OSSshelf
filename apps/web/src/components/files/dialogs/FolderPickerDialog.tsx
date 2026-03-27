@@ -10,7 +10,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { filesApi } from '@/services/api';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/Button';
 import { Folder, ChevronRight, Loader2, Upload } from 'lucide-react';
 import { cn } from '@/utils';
 import type { FileItem } from '@osshelf/shared';

@@ -7,6 +7,12 @@
  * - 支持文件夹图标
  * - 支持多种尺寸
  * - 支持自定义颜色
+ *
+ * ============================================================================
+ * 【重要提醒】修改此文件后必须同步更新：
+ *   - apps/web/src/utils/fileTypes.ts                    # 文件类型分类
+ *   - packages/shared/src/constants/previewTypes.ts      # 预览类型配置
+ * ============================================================================
  */
 
 import {
@@ -22,6 +28,8 @@ import {
   File,
   FileType2,
   Package,
+  BookOpen,
+  Type,
 } from 'lucide-react';
 import { getFileCategory, getCategoryColor, type FileCategory } from '@/utils/fileTypes';
 import { cn } from '@/utils';
@@ -46,6 +54,8 @@ const iconMap: Record<FileCategory, React.ElementType> = {
   archive: Archive,
   installer: Package,
   text: FileText,
+  epub: BookOpen,
+  font: Type,
   unknown: File,
 };
 

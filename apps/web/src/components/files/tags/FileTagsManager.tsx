@@ -12,9 +12,9 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { permissionsApi } from '@/services/api';
 import { TAG_COLORS } from '@osshelf/shared';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { useToast } from '@/components/ui/use-toast';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { useToast } from '@/components/ui/useToast';
 import { cn } from '@/utils';
 import { Plus, X, Loader2 } from 'lucide-react';
 

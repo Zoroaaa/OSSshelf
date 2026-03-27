@@ -2,6 +2,8 @@
 
 本文档基于项目实际路由代码，详细描述 OSSshelf 的所有 API 接口。
 
+**当前版本**: v3.4.0
+
 ---
 
 ## 📋 目录
@@ -22,6 +24,7 @@
 - [上传任务接口](#上传任务接口)
 - [离线下载接口](#离线下载接口)
 - [预览接口](#预览接口)
+- [版本控制接口](#版本控制接口)
 - [管理员接口](#管理员接口)
 - [定时任务接口](#定时任务接口)
 - [WebDAV 接口](#webdav-接口)
@@ -68,28 +71,87 @@ JSON
 }
 ```
 
-### 错误码（定义于 `packages/shared/src/constants/index.ts`）
+### 错误码（v3.3.0 统一管理）
 
-| 错误码 | 描述 |
-|--------|------|
-| `UNAUTHORIZED` | 未授权，Token 无效或过期 |
-| `FORBIDDEN` | 禁止访问，权限不足 |
-| `NOT_FOUND` | 资源不存在 |
-| `VALIDATION_ERROR` | 参数验证失败 |
-| `FILE_TOO_LARGE` | 文件大小超过限制 |
-| `INVALID_FILE_TYPE` | 文件类型不允许 |
-| `STORAGE_EXCEEDED` | 存储空间不足 |
-| `SHARE_EXPIRED` | 分享链接已过期 |
-| `SHARE_PASSWORD_REQUIRED` | 分享需要密码 |
-| `SHARE_PASSWORD_INVALID` | 分享密码错误 |
-| `SHARE_DOWNLOAD_LIMIT_EXCEEDED` | 分享下载次数已达上限 |
-| `INTERNAL_ERROR` | 服务器内部错误 |
-| `LOGIN_LOCKED` | 登录已被锁定 |
-| `DEVICE_LIMIT_EXCEEDED` | 设备数量超限 |
-| `PERMISSION_DENIED` | 权限不足 |
-| `TASK_NOT_FOUND` | 任务不存在 |
-| `TASK_EXPIRED` | 上传任务已过期 |
-| `INVALID_URL` | URL 无效 |
+错误码定义于 `packages/shared/src/constants/errorCodes.ts`，采用分层命名和数字编码：
+
+#### 认证相关错误 (1xxx)
+
+| 错误码                       | 数字码 | 描述                     |
+| ---------------------------- | ------ | ------------------------ |
+| `AUTH_UNAUTHORIZED`          | 1001   | 未授权，Token 无效或过期 |
+| `AUTH_TOKEN_EXPIRED`         | 1002   | Token 已过期             |
+| `AUTH_PERMISSION_DENIED`     | 1003   | 权限不足                 |
+| `AUTH_LOGIN_LOCKED`          | 1004   | 登录已被锁定             |
+| `AUTH_DEVICE_LIMIT_EXCEEDED` | 1005   | 设备数量超限             |
+| `AUTH_INVALID_CREDENTIALS`   | 1006   | 用户名或密码错误         |
+
+#### 文件相关错误 (2xxx)
+
+| 错误码                  | 数字码 | 描述             |
+| ----------------------- | ------ | ---------------- |
+| `FILE_NOT_FOUND`        | 2001   | 文件不存在       |
+| `FILE_TOO_LARGE`        | 2002   | 文件大小超过限制 |
+| `FILE_TYPE_NOT_ALLOWED` | 2003   | 文件类型不允许   |
+| `FILE_ALREADY_EXISTS`   | 2004   | 文件已存在       |
+| `FILE_INVALID_NAME`     | 2005   | 文件名无效       |
+| `FOLDER_NOT_EMPTY`      | 2006   | 文件夹非空       |
+
+#### 存储相关错误 (3xxx)
+
+| 错误码                     | 数字码 | 描述         |
+| -------------------------- | ------ | ------------ |
+| `STORAGE_EXCEEDED`         | 3001   | 存储空间不足 |
+| `STORAGE_BUCKET_ERROR`     | 3002   | 存储桶错误   |
+| `STORAGE_BUCKET_NOT_FOUND` | 3003   | 存储桶不存在 |
+| `STORAGE_UPLOAD_FAILED`    | 3004   | 上传失败     |
+
+#### 分享相关错误 (4xxx)
+
+| 错误码                          | 数字码 | 描述                 |
+| ------------------------------- | ------ | -------------------- |
+| `SHARE_EXPIRED`                 | 4001   | 分享链接已过期       |
+| `SHARE_PASSWORD_REQUIRED`       | 4002   | 分享需要密码         |
+| `SHARE_PASSWORD_INVALID`        | 4003   | 分享密码错误         |
+| `SHARE_DOWNLOAD_LIMIT_EXCEEDED` | 4004   | 分享下载次数已达上限 |
+| `SHARE_NOT_FOUND`               | 4005   | 分享不存在           |
+
+#### 版本控制相关错误 (6xxx) - v3.3.0
+
+| 错误码                   | 数字码 | 描述         |
+| ------------------------ | ------ | ------------ |
+| `VERSION_NOT_FOUND`      | 6001   | 版本不存在   |
+| `VERSION_RESTORE_FAILED` | 6002   | 版本恢复失败 |
+| `VERSION_LIMIT_EXCEEDED` | 6003   | 版本数量超限 |
+
+#### 系统相关错误 (5xxx)
+
+| 错误码             | 数字码 | 描述           |
+| ------------------ | ------ | -------------- |
+| `VALIDATION_ERROR` | 5001   | 参数验证失败   |
+| `INTERNAL_ERROR`   | 5002   | 服务器内部错误 |
+| `TASK_NOT_FOUND`   | 5003   | 任务不存在     |
+| `TASK_EXPIRED`     | 5004   | 上传任务已过期 |
+| `INVALID_URL`      | 5005   | URL 无效       |
+
+#### 增强错误响应格式
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "FILE_TOO_LARGE",
+    "codeNumber": 2002,
+    "message": "文件大小超过限制",
+    "details": {
+      "maxSize": 5368709120,
+      "actualSize": 6442450944
+    },
+    "timestamp": "2024-03-24T12:00:00Z",
+    "requestId": "req-abc123"
+  }
+}
+```
 
 ---
 
@@ -254,12 +316,12 @@ Authorization: Bearer <token>
 
 **查询参数**:
 
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| `parentId` | string | 父文件夹ID（可选，不传则列出根目录） |
-| `search` | string | 搜索关键词（可选） |
-| `sortBy` | string | 排序字段：`name`, `size`, `createdAt`, `updatedAt` |
-| `sortOrder` | string | 排序方向：`asc` 或 `desc` |
+| 参数        | 类型   | 说明                                               |
+| ----------- | ------ | -------------------------------------------------- |
+| `parentId`  | string | 父文件夹ID（可选，不传则列出根目录）               |
+| `search`    | string | 搜索关键词（可选）                                 |
+| `sortBy`    | string | 排序字段：`name`, `size`, `createdAt`, `updatedAt` |
+| `sortOrder` | string | 排序方向：`asc` 或 `desc`                          |
 
 ### 创建文件夹
 
@@ -540,13 +602,13 @@ Content-Type: application/json
 }
 ```
 
-| 参数 | 说明 |
-|------|------|
-| `sourceBucketId` | 来源存储桶ID |
-| `targetBucketId` | 目标存储桶ID |
-| `fileIds` | 可选，不传则迁移整个桶 |
-| `targetFolderId` | 可选，不传则保持原位置 |
-| `deleteSource` | 可选，`true` = 移动模式 |
+| 参数             | 说明                    |
+| ---------------- | ----------------------- |
+| `sourceBucketId` | 来源存储桶ID            |
+| `targetBucketId` | 目标存储桶ID            |
+| `fileIds`        | 可选，不传则迁移整个桶  |
+| `targetFolderId` | 可选，不传则保持原位置  |
+| `deleteSource`   | 可选，`true` = 移动模式 |
 
 **响应**:
 
@@ -893,9 +955,9 @@ Content-Type: application/json
 
 **参数说明**:
 
-| 参数 | 说明 |
-|------|------|
-| `fileId` | 文件 ID（必填） |
+| 参数        | 说明                        |
+| ----------- | --------------------------- |
+| `fileId`    | 文件 ID（必填）             |
 | `expiresAt` | 过期时间（可选，默认 7 天） |
 
 **响应**:
@@ -1080,20 +1142,20 @@ Authorization: Bearer <token>
 
 **查询参数**:
 
-| 参数 | 说明 |
-|------|------|
-| `query` | 搜索关键词 |
-| `parentId` | 搜索范围（文件夹ID） |
-| `tags` | 标签过滤（逗号分隔） |
-| `mimeType` | MIME类型过滤（支持通配符如 `image/*`） |
-| `minSize` / `maxSize` | 文件大小范围（字节） |
-| `createdAfter` / `createdBefore` | 创建时间范围 |
-| `updatedAfter` / `updatedBefore` | 更新时间范围 |
-| `isFolder` | 是否只搜索文件夹 |
-| `bucketId` | 存储桶过滤 |
-| `sortBy` | 排序字段（`name`, `size`, `createdAt`, `updatedAt`） |
-| `sortOrder` | 排序方向（`asc`, `desc`） |
-| `page` / `limit` | 分页 |
+| 参数                             | 说明                                                 |
+| -------------------------------- | ---------------------------------------------------- |
+| `query`                          | 搜索关键词                                           |
+| `parentId`                       | 搜索范围（文件夹ID）                                 |
+| `tags`                           | 标签过滤（逗号分隔）                                 |
+| `mimeType`                       | MIME类型过滤（支持通配符如 `image/*`）               |
+| `minSize` / `maxSize`            | 文件大小范围（字节）                                 |
+| `createdAfter` / `createdBefore` | 创建时间范围                                         |
+| `updatedAfter` / `updatedBefore` | 更新时间范围                                         |
+| `isFolder`                       | 是否只搜索文件夹                                     |
+| `bucketId`                       | 存储桶过滤                                           |
+| `sortBy`                         | 排序字段（`name`, `size`, `createdAt`, `updatedAt`） |
+| `sortOrder`                      | 排序方向（`asc`, `desc`）                            |
+| `page` / `limit`                 | 分页                                                 |
 
 ### 高级搜索
 
@@ -1507,6 +1569,29 @@ Authorization: Bearer <token>
 
 路由文件: `apps/api/src/routes/preview.ts`
 
+### 支持的预览类型
+
+| 类型 | MIME 类型 / 扩展名 | 预览方式 |
+|------|-------------------|----------|
+| 图片 | image/* | 浏览器原生 `<img>` |
+| 视频 | video/* | 浏览器原生 `<video>` |
+| 音频 | audio/* | 浏览器原生 `<audio>` |
+| PDF | application/pdf | pdf.js 分页渲染 |
+| Markdown | text/markdown, .md | react-markdown + GFM + 数学公式 |
+| 代码 | text/*, .js/.ts/.py 等 | highlight.js 语法高亮 |
+| Word | application/msword, .docx | docx-preview 本地渲染 |
+| Excel | application/vnd.ms-excel, .xlsx | xlsx 库 + 样式保留 |
+| PowerPoint | application/vnd.ms-powerpoint, .pptx | pptx-preview 本地渲染 |
+| EPUB | application/epub+zip, .epub | epub.js 电子书阅读器 |
+| 字体 | font/ttf, font/otf, font/woff, font/woff2 | FontFace API 字符预览 |
+| ZIP | application/zip | JSZip 文件列表预览 |
+| CSV | text/csv, .csv | PapaParse 表格视图 |
+
+### 预览大小限制
+
+- **最大预览文件大小**: 30MB（定义于 `apps/api/src/routes/preview.ts`）
+- 超过限制的文件将提示下载查看
+
 ### 获取预览信息
 
 ```http
@@ -1533,7 +1618,7 @@ Authorization: Bearer <token>
 }
 ```
 
-**previewType**: `image`, `video`, `audio`, `pdf`, `text`, `markdown`, `code`, `office`, `unknown`
+**previewType**: `image`, `video`, `audio`, `pdf`, `text`, `markdown`, `csv`, `code`, `word`, `excel`, `powerpoint`, `epub`, `font`, `archive`, `unknown`
 
 ### 获取原始内容
 
@@ -1570,6 +1655,199 @@ Authorization: Bearer <token>
 ```
 
 返回 Base64 编码的文件内容，用于前端 Office 预览组件。
+
+---
+
+## 版本控制接口
+
+路由文件: `apps/api/src/routes/versions.ts`
+
+版本控制功能允许管理文件的历史版本，支持版本回滚和对比。
+
+### 获取文件版本列表
+
+```http
+GET /api/versions/file/<fileId>
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "fileId": "file-id",
+    "currentVersion": 3,
+    "totalVersions": 3,
+    "versions": [
+      {
+        "id": "version-id-1",
+        "versionNumber": 1,
+        "size": 1048576,
+        "hash": "sha256-hash",
+        "note": "初始版本",
+        "tags": ["release"],
+        "createdAt": "2024-03-20T10:00:00Z",
+        "createdBy": {
+          "id": "user-id",
+          "name": "用户名"
+        }
+      },
+      {
+        "id": "version-id-2",
+        "versionNumber": 2,
+        "size": 2097152,
+        "hash": "sha256-hash-2",
+        "note": "更新内容",
+        "tags": [],
+        "createdAt": "2024-03-22T14:30:00Z",
+        "createdBy": {
+          "id": "user-id",
+          "name": "用户名"
+        }
+      }
+    ]
+  }
+}
+```
+
+### 获取单个版本信息
+
+```http
+GET /api/versions/<versionId>
+Authorization: Bearer <token>
+```
+
+### 创建新版本
+
+```http
+POST /api/versions/create
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+
+fileId: <fileId>
+file: <二进制文件>
+note: 版本备注
+tags: ["tag1", "tag2"]
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "new-version-id",
+    "fileId": "file-id",
+    "versionNumber": 4,
+    "size": 3145728,
+    "hash": "sha256-hash-new",
+    "note": "版本备注",
+    "tags": ["tag1", "tag2"],
+    "createdAt": "2024-03-24T12:00:00Z"
+  }
+}
+```
+
+### 版本回滚
+
+```http
+POST /api/versions/<versionId>/restore
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "note": "回滚到版本3"
+}
+```
+
+回滚后会创建一个新版本，内容与目标版本相同。
+
+### 版本对比
+
+```http
+GET /api/versions/compare?fileId=<fileId>&v1=1&v2=3
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "fileId": "file-id",
+    "version1": {
+      "versionNumber": 1,
+      "size": 1048576,
+      "hash": "sha256-hash-1",
+      "createdAt": "2024-03-20T10:00:00Z"
+    },
+    "version2": {
+      "versionNumber": 3,
+      "size": 3145728,
+      "hash": "sha256-hash-3",
+      "createdAt": "2024-03-24T12:00:00Z"
+    },
+    "diff": {
+      "sizeDiff": 2097152,
+      "modified": true
+    }
+  }
+}
+```
+
+### 下载指定版本
+
+```http
+GET /api/versions/<versionId>/download
+Authorization: Bearer <token>
+```
+
+### 更新版本备注
+
+```http
+PATCH /api/versions/<versionId>
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "note": "更新后的备注",
+  "tags": ["important", "release"]
+}
+```
+
+### 删除版本
+
+```http
+DELETE /api/versions/<versionId>
+Authorization: Bearer <token>
+```
+
+> **注意**: 无法删除当前正在使用的版本，需要先回滚到其他版本。
+
+### 获取版本统计
+
+```http
+GET /api/versions/stats
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "totalVersions": 150,
+    "totalSize": 524288000,
+    "filesWithVersions": 45,
+    "oldestVersion": "2024-01-01T00:00:00Z",
+    "newestVersion": "2024-03-24T12:00:00Z"
+  }
+}
+```
 
 ---
 
@@ -1718,28 +1996,28 @@ WebDAV 协议端点: `/dav`
 
 ### 连接配置
 
-| 配置项 | 值 |
-|--------|-----|
+| 配置项     | 值                            |
+| ---------- | ----------------------------- |
 | 服务器地址 | `https://your-domain.com/dav` |
-| 用户名 | 注册邮箱 |
-| 密码 | 账户密码 |
-| 认证方式 | Basic Auth |
+| 用户名     | 注册邮箱                      |
+| 密码       | 账户密码                      |
+| 认证方式   | Basic Auth                    |
 
 ### 支持的操作
 
-| 操作 | 方法 | 描述 |
-|------|------|------|
-| 列出目录 | PROPFIND | Depth: 0 (当前), 1 (包含子项) |
-| 下载文件 | GET | - |
-| 查看文件头 | HEAD | - |
-| 上传文件 | PUT | 自动创建父目录 |
-| 创建目录 | MKCOL | - |
-| 删除 | DELETE | 永久删除 |
-| 移动/重命名 | MOVE | 需要 Destination 头 |
-| 复制 | COPY | 需要 Destination 头 |
-| 锁定资源 | LOCK | 支持 Windows 资源管理器 |
-| 解锁资源 | UNLOCK | 支持 Windows 资源管理器 |
-| 属性修改 | PROPPATCH | 只读属性，返回 403 |
+| 操作        | 方法      | 描述                          |
+| ----------- | --------- | ----------------------------- |
+| 列出目录    | PROPFIND  | Depth: 0 (当前), 1 (包含子项) |
+| 下载文件    | GET       | -                             |
+| 查看文件头  | HEAD      | -                             |
+| 上传文件    | PUT       | 自动创建父目录                |
+| 创建目录    | MKCOL     | -                             |
+| 删除        | DELETE    | 永久删除                      |
+| 移动/重命名 | MOVE      | 需要 Destination 头           |
+| 复制        | COPY      | 需要 Destination 头           |
+| 锁定资源    | LOCK      | 支持 Windows 资源管理器       |
+| 解锁资源    | UNLOCK    | 支持 Windows 资源管理器       |
+| 属性修改    | PROPPATCH | 只读属性，返回 403            |
 
 ### Windows 资源管理器兼容性优化
 
