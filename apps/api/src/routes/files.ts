@@ -132,7 +132,7 @@ app.get('/:id/preview', async (c) => {
     .get();
   if (!file) throwAppError('FILE_NOT_FOUND');
   if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '无法预览文件夹');
-  if (!isPreviewableMimeType(file.mimeType)) throwAppError('FILE_PREVIEW_NOT_SUPPORTED');
+  if (!isPreviewableMimeType(file.mimeType, file.name)) throwAppError('FILE_PREVIEW_NOT_SUPPORTED');
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
   const pvHeaders = {
     'Content-Type': file.mimeType || 'application/octet-stream',

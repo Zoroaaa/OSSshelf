@@ -488,7 +488,7 @@ app.get('/preview/:id', async (c) => {
   if (!file) throwAppError('FILE_NOT_FOUND');
   if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '文件夹无法预览');
 
-  if (!isPreviewableMimeType(file.mimeType)) {
+  if (!isPreviewableMimeType(file.mimeType, file.name)) {
     return c.json(
       { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该文件类型不支持预览' } },
       400

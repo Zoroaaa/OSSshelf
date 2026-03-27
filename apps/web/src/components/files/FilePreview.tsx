@@ -427,6 +427,8 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   const [pptShowThumbnails, setPptShowThumbnails] = useState(true);
   const [pptUseOnlineViewer, setPptUseOnlineViewer] = useState(true);
   const [pptOnlineError, setPptOnlineError] = useState(false);
+  const [officeUseOnlineViewer, setOfficeUseOnlineViewer] = useState(true);
+  const [officeOnlineError, setOfficeOnlineError] = useState(false);
 
   const canPreview = isPreviewable(file.mimeType);
   const isImage = file.mimeType?.startsWith('image/');
@@ -456,7 +458,11 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   const isFont =
     file.mimeType?.startsWith('font/') ||
     ['.ttf', '.otf', '.woff', '.woff2'].some((ext) => file.name.toLowerCase().endsWith(ext));
-  const isZip = file.mimeType === 'application/zip' || file.name.endsWith('.zip');
+  const isZip =
+    file.mimeType === 'application/zip' ||
+    file.mimeType === 'application/x-zip-compressed' ||
+    file.mimeType === 'application/x-zip' ||
+    file.name.toLowerCase().endsWith('.zip');
 
   const detectedLanguage = useMemo(() => {
     if (previewInfo?.language) return previewInfo.language;
@@ -493,6 +499,8 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     setPptShowThumbnails(true);
     setPptUseOnlineViewer(true);
     setPptOnlineError(false);
+    setOfficeUseOnlineViewer(true);
+    setOfficeOnlineError(false);
 
     previewApi
       .getInfo(file.id)
@@ -1275,7 +1283,29 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
             </div>
           ) : isOffice ? (
             <div className="w-full h-full flex flex-col relative">
-              {isWord ? (
+              {officeUseOnlineViewer && resolvedUrl && !officeOnlineError ? (
+                <>
+                  <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
+                    <span className="text-sm text-muted-foreground">
+                      在线预览
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setOfficeUseOnlineViewer(false)}
+                      className="text-xs"
+                    >
+                      切换到本地预览
+                    </Button>
+                  </div>
+                  <iframe
+                    src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(resolvedUrl)}`}
+                    className="flex-1 w-full border-0"
+                    title="Office 文档预览"
+                    onError={() => setOfficeOnlineError(true)}
+                  />
+                </>
+              ) : isWord ? (
                 <>
                   {officeLoading && (
                     <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 z-10">
@@ -1285,6 +1315,18 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                   {officeError && (
                     <div className="absolute inset-0 flex items-center justify-center z-10">
                       {renderOfficeFallback(officeError)}
+                    </div>
+                  )}
+                  {!officeUseOnlineViewer && !officeOnlineError && resolvedUrl && (
+                    <div className="absolute top-2 right-2 z-20">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setOfficeUseOnlineViewer(true)}
+                        className="text-xs bg-white/80 dark:bg-gray-900/80"
+                      >
+                        在线预览
+                      </Button>
                     </div>
                   )}
                   <div
@@ -1301,6 +1343,18 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                   {excelLoading && (
                     <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 z-10">
                       <div className="text-muted-foreground text-sm">正在加载表格...</div>
+                    </div>
+                  )}
+                  {!officeUseOnlineViewer && !officeOnlineError && resolvedUrl && (
+                    <div className="absolute top-2 right-2 z-20">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setOfficeUseOnlineViewer(true)}
+                        className="text-xs bg-white/80 dark:bg-gray-900/80"
+                      >
+                        在线预览
+                      </Button>
                     </div>
                   )}
                   {loadError ? (

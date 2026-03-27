@@ -463,7 +463,7 @@ app.get('/:id/preview', async (c) => {
   const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
   if (!file) throwAppError('FILE_NOT_FOUND');
 
-  if (!isPreviewableMimeType(file.mimeType)) {
+  if (!isPreviewableMimeType(file.mimeType, file.name)) {
     return c.json(
       { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该文件类型不支持预览' } },
       400
@@ -588,7 +588,15 @@ app.get('/:id/raw', async (c) => {
   const encKey = getEncryptionKey(c.env);
   try {
     const buf = await fetchFileContent(c.env, db, encKey, file);
-    const text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+    let text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+    if (/[\ufffd]/.test(text)) {
+      try {
+        const gbkDecoder = new TextDecoder('gbk', { fatal: false });
+        text = gbkDecoder.decode(buf);
+      } catch {
+        // GBK 解码失败，保持 UTF-8 结果
+      }
+    }
     return c.json({ success: true, data: { content: text, mimeType: file.mimeType } });
   } catch (e: any) {
     throwAppError('FILE_DOWNLOAD_FAILED', String(e?.message || '下载失败'));
@@ -611,7 +619,7 @@ app.get('/:id/preview-info', async (c) => {
   if (!file) throwAppError('FILE_NOT_FOUND');
 
   const previewType = getPreviewType(file.mimeType, file.name);
-  const canPreview = isPreviewableMimeType(file.mimeType);
+  const canPreview = isPreviewableMimeType(file.mimeType, file.name);
 
   return c.json({
     success: true,
@@ -861,7 +869,7 @@ app.get('/:id/file/:fileId/preview', async (c) => {
     throwAppError('FILE_NOT_FOUND');
   }
 
-  if (!isPreviewableMimeType(childFile.mimeType)) {
+  if (!isPreviewableMimeType(childFile.mimeType, childFile.name)) {
     return c.json(
       { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该文件类型不支持预览' } },
       400
@@ -1013,7 +1021,15 @@ app.get('/:id/file/:fileId/raw', async (c) => {
   const encKey = getEncryptionKey(c.env);
   try {
     const buf = await fetchFileContent(c.env, db, encKey, childFile);
-    const text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+    let text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+    if (/[\ufffd]/.test(text)) {
+      try {
+        const gbkDecoder = new TextDecoder('gbk', { fatal: false });
+        text = gbkDecoder.decode(buf);
+      } catch {
+        // GBK 解码失败，保持 UTF-8 结果
+      }
+    }
     return c.json({ success: true, data: { content: text, mimeType: childFile.mimeType } });
   } catch (e: any) {
     return c.json({ success: false, error: { code: 'FETCH_FAILED', message: e?.message } }, 502);

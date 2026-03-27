@@ -212,7 +212,21 @@ app.get('/:id/raw', async (c) => {
   const s3Res = await s3Get(bucketConfig, file.r2Key);
   if (!s3Res.ok) throwAppError('FILE_CONTENT_NOT_FOUND');
 
-  const content = await s3Res.text();
+  let content: string;
+  try {
+    const arrayBuffer = await s3Res.arrayBuffer();
+    content = new TextDecoder('utf-8', { fatal: false }).decode(arrayBuffer);
+    if (/[\ufffd]/.test(content)) {
+      try {
+        const gbkDecoder = new TextDecoder('gbk', { fatal: false });
+        content = gbkDecoder.decode(arrayBuffer);
+      } catch {
+        // GBK 解码失败，保持 UTF-8 结果
+      }
+    }
+  } catch {
+    content = await s3Res.text();
+  }
 
   return c.json({
     success: true,

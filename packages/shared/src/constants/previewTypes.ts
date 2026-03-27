@@ -72,7 +72,11 @@ export const EPUB_MIME_TYPES = ['application/epub+zip'] as const;
 export const FONT_MIME_TYPES = ['font/ttf', 'font/otf', 'font/woff', 'font/woff2'] as const;
 
 /** ZIP 压缩包 MIME 类型 */
-export const ARCHIVE_PREVIEW_MIME_TYPES = ['application/zip'] as const;
+export const ARCHIVE_PREVIEW_MIME_TYPES = [
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/x-zip',
+] as const;
 
 /** 所有 Office MIME 类型列表 */
 export const ALL_OFFICE_MIME_TYPES = [
@@ -142,9 +146,17 @@ export function getPreviewTypeByExtension(fileName: string): PreviewType | null 
 
 /**
  * 判断 MIME 类型是否可预览
+ * @param mimeType 文件 MIME 类型
+ * @param fileName 可选的文件名，用于扩展名判断
  */
-export function isPreviewableMimeType(mimeType: string | null | undefined): boolean {
-  if (!mimeType) return false;
+export function isPreviewableMimeType(mimeType: string | null | undefined, fileName?: string): boolean {
+  if (!mimeType) {
+    if (fileName) {
+      const extType = getPreviewTypeByExtension(fileName);
+      return extType !== null;
+    }
+    return false;
+  }
 
   if (mimeType.startsWith(IMAGE_MIME_PREFIX)) return true;
   if (mimeType.startsWith(VIDEO_MIME_PREFIX)) return true;
