@@ -418,6 +418,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   const docxContainerRef = useRef<HTMLDivElement>(null);
   const pptxContainerRef = useRef<HTMLDivElement>(null);
   const pptxViewerRef = useRef<ReturnType<typeof initPptxPreview> | null>(null);
+  const pptxLoadPendingRef = useRef(false);
   const pdfContainerRef = useRef<HTMLDivElement>(null);
   const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
   const excelContainerRef = useRef<HTMLDivElement>(null);
@@ -530,6 +531,21 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     setPdfCurrentPage(1);
     setPdfTotalPages(0);
     setExcelLoading(false);
+
+    // 销毁上一个文件的 epub/pdf 资源
+    if (epubRenditionRef.current) {
+      try { epubRenditionRef.current.destroy(); } catch { /* ignore */ }
+      epubRenditionRef.current = null;
+    }
+    if (epubViewerRef.current) {
+      try { epubViewerRef.current.destroy(); } catch { /* ignore */ }
+      epubViewerRef.current = null;
+    }
+    if (pdfDocRef.current) {
+      try { pdfDocRef.current.destroy(); } catch { /* ignore */ }
+      pdfDocRef.current = null;
+    }
+    pptxViewerRef.current = null;
 
     previewApi
       .getInfo(file.id)
@@ -927,6 +943,8 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
       epubRenditionRef.current = rendition;
 
       await rendition.display();
+      // display() resolve 后即可显示，不依赖 'rendered' 事件（epubjs 该事件不稳定）
+      setEpubLoading(false);
 
       const locations = await book.locations.generate(1024);
       setEpubTotalPages(locations.length);
@@ -940,10 +958,6 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
 
       rendition.on('relocated', (location: { start: { index: number } }) => {
         setEpubCurrentPage(location.start.index);
-      });
-
-      rendition.on('rendered', () => {
-        setEpubLoading(false);
       });
     } catch (err) {
       console.error('EPUB preview error:', err);
@@ -1024,7 +1038,15 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     }
   }, [pdfCurrentPage, pdfTotalPages, renderPdfPage]);
 
-  const loadPptPreview = useCallback(async () => {
+  // zoomLevel 变化时重新渲染当前 PDF 页
+  useEffect(() => {
+    if (isPdf && pdfDocRef.current) {
+      renderPdfPage(pdfCurrentPage);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoomLevel]);
+
+  const loadPptPreview = useCallback(async (container: HTMLDivElement) => {
     if (!isPpt || !resolvedUrl) return;
 
     setPptLoading(true);
@@ -1035,18 +1057,12 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
       }
       const arrayBuffer = await response.arrayBuffer();
 
-      const container = pptxContainerRef.current;
-      if (!container) {
-        setPptLoading(false);
-        return;
-      }
-
-      if (!pptxViewerRef.current) {
-        pptxViewerRef.current = initPptxPreview(container, {
-          width: 960,
-          height: 540,
-        });
-      }
+      // 每次都重新初始化 viewer，避免容器被卸载后 viewer 指向旧引用
+      container.innerHTML = '';
+      pptxViewerRef.current = initPptxPreview(container, {
+        width: 960,
+        height: 540,
+      });
 
       await pptxViewerRef.current.preview(arrayBuffer);
     } catch (err) {
@@ -1056,6 +1072,15 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
       setPptLoading(false);
     }
   }, [isPpt, resolvedUrl]);
+
+  // ref callback：容器挂载时立即触发加载
+  const pptxContainerCallbackRef = useCallback((node: HTMLDivElement | null) => {
+    (pptxContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+    if (node && isPpt && !pptUseOnlineViewer && resolvedUrl) {
+      loadPptPreview(node);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPpt, pptUseOnlineViewer, resolvedUrl, loadPptPreview]);
 
   const handleZoomIn = useCallback(() => {
     setZoomLevel((prev) => Math.min(prev + 25, 200));
@@ -1124,21 +1149,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     }
   }, [isPdf, resolvedUrl, loadPdfPreview]);
 
-  useEffect(() => {
-    if (isExcel && resolvedUrl && !officeUseOnlineViewer) {
-      loadExcelPreview();
-    }
-  }, [isExcel, resolvedUrl, loadExcelPreview, officeUseOnlineViewer]);
-
-  useEffect(() => {
-    if (isPpt && resolvedUrl && !pptUseOnlineViewer) {
-      const timer = setTimeout(() => {
-        loadPptPreview();
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-    return undefined;
-  }, [isPpt, resolvedUrl, loadPptPreview, pptUseOnlineViewer]);
+  // PPTX 本地预览由 pptxContainerCallbackRef 驱动，容器挂载时自动触发，无需此 effect
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -1634,7 +1645,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                         </div>
                       ) : (
                         <div
-                          ref={pptxContainerRef}
+                          ref={pptxContainerCallbackRef}
                           className="w-full h-full overflow-auto bg-gray-100 dark:bg-gray-800 flex items-center justify-center"
                         />
                       )}

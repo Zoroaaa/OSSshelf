@@ -371,7 +371,18 @@ export default function Files() {
         const { url, fileName, useProxy } = result;
 
         if (useProxy) {
-          window.open(url, '_blank', 'noopener,noreferrer');
+          // proxy URL 需走 fetch+blob，否则浏览器会直接在新 tab 打开而非下载
+          const resp = await fetch(url);
+          if (!resp.ok) throw new Error('download failed');
+          const blob = await resp.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = fileName || file.name;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(blobUrl);
         } else {
           const a = document.createElement('a');
           a.href = url;
@@ -384,7 +395,18 @@ export default function Files() {
         try {
           const downloadToken = token || useAuthStore.getState().token;
           const downloadUrl = filesApi.downloadUrl(file.id, downloadToken ?? undefined);
-          window.open(downloadUrl, '_blank', 'noopener,noreferrer');
+          // fallback 也走 fetch+blob
+          const resp = await fetch(downloadUrl);
+          if (!resp.ok) throw new Error('download failed');
+          const blob = await resp.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = file.name;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(blobUrl);
         } catch {
           toast({ title: '下载失败', variant: 'destructive' });
         }
