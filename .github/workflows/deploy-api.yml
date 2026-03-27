@@ -43,7 +43,7 @@ jobs:
 
           [[d1_databases]]
           binding = "DB"
-          database_name = "r2shelf-db"
+          database_name = "ossshelf-db"
           database_id = "${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}"
 
           [[r2_buckets]]
