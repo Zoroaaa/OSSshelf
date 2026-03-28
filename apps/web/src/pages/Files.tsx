@@ -381,7 +381,7 @@ export default function Files() {
 
       try {
         const result = await getPresignedDownloadUrl(file.id);
-        const { url, fileName, useProxy } = result;
+        const { url, fileName } = result;
 
         // 统一使用 fetch + blob 方式下载，避免跨域时 <a download> 属性无效导致浏览器直接打开
         const resp = await fetch(url);

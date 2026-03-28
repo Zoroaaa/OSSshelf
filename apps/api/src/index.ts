@@ -46,7 +46,7 @@ app.use(
       const corsOrigins = c.env.CORS_ORIGINS || '';
       const allowedOrigins = corsOrigins
         .split(',')
-        .map((o) => o.trim())
+        .map((o: string) => o.trim())
         .filter(Boolean);
       const defaultOrigins = [
         'http://localhost:3000',

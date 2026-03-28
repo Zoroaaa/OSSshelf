@@ -147,13 +147,22 @@ export async function tgDownloadChunked(
 
   (async () => {
     try {
-      for (const chunk of chunks) {
-        const resp = await downloadChunk(config, chunk.tgFileId);
-        const buf = await resp.arrayBuffer();
-        await writer.write(new Uint8Array(buf));
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        try {
+          const resp = await downloadChunk(config, chunk.tgFileId);
+          const buf = await resp.arrayBuffer();
+          await writer.write(new Uint8Array(buf));
+        } catch (chunkErr) {
+          console.error(`tgDownloadChunked: chunk ${i + 1}/${chunks.length} failed for groupId ${groupId}:`, chunkErr);
+          throw new Error(
+            `Chunk ${i + 1}/${chunks.length} download failed: ${chunkErr instanceof Error ? chunkErr.message : String(chunkErr)}`
+          );
+        }
       }
       await writer.close();
     } catch (err) {
+      console.error(`tgDownloadChunked: aborting stream for groupId ${groupId}:`, err);
       await writer.abort(err);
     }
   })();

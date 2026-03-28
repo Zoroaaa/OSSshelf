@@ -9,7 +9,7 @@
  * - 文件预览与缩略图
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { eq, and, isNull, isNotNull, like, or, inArray, sql } from 'drizzle-orm';
 import { getDb, files, users, storageBuckets, filePermissions, telegramFileRefs, fileVersions } from '../db';
 import { checkFilePermission } from './permissions';
@@ -46,9 +46,8 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
  * preview / download 路由位于 authMiddleware 挂载点之前，需手动解析 token。
  * 支持 Authorization: Bearer <token> 和 ?token=<token> 两种方式。
  */
-async function resolveUserFromRequest(
-  c: Parameters<typeof app.get>[1] extends (...args: infer A) => any ? A[0] : never
-): Promise<string | undefined> {
+
+async function resolveUserFromRequest(c: Context): Promise<string | undefined> {
   const jwtSecret = (c.env as Env).JWT_SECRET;
   const { verifyJWT } = await import('../lib/crypto');
 
@@ -120,7 +119,7 @@ const moveFileSchema = z.object({
 
 // ── Preview (before authMiddleware, supports token query param) ─────────────
 app.get('/:id/preview', async (c) => {
-  const userId = await resolveUserFromRequest(c as any);
+  const userId = await resolveUserFromRequest(c);
   if (!userId) throwAppError('UNAUTHORIZED');
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
@@ -180,7 +179,7 @@ app.get('/:id/preview', async (c) => {
 
 // ── Download (before authMiddleware, supports token query param) ───────────
 app.get('/:id/download', async (c) => {
-  const userId = await resolveUserFromRequest(c as any);
+  const userId = await resolveUserFromRequest(c);
   if (!userId) throwAppError('UNAUTHORIZED');
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
@@ -570,13 +569,30 @@ app.post('/trash/:id/restore', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
+  const now = new Date().toISOString();
   const file = await db
     .select()
     .from(files)
     .where(and(eq(files.id, fileId), eq(files.userId, userId), isNotNull(files.deletedAt)))
     .get();
   if (!file) throwAppError('FILE_NOT_FOUND', '文件不存在或未被删除');
-  await db.update(files).set({ deletedAt: null, updatedAt: new Date().toISOString() }).where(eq(files.id, fileId));
+
+  await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, fileId));
+
+  if (file.isFolder) {
+    const folderPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
+    const allFiles = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
+      .all();
+
+    const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(folderPath + '/'));
+    for (const child of childFiles) {
+      await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, child.id));
+    }
+  }
+
   return c.json({ success: true, data: { message: '已恢复' } });
 });
 
@@ -592,15 +608,43 @@ app.delete('/trash/:id', async (c) => {
     .where(and(eq(files.id, fileId), eq(files.userId, userId), isNotNull(files.deletedAt)))
     .get();
   if (!file) throwAppError('FILE_NOT_FOUND');
-  if (!file.isFolder) {
-    // CoW 引用计数：仅最后一个引用归零时才删除存储对象
+
+  let freedBytes = 0;
+
+  if (file.isFolder) {
+    const folderPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
+    const allFiles = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
+      .all();
+
+    const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(folderPath + '/'));
+
+    for (const child of childFiles) {
+      if (!child.isFolder) {
+        const { shouldDeleteStorage } = await releaseFileRef(db, child.id);
+        if (shouldDeleteStorage) {
+          await deleteFileFromStorage(c.env, db, userId, encKey, child);
+        }
+        freedBytes += child.size;
+      }
+      await db.delete(files).where(eq(files.id, child.id));
+    }
+  } else {
     const { shouldDeleteStorage } = await releaseFileRef(db, fileId);
     if (shouldDeleteStorage) {
       await deleteFileFromStorage(c.env, db, userId, encKey, file);
     }
-    await updateUserStorage(db, userId, -file.size);
+    freedBytes = file.size;
   }
+
   await db.delete(files).where(eq(files.id, fileId));
+
+  if (freedBytes > 0) {
+    await updateUserStorage(db, userId, -freedBytes);
+  }
+
   return c.json({ success: true, data: { message: '已永久删除' } });
 });
 
@@ -681,8 +725,8 @@ app.post('/', async (c) => {
         400
       );
     effectiveBucketId = requestedBucketId;
-  } else if (!parentId) {
-    const bucketConfig = await resolveBucketConfig(db, userId, encKey, null, null);
+  } else {
+    const bucketConfig = await resolveBucketConfig(db, userId, encKey, null, parentId);
     effectiveBucketId = bucketConfig?.id ?? null;
   }
 

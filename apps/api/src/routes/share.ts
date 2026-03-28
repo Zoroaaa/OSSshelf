@@ -11,10 +11,10 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, inArray, isNull } from 'drizzle-orm';
+import { eq, and, inArray, isNull, sql } from 'drizzle-orm';
 import { getDb, files, shares, storageBuckets, telegramFileRefs, users } from '../db';
 import { s3Get, s3Put } from '../lib/s3client';
-import { resolveBucketConfig, updateBucketStats } from '../lib/bucketResolver';
+import { resolveBucketConfig, updateBucketStats, updateUserStorage } from '../lib/bucketResolver';
 import { authMiddleware } from '../middleware/auth';
 import {
   ERROR_CODES,
@@ -664,7 +664,7 @@ app.get('/:id/download', async (c) => {
 
   await db
     .update(shares)
-    .set({ downloadCount: share.downloadCount + 1 })
+    .set({ downloadCount: sql`${shares.downloadCount} + 1` })
     .where(eq(shares.id, shareId));
 
   const encKey = getEncryptionKey(c.env);
@@ -781,7 +781,7 @@ app.get('/:id/zip', async (c) => {
   // 更新下载计数（整个 ZIP 算一次下载）
   await db
     .update(shares)
-    .set({ downloadCount: share.downloadCount + 1 })
+    .set({ downloadCount: sql`${shares.downloadCount} + 1` })
     .where(eq(shares.id, shareId));
 
   const zipBytes = zip.finalize();
@@ -1260,17 +1260,11 @@ app.post('/upload/:token', async (c) => {
     deletedAt: null,
   });
 
-  // 更新 owner 存储用量
-  const owner = await db.select().from(users).where(eq(users.id, folderOwnerId)).get();
-  if (owner) {
-    await db
-      .update(users)
-      .set({ storageUsed: owner.storageUsed + uploadFile.size, updatedAt: now })
-      .where(eq(users.id, folderOwnerId));
-  }
   if (bucketConfig) {
     await updateBucketStats(db, bucketConfig.id, isTelegram ? uploadFile.size : uploadFile.size, 1);
   }
+
+  await updateUserStorage(db, folderOwnerId, uploadFile.size);
 
   // 更新上传链接计数
   await db

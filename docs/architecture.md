@@ -761,6 +761,66 @@ ossshelf/
 └─────────────────────────────────────────────────────────────┘
 ```
 
+### 文件预览架构（v3.4.0）
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   File Preview System                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  预览类型配置 (packages/shared/src/constants/previewTypes.ts)│
+│  ├─ IMAGE_MIME_PREFIX: 'image/'                              │
+│  ├─ VIDEO_MIME_PREFIX: 'video/'                              │
+│  ├─ AUDIO_MIME_PREFIX: 'audio/'                              │
+│  ├─ PDF_MIME_TYPE: 'application/pdf'                         │
+│  ├─ MARKDOWN_MIME_TYPE: 'text/markdown'                      │
+│  ├─ CSV_MIME_TYPE: 'text/csv'                                │
+│  ├─ EPUB_MIME_TYPES: ['application/epub+zip', ...]          │
+│  ├─ FONT_MIME_TYPES: ['font/ttf', 'font/otf', ...]          │
+│  ├─ ARCHIVE_PREVIEW_MIME_TYPES: ['application/zip', ...]    │
+│  └─ OFFICE_MIME_TYPES: { word, excel, powerpoint }          │
+│                                                              │
+│  前端预览组件 (apps/web/src/components/files/FilePreview.tsx)│
+│  ├─ 图片预览: <img> 原生 + 缩放                              │
+│  ├─ 视频预览: <video> 原生 + 流式播放                        │
+│  ├─ 音频预览: <audio> 原生                                   │
+│  ├─ PDF 预览: pdf.js 分页渲染 + 缩放控制                     │
+│  ├─ Markdown: react-markdown + GFM + KaTeX                   │
+│  ├─ 代码预览: highlight.js 语法高亮                          │
+│  ├─ Word 预览: docx-preview 本地渲染                         │
+│  ├─ Excel 预览: xlsx 库 + 样式保留 + 多工作表                │
+│  ├─ PowerPoint: pptx-preview 本地渲染                        │
+│  ├─ EPUB 预览: epub.js 电子书阅读器 + 目录导航               │
+│  ├─ 字体预览: FontFace API 字符展示                          │
+│  ├─ ZIP 预览: JSZip 文件树 + 压缩统计                        │
+│  └─ CSV 预览: PapaParse 表格 + 搜索/排序/分页                │
+│                                                              │
+│  预览窗口控制                                                │
+│  ├─ 窗口大小: small (60%) / medium (80%) / large (90%) / 全屏│
+│  ├─ 缩放控制: 50% - 200%                                     │
+│  └─ 键盘快捷键: ESC 关闭 / 左右箭头翻页(EPUB)                │
+│                                                              │
+│  后端预览接口 (apps/api/src/routes/preview.ts)               │
+│  ├─ GET /api/preview/:fileId/info - 预览信息                 │
+│  ├─ GET /api/preview/:fileId/raw - 原始内容 (≤30MB)          │
+│  ├─ GET /api/preview/:fileId/stream - 流式预览               │
+│  └─ GET /api/preview/:fileId/thumbnail - 缩略图              │
+│                                                              │
+│  预览依赖库                                                  │
+│  ├─ pdfjs-dist: PDF 渲染                                     │
+│  ├─ docx-preview: Word 文档                                  │
+│  ├─ xlsx: Excel 表格                                         │
+│  ├─ pptx-preview: PowerPoint                                 │
+│  ├─ epubjs: EPUB 电子书                                      │
+│  ├─ jszip: ZIP 解析                                          │
+│  ├─ papaparse: CSV 解析                                      │
+│  ├─ highlight.js: 代码高亮                                   │
+│  ├─ react-markdown: Markdown 渲染                            │
+│  └─ remark-gfm/rehype-highlight: Markdown 插件               │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 ## 认证机制

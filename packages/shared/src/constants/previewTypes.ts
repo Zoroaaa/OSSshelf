@@ -5,20 +5,20 @@
  * ============================================================================
  * 【重要提醒】修改此文件后必须同步更新以下文件：
  * ============================================================================
- * 
+ *
  * 后端:
  *   - apps/api/src/routes/preview.ts          # isPreviewable 函数
- * 
+ *
  * 前端 - 文件管理:
  *   - apps/web/src/components/files/FilePreview.tsx      # 预览组件
- * 
+ *
  * 前端 - 分享页面:
  *   - apps/web/src/components/share/ShareFilePreview.tsx # 分享预览组件
- * 
+ *
  * 前端 - 工具函数:
  *   - apps/web/src/utils/fileTypes.ts        # getFileCategory 函数
  *   - apps/web/src/components/files/FileIcon.tsx        # 图标映射
- * 
+ *
  * ============================================================================
  */
 
@@ -51,14 +51,8 @@ export const XML_MIME_TYPE = 'application/xml';
 
 /** Office 文档 MIME 类型 */
 export const OFFICE_MIME_TYPES = {
-  word: [
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  ],
-  excel: [
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  ],
+  word: ['application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+  excel: ['application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
   powerpoint: [
     'application/vnd.ms-powerpoint',
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
@@ -66,11 +60,7 @@ export const OFFICE_MIME_TYPES = {
 } as const;
 
 /** EPUB 电子书 MIME 类型 */
-export const EPUB_MIME_TYPES = [
-  'application/epub+zip',
-  'application/epub',
-  'application/x-epub+zip',
-] as const;
+export const EPUB_MIME_TYPES = ['application/epub+zip', 'application/epub', 'application/x-epub+zip'] as const;
 
 /** 字体文件 MIME 类型 */
 export const FONT_MIME_TYPES = ['font/ttf', 'font/otf', 'font/woff', 'font/woff2'] as const;

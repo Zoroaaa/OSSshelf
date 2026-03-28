@@ -441,7 +441,12 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
   const [zipContents, setZipContents] = useState<{ name: string; size: number; isDir: boolean }[]>([]);
   const [zipLoading, setZipLoading] = useState(false);
   const [zipTree, setZipTree] = useState<ZipTreeNode[]>([]);
-  const [zipStats, setZipStats] = useState<{ totalFiles: number; totalDirs: number; totalSize: number; compressedSize: number } | null>(null);
+  const [zipStats, setZipStats] = useState<{
+    totalFiles: number;
+    totalDirs: number;
+    totalSize: number;
+    compressedSize: number;
+  } | null>(null);
   const [fontPreview, setFontPreview] = useState<{ name: string; preview: string } | null>(null);
   const [fontLoading, setFontLoading] = useState(false);
   const [epubLoading, setEpubLoading] = useState(false);
@@ -537,15 +542,27 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
 
     // 销毁上一个文件的 epub/pdf 资源
     if (epubRenditionRef.current) {
-      try { epubRenditionRef.current.destroy(); } catch { /* ignore */ }
+      try {
+        epubRenditionRef.current.destroy();
+      } catch {
+        /* ignore */
+      }
       epubRenditionRef.current = null;
     }
     if (epubViewerRef.current) {
-      try { epubViewerRef.current.destroy(); } catch { /* ignore */ }
+      try {
+        epubViewerRef.current.destroy();
+      } catch {
+        /* ignore */
+      }
       epubViewerRef.current = null;
     }
     if (pdfDocRef.current) {
-      try { pdfDocRef.current.destroy(); } catch { /* ignore */ }
+      try {
+        pdfDocRef.current.destroy();
+      } catch {
+        /* ignore */
+      }
       pdfDocRef.current = null;
     }
     pptxViewerRef.current = null;
@@ -725,20 +742,21 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     }
   }, [isCsv, resolvedUrl]);
 
-  const handleCsvSort = useCallback((columnIndex: number) => {
-    if (csvSortColumn === columnIndex) {
-      setCsvSortAsc(!csvSortAsc);
-    } else {
-      setCsvSortColumn(columnIndex);
-      setCsvSortAsc(true);
-    }
-  }, [csvSortColumn, csvSortAsc]);
+  const handleCsvSort = useCallback(
+    (columnIndex: number) => {
+      if (csvSortColumn === columnIndex) {
+        setCsvSortAsc(!csvSortAsc);
+      } else {
+        setCsvSortColumn(columnIndex);
+        setCsvSortAsc(true);
+      }
+    },
+    [csvSortColumn, csvSortAsc]
+  );
 
   const filteredCsvRows = useMemo(() => {
     if (!csvSearchTerm) return csvRows;
-    return csvRows.filter(row =>
-      row.some(cell => cell.toLowerCase().includes(csvSearchTerm.toLowerCase()))
-    );
+    return csvRows.filter((row) => row.some((cell) => cell.toLowerCase().includes(csvSearchTerm.toLowerCase())));
   }, [csvRows, csvSearchTerm]);
 
   const sortedCsvRows = useMemo(() => {
@@ -837,8 +855,8 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
             name: part,
             path: currentPath,
             isDir,
-            size: isDir ? 0 : (entryData?.uncompressedSize || 0),
-            compressedSize: isDir ? 0 : (entryData?.compressedSize || 0),
+            size: isDir ? 0 : entryData?.uncompressedSize || 0,
+            compressedSize: isDir ? 0 : entryData?.compressedSize || 0,
             children: [],
             level: index,
           };
@@ -890,11 +908,9 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
         >
           {getFileIcon(node.name, node.isDir)}
           <span className="flex-1 truncate text-sm">{node.name}</span>
-          {!node.isDir && (
-            <span className="text-xs text-muted-foreground">{formatBytes(node.size)}</span>
-          )}
+          {!node.isDir && <span className="text-xs text-muted-foreground">{formatBytes(node.size)}</span>}
         </div>
-        {node.children.map(child => renderZipTreeNode(child, depth + 1))}
+        {node.children.map((child) => renderZipTreeNode(child, depth + 1))}
       </div>
     );
   };
@@ -985,28 +1001,31 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     setEpubShowToc(false);
   }, []);
 
-  const renderPdfPage = useCallback(async (pageNum: number) => {
-    if (!pdfDocRef.current || !pdfContainerRef.current) return;
+  const renderPdfPage = useCallback(
+    async (pageNum: number) => {
+      if (!pdfDocRef.current || !pdfContainerRef.current) return;
 
-    const page = await pdfDocRef.current.getPage(pageNum);
-    const scale = zoomLevel / 100;
-    const viewport = page.getViewport({ scale });
+      const page = await pdfDocRef.current.getPage(pageNum);
+      const scale = zoomLevel / 100;
+      const viewport = page.getViewport({ scale });
 
-    pdfContainerRef.current.innerHTML = '';
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
-    if (!context) return;
-    canvas.height = viewport.height;
-    canvas.width = viewport.width;
-    canvas.className = 'mx-auto shadow-lg';
-    pdfContainerRef.current.appendChild(canvas);
+      pdfContainerRef.current.innerHTML = '';
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      if (!context) return;
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+      canvas.className = 'mx-auto shadow-lg';
+      pdfContainerRef.current.appendChild(canvas);
 
-    await page.render({
-      canvasContext: context,
-      viewport,
-    } as any).promise;
-    setPdfCurrentPage(pageNum);
-  }, [zoomLevel]);
+      await page.render({
+        canvasContext: context,
+        viewport,
+      } as any).promise;
+      setPdfCurrentPage(pageNum);
+    },
+    [zoomLevel]
+  );
 
   const loadPdfPreview = useCallback(async () => {
     if (!isPdf || !resolvedUrl) return;
@@ -1064,7 +1083,6 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
     if (isPdf && pdfDocRef.current) {
       renderPdfPage(pdfCurrentPage);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoomLevel]);
 
   const loadPptPreview = useCallback(async () => {
@@ -1173,11 +1191,17 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
       // EPUB 键盘翻页
       if (isEpub) {
-        if (e.key === 'ArrowLeft') { epubPrevPage(); }
-        else if (e.key === 'ArrowRight') { epubNextPage(); }
+        if (e.key === 'ArrowLeft') {
+          epubPrevPage();
+        } else if (e.key === 'ArrowRight') {
+          epubNextPage();
+        }
       }
     };
     window.addEventListener('keydown', handler);
@@ -1529,9 +1553,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
               {officeUseOnlineViewer && resolvedUrl && !officeOnlineError ? (
                 <>
                   <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
-                    <span className="text-sm text-muted-foreground">
-                      在线预览
-                    </span>
+                    <span className="text-sm text-muted-foreground">在线预览</span>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -1605,10 +1627,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                       {renderOfficeFallback('Excel 加载失败')}
                     </div>
                   ) : (
-                    <div
-                      ref={excelContainerRef}
-                      className="w-full h-full bg-white dark:bg-gray-900"
-                    />
+                    <div ref={excelContainerRef} className="w-full h-full bg-white dark:bg-gray-900" />
                   )}
                 </div>
               ) : isPpt ? (
@@ -1627,7 +1646,12 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                     <div className="w-full h-full flex flex-col bg-white dark:bg-gray-900">
                       <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
                         <span className="text-sm text-muted-foreground">在线预览</span>
-                        <Button variant="ghost" size="sm" onClick={() => setPptUseOnlineViewer(false)} className="text-xs">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setPptUseOnlineViewer(false)}
+                          className="text-xs"
+                        >
                           切换到本地预览
                         </Button>
                       </div>
@@ -1639,10 +1663,17 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                       />
                     </div>
                   )}
-                  <div className={`w-full h-full flex flex-col relative ${pptUseOnlineViewer && !pptOnlineError ? 'hidden' : ''}`}>
+                  <div
+                    className={`w-full h-full flex flex-col relative ${pptUseOnlineViewer && !pptOnlineError ? 'hidden' : ''}`}
+                  >
                     {!pptUseOnlineViewer && !pptOnlineError && resolvedUrl && (
                       <div className="absolute top-2 right-2 z-20">
-                        <Button variant="ghost" size="sm" onClick={() => setPptUseOnlineViewer(true)} className="text-xs bg-white/80 dark:bg-gray-900/80">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setPptUseOnlineViewer(true)}
+                          className="text-xs bg-white/80 dark:bg-gray-900/80"
+                        >
                           在线预览
                         </Button>
                       </div>
@@ -1667,9 +1698,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
               {csvHeaders.length > 0 ? (
                 <>
                   <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
-                    <span className="text-sm text-muted-foreground">
-                      CSV 表格 - {csvRows.length} 行数据
-                    </span>
+                    <span className="text-sm text-muted-foreground">CSV 表格 - {csvRows.length} 行数据</span>
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
@@ -1707,9 +1736,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                             >
                               <div className="flex items-center gap-1">
                                 {header}
-                                {csvSortColumn === index && (
-                                  <span className="text-xs">{csvSortAsc ? '↑' : '↓'}</span>
-                                )}
+                                {csvSortColumn === index && <span className="text-xs">{csvSortAsc ? '↑' : '↓'}</span>}
                               </div>
                             </th>
                           ))}
@@ -1733,7 +1760,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => setCsvCurrentPage(p => Math.max(1, p - 1))}
+                        onClick={() => setCsvCurrentPage((p) => Math.max(1, p - 1))}
                         disabled={csvCurrentPage <= 1}
                         className="h-7"
                       >
@@ -1745,7 +1772,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => setCsvCurrentPage(p => Math.min(totalCsvPages, p + 1))}
+                        onClick={() => setCsvCurrentPage((p) => Math.min(totalCsvPages, p + 1))}
                         disabled={csvCurrentPage >= totalCsvPages}
                         className="h-7"
                       >
@@ -1770,9 +1797,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
               {zipTree.length > 0 ? (
                 <>
                   <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
-                    <span className="text-sm text-muted-foreground">
-                      压缩包内容
-                    </span>
+                    <span className="text-sm text-muted-foreground">压缩包内容</span>
                     {zipStats && (
                       <div className="flex items-center gap-4 text-xs text-muted-foreground">
                         <span>{zipStats.totalFiles} 个文件</span>
@@ -1788,7 +1813,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
                     )}
                   </div>
                   <div className="flex-1 overflow-auto bg-white dark:bg-gray-900 p-2">
-                    {zipTree.map(node => renderZipTreeNode(node))}
+                    {zipTree.map((node) => renderZipTreeNode(node))}
                   </div>
                 </>
               ) : (
@@ -1862,32 +1887,17 @@ export function FilePreview({ file, token, onClose, onDownload, onShare }: FileP
               )}
               <div className="flex-1 flex flex-col min-w-0">
                 <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30 flex-shrink-0">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setEpubShowToc(!epubShowToc)}
-                    className="text-xs"
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => setEpubShowToc(!epubShowToc)} className="text-xs">
                     {epubShowToc ? '隐藏目录' : '显示目录'}
                   </Button>
                   <span className="text-xs text-muted-foreground">
                     {epubTotalPages > 0 ? `位置 ${epubCurrentPage + 1} / ${epubTotalPages}` : ''}
                   </span>
                   <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={epubPrevPage}
-                    >
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={epubPrevPage}>
                       <ChevronLeft className="h-4 w-4" />
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={epubNextPage}
-                    >
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={epubNextPage}>
                       <ChevronRight className="h-4 w-4" />
                     </Button>
                   </div>

@@ -17,6 +17,7 @@ import type { Env } from '../types/env';
 import { s3Delete } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats, updateUserStorage } from '../lib/bucketResolver';
 import { getEncryptionKey } from '../lib/crypto';
+import { releaseFileRef } from '../lib/dedup';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -41,12 +42,16 @@ app.post('/cron/trash-cleanup', async (c) => {
   for (const file of expiredFiles) {
     if (!file.isFolder) {
       try {
-        const bucketConfig = await resolveBucketConfig(db, file.userId, encKey, file.bucketId, file.parentId);
-        if (bucketConfig) {
-          await s3Delete(bucketConfig, file.r2Key);
-          await updateBucketStats(db, bucketConfig.id, -file.size, -1);
-        } else if (c.env.FILES) {
-          await c.env.FILES.delete(file.r2Key);
+        const { shouldDeleteStorage } = await releaseFileRef(db, file.id);
+
+        if (shouldDeleteStorage) {
+          const bucketConfig = await resolveBucketConfig(db, file.userId, encKey, file.bucketId, file.parentId);
+          if (bucketConfig) {
+            await s3Delete(bucketConfig, file.r2Key);
+            await updateBucketStats(db, bucketConfig.id, -file.size, -1);
+          } else if (c.env.FILES) {
+            await c.env.FILES.delete(file.r2Key);
+          }
         }
 
         const currentChange = userStorageChanges.get(file.userId) || 0;

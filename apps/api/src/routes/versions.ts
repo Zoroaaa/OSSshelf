@@ -11,17 +11,16 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, desc, lt, sql } from 'drizzle-orm';
-import { getDb, files, fileVersions, users } from '../db';
+import { eq, and, desc, sql } from 'drizzle-orm';
+import { getDb, files, fileVersions, filePermissions } from '../db';
 import { authMiddleware } from '../middleware/auth';
-import { AppError, throwAppError } from '../middleware/error';
-import { ERROR_CODES } from '@osshelf/shared';
+import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
-import { s3Get, s3Put, s3Delete, decryptSecret } from '../lib/s3client';
-import { resolveBucketConfig, updateBucketStats } from '../lib/bucketResolver';
+import { updateUserStorage } from '../lib/bucketResolver';
+import { s3Get, s3Delete } from '../lib/s3client';
+import { resolveBucketConfig } from '../lib/bucketResolver';
 import { getEncryptionKey } from '../lib/crypto';
-import { computeSha256Hex, checkAndClaimDedup, releaseFileRef } from '../lib/dedup';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -45,8 +44,8 @@ app.get('/:fileId/versions', async (c) => {
   if (file.userId !== userId) {
     const permission = await db
       .select()
-      .from(files)
-      .where(and(eq(files.id, fileId), eq(files.userId, userId!)))
+      .from(filePermissions)
+      .where(and(eq(filePermissions.fileId, fileId), eq(filePermissions.userId, userId!)))
       .get();
     if (!permission) {
       throwAppError('FILE_ACCESS_DENIED');
@@ -250,12 +249,15 @@ app.post('/:fileId/versions/:version/restore', async (c) => {
     })
     .where(eq(files.id, fileId));
 
-  if (targetVersion.hash) {
-    await db
-      .update(fileVersions)
-      .set({ refCount: sql`${fileVersions.refCount} + 1` })
-      .where(eq(fileVersions.hash, targetVersion.hash));
+  const sizeDelta = targetVersion.size - (file.size ?? 0);
+  if (sizeDelta !== 0) {
+    await updateUserStorage(db, file.userId, sizeDelta);
   }
+
+  await db
+    .update(fileVersions)
+    .set({ refCount: sql`${fileVersions.refCount} + 1` })
+    .where(eq(fileVersions.id, targetVersion.id));
 
   return c.json({
     success: true,
