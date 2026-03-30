@@ -130,6 +130,8 @@ export type AuditAction =
   | 'bucket.create'
   | 'bucket.update'
   | 'bucket.delete'
+  | 'permission.grant'
+  | 'permission.revoke'
   | 'admin.user_update'
   | 'admin.config_change'
   | 'admin.invite_code_generate'

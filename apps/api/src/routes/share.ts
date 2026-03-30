@@ -11,12 +11,23 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, inArray, isNull } from 'drizzle-orm';
+import { eq, and, inArray, isNull, sql } from 'drizzle-orm';
 import { getDb, files, shares, storageBuckets, telegramFileRefs, users } from '../db';
 import { s3Get, s3Put } from '../lib/s3client';
-import { resolveBucketConfig, updateBucketStats } from '../lib/bucketResolver';
+import { resolveBucketConfig, updateBucketStats, updateUserStorage } from '../lib/bucketResolver';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES, SHARE_DEFAULT_EXPIRY, MAX_FILE_SIZE, inferMimeType, OFFICE_MIME_TYPES } from '@osshelf/shared';
+import {
+  ERROR_CODES,
+  SHARE_DEFAULT_EXPIRY,
+  MAX_FILE_SIZE,
+  inferMimeType,
+  ALL_OFFICE_MIME_TYPES,
+  EPUB_MIME_TYPES,
+  FONT_MIME_TYPES,
+  ARCHIVE_PREVIEW_MIME_TYPES,
+  isPreviewableMimeType,
+  getPreviewType,
+} from '@osshelf/shared';
 import { getEncryptionKey, hashPassword, verifyPassword } from '../lib/crypto';
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 import { tgUploadFile, tgDownloadFile, type TelegramBotConfig } from '../lib/telegramClient';
@@ -437,41 +448,6 @@ app.get('/:id', async (c) => {
 
 const MAX_PREVIEW_SIZE = 10 * 1024 * 1024;
 
-const PREVIEWABLE_MIME_PREFIXES = ['image/', 'video/', 'audio/', 'text/'];
-const PREVIEWABLE_MIME_TYPES = [
-  'application/pdf',
-  'application/json',
-  'application/xml',
-  'application/javascript',
-  'application/typescript',
-  ...OFFICE_MIME_TYPES,
-];
-
-function isPreviewableMimeType(mimeType: string | null): boolean {
-  if (!mimeType) return false;
-  if (PREVIEWABLE_MIME_PREFIXES.some((p) => mimeType.startsWith(p))) return true;
-  if (PREVIEWABLE_MIME_TYPES.includes(mimeType)) return true;
-  return false;
-}
-
-function getPreviewType(mimeType: string | null): string {
-  if (!mimeType) return 'unknown';
-  if (mimeType.startsWith('image/')) return 'image';
-  if (mimeType.startsWith('video/')) return 'video';
-  if (mimeType.startsWith('audio/')) return 'audio';
-  if (mimeType === 'application/pdf') return 'pdf';
-  if (mimeType.startsWith('text/')) return 'text';
-  if (['application/json', 'application/xml', 'application/javascript', 'application/typescript'].includes(mimeType))
-    return 'code';
-  if (OFFICE_MIME_TYPES.includes(mimeType as (typeof OFFICE_MIME_TYPES)[number])) {
-    if (mimeType.includes('word') || mimeType.includes('document')) return 'document';
-    if (mimeType.includes('excel') || mimeType.includes('sheet')) return 'spreadsheet';
-    if (mimeType.includes('powerpoint') || mimeType.includes('presentation')) return 'presentation';
-    return 'document';
-  }
-  return 'unknown';
-}
-
 // ── Public: preview（支持图片/视频/音频/PDF/文本）────────────────────────────
 app.get('/:id/preview', async (c) => {
   const shareId = c.req.param('id');
@@ -487,7 +463,7 @@ app.get('/:id/preview', async (c) => {
   const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
   if (!file) throwAppError('FILE_NOT_FOUND');
 
-  if (!isPreviewableMimeType(file.mimeType)) {
+  if (!isPreviewableMimeType(file.mimeType, file.name)) {
     return c.json(
       { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该文件类型不支持预览' } },
       400
@@ -612,7 +588,15 @@ app.get('/:id/raw', async (c) => {
   const encKey = getEncryptionKey(c.env);
   try {
     const buf = await fetchFileContent(c.env, db, encKey, file);
-    const text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+    let text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+    if (/[\ufffd]/.test(text)) {
+      try {
+        const gbkDecoder = new TextDecoder('gbk', { fatal: false });
+        text = gbkDecoder.decode(buf);
+      } catch {
+        // GBK 解码失败，保持 UTF-8 结果
+      }
+    }
     return c.json({ success: true, data: { content: text, mimeType: file.mimeType } });
   } catch (e: any) {
     throwAppError('FILE_DOWNLOAD_FAILED', String(e?.message || '下载失败'));
@@ -634,8 +618,8 @@ app.get('/:id/preview-info', async (c) => {
   const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
   if (!file) throwAppError('FILE_NOT_FOUND');
 
-  const previewType = getPreviewType(file.mimeType);
-  const canPreview = isPreviewableMimeType(file.mimeType);
+  const previewType = getPreviewType(file.mimeType, file.name);
+  const canPreview = isPreviewableMimeType(file.mimeType, file.name);
 
   return c.json({
     success: true,
@@ -680,7 +664,7 @@ app.get('/:id/download', async (c) => {
 
   await db
     .update(shares)
-    .set({ downloadCount: share.downloadCount + 1 })
+    .set({ downloadCount: sql`${shares.downloadCount} + 1` })
     .where(eq(shares.id, shareId));
 
   const encKey = getEncryptionKey(c.env);
@@ -797,7 +781,7 @@ app.get('/:id/zip', async (c) => {
   // 更新下载计数（整个 ZIP 算一次下载）
   await db
     .update(shares)
-    .set({ downloadCount: share.downloadCount + 1 })
+    .set({ downloadCount: sql`${shares.downloadCount} + 1` })
     .where(eq(shares.id, shareId));
 
   const zipBytes = zip.finalize();
@@ -885,7 +869,7 @@ app.get('/:id/file/:fileId/preview', async (c) => {
     throwAppError('FILE_NOT_FOUND');
   }
 
-  if (!isPreviewableMimeType(childFile.mimeType)) {
+  if (!isPreviewableMimeType(childFile.mimeType, childFile.name)) {
     return c.json(
       { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该文件类型不支持预览' } },
       400
@@ -1037,7 +1021,15 @@ app.get('/:id/file/:fileId/raw', async (c) => {
   const encKey = getEncryptionKey(c.env);
   try {
     const buf = await fetchFileContent(c.env, db, encKey, childFile);
-    const text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+    let text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+    if (/[\ufffd]/.test(text)) {
+      try {
+        const gbkDecoder = new TextDecoder('gbk', { fatal: false });
+        text = gbkDecoder.decode(buf);
+      } catch {
+        // GBK 解码失败，保持 UTF-8 结果
+      }
+    }
     return c.json({ success: true, data: { content: text, mimeType: childFile.mimeType } });
   } catch (e: any) {
     return c.json({ success: false, error: { code: 'FETCH_FAILED', message: e?.message } }, 502);
@@ -1062,8 +1054,7 @@ app.get('/upload/:token', async (c) => {
 
   const { share } = resolved;
   const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
-  if (!folder)
-    throwAppError('FOLDER_NOT_FOUND', '目标文件夹不存在');
+  if (!folder) throwAppError('FOLDER_NOT_FOUND', '目标文件夹不存在');
 
   const parsedAllowedMimes: string[] | null = share.uploadAllowedMimeTypes
     ? JSON.parse(share.uploadAllowedMimeTypes)
@@ -1269,17 +1260,11 @@ app.post('/upload/:token', async (c) => {
     deletedAt: null,
   });
 
-  // 更新 owner 存储用量
-  const owner = await db.select().from(users).where(eq(users.id, folderOwnerId)).get();
-  if (owner) {
-    await db
-      .update(users)
-      .set({ storageUsed: owner.storageUsed + uploadFile.size, updatedAt: now })
-      .where(eq(users.id, folderOwnerId));
-  }
   if (bucketConfig) {
     await updateBucketStats(db, bucketConfig.id, isTelegram ? uploadFile.size : uploadFile.size, 1);
   }
+
+  await updateUserStorage(db, folderOwnerId, uploadFile.size);
 
   // 更新上传链接计数
   await db

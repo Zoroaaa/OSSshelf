@@ -23,6 +23,7 @@ import { s3Delete, s3Put, s3Get } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats, updateUserStorage, checkBucketQuota } from '../lib/bucketResolver';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getEncryptionKey } from '../lib/crypto';
+import { releaseFileRef } from '../lib/dedup';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -204,6 +205,21 @@ app.post('/move', async (c) => {
         .update(files)
         .set({ parentId: targetParentId, path: newPath, updatedAt: now })
         .where(eq(files.id, fileId));
+
+      if (file.isFolder) {
+        const oldPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
+        const allFiles = await db
+          .select()
+          .from(files)
+          .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
+          .all();
+
+        const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(oldPath + '/'));
+        for (const child of childFiles) {
+          const newChildPath = newPath + child.path.slice(oldPath.length);
+          await db.update(files).set({ path: newChildPath, updatedAt: now }).where(eq(files.id, child.id));
+        }
+      }
 
       batchResult.success++;
     } catch (error) {
@@ -502,6 +518,21 @@ app.post('/rename', async (c) => {
         .set({ name: item.newName, path: newPath, updatedAt: now })
         .where(eq(files.id, item.fileId));
 
+      if (file.isFolder) {
+        const oldPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
+        const allFiles = await db
+          .select()
+          .from(files)
+          .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
+          .all();
+
+        const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(oldPath + '/'));
+        for (const child of childFiles) {
+          const newChildPath = newPath + child.path.slice(oldPath.length);
+          await db.update(files).set({ path: newChildPath, updatedAt: now }).where(eq(files.id, child.id));
+        }
+      }
+
       batchResult.success++;
     } catch (error) {
       batchResult.failed++;
@@ -553,17 +584,50 @@ app.post('/permanent-delete', async (c) => {
         continue;
       }
 
-      if (!file.isFolder) {
-        const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
-        if (bucketConfig) {
-          try {
-            await s3Delete(bucketConfig, file.r2Key);
-            await updateBucketStats(db, bucketConfig.id, -file.size, -1);
-          } catch (e) {
-            console.error(`S3 delete failed for ${file.r2Key}:`, e);
+      if (file.isFolder) {
+        const folderPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
+        const allFiles = await db
+          .select()
+          .from(files)
+          .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
+          .all();
+
+        const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(folderPath + '/'));
+
+        for (const child of childFiles) {
+          if (!child.isFolder) {
+            const { shouldDeleteStorage } = await releaseFileRef(db, child.id);
+            if (shouldDeleteStorage) {
+              const bucketConfig = await resolveBucketConfig(db, userId, encKey, child.bucketId, child.parentId);
+              if (bucketConfig) {
+                try {
+                  await s3Delete(bucketConfig, child.r2Key);
+                  await updateBucketStats(db, bucketConfig.id, -child.size, -1);
+                } catch (e) {
+                  console.error(`S3 delete failed for ${child.r2Key}:`, e);
+                }
+              } else if (c.env.FILES) {
+                await c.env.FILES.delete(child.r2Key);
+              }
+            }
+            totalFreed += child.size;
           }
-        } else if (c.env.FILES) {
-          await c.env.FILES.delete(file.r2Key);
+          await db.delete(files).where(eq(files.id, child.id));
+        }
+      } else {
+        const { shouldDeleteStorage } = await releaseFileRef(db, fileId);
+        if (shouldDeleteStorage) {
+          const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
+          if (bucketConfig) {
+            try {
+              await s3Delete(bucketConfig, file.r2Key);
+              await updateBucketStats(db, bucketConfig.id, -file.size, -1);
+            } catch (e) {
+              console.error(`S3 delete failed for ${file.r2Key}:`, e);
+            }
+          } else if (c.env.FILES) {
+            await c.env.FILES.delete(file.r2Key);
+          }
         }
         totalFreed += file.size;
       }
@@ -621,6 +685,21 @@ app.post('/restore', async (c) => {
       }
 
       await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, fileId));
+
+      if (file.isFolder) {
+        const folderPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
+        const allFiles = await db
+          .select()
+          .from(files)
+          .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
+          .all();
+
+        const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(folderPath + '/'));
+        for (const child of childFiles) {
+          await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, child.id));
+        }
+      }
+
       batchResult.success++;
     } catch (error) {
       batchResult.failed++;

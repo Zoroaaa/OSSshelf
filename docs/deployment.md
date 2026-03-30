@@ -2,7 +2,7 @@
 
 本文档基于项目实际配置文件，提供完整的部署指南，确保您能够一次性成功部署 OSSshelf。
 
-**当前版本**: v3.3.0
+**当前版本**: v3.5.0
 
 ---
 
@@ -30,10 +30,10 @@
 
 本项目采用现代化的 CI/CD 部署方式：
 
-| 组件 | 部署平台 | 触发方式 |
-|------|----------|----------|
-| 前端 (Web) | Cloudflare Pages | GitHub 仓库连接，自动构建部署 |
-| 后端 (API) | Cloudflare Workers | GitHub Actions 自动部署 |
+| 组件       | 部署平台           | 触发方式                      |
+| ---------- | ------------------ | ----------------------------- |
+| 前端 (Web) | Cloudflare Pages   | GitHub 仓库连接，自动构建部署 |
+| 后端 (API) | Cloudflare Workers | GitHub Actions 自动部署       |
 
 ```
                          ┌─────────────────────────────────────┐
@@ -72,11 +72,52 @@
 
 详细的版本更新日志请参阅 [CHANGELOG.md](../CHANGELOG.md)。
 
-### v3.3.0 (2024-03-24)
+### v3.5.0 (2026-03-30)
 
 本次更新包含以下重要变更：
 
 **数据库迁移**
+
+- 新增 `file_notes` 表用于文件笔记功能
+- 新增 `api_keys` 表用于 API Key 管理
+- 迁移文件：`0010_notes.sql`、`0011_api_keys.sql`
+
+**升级步骤**
+
+```bash
+# 1. 拉取最新代码
+git pull origin main
+
+# 2. 运行数据库迁移（重要！）
+pnpm db:migrate
+
+# 3. 推送触发部署
+git push origin main
+```
+
+### v3.4.0 (2026-03-27)
+
+本次更新包含以下重要变更：
+
+**功能增强**
+
+- 预览功能大幅强化，支持 EPUB、字体、ZIP、CSV 增强预览
+- 预览大小限制从 10MB 提升至 30MB
+
+**升级步骤**
+
+```bash
+git pull origin main
+pnpm db:migrate
+git push origin main
+```
+
+### v3.3.0 (2026-03-24)
+
+本次更新包含以下重要变更：
+
+**数据库迁移**
+
 - 新增 `file_versions` 表用于文件版本控制
 - 迁移文件：`0008_file_versions.sql`
 
@@ -99,27 +140,27 @@ git push origin main
 
 ### 必需环境
 
-| 软件 | 版本要求 | 说明 |
-|------|----------|------|
+| 软件    | 版本要求  | 说明              |
+| ------- | --------- | ----------------- |
 | Node.js | >= 20.0.0 | 推荐使用 LTS 版本 |
-| pnpm | >= 8.0.0 | 包管理器 |
+| pnpm    | >= 8.0.0  | 包管理器          |
 
 ### Cloudflare 资源
 
-| 资源 | 说明 | 免费额度 |
-|------|------|----------|
-| Cloudflare 账户 | 注册地址：https://dash.cloudflare.com | 免费 |
-| D1 数据库 | SQLite 数据库 | 5GB 存储，500万行读取/天 |
-| KV 命名空间 | 键值存储 | 1GB 存储，10万次读取/天 |
-| Workers | 无服务器计算 | 10万次请求/天 |
-| Pages | 静态托管 | 无限制 |
+| 资源            | 说明                                  | 免费额度                 |
+| --------------- | ------------------------------------- | ------------------------ |
+| Cloudflare 账户 | 注册地址：https://dash.cloudflare.com | 免费                     |
+| D1 数据库       | SQLite 数据库                         | 5GB 存储，500万行读取/天 |
+| KV 命名空间     | 键值存储                              | 1GB 存储，10万次读取/天  |
+| Workers         | 无服务器计算                          | 10万次请求/天            |
+| Pages           | 静态托管                              | 无限制                   |
 
 ### GitHub 资源
 
-| 资源 | 说明 |
-|------|------|
-| GitHub 仓库 | 用于托管代码和触发 CI/CD |
-| GitHub Secrets | 存储敏感配置信息 |
+| 资源           | 说明                     |
+| -------------- | ------------------------ |
+| GitHub 仓库    | 用于托管代码和触发 CI/CD |
+| GitHub Secrets | 存储敏感配置信息         |
 
 ---
 
@@ -163,15 +204,15 @@ wrangler r2 bucket create ossshelf-files
 
 **进入仓库 → Settings → Secrets and variables → Actions → New repository secret**
 
-| Secret 名称 | 说明 | 获取方式 |
-|-------------|------|----------|
-| `CLOUDFLARE_API_TOKEN` | Cloudflare API 令牌 | [创建教程](#获取-cloudflare-api-token) |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账户 ID | Dashboard 右侧边栏 |
-| `CLOUDFLARE_D1_DATABASE_ID` | D1 数据库 ID | Step 2 创建时获得 |
-| `CLOUDFLARE_KV_NAMESPACE_ID` | KV 命名空间 ID | Step 2 创建时获得 |
-| `JWT_SECRET` | JWT 签名密钥 | 生成 32+ 字符随机字符串 |
-| `CORS_ORIGINS` | CORS 允许域名 | 前端域名，多个用逗号分隔 |
-| `TRASH_RETENTION_DAYS` | 回收站保留天数 | 可选，默认 30 |
+| Secret 名称                  | 说明                | 获取方式                               |
+| ---------------------------- | ------------------- | -------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`       | Cloudflare API 令牌 | [创建教程](#获取-cloudflare-api-token) |
+| `CLOUDFLARE_ACCOUNT_ID`      | Cloudflare 账户 ID  | Dashboard 右侧边栏                     |
+| `CLOUDFLARE_D1_DATABASE_ID`  | D1 数据库 ID        | Step 2 创建时获得                      |
+| `CLOUDFLARE_KV_NAMESPACE_ID` | KV 命名空间 ID      | Step 2 创建时获得                      |
+| `JWT_SECRET`                 | JWT 签名密钥        | 生成 32+ 字符随机字符串                |
+| `CORS_ORIGINS`               | CORS 允许域名       | 前端域名，多个用逗号分隔               |
+| `TRASH_RETENTION_DAYS`       | 回收站保留天数      | 可选，默认 30                          |
 
 #### 获取 Cloudflare API Token
 
@@ -201,6 +242,7 @@ pnpm db:migrate
 ```
 
 迁移文件位于 `apps/api/migrations/`：
+
 - `0001_init.sql` - 初始化表结构
 - `0002_optimization.sql` - 性能优化索引
 - `0003_folder_upload_types.sql` - 文件夹上传类型限制
@@ -258,22 +300,22 @@ curl https://your-api.workers.dev/api/auth/registration-config
 
 ### 必需 Secrets
 
-| Secret 名称 | 必需 | 说明 |
-|-------------|------|------|
-| `CLOUDFLARE_API_TOKEN` | ✅ | Workers 部署权限 |
-| `CLOUDFLARE_ACCOUNT_ID` | ✅ | Cloudflare 账户标识 |
-| `CLOUDFLARE_D1_DATABASE_ID` | ✅ | D1 数据库绑定 |
-| `CLOUDFLARE_KV_NAMESPACE_ID` | ✅ | KV 命名空间绑定 |
-| `JWT_SECRET` | ✅ | JWT 签名密钥 |
-| `CORS_ORIGINS` | ✅ | CORS 允许域名 |
+| Secret 名称                  | 必需 | 说明                |
+| ---------------------------- | ---- | ------------------- |
+| `CLOUDFLARE_API_TOKEN`       | ✅   | Workers 部署权限    |
+| `CLOUDFLARE_ACCOUNT_ID`      | ✅   | Cloudflare 账户标识 |
+| `CLOUDFLARE_D1_DATABASE_ID`  | ✅   | D1 数据库绑定       |
+| `CLOUDFLARE_KV_NAMESPACE_ID` | ✅   | KV 命名空间绑定     |
+| `JWT_SECRET`                 | ✅   | JWT 签名密钥        |
+| `CORS_ORIGINS`               | ✅   | CORS 允许域名       |
 
 ### 可选 Secrets
 
-| Secret 名称 | 默认值 | 说明 |
-|-------------|--------|------|
-| `TRASH_RETENTION_DAYS` | 30 | 回收站文件保留天数 |
-| `ALERT_TG_BOT_TOKEN` | - | 告警 Telegram Bot Token，用于接收系统告警通知 |
-| `ALERT_TG_CHAT_ID` | - | 告警 Telegram Chat ID，指定告警消息发送目标 |
+| Secret 名称            | 默认值 | 说明                                          |
+| ---------------------- | ------ | --------------------------------------------- |
+| `TRASH_RETENTION_DAYS` | 30     | 回收站文件保留天数                            |
+| `ALERT_TG_BOT_TOKEN`   | -      | 告警 Telegram Bot Token，用于接收系统告警通知 |
+| `ALERT_TG_CHAT_ID`     | -      | 告警 Telegram Chat ID，指定告警消息发送目标   |
 
 #### 配置 Telegram 告警（可选）
 
@@ -293,7 +335,7 @@ GitHub Actions 工作流位于 `.github/workflows/deploy-api.yml`，会自动读
 # 工作流会生成以下配置
 [[d1_databases]]
 binding = "DB"
-database_name = "r2shelf-db"
+database_name = "ossshelf-db"
 database_id = "${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}"
 
 [[kv_namespaces]]
@@ -314,26 +356,26 @@ TRASH_RETENTION_DAYS = "${{ secrets.TRASH_RETENTION_DAYS || '30' }}"
 
 Cloudflare Pages 通过 GitHub 集成实现自动部署：
 
-| 触发条件 | 行为 |
-|----------|------|
+| 触发条件          | 行为                     |
+| ----------------- | ------------------------ |
 | Push 到 main 分支 | 自动构建并部署到生产环境 |
-| Pull Request | 生成预览部署（可选） |
+| Pull Request      | 生成预览部署（可选）     |
 
 ### 构建配置
 
-| 配置项 | 值 |
-|--------|-----|
-| 构建命令 | `pnpm install && pnpm build:web` |
-| 输出目录 | `apps/web/dist` |
-| Node.js 版本 | 20.x |
-| 包管理器 | pnpm |
+| 配置项       | 值                               |
+| ------------ | -------------------------------- |
+| 构建命令     | `pnpm install && pnpm build:web` |
+| 输出目录     | `apps/web/dist`                  |
+| Node.js 版本 | 20.x                             |
+| 包管理器     | pnpm                             |
 
 ### 环境变量
 
 在 Cloudflare Pages 设置中配置：
 
-| 变量名 | 说明 |
-|--------|------|
+| 变量名         | 说明          |
+| -------------- | ------------- |
 | `VITE_API_URL` | 后端 API 地址 |
 
 **设置路径**: Cloudflare Dashboard → Workers & Pages → 您的项目 → Settings → Environment variables
@@ -434,6 +476,7 @@ jobs:
 **优势**: 无出站流量费用，与 Workers 同区域低延迟
 
 **获取凭证**：
+
 1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
 2. 进入 R2 → 管理 R2 API 令牌
 3. 创建 API 令牌，权限选择「对象读和写」
@@ -455,6 +498,7 @@ jobs:
 ### AWS S3
 
 **获取凭证**：
+
 1. 登录 AWS Console
 2. IAM → 用户 → 创建用户 → 添加权限 `AmazonS3FullAccess`
 3. 创建访问密钥
@@ -476,6 +520,7 @@ jobs:
 ### 阿里云 OSS
 
 **获取凭证**：
+
 1. 登录阿里云控制台
 2. RAM → 用户 → 创建用户 → 添加权限 `AliyunOSSFullAccess`
 3. 创建 AccessKey
@@ -497,6 +542,7 @@ jobs:
 ### 腾讯云 COS
 
 **获取凭证**：
+
 1. 登录腾讯云控制台
 2. 访问管理 → API 密钥管理 → 新建密钥
 
@@ -533,6 +579,7 @@ jobs:
 ### Backblaze B2
 
 **获取凭证**：
+
 1. 登录 Backblaze B2
 2. Account → App Keys → Add New Application Key
 
@@ -602,12 +649,12 @@ jobs:
 
 **限制说明**（定义于 `apps/api/src/lib/telegramClient.ts`）：
 
-| 限制项 | 值 |
-|--------|-----|
-| 单文件最大 | 2 GB |
-| 小文件直传阈值 | 49 MB |
-| 分片大小 | 30 MB |
-| 文件删除 | 仅删除引用，无法真正删除 |
+| 限制项         | 值                       |
+| -------------- | ------------------------ |
+| 单文件最大     | 2 GB                     |
+| 小文件直传阈值 | 49 MB                    |
+| 分片大小       | 30 MB                    |
+| 文件删除       | 仅删除引用，无法真正删除 |
 
 ---
 
@@ -635,7 +682,7 @@ zone_name = "your-domain.com"
 ### CORS 配置
 
 > **⚠️ 重要 - 部署前必须配置！**
-> 
+>
 > CORS 允许域名通过环境变量 `CORS_ORIGINS` 配置，**部署前请务必将其设置为您的前端域名，否则前端将无法正常访问 API！**
 
 如果前端和 API 使用不同域名，需要配置 CORS。通过环境变量 `CORS_ORIGINS` 设置：
@@ -712,6 +759,7 @@ wrangler tail --format=json | jq 'select(.event.request.url | contains("api/file
 ### 设置告警
 
 在 Cloudflare Dashboard 中配置：
+
 - Workers 错误率告警
 - Workers 延迟告警
 - D1 查询超时告警
@@ -755,7 +803,8 @@ wrangler d1 export ossshelf-db --output="backup_${DATE}.sql"
 
 **原因**: Cloudflare API Token 无效或权限不足
 
-**解决**: 
+**解决**:
+
 - 检查 `CLOUDFLARE_API_TOKEN` Secret 是否正确
 - 确认 Token 有 Workers 编辑权限
 
@@ -764,6 +813,7 @@ wrangler d1 export ossshelf-db --output="backup_${DATE}.sql"
 **原因**: 构建命令或输出目录配置错误
 
 **解决**:
+
 - 确认构建命令为 `pnpm install && pnpm build:web`
 - 确认输出目录为 `apps/web/dist`
 
@@ -785,7 +835,8 @@ wrangler d1 info ossshelf-db
 
 **原因**: 存储配额不足
 
-**解决**: 
+**解决**:
+
 - 检查用户存储配额
 - 检查存储桶配额
 - 清理不需要的文件
@@ -793,6 +844,7 @@ wrangler d1 info ossshelf-db
 #### 5. WebDAV 连接失败
 
 **排查步骤**:
+
 1. 确认 API 地址正确
 2. 确认用户名是注册邮箱
 3. 检查 SSL 证书
@@ -808,6 +860,7 @@ curl -X PROPFIND https://your-api.workers.dev/dav/ \
 #### 6. 定时任务不执行
 
 **排查步骤**:
+
 1. 确认 Cron Triggers 已配置
 2. 查看 Workers 日志
 
@@ -819,6 +872,7 @@ curl -X POST https://your-api.workers.dev/cron/all
 #### 7. Telegram 上传失败
 
 **排查步骤**:
+
 1. 确认 Bot Token 有效
 2. 检查 Bot 是否已添加到目标频道/群组
 3. 确认 Bot 有发送文档权限
@@ -831,6 +885,7 @@ curl "https://api.telegram.org/bot<TOKEN>/getMe"
 #### 8. 前端无法访问 API
 
 **排查步骤**:
+
 1. 检查 CORS 配置
 2. 确认 `VITE_API_URL` 环境变量正确
 3. 检查浏览器控制台错误
@@ -838,6 +893,7 @@ curl "https://api.telegram.org/bot<TOKEN>/getMe"
 #### 9. 版本控制功能不可用（v3.3.0）
 
 **排查步骤**:
+
 1. 确认已运行 `0008_file_versions.sql` 迁移
 2. 检查数据库中是否存在 `file_versions` 表
 3. 查看 API 日志确认版本接口是否正常
@@ -850,6 +906,7 @@ wrangler d1 execute ossshelf-db --command "SELECT name FROM sqlite_master WHERE 
 #### 10. 预览功能异常（v3.3.0）
 
 **排查步骤**:
+
 1. 确认前端已更新到最新版本
 2. 检查文件 MIME 类型是否支持
 3. 对于 CAD/3D 模型预览，确认文件格式正确
@@ -901,6 +958,7 @@ git push origin main
 ```
 
 推送后：
+
 - **前端**: Cloudflare Pages 自动检测并重新构建部署
 - **后端**: 如果 `apps/api/` 有变更，GitHub Actions 自动部署
 

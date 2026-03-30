@@ -96,11 +96,11 @@ export default {
               'font-weight': '600',
               padding: '0.75rem 1rem',
               'text-align': 'left',
-              'border': '1px solid hsl(var(--border))',
+              border: '1px solid hsl(var(--border))',
             },
             td: {
               padding: '0.75rem 1rem',
-              'border': '1px solid hsl(var(--border))',
+              border: '1px solid hsl(var(--border))',
             },
             'tr:nth-child(even)': {
               'background-color': 'hsl(var(--muted) / 0.3)',

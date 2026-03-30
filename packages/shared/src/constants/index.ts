@@ -1,3 +1,32 @@
+/**
+ * constants/index.ts
+ * 共享常量导出
+ *
+ * ============================================================================
+ * 【文件预览功能修改提醒】
+ * ============================================================================
+ *
+ * 修改文件预览相关功能时，必须同步更新以下文件：
+ *
+ * 配置文件（单一真相来源）:
+ *   - packages/shared/src/constants/previewTypes.ts  # 预览类型配置
+ *
+ * 后端:
+ *   - apps/api/src/routes/preview.ts                 # 预览 API
+ *
+ * 前端 - 文件管理:
+ *   - apps/web/src/components/files/FilePreview.tsx  # 文件管理预览组件
+ *
+ * 前端 - 分享页面:
+ *   - apps/web/src/components/share/ShareFilePreview.tsx  # 分享预览组件
+ *
+ * 前端 - 工具函数:
+ *   - apps/web/src/utils/fileTypes.ts               # 文件类型分类
+ *   - apps/web/src/components/files/FileIcon.tsx    # 文件图标
+ *
+ * ============================================================================
+ */
+
 export const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024;
 
 export const DEFAULT_STORAGE_QUOTA = 10 * 1024 * 1024 * 1024;
@@ -63,41 +92,6 @@ export const LOGIN_LOCKOUT_DURATION = 15 * 60 * 1000;
 export const DEVICE_SESSION_EXPIRY = 30 * 24 * 60 * 60 * 1000;
 
 export const UPLOAD_TASK_EXPIRY = 24 * 60 * 60 * 1000;
-
-export const OFFICE_MIME_TYPES = [
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.ms-powerpoint',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-] as const;
-
-export const PREVIEWABLE_MIME_TYPES = [
-  'image/',
-  'video/',
-  'audio/',
-  'application/pdf',
-  'text/',
-  'application/json',
-  'application/xml',
-  ...OFFICE_MIME_TYPES,
-] as const;
-
-export function isPreviewableMimeType(mimeType: string | null | undefined): boolean {
-  if (!mimeType) return false;
-
-  if (mimeType.startsWith('image/')) return true;
-  if (mimeType.startsWith('video/')) return true;
-  if (mimeType.startsWith('audio/')) return true;
-  if (mimeType === 'application/pdf') return true;
-  if (mimeType.startsWith('text/')) return true;
-  if (mimeType === 'application/json') return true;
-  if (mimeType === 'application/xml') return true;
-  if (OFFICE_MIME_TYPES.includes(mimeType as (typeof OFFICE_MIME_TYPES)[number])) return true;
-
-  return false;
-}
 
 export const CODE_HIGHLIGHT_EXTENSIONS: Record<string, string> = {
   '.js': 'javascript',
@@ -184,6 +178,9 @@ export {
   getHttpStatus,
 } from './errorCodes';
 
+// 从 previewTypes.ts 导出所有预览相关常量（单一真相来源）
+export * from './previewTypes';
+
 export const AUDIT_ACTIONS = {
   USER_LOGIN: 'user.login',
   USER_LOGOUT: 'user.logout',
@@ -224,3 +221,57 @@ export const TAG_COLORS = [
   '#ec4899',
   '#f43f5e',
 ];
+
+export const EDITABLE_MIME_TYPES = [
+  'text/',
+  'application/json',
+  'application/xml',
+  'application/javascript',
+  'application/x-yaml',
+  'application/yaml',
+];
+
+export const EDITABLE_EXTENSIONS = [
+  'txt',
+  'md',
+  'markdown',
+  'json',
+  'js',
+  'jsx',
+  'ts',
+  'tsx',
+  'html',
+  'htm',
+  'css',
+  'scss',
+  'less',
+  'xml',
+  'yaml',
+  'yml',
+  'toml',
+  'ini',
+  'env',
+  'sh',
+  'bash',
+  'py',
+  'go',
+  'rs',
+  'java',
+  'c',
+  'cpp',
+  'h',
+  'hpp',
+  'cs',
+  'php',
+  'rb',
+  'sql',
+  'vue',
+  'svelte',
+];
+
+export function isEditableFile(mimeType: string | null, fileName: string): boolean {
+  if (!mimeType) return false;
+  if (EDITABLE_MIME_TYPES.some((t) => mimeType.startsWith(t) || mimeType === t)) return true;
+  const ext = fileName.split('.').pop()?.toLowerCase() || '';
+  return EDITABLE_EXTENSIONS.includes(ext);
+}

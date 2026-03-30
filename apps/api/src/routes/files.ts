@@ -9,7 +9,7 @@
  * - 文件预览与缩略图
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { eq, and, isNull, isNotNull, like, or, inArray, sql } from 'drizzle-orm';
 import { getDb, files, users, storageBuckets, filePermissions, telegramFileRefs, fileVersions } from '../db';
 import { checkFilePermission } from './permissions';
@@ -38,6 +38,7 @@ import {
   isChunkedFileId,
 } from '../lib/telegramChunked';
 import { checkAndClaimDedup, releaseFileRef, computeSha256Hex } from '../lib/dedup';
+import { createVersionSnapshot, shouldCreateVersion } from '../lib/versionManager';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -46,7 +47,8 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
  * preview / download 路由位于 authMiddleware 挂载点之前，需手动解析 token。
  * 支持 Authorization: Bearer <token> 和 ?token=<token> 两种方式。
  */
-async function resolveUserFromRequest(c: Parameters<typeof app.get>[1] extends (...args: infer A) => any ? A[0] : never): Promise<string | undefined> {
+
+async function resolveUserFromRequest(c: Context): Promise<string | undefined> {
   const jwtSecret = (c.env as Env).JWT_SECRET;
   const { verifyJWT } = await import('../lib/crypto');
 
@@ -55,7 +57,9 @@ async function resolveUserFromRequest(c: Parameters<typeof app.get>[1] extends (
     try {
       const payload = await verifyJWT(authHeader.slice(7), jwtSecret);
       if (payload?.userId) return payload.userId as string;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   const queryToken = c.req.query('token');
@@ -63,7 +67,9 @@ async function resolveUserFromRequest(c: Parameters<typeof app.get>[1] extends (
     try {
       const payload = await verifyJWT(queryToken, jwtSecret);
       if (payload?.userId) return payload.userId as string;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   return undefined;
@@ -114,7 +120,7 @@ const moveFileSchema = z.object({
 
 // ── Preview (before authMiddleware, supports token query param) ─────────────
 app.get('/:id/preview', async (c) => {
-  const userId = await resolveUserFromRequest(c as any);
+  const userId = await resolveUserFromRequest(c);
   if (!userId) throwAppError('UNAUTHORIZED');
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
@@ -126,7 +132,7 @@ app.get('/:id/preview', async (c) => {
     .get();
   if (!file) throwAppError('FILE_NOT_FOUND');
   if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '无法预览文件夹');
-  if (!isPreviewableMimeType(file.mimeType)) throwAppError('FILE_PREVIEW_NOT_SUPPORTED');
+  if (!isPreviewableMimeType(file.mimeType, file.name)) throwAppError('FILE_PREVIEW_NOT_SUPPORTED');
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
   const pvHeaders = {
     'Content-Type': file.mimeType || 'application/octet-stream',
@@ -174,7 +180,7 @@ app.get('/:id/preview', async (c) => {
 
 // ── Download (before authMiddleware, supports token query param) ───────────
 app.get('/:id/download', async (c) => {
-  const userId = await resolveUserFromRequest(c as any);
+  const userId = await resolveUserFromRequest(c);
   if (!userId) throwAppError('UNAUTHORIZED');
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
@@ -320,8 +326,7 @@ app.post('/upload', async (c) => {
   }
   if (bucketConfig) {
     const quotaErr = await checkBucketQuota(db, bucketConfig.id, uploadFile.size);
-    if (quotaErr)
-      throwAppError('STORAGE_EXCEEDED', quotaErr);
+    if (quotaErr) throwAppError('STORAGE_EXCEEDED', quotaErr);
   }
 
   const fileId = crypto.randomUUID();
@@ -565,14 +570,30 @@ app.post('/trash/:id/restore', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
+  const now = new Date().toISOString();
   const file = await db
     .select()
     .from(files)
     .where(and(eq(files.id, fileId), eq(files.userId, userId), isNotNull(files.deletedAt)))
     .get();
-  if (!file)
-    throwAppError('FILE_NOT_FOUND', '文件不存在或未被删除');
-  await db.update(files).set({ deletedAt: null, updatedAt: new Date().toISOString() }).where(eq(files.id, fileId));
+  if (!file) throwAppError('FILE_NOT_FOUND', '文件不存在或未被删除');
+
+  await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, fileId));
+
+  if (file.isFolder) {
+    const folderPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
+    const allFiles = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
+      .all();
+
+    const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(folderPath + '/'));
+    for (const child of childFiles) {
+      await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, child.id));
+    }
+  }
+
   return c.json({ success: true, data: { message: '已恢复' } });
 });
 
@@ -588,15 +609,43 @@ app.delete('/trash/:id', async (c) => {
     .where(and(eq(files.id, fileId), eq(files.userId, userId), isNotNull(files.deletedAt)))
     .get();
   if (!file) throwAppError('FILE_NOT_FOUND');
-  if (!file.isFolder) {
-    // CoW 引用计数：仅最后一个引用归零时才删除存储对象
+
+  let freedBytes = 0;
+
+  if (file.isFolder) {
+    const folderPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
+    const allFiles = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
+      .all();
+
+    const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(folderPath + '/'));
+
+    for (const child of childFiles) {
+      if (!child.isFolder) {
+        const { shouldDeleteStorage } = await releaseFileRef(db, child.id);
+        if (shouldDeleteStorage) {
+          await deleteFileFromStorage(c.env, db, userId, encKey, child);
+        }
+        freedBytes += child.size;
+      }
+      await db.delete(files).where(eq(files.id, child.id));
+    }
+  } else {
     const { shouldDeleteStorage } = await releaseFileRef(db, fileId);
     if (shouldDeleteStorage) {
       await deleteFileFromStorage(c.env, db, userId, encKey, file);
     }
-    await updateUserStorage(db, userId, -file.size);
+    freedBytes = file.size;
   }
+
   await db.delete(files).where(eq(files.id, fileId));
+
+  if (freedBytes > 0) {
+    await updateUserStorage(db, userId, -freedBytes);
+  }
+
   return c.json({ success: true, data: { message: '已永久删除' } });
 });
 
@@ -656,8 +705,7 @@ app.post('/', async (c) => {
       )
     )
     .get();
-  if (existing)
-    throwAppError('FOLDER_ALREADY_EXISTS', '同名文件夹已存在');
+  if (existing) throwAppError('FOLDER_ALREADY_EXISTS', '同名文件夹已存在');
 
   let effectiveBucketId: string | null = null;
   if (requestedBucketId) {
@@ -678,8 +726,8 @@ app.post('/', async (c) => {
         400
       );
     effectiveBucketId = requestedBucketId;
-  } else if (!parentId) {
-    const bucketConfig = await resolveBucketConfig(db, userId, encKey, null, null);
+  } else {
+    const bucketConfig = await resolveBucketConfig(db, userId, encKey, null, parentId);
     effectiveBucketId = bucketConfig?.id ?? null;
   }
 
@@ -757,8 +805,7 @@ app.post('/create', async (c) => {
       )
     )
     .get();
-  if (existing)
-    throwAppError('FILE_ALREADY_EXISTS', '同名文件已存在');
+  if (existing) throwAppError('FILE_ALREADY_EXISTS', '同名文件已存在');
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, requestedBucketId, parentId);
   const effectiveBucketId = bucketConfig?.id ?? requestedBucketId ?? null;
@@ -779,8 +826,7 @@ app.post('/create', async (c) => {
   }
   if (bucketConfig) {
     const quotaErr = await checkBucketQuota(db, bucketConfig.id, fileSize);
-    if (quotaErr)
-      throwAppError('STORAGE_EXCEEDED', quotaErr);
+    if (quotaErr) throwAppError('STORAGE_EXCEEDED', quotaErr);
   }
 
   const fileId = crypto.randomUUID();
@@ -995,6 +1041,212 @@ app.put('/:id', async (c) => {
   return c.json({ success: true, data: { message: '更新成功' } });
 });
 
+// ── Get file raw content (for editing) ─────────────────────────────────────
+app.get('/:id/raw', async (c) => {
+  const userId = c.get('userId')!;
+  const fileId = c.req.param('id');
+  const db = getDb(c.env.DB);
+
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read');
+  if (!hasAccess) {
+    throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
+  }
+
+  const file = await db.select().from(files).where(eq(files.id, fileId)).get();
+  if (!file) throwAppError('FILE_NOT_FOUND');
+  if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '无法获取文件夹内容');
+
+  const isEditableMimeType = (mimeType: string | null): boolean => {
+    if (!mimeType) return false;
+    const editableTypes = [
+      'text/',
+      'application/json',
+      'application/xml',
+      'application/javascript',
+      'application/x-yaml',
+      'application/yaml',
+    ];
+    return editableTypes.some((t) => mimeType.startsWith(t) || mimeType === t);
+  };
+
+  if (!isEditableMimeType(file.mimeType)) {
+    return c.json(
+      {
+        success: false,
+        error: { code: 'FILE_NOT_EDITABLE', message: '此文件类型不支持在线编辑' },
+      },
+      400
+    );
+  }
+
+  const maxEditableSize = 1024 * 1024;
+  if (file.size > maxEditableSize) {
+    return c.json(
+      {
+        success: false,
+        error: { code: 'FILE_TOO_LARGE', message: '文件过大，不支持在线编辑（最大 1MB）' },
+      },
+      400
+    );
+  }
+
+  const encKey = getEncryptionKey(c.env);
+  const bucketConfig = await resolveBucketConfig(db, file.userId, encKey, file.bucketId, file.parentId);
+
+  let content: string;
+
+  if (bucketConfig) {
+    const response = await s3Get(bucketConfig, file.r2Key);
+    const buffer = await response.arrayBuffer();
+    content = new TextDecoder('utf-8').decode(buffer);
+  } else if (c.env.FILES) {
+    const obj = await c.env.FILES.get(file.r2Key);
+    if (!obj) throwAppError('FILE_CONTENT_NOT_FOUND');
+    content = await obj.text();
+  } else {
+    throwAppError('NO_STORAGE_CONFIGURED', '存储桶未配置');
+  }
+
+  return c.json({
+    success: true,
+    data: {
+      content,
+      mimeType: file.mimeType,
+      size: file.size,
+      name: file.name,
+    },
+  });
+});
+
+// ── Update file content (with version snapshot) ─────────────────────────────
+const updateContentSchema = z.object({
+  content: z.string(),
+  changeSummary: z.string().max(500).optional(),
+});
+
+app.put('/:id/content', async (c) => {
+  const userId = c.get('userId')!;
+  const fileId = c.req.param('id');
+  const body = await c.req.json();
+  const result = updateContentSchema.safeParse(body);
+  if (!result.success) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
+  }
+
+  const { content, changeSummary } = result.data;
+  const db = getDb(c.env.DB);
+
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'write');
+  if (!hasAccess) {
+    throwAppError('FILE_WRITE_DENIED', '无权修改此文件');
+  }
+
+  const file = await db.select().from(files).where(eq(files.id, fileId)).get();
+  if (!file) throwAppError('FILE_NOT_FOUND');
+  if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '无法修改文件夹内容');
+
+  const isEditableMimeType = (mimeType: string | null): boolean => {
+    if (!mimeType) return false;
+    const editableTypes = [
+      'text/',
+      'application/json',
+      'application/xml',
+      'application/javascript',
+      'application/x-yaml',
+      'application/yaml',
+    ];
+    return editableTypes.some((t) => mimeType.startsWith(t) || mimeType === t);
+  };
+
+  if (!isEditableMimeType(file.mimeType)) {
+    return c.json(
+      {
+        success: false,
+        error: { code: 'FILE_NOT_EDITABLE', message: '此文件类型不支持在线编辑' },
+      },
+      400
+    );
+  }
+
+  const contentBuffer = new TextEncoder().encode(content);
+  const contentArrayBuffer = contentBuffer.buffer as ArrayBuffer;
+  const newSize = contentBuffer.byteLength;
+
+  const maxEditableSize = 1024 * 1024;
+  if (newSize > maxEditableSize) {
+    return c.json(
+      {
+        success: false,
+        error: { code: 'FILE_TOO_LARGE', message: '内容过大，不支持在线编辑（最大 1MB）' },
+      },
+      400
+    );
+  }
+
+  const newHash = await computeSha256Hex(contentArrayBuffer);
+  const encKey = getEncryptionKey(c.env);
+
+  const needsVersion = await shouldCreateVersion(db, fileId, newHash);
+  if (needsVersion && file.hash) {
+    await createVersionSnapshot(db, c.env, file, {
+      changeSummary: changeSummary ?? '内容更新',
+      createdBy: userId,
+    });
+  }
+
+  const bucketConfig = await resolveBucketConfig(db, file.userId, encKey, file.bucketId, file.parentId);
+
+  const currentVersion = file.currentVersion ?? 1;
+  const newR2Key = `files/${file.userId}/${fileId}/v${currentVersion + 1}_${file.name}`;
+
+  if (bucketConfig) {
+    await s3Put(bucketConfig, newR2Key, contentArrayBuffer, file.mimeType || 'text/plain', {
+      userId,
+      originalName: file.name,
+    });
+  } else if (c.env.FILES) {
+    await c.env.FILES.put(newR2Key, contentArrayBuffer, {
+      httpMetadata: { contentType: file.mimeType || 'text/plain' },
+      customMetadata: { userId, originalName: file.name },
+    });
+  } else {
+    throwAppError('NO_STORAGE_CONFIGURED', '存储桶未配置');
+  }
+
+  const sizeDelta = newSize - file.size;
+  const now = new Date().toISOString();
+
+  await db
+    .update(files)
+    .set({
+      r2Key: newR2Key,
+      size: newSize,
+      hash: newHash,
+      updatedAt: now,
+    })
+    .where(eq(files.id, fileId));
+
+  if (sizeDelta !== 0) {
+    await updateUserStorage(db, file.userId, sizeDelta);
+    if (bucketConfig) {
+      await updateBucketStats(db, bucketConfig.id, sizeDelta, 0);
+    }
+  }
+
+  return c.json({
+    success: true,
+    data: {
+      message: '文件内容已更新',
+      size: newSize,
+      hash: newHash,
+      versionCreated: needsVersion,
+    },
+  });
+});
+
 // ── Update folder settings (upload type control) ───────────────────────────
 app.put('/:id/settings', async (c) => {
   const userId = c.get('userId')!;
@@ -1014,8 +1266,7 @@ app.put('/:id/settings', async (c) => {
     .where(and(eq(files.id, fileId), eq(files.userId, userId)))
     .get();
   if (!file) throwAppError('FILE_NOT_FOUND');
-  if (!file.isFolder)
-    throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '只有文件夹可以设置上传类型限制');
+  if (!file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '只有文件夹可以设置上传类型限制');
 
   const { allowedMimeTypes } = result.data;
   const now = new Date().toISOString();
@@ -1059,8 +1310,7 @@ app.post('/:id/move', async (c) => {
   if (file.isFolder && targetParentId) {
     let checkId: string | null = targetParentId;
     while (checkId) {
-      if (checkId === fileId)
-        throwAppError('CANNOT_MOVE_TO_SUBFOLDER', '不能将文件夹移动到自身或其子文件夹中');
+      if (checkId === fileId) throwAppError('CANNOT_MOVE_TO_SUBFOLDER', '不能将文件夹移动到自身或其子文件夹中');
       const parent = await db.select().from(files).where(eq(files.id, checkId)).get();
       checkId = parent?.parentId ?? null;
     }
@@ -1138,17 +1388,16 @@ async function deleteFileFromStorage(
   encKey: string,
   file: typeof files.$inferSelect
 ) {
-  // ── 收集版本独有的 r2Key（与主文件不同且 refCount <= 1）
+  // ── 收集所有版本的 r2Key（排除与主文件相同的）
   const versions = await db
-    .select({ r2Key: fileVersions.r2Key, refCount: fileVersions.refCount })
+    .select({ r2Key: fileVersions.r2Key })
     .from(fileVersions)
     .where(eq(fileVersions.fileId, file.id))
     .all();
 
+  // 收集所有需要删除的版本 r2Key（去重后）
   const versionKeysToDelete = new Set(
-    versions
-      .filter((v) => v.r2Key !== file.r2Key && v.refCount <= 1)
-      .map((v) => v.r2Key)
+    versions.filter((v) => v.r2Key !== file.r2Key).map((v) => v.r2Key)
   );
 
   // ── Telegram 桶：清理 DB 引用（物理文件在 Telegram 服务器，无法强制删除）
@@ -1167,6 +1416,8 @@ async function deleteFileFromStorage(
           await db.delete(telegramFileRefs).where(eq(telegramFileRefs.r2Key, vKey));
         }
       }
+      // 删除所有版本记录
+      await db.delete(fileVersions).where(eq(fileVersions.fileId, file.id));
       await updateBucketStats(db, file.bucketId, -file.size, -1);
       return;
     }
@@ -1174,21 +1425,28 @@ async function deleteFileFromStorage(
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
   if (bucketConfig) {
+    // 删除主文件
     try {
       await s3Delete(bucketConfig, file.r2Key);
     } catch (e) {
       console.error(`S3 delete failed for ${file.r2Key}:`, e);
     }
+    // 删除所有版本存储对象
     for (const vKey of versionKeysToDelete) {
       await s3Delete(bucketConfig, vKey).catch((e) => console.error(`S3 version delete failed ${vKey}:`, e));
     }
     await updateBucketStats(db, bucketConfig.id, -file.size, -1);
   } else if (env.FILES) {
+    // 删除主文件
     await env.FILES.delete(file.r2Key);
+    // 删除所有版本存储对象
     for (const vKey of versionKeysToDelete) {
       await env.FILES.delete(vKey).catch(() => {});
     }
   }
+
+  // 删除所有版本记录
+  await db.delete(fileVersions).where(eq(fileVersions.fileId, file.id));
 }
 
 export default app;

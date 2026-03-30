@@ -1,6 +1,6 @@
 {
-  "name": "osshelf",
-  "version": "0.1.0",
+  "name": "ossshelf",
+  "version": "3.5.0",
   "private": true,
   "description": "基于 Cloudflare 部署的多厂商 OSS 文件管理系统，支持 WebDAV 协议",
   "scripts": {
@@ -38,6 +38,7 @@
     "eslint": "^8.56.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-prettier": "^5.1.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
     "prettier": "^3.2.0",
     "typescript": "^5.3.0"
   },

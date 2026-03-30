@@ -11,17 +11,17 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, desc, lt, sql } from 'drizzle-orm';
-import { getDb, files, fileVersions, users } from '../db';
+import { eq, and, desc, sql } from 'drizzle-orm';
+import { getDb, files, fileVersions, filePermissions } from '../db';
 import { authMiddleware } from '../middleware/auth';
-import { AppError, throwAppError } from '../middleware/error';
-import { ERROR_CODES } from '@osshelf/shared';
+import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
-import { s3Get, s3Put, s3Delete, decryptSecret } from '../lib/s3client';
-import { resolveBucketConfig, updateBucketStats } from '../lib/bucketResolver';
+import { updateUserStorage } from '../lib/bucketResolver';
+import { s3Get, s3Delete } from '../lib/s3client';
+import { resolveBucketConfig } from '../lib/bucketResolver';
 import { getEncryptionKey } from '../lib/crypto';
-import { computeSha256Hex, checkAndClaimDedup, releaseFileRef } from '../lib/dedup';
+import { isVersionableFile } from '../lib/versionManager';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -45,8 +45,8 @@ app.get('/:fileId/versions', async (c) => {
   if (file.userId !== userId) {
     const permission = await db
       .select()
-      .from(files)
-      .where(and(eq(files.id, fileId), eq(files.userId, userId!)))
+      .from(filePermissions)
+      .where(and(eq(filePermissions.fileId, fileId), eq(filePermissions.userId, userId!)))
       .get();
     if (!permission) {
       throwAppError('FILE_ACCESS_DENIED');
@@ -55,6 +55,21 @@ app.get('/:fileId/versions', async (c) => {
 
   if (file.isFolder) {
     throwAppError('FOLDER_VERSION_NOT_SUPPORTED');
+  }
+
+  if (!isVersionableFile(file.mimeType, file.name)) {
+    return c.json({
+      success: true,
+      data: {
+        versions: [],
+        currentVersion: file.currentVersion ?? 1,
+        maxVersions: file.maxVersions ?? 10,
+        versionRetentionDays: file.versionRetentionDays ?? 30,
+        total: 0,
+        versionable: false,
+        message: '此文件类型不支持版本控制，仅支持可编辑的文本文件',
+      },
+    });
   }
 
   const versions = await db
@@ -84,6 +99,7 @@ app.get('/:fileId/versions', async (c) => {
       maxVersions,
       versionRetentionDays,
       total: versions.length,
+      versionable: true,
     },
   });
 });
@@ -250,12 +266,13 @@ app.post('/:fileId/versions/:version/restore', async (c) => {
     })
     .where(eq(files.id, fileId));
 
-  if (targetVersion.hash) {
-    await db
-      .update(fileVersions)
-      .set({ refCount: sql`${fileVersions.refCount} + 1` })
-      .where(eq(fileVersions.hash, targetVersion.hash));
-  }
+  // 恢复版本不更新存储空间，因为版本的存储对象已经存在
+  // 文件的 size 字段仅表示当前版本的大小，不反映实际存储占用
+
+  await db
+    .update(fileVersions)
+    .set({ refCount: sql`${fileVersions.refCount} + 1` })
+    .where(eq(fileVersions.id, targetVersion.id));
 
   return c.json({
     success: true,
@@ -311,6 +328,7 @@ app.delete('/:fileId/versions/:version', async (c) => {
 
   const isLastRef = sharedRefs.length <= 1 && version.r2Key !== file.r2Key;
 
+  // 删除版本记录
   await db.delete(fileVersions).where(eq(fileVersions.id, version.id));
 
   // 若是最后一个引用且与主文件 r2Key 不同，清理物理对象
@@ -324,6 +342,8 @@ app.delete('/:fileId/versions/:version', async (c) => {
     } else if (c.env.FILES) {
       await (c.env.FILES as R2Bucket).delete(version.r2Key).catch(() => {});
     }
+    // 释放存储空间
+    await updateUserStorage(db, userId!, -version.size);
   }
 
   return c.json({

@@ -57,7 +57,9 @@ export async function resolveBucketConfig(
   if (parentId) {
     // SQLite 递归 CTE：从 parentId 出发，向上收集所有祖先的 bucketId
     // 取第一个非 null 的 bucketId（最近的祖先优先，ORDER BY depth ASC）
-    const ancestorBucketId = await db.run(sql`
+    const ancestorBucketId = await db
+      .run(
+        sql`
       WITH RECURSIVE ancestors(id, bucket_id, parent_id, depth) AS (
         SELECT id, bucket_id, parent_id, 0
         FROM files
@@ -76,10 +78,12 @@ export async function resolveBucketConfig(
       WHERE bucket_id IS NOT NULL
       ORDER BY depth ASC
       LIMIT 1
-    `).then((r) => {
-      const rows = r.results as Array<{ bucket_id: string }>;
-      return rows[0]?.bucket_id ?? null;
-    });
+    `
+      )
+      .then((r) => {
+        const rows = r.results as Array<{ bucket_id: string }>;
+        return rows[0]?.bucket_id ?? null;
+      });
 
     if (ancestorBucketId) {
       const row = await db

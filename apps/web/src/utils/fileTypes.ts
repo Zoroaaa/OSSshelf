@@ -7,7 +7,25 @@
  * - MIME类型判断
  * - 文件图标映射
  * - 预览类型判断
+ *
+ * ============================================================================
+ * 【重要提醒】修改此文件后必须同步更新：
+ *   - packages/shared/src/constants/previewTypes.ts      # 预览类型配置
+ *   - apps/web/src/components/files/FileIcon.tsx        # 文件图标
+ * ============================================================================
  */
+
+import {
+  IMAGE_MIME_PREFIX,
+  VIDEO_MIME_PREFIX,
+  AUDIO_MIME_PREFIX,
+  PDF_MIME_TYPE,
+  TEXT_MIME_PREFIX,
+  OFFICE_MIME_TYPES,
+  EPUB_MIME_TYPES,
+  FONT_MIME_TYPES,
+  isPreviewableMimeType,
+} from '@osshelf/shared';
 
 export type FileCategory =
   | 'image'
@@ -22,39 +40,38 @@ export type FileCategory =
   | 'installer'
   | 'text'
   | 'folder'
+  | 'epub'
+  | 'font'
   | 'unknown';
 
-export function getFileCategory(mimeType: string | null | undefined, isFolder?: boolean): FileCategory {
+export function getFileCategory(
+  mimeType: string | null | undefined,
+  isFolder?: boolean,
+  fileName?: string
+): FileCategory {
   if (isFolder) return 'folder';
-  if (!mimeType) return 'unknown';
+  if (!mimeType) {
+    if (fileName) {
+      const ext = '.' + (fileName.split('.').pop()?.toLowerCase() || '');
+      if (ext === '.epub') return 'epub';
+      if (['.ttf', '.otf', '.woff', '.woff2'].includes(ext)) return 'font';
+    }
+    return 'unknown';
+  }
 
-  if (mimeType.startsWith('image/')) return 'image';
-  if (mimeType.startsWith('video/')) return 'video';
-  if (mimeType.startsWith('audio/')) return 'audio';
-  if (mimeType === 'application/pdf') return 'pdf';
-  if (mimeType.startsWith('text/')) return 'text';
+  if (mimeType.startsWith(IMAGE_MIME_PREFIX)) return 'image';
+  if (mimeType.startsWith(VIDEO_MIME_PREFIX)) return 'video';
+  if (mimeType.startsWith(AUDIO_MIME_PREFIX)) return 'audio';
+  if (mimeType === PDF_MIME_TYPE) return 'pdf';
+  if (mimeType.startsWith(TEXT_MIME_PREFIX)) return 'text';
+  if (EPUB_MIME_TYPES.includes(mimeType as (typeof EPUB_MIME_TYPES)[number])) return 'epub';
+  if (FONT_MIME_TYPES.includes(mimeType as (typeof FONT_MIME_TYPES)[number])) return 'font';
 
-  const docTypes = [
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.oasis.opendocument.text',
-  ];
-  if (docTypes.includes(mimeType)) return 'document';
-
-  const sheetTypes = [
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.oasis.opendocument.spreadsheet',
-    'text/csv',
-  ];
-  if (sheetTypes.includes(mimeType)) return 'spreadsheet';
-
-  const pptTypes = [
-    'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'application/vnd.oasis.opendocument.presentation',
-  ];
-  if (pptTypes.includes(mimeType)) return 'presentation';
+  if (OFFICE_MIME_TYPES.word.includes(mimeType as (typeof OFFICE_MIME_TYPES.word)[number])) return 'document';
+  if (OFFICE_MIME_TYPES.excel.includes(mimeType as (typeof OFFICE_MIME_TYPES.excel)[number])) return 'spreadsheet';
+  if (OFFICE_MIME_TYPES.powerpoint.includes(mimeType as (typeof OFFICE_MIME_TYPES.powerpoint)[number])) {
+    return 'presentation';
+  }
 
   const archiveTypes = [
     'application/zip',
@@ -91,13 +108,10 @@ export function getFileCategory(mimeType: string | null | undefined, isFolder?: 
   return 'unknown';
 }
 
-import { isPreviewableMimeType } from '@osshelf/shared';
-
 export function isPreviewable(mimeType: string | null | undefined): boolean {
   return isPreviewableMimeType(mimeType);
 }
 
-/** Color class for each category */
 export function getCategoryColor(category: FileCategory): string {
   const colors: Record<FileCategory, string> = {
     folder: 'text-amber-400',
@@ -112,12 +126,13 @@ export function getCategoryColor(category: FileCategory): string {
     archive: 'text-yellow-400',
     installer: 'text-indigo-400',
     text: 'text-slate-400',
+    epub: 'text-teal-400',
+    font: 'text-rose-400',
     unknown: 'text-muted-foreground',
   };
   return colors[category];
 }
 
-/** Background tint for grid cards */
 export function getCategoryBg(category: FileCategory): string {
   const bgs: Record<FileCategory, string> = {
     folder: 'bg-amber-500/10',
@@ -132,6 +147,8 @@ export function getCategoryBg(category: FileCategory): string {
     archive: 'bg-yellow-500/10',
     installer: 'bg-indigo-500/10',
     text: 'bg-slate-500/10',
+    epub: 'bg-teal-500/10',
+    font: 'bg-rose-500/10',
     unknown: 'bg-muted/50',
   };
   return bgs[category];

@@ -13,6 +13,9 @@ export interface Env {
 export type Variables = {
   userId?: string;
   user?: { id: string; email: string; role: string };
+  authType?: 'jwt' | 'apiKey';
+  apiKeyId?: string;
+  apiKeyScopes?: string[];
 };
 
 export type AppContext = Context<{ Bindings: Env; Variables: Variables }>;

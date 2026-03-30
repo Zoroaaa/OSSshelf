@@ -10,6 +10,7 @@
 import { useCallback } from 'react';
 import { useContextMenuState, ContextMenuItem } from '@/components/ui/ContextMenu';
 import type { FileItem } from '@osshelf/shared';
+import { isEditableFile } from '@osshelf/shared';
 import type { FileContextMenuCallbacks, BackgroundContextMenuCallbacks } from '@/types/files';
 import {
   Eye,
@@ -79,7 +80,7 @@ export function useFileContextMenu() {
           label: '版本历史',
           icon: <History className="h-4 w-4" />,
           action: () => callbacks.onVersionHistory?.(file),
-          disabled: file.isFolder,
+          disabled: file.isFolder || !isEditableFile(file.mimeType, file.name),
         },
         {
           id: 'tags',

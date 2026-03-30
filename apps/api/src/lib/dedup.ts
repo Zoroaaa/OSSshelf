@@ -106,10 +106,7 @@ export async function releaseFileRef(db: DrizzleDb, fileId: string): Promise<{ s
   }
 
   // ref_count 为 1（或已为 0）：此次是最后一个引用，归零并通知调用方清理存储
-  await db
-    .update(files)
-    .set({ refCount: 0, updatedAt: now })
-    .where(eq(files.id, fileId));
+  await db.update(files).set({ refCount: 0, updatedAt: now }).where(eq(files.id, fileId));
 
   return { shouldDeleteStorage: true };
 }

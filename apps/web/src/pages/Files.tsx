@@ -366,28 +366,36 @@ export default function Files() {
 
   const handleDownload = useCallback(
     async (file: FileItem) => {
-      try {
-        const { url, fileName } = await getPresignedDownloadUrl(file.id);
+      // 强制下载辅助函数：将 blob 以 octet-stream 强制触发下载，避免浏览器 inline 打开
+      const forceBlobDownload = (blob: Blob, name: string) => {
+        const forceBlob = new Blob([blob], { type: 'application/octet-stream' });
+        const blobUrl = URL.createObjectURL(forceBlob);
         const a = document.createElement('a');
-        a.href = url;
-        a.download = fileName || file.name;
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
+        a.href = blobUrl;
+        a.download = name;
         document.body.appendChild(a);
         a.click();
         a.remove();
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+      };
+
+      try {
+        const result = await getPresignedDownloadUrl(file.id);
+        const { url, fileName } = result;
+
+        // 统一使用 fetch + blob 方式下载，避免跨域时 <a download> 属性无效导致浏览器直接打开
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error('download failed');
+        const blob = await resp.blob();
+        forceBlobDownload(blob, fileName || file.name);
       } catch {
         try {
           const downloadToken = token || useAuthStore.getState().token;
           const downloadUrl = filesApi.downloadUrl(file.id, downloadToken ?? undefined);
-          const a = document.createElement('a');
-          a.href = downloadUrl;
-          a.download = file.name;
-          a.target = '_blank';
-          a.rel = 'noopener noreferrer';
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
+          const resp = await fetch(downloadUrl);
+          if (!resp.ok) throw new Error('download failed');
+          const blob = await resp.blob();
+          forceBlobDownload(blob, file.name);
         } catch {
           toast({ title: '下载失败', variant: 'destructive' });
         }
@@ -1216,6 +1224,13 @@ export default function Files() {
           onShare={(id) => {
             setPreviewFile(null);
             setShareFileId(id);
+          }}
+          onEdit={() => {
+            // 编辑功能已集成在 FilePreview 内部
+          }}
+          onVersionHistory={(file) => {
+            setPreviewFile(null);
+            setVersionHistoryFile(file);
           }}
         />
       )}
