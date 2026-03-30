@@ -35,17 +35,12 @@
 
 详细的版本更新日志请参阅 [CHANGELOG.md](CHANGELOG.md)。
 
-### 最新版本 v3.4.0
+### 最新版本 v3.5.0
 
-- 大幅强化文件预览功能
-- 预览大小限制提升至 30MB
-- 新增 EPUB 电子书预览
-- 新增字体文件预览（TTF/OTF/WOFF/WOFF2）
-- 新增 ZIP 压缩包内容列表预览
-- CSV 表格增强预览（搜索、排序、分页）
-- PowerPoint 幻灯片预览
-- PDF 分页预览与缩放控制
-- Excel 多工作表与样式保留预览
+- **API Keys 管理**：支持创建、管理 API 密钥，实现程序化访问
+- **文件笔记面板**：为文件添加评论和笔记，支持 @提及和回复
+- **文件编辑功能**：直接在系统内创建和编辑文本文件
+- **版本控制重构**：仅支持可编辑的文本文件，优化版本存储和恢复逻辑
 
 ---
 
@@ -72,8 +67,10 @@
   - **字体**: TTF/OTF/WOFF/WOFF2 字符预览
   - **ZIP**: 压缩包内容列表、文件树展示
   - **CSV**: 表格视图、搜索、排序、分页
-- 📜 **版本控制**: 文件历史版本管理、版本回滚、版本对比
+- 📜 **版本控制**: 可编辑文本文件的版本历史管理、版本回滚（仅支持代码、配置、Markdown 等文本文件）
 - 🔐 **权限管理**: 文件/文件夹级别的权限控制
+- 🔑 **API Keys**: 创建和管理 API 密钥，支持细粒度权限控制，实现程序化访问
+- 💬 **文件笔记**: 为文件添加评论和笔记，支持 @提及和回复
 - 🏷️ **标签系统**: 为文件添加自定义标签
 - 🔍 **高级搜索**: 按名称、类型、大小、时间等条件搜索
 - 📥 **离线下载**: 支持 URL 离线下载到云存储
@@ -381,6 +378,7 @@ ossshelf/
 │   │   │   │   ├── telegramChunked.ts # Telegram 分片上传
 │   │   │   │   ├── crypto.ts    # 加密工具
 │   │   │   │   ├── dedup.ts     # 文件去重
+│   │   │   │   ├── versionManager.ts # 版本管理 (v3.5.0 重构)
 │   │   │   │   └── cleanup.ts   # 清理任务
 │   │   │   ├── middleware/     # 中间件
 │   │   │   ├── routes/         # API 路由
@@ -397,6 +395,8 @@ ossshelf/
 │   │   │   │   ├── downloads.ts # 离线下载
 │   │   │   │   ├── preview.ts   # 预览
 │   │   │   │   ├── versions.ts  # 版本控制 (v3.3.0)
+│   │   │   │   ├── notes.ts     # 文件笔记 (v3.5.0)
+│   │   │   │   ├── apiKeys.ts   # API Keys 管理 (v3.5.0)
 │   │   │   │   ├── admin.ts     # 管理员
 │   │   │   │   ├── migrate.ts   # 迁移
 │   │   │   │   ├── telegram.ts  # Telegram
@@ -410,11 +410,16 @@ ossshelf/
 │   │   │   ├── 0004_telegram_storage.sql
 │   │   │   ├── 0005_dedup_and_upload_links.sql
 │   │   │   ├── 0006_upload_progress.sql
-│   │   │   └── 0007_phase7.sql
+│   │   │   ├── 0007_phase7.sql
+│   │   │   ├── 0010_notes.sql   # 文件笔记 (v3.5.0)
+│   │   │   └── 0011_api_keys.sql # API Keys (v3.5.0)
 │   │   └── wrangler.toml       # Cloudflare 配置
 │   └── web/                    # 前端应用
 │       ├── src/
 │       │   ├── components/     # UI 组件
+│       │   │   ├── notes/      # 笔记组件 (v3.5.0)
+│       │   │   ├── editor/     # 编辑器组件 (v3.5.0)
+│       │   │   └── settings/   # 设置组件
 │       │   ├── hooks/          # 自定义 Hooks
 │       │   ├── pages/          # 页面组件
 │       │   ├── services/       # API 服务
@@ -427,6 +432,7 @@ ossshelf/
 │               └── index.ts    # 常量定义
 └── docs/                       # 文档
     ├── api.md                  # API 文档
+    ├── api-key-guide.md        # API Key 使用指南 (v3.5.0)
     ├── architecture.md         # 架构文档
     └── deployment.md           # 部署文档
 ```
@@ -454,6 +460,8 @@ ossshelf/
 | `/api/permissions` | 权限与标签        |
 | `/api/preview`     | 文件预览          |
 | `/api/versions`    | 版本控制 (v3.3.0) |
+| `/api/notes`       | 文件笔记 (v3.5.0) |
+| `/api/api-keys`    | API Keys 管理 (v3.5.0) |
 | `/api/admin`       | 管理员接口        |
 | `/api/migrate`     | 存储桶迁移        |
 | `/api/telegram`    | Telegram 存储     |

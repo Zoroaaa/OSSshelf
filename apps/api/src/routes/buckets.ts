@@ -382,6 +382,26 @@ app.delete('/:id', async (c) => {
     throwAppError('BUCKET_NOT_FOUND');
   }
 
+  const filesUsingBucket = await db
+    .select({ id: files.id })
+    .from(files)
+    .where(and(eq(files.bucketId, id), eq(files.userId, userId), isNull(files.deletedAt)))
+    .limit(1)
+    .all();
+
+  if (filesUsingBucket.length > 0) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'BUCKET_IN_USE',
+          message: '该存储桶正在被文件使用，请先迁移或删除相关文件',
+        },
+      },
+      400
+    );
+  }
+
   if (bucket.isDefault) {
     // 晋升最早创建的存储桶为新默认桶（确定性，避免随机顺序）
     const remaining = await db

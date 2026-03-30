@@ -2,7 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v3.4.0] - 2024-03-27
+## [v3.5.0] - 2026-03-30
+
+### Added
+
+- API Keys 管理：支持创建、管理 API 密钥，实现程序化访问
+  - 支持 6 种权限范围：文件读取、文件写入、分享读取、分享管理、存储桶查看、API Keys 管理
+  - 支持设置密钥过期时间
+  - 完整的 API Key 使用文档
+- 文件笔记面板：为文件添加评论和笔记
+  - 支持 @提及其他用户
+  - 支持笔记回复（嵌套评论）
+  - 支持删除笔记和回复
+- 文件编辑功能：直接在系统内创建和编辑文本文件
+  - 支持多种文本格式（代码、配置文件、Markdown 等）
+  - 编辑时自动创建版本快照
+
+### Changed
+
+- 文件版本控制功能重构
+  - 仅支持可编辑的文本文件类型（代码、配置、Markdown 等）
+  - 图片、视频、音频等二进制文件不再支持版本控制
+  - 版本存储优化：每次编辑生成独立的存储路径，确保历史版本内容不被覆盖
+  - 版本恢复功能修复：正确恢复到指定版本内容
+
+### Improved
+
+- 版本历史 UI 优化：仅对可编辑文件显示版本历史按钮
+- 右键菜单优化：版本历史选项仅对可编辑文件显示
+
+## [v3.4.0] - 2026-03-27
 
 ### Added
 
@@ -22,7 +51,7 @@ All notable changes to this project will be documented in this file.
 - 统一预览类型配置（previewTypes.ts）
 - 预览组件性能优化
 
-## [v3.3.0] - 2024-03-24
+## [v3.3.0] - 2026-03-24
 
 ### Added
 
@@ -31,7 +60,7 @@ All notable changes to this project will be documented in this file.
 - 新增 Excel 文件预览
 - 后端错误码统一管理
 
-## [v3.2.0] - 2024-03-23
+## [v3.2.0] - 2026-03-23
 
 ### Added
 
@@ -44,7 +73,7 @@ All notable changes to this project will be documented in this file.
 - 优化移动端排版
 - 其他细节优化
 
-## [v3.1.0] - 2024-03-20
+## [v3.1.0] - 2026-03-20
 
 ### Added
 
@@ -57,7 +86,7 @@ All notable changes to this project will be documented in this file.
 
 - 其他功能细节优化调整
 
-## [v2.1.0] - 2024-03-19
+## [v2.1.0] - 2026-03-19
 
 ### Added
 
@@ -68,7 +97,7 @@ All notable changes to this project will be documented in this file.
 - 优化 WebDAV 在 Windows 资源管理器等场景的使用
 - 优化其他一系列功能
 
-## [v1.1.0] - 2024-03-17
+## [v1.1.0] - 2026-03-17
 
 ### Added
 

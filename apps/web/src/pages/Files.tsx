@@ -381,7 +381,7 @@ export default function Files() {
 
       try {
         const result = await getPresignedDownloadUrl(file.id);
-        const { url, fileName, useProxy } = result;
+        const { url, fileName } = result;
 
         // 统一使用 fetch + blob 方式下载，避免跨域时 <a download> 属性无效导致浏览器直接打开
         const resp = await fetch(url);
@@ -1224,6 +1224,13 @@ export default function Files() {
           onShare={(id) => {
             setPreviewFile(null);
             setShareFileId(id);
+          }}
+          onEdit={() => {
+            // 编辑功能已集成在 FilePreview 内部
+          }}
+          onVersionHistory={(file) => {
+            setPreviewFile(null);
+            setVersionHistoryFile(file);
           }}
         />
       )}

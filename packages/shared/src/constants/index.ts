@@ -221,3 +221,57 @@ export const TAG_COLORS = [
   '#ec4899',
   '#f43f5e',
 ];
+
+export const EDITABLE_MIME_TYPES = [
+  'text/',
+  'application/json',
+  'application/xml',
+  'application/javascript',
+  'application/x-yaml',
+  'application/yaml',
+];
+
+export const EDITABLE_EXTENSIONS = [
+  'txt',
+  'md',
+  'markdown',
+  'json',
+  'js',
+  'jsx',
+  'ts',
+  'tsx',
+  'html',
+  'htm',
+  'css',
+  'scss',
+  'less',
+  'xml',
+  'yaml',
+  'yml',
+  'toml',
+  'ini',
+  'env',
+  'sh',
+  'bash',
+  'py',
+  'go',
+  'rs',
+  'java',
+  'c',
+  'cpp',
+  'h',
+  'hpp',
+  'cs',
+  'php',
+  'rb',
+  'sql',
+  'vue',
+  'svelte',
+];
+
+export function isEditableFile(mimeType: string | null, fileName: string): boolean {
+  if (!mimeType) return false;
+  if (EDITABLE_MIME_TYPES.some((t) => mimeType.startsWith(t) || mimeType === t)) return true;
+  const ext = fileName.split('.').pop()?.toLowerCase() || '';
+  return EDITABLE_EXTENSIONS.includes(ext);
+}

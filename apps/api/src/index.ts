@@ -31,6 +31,8 @@ import telegramRoutes from './routes/telegram';
 import migrateRoutes from './routes/migrate';
 import directLinkRoutes from './routes/directLink';
 import versionsRoutes from './routes/versions';
+import notesRoutes from './routes/notes';
+import apiKeysRoutes from './routes/apiKeys';
 import { errorHandler } from './middleware/error';
 import { runAllCleanupTasks } from './lib/cleanup';
 import type { Env } from './types/env';
@@ -46,7 +48,7 @@ app.use(
       const corsOrigins = c.env.CORS_ORIGINS || '';
       const allowedOrigins = corsOrigins
         .split(',')
-        .map((o) => o.trim())
+        .map((o: string) => o.trim())
         .filter(Boolean);
       const defaultOrigins = [
         'http://localhost:3000',
@@ -147,6 +149,8 @@ app.route('/api/telegram', telegramRoutes);
 app.route('/api/migrate', migrateRoutes);
 app.route('/api/direct', directLinkRoutes);
 app.route('/api/versions', versionsRoutes);
+app.route('/api/notes', notesRoutes);
+app.route('/api/keys', apiKeysRoutes);
 app.route('/cron', cronRoutes);
 app.route('/dav', webdavRoutes);
 

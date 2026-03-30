@@ -10,7 +10,7 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, inArray, like } from 'drizzle-orm';
+import { eq, and, inArray, like, isNull } from 'drizzle-orm';
 import { getDb, files, filePermissions, users, fileTags } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
@@ -112,35 +112,53 @@ app.post('/grant', async (c) => {
     throwAppError('USER_NOT_FOUND', '目标用户不存在');
   }
 
-  const existing = await db
-    .select()
-    .from(filePermissions)
-    .where(and(eq(filePermissions.fileId, fileId), eq(filePermissions.userId, targetUserId)))
-    .get();
-
   const now = new Date().toISOString();
 
-  if (existing) {
-    await db.update(filePermissions).set({ permission, updatedAt: now }).where(eq(filePermissions.id, existing.id));
-  } else {
-    await db.insert(filePermissions).values({
-      id: crypto.randomUUID(),
-      fileId,
-      userId: targetUserId,
-      permission,
-      grantedBy: userId,
-      createdAt: now,
-      updatedAt: now,
-    });
+  const grantPermissionForFile = async (fId: string) => {
+    const existing = await db
+      .select()
+      .from(filePermissions)
+      .where(and(eq(filePermissions.fileId, fId), eq(filePermissions.userId, targetUserId)))
+      .get();
+
+    if (existing) {
+      await db.update(filePermissions).set({ permission, updatedAt: now }).where(eq(filePermissions.id, existing.id));
+    } else {
+      await db.insert(filePermissions).values({
+        id: crypto.randomUUID(),
+        fileId: fId,
+        userId: targetUserId,
+        permission,
+        grantedBy: userId,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+  };
+
+  await grantPermissionForFile(fileId);
+
+  if (file.isFolder) {
+    const folderPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
+    const allFiles = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.userId, file.userId), isNull(files.deletedAt)))
+      .all();
+
+    const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(folderPath + '/'));
+    for (const child of childFiles) {
+      await grantPermissionForFile(child.id);
+    }
   }
 
   await createAuditLog({
     env: c.env,
     userId,
-    action: 'file.move',
+    action: 'permission.grant',
     resourceType: 'permission',
     resourceId: fileId,
-    details: { targetUserId, permission, fileName: file.name },
+    details: { targetUserId, permission, fileName: file.name, isFolder: file.isFolder },
     ipAddress: getClientIp(c),
     userAgent: getUserAgent(c),
   });

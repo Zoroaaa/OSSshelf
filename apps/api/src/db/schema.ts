@@ -56,6 +56,8 @@ export const files = sqliteTable(
     currentVersion: integer('current_version').default(1),
     maxVersions: integer('max_versions').default(10),
     versionRetentionDays: integer('version_retention_days').default(30),
+    description: text('description'),
+    noteCount: integer('note_count').default(0),
   },
   (table) => ({
     userParentIdx: index('idx_files_user_parent_active').on(table.userId, table.parentId),
@@ -368,5 +370,111 @@ export const fileVersions = sqliteTable(
   })
 );
 
+export const fileNotes = sqliteTable(
+  'file_notes',
+  {
+    id: text('id').primaryKey(),
+    fileId: text('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    content: text('content').notNull(),
+    contentHtml: text('content_html'),
+    isPinned: integer('is_pinned', { mode: 'boolean' }).notNull().default(false),
+    version: integer('version').notNull().default(1),
+    parentId: text('parent_id'),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+    updatedAt: text('updated_at').notNull().default('CURRENT_TIMESTAMP'),
+    deletedAt: text('deleted_at'),
+  },
+  (table) => ({
+    fileDeletedIdx: index('idx_file_notes_file').on(table.fileId, table.deletedAt, table.createdAt),
+    userIdx: index('idx_file_notes_user').on(table.userId, table.createdAt),
+    pinnedIdx: index('idx_file_notes_pinned').on(table.fileId, table.isPinned),
+  })
+);
+
+export const fileNoteHistory = sqliteTable(
+  'file_note_history',
+  {
+    id: text('id').primaryKey(),
+    noteId: text('note_id')
+      .notNull()
+      .references(() => fileNotes.id, { onDelete: 'cascade' }),
+    content: text('content').notNull(),
+    version: integer('version').notNull(),
+    editedBy: text('edited_by').references(() => users.id),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    noteVersionIdx: index('idx_file_note_history_note').on(table.noteId, table.version),
+  })
+);
+
+export const noteMentions = sqliteTable(
+  'note_mentions',
+  {
+    id: text('id').primaryKey(),
+    noteId: text('note_id')
+      .notNull()
+      .references(() => fileNotes.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    isRead: integer('is_read', { mode: 'boolean' }).notNull().default(false),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    userIdx: index('idx_note_mentions_user').on(table.userId, table.isRead),
+    noteIdx: index('idx_note_mentions_note').on(table.noteId),
+  })
+);
+
+export const apiKeys = sqliteTable(
+  'api_keys',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    keyHash: text('key_hash').notNull().unique(),
+    keyPrefix: text('key_prefix').notNull(),
+    scopes: text('scopes').notNull(),
+    lastUsedAt: text('last_used_at'),
+    expiresAt: text('expires_at'),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    userIdx: index('idx_api_keys_user').on(table.userId, table.isActive),
+    prefixIdx: index('idx_api_keys_prefix').on(table.keyPrefix),
+    hashIdx: index('idx_api_keys_hash').on(table.keyHash),
+  })
+);
+
+export const webhooks = sqliteTable(
+  'webhooks',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    url: text('url').notNull(),
+    secret: text('secret').notNull(),
+    events: text('events').notNull(),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    lastStatus: integer('last_status'),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    userIdx: index('idx_webhooks_user').on(table.userId, table.isActive),
+  })
+);
+
 export type File = typeof files.$inferSelect;
 export type FileVersion = typeof fileVersions.$inferSelect;
+export type FileNote = typeof fileNotes.$inferSelect;
+export type ApiKey = typeof apiKeys.$inferSelect;

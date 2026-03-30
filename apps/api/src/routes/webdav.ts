@@ -28,7 +28,7 @@ import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files, users } from '../db';
 import type { File } from '../db/schema';
 import { s3Put, s3Get, s3Delete } from '../lib/s3client';
-import { resolveBucketConfig, updateBucketStats, checkBucketQuota } from '../lib/bucketResolver';
+import { resolveBucketConfig, updateBucketStats, checkBucketQuota, updateUserStorage } from '../lib/bucketResolver';
 import { verifyPassword, getEncryptionKey } from '../lib/crypto';
 import type { Env, Variables } from '../types/env';
 
@@ -532,7 +532,19 @@ async function handlePut(c: AppContext, userId: string, path: string) {
 
   const bucketCfgP = await resolveBucketConfig(db, userId, encKeyP, null, parentId);
 
-  if (!existingFile) {
+  if (existingFile) {
+    const sizeDelta = body.byteLength - existingFile.size;
+    if (sizeDelta > 0) {
+      const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
+      if (userRow && userRow.storageUsed + sizeDelta > userRow.storageQuota) {
+        return new Response('Insufficient Storage', { status: 507, headers: DAV_BASE_HEADERS });
+      }
+      if (bucketCfgP) {
+        const quotaErr = await checkBucketQuota(db, bucketCfgP.id, sizeDelta);
+        if (quotaErr) return new Response(quotaErr, { status: 507, headers: DAV_BASE_HEADERS });
+      }
+    }
+  } else {
     const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
     if (userRow && userRow.storageUsed + body.byteLength > userRow.storageQuota) {
       return new Response('Insufficient Storage', { status: 507, headers: DAV_BASE_HEADERS });
@@ -540,6 +552,20 @@ async function handlePut(c: AppContext, userId: string, path: string) {
     if (bucketCfgP) {
       const quotaErr = await checkBucketQuota(db, bucketCfgP.id, body.byteLength);
       if (quotaErr) return new Response(quotaErr, { status: 507, headers: DAV_BASE_HEADERS });
+    }
+  }
+
+  if (existingFile && existingFile.r2Key !== r2Key) {
+    const oldBucketCfg = await resolveBucketConfig(db, userId, encKeyP, existingFile.bucketId, existingFile.parentId);
+    if (oldBucketCfg) {
+      try {
+        await s3Delete(oldBucketCfg, existingFile.r2Key);
+      } catch (e) {
+        console.error('webdav put: failed to delete old object:', e);
+      }
+      await updateBucketStats(db, oldBucketCfg.id, -existingFile.size, -1);
+    } else if (c.env.FILES) {
+      await c.env.FILES.delete(existingFile.r2Key);
     }
   }
 
@@ -552,15 +578,19 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   }
 
   if (existingFile) {
-    await db.update(files).set({ size: body.byteLength, mimeType, updatedAt: now }).where(eq(files.id, fileId));
+    await db
+      .update(files)
+      .set({ size: body.byteLength, mimeType, r2Key, bucketId: bucketCfgP?.id ?? null, updatedAt: now })
+      .where(eq(files.id, fileId));
 
-    const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
-    if (userRow) {
-      const sizeDelta = body.byteLength - existingFile.size;
-      await db
-        .update(users)
-        .set({ storageUsed: Math.max(0, userRow.storageUsed + sizeDelta), updatedAt: now })
-        .where(eq(users.id, userId));
+    const sizeDelta = body.byteLength - existingFile.size;
+    if (sizeDelta !== 0) {
+      await updateUserStorage(db, userId, sizeDelta);
+    }
+    if (bucketCfgP && existingFile.r2Key !== r2Key) {
+      await updateBucketStats(db, bucketCfgP.id, body.byteLength, 1);
+    } else if (bucketCfgP) {
+      await updateBucketStats(db, bucketCfgP.id, sizeDelta, 0);
     }
   } else {
     await db.insert(files).values({
@@ -582,20 +612,13 @@ async function handlePut(c: AppContext, userId: string, path: string) {
     });
     if (bucketCfgP) await updateBucketStats(db, bucketCfgP.id, body.byteLength, 1);
 
-    const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
-    if (userRow) {
-      await db
-        .update(users)
-        .set({ storageUsed: userRow.storageUsed + body.byteLength, updatedAt: now })
-        .where(eq(users.id, userId));
-    }
+    await updateUserStorage(db, userId, body.byteLength);
   }
 
   return new Response(null, { status: existingFile ? 204 : 201, headers: DAV_BASE_HEADERS });
 }
 
 async function handleMkcol(c: AppContext, userId: string, path: string) {
-  // 关键修复：先去除尾部斜杠，确保路径解析正确
   const cleanPath = path.endsWith('/') ? path.slice(0, -1) : path;
   const folderName = cleanPath.split('/').pop() || 'untitled';
   const parentPath = cleanPath.lastIndexOf('/') > 0 ? cleanPath.slice(0, cleanPath.lastIndexOf('/')) : '/';
@@ -609,7 +632,6 @@ async function handleMkcol(c: AppContext, userId: string, path: string) {
     parentId = parentFolder.id;
   }
 
-  // 文件夹路径存储时带尾部斜杠
   const normalizedPath = cleanPath + '/';
 
   const existing = await findFileByPath(db, userId, normalizedPath);
@@ -617,6 +639,8 @@ async function handleMkcol(c: AppContext, userId: string, path: string) {
 
   const folderId = crypto.randomUUID();
   const now = new Date().toISOString();
+  const encKey = getEncryptionKey(c.env);
+  const bucketCfg = await resolveBucketConfig(db, userId, encKey, null, parentId);
 
   await db.insert(files).values({
     id: folderId,
@@ -630,6 +654,7 @@ async function handleMkcol(c: AppContext, userId: string, path: string) {
     mimeType: null,
     hash: null,
     isFolder: true,
+    bucketId: bucketCfg?.id ?? null,
     createdAt: now,
     updatedAt: now,
     deletedAt: null,
@@ -644,8 +669,37 @@ async function handleDelete(c: AppContext, userId: string, path: string) {
 
   if (!file) return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
 
-  if (!file.isFolder) {
-    const encKeyD = getEncryptionKey(c.env);
+  const encKeyD = getEncryptionKey(c.env);
+  let totalFreedSize = 0;
+
+  if (file.isFolder) {
+    const folderPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
+    const allFiles = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
+      .all();
+
+    const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(folderPath + '/'));
+
+    for (const child of childFiles) {
+      if (!child.isFolder) {
+        const bucketCfgD = await resolveBucketConfig(db, userId, encKeyD, child.bucketId, child.parentId);
+        if (bucketCfgD) {
+          try {
+            await s3Delete(bucketCfgD, child.r2Key);
+          } catch (e) {
+            console.error('webdav delete s3 error:', e);
+          }
+          await updateBucketStats(db, bucketCfgD.id, -child.size, -1);
+        } else if (c.env.FILES) {
+          await c.env.FILES.delete(child.r2Key);
+        }
+        totalFreedSize += child.size;
+      }
+      await db.delete(files).where(eq(files.id, child.id));
+    }
+  } else {
     const bucketCfgD = await resolveBucketConfig(db, userId, encKeyD, file.bucketId, file.parentId);
     if (bucketCfgD) {
       try {
@@ -657,15 +711,15 @@ async function handleDelete(c: AppContext, userId: string, path: string) {
     } else if (c.env.FILES) {
       await c.env.FILES.delete(file.r2Key);
     }
-    const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
-    if (userRow) {
-      await db
-        .update(users)
-        .set({ storageUsed: Math.max(0, userRow.storageUsed - file.size), updatedAt: new Date().toISOString() })
-        .where(eq(users.id, userId));
-    }
+    totalFreedSize = file.size;
   }
+
   await db.delete(files).where(eq(files.id, file.id));
+
+  if (totalFreedSize > 0) {
+    await updateUserStorage(db, userId, -totalFreedSize);
+  }
+
   return new Response(null, { status: 204, headers: DAV_BASE_HEADERS });
 }
 
@@ -674,7 +728,6 @@ async function handleMove(c: AppContext, userId: string, path: string) {
   if (!destination) return new Response('Destination header required', { status: 400, headers: DAV_BASE_HEADERS });
 
   const rawDestPath = new URL(destination).pathname.replace(/^\/dav/, '') || '/';
-  // 关键修复：标准化目标路径，去除尾部斜杠
   const destPath = rawDestPath.endsWith('/') ? rawDestPath.slice(0, -1) : rawDestPath;
   const db = getDb(c.env.DB);
   const file = await findFileByPath(db, userId, path);
@@ -690,10 +743,27 @@ async function handleMove(c: AppContext, userId: string, path: string) {
     destParentId = destParentFolder?.id ?? null;
   }
 
+  const now = new Date().toISOString();
+  const oldPath = file.isFolder ? (file.path.endsWith('/') ? file.path.slice(0, -1) : file.path) : file.path;
+
   await db
     .update(files)
-    .set({ name: newName, path: destPath, parentId: destParentId, updatedAt: new Date().toISOString() })
+    .set({ name: newName, path: destPath, parentId: destParentId, updatedAt: now })
     .where(eq(files.id, file.id));
+
+  if (file.isFolder) {
+    const allFiles = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
+      .all();
+
+    const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(oldPath + '/'));
+    for (const child of childFiles) {
+      const newChildPath = destPath + child.path.slice(oldPath.length);
+      await db.update(files).set({ path: newChildPath, updatedAt: now }).where(eq(files.id, child.id));
+    }
+  }
 
   return new Response(null, { status: 201, headers: DAV_BASE_HEADERS });
 }
@@ -703,7 +773,6 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
   if (!destination) return new Response('Destination header required', { status: 400, headers: DAV_BASE_HEADERS });
 
   const rawDestPath = new URL(destination).pathname.replace(/^\/dav/, '') || '/';
-  // 关键修复：标准化目标路径，去除尾部斜杠
   const destPath = rawDestPath.endsWith('/') ? rawDestPath.slice(0, -1) : rawDestPath;
   const db = getDb(c.env.DB);
   const file = await findFileByPath(db, userId, path);
@@ -711,20 +780,43 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
   if (!file) return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
 
   const newName = destPath.split('/').pop() || file.name;
-  const newId = crypto.randomUUID();
   const now = new Date().toISOString();
 
+  const destParentPath = destPath.lastIndexOf('/') > 0 ? destPath.slice(0, destPath.lastIndexOf('/')) : '/';
+  let destParentId: string | null = null;
+  if (destParentPath !== '/') {
+    const destParentFolder = await findFileByPath(db, userId, destParentPath);
+    destParentId = destParentFolder?.id ?? null;
+  }
+
+  const encKeyC = getEncryptionKey(c.env);
+  const destBucketCfg = await resolveBucketConfig(db, userId, encKeyC, null, destParentId);
+
+  let totalCopiedSize = 0;
+
   if (!file.isFolder) {
-    const encKeyC = getEncryptionKey(c.env);
-    const bucketCfgC = await resolveBucketConfig(db, userId, encKeyC, file.bucketId, file.parentId);
+    const newId = crypto.randomUUID();
+    const srcBucketCfg = await resolveBucketConfig(db, userId, encKeyC, file.bucketId, file.parentId);
     const newR2Key = `files/${userId}/${newId}/${newName}`;
-    if (bucketCfgC) {
-      const srcRes = await s3Get(bucketCfgC, file.r2Key);
-      await s3Put(bucketCfgC, newR2Key, await srcRes.arrayBuffer(), file.mimeType || 'application/octet-stream');
+
+    if (destBucketCfg) {
+      let fileContent: ArrayBuffer;
+      if (srcBucketCfg) {
+        const srcRes = await s3Get(srcBucketCfg, file.r2Key);
+        fileContent = await srcRes.arrayBuffer();
+      } else if (c.env.FILES) {
+        const r2Object = await c.env.FILES.get(file.r2Key);
+        if (!r2Object) return new Response('Source file not found', { status: 404, headers: DAV_BASE_HEADERS });
+        fileContent = await r2Object.arrayBuffer();
+      } else {
+        return new Response('Storage not configured', { status: 500, headers: DAV_BASE_HEADERS });
+      }
+
+      await s3Put(destBucketCfg, newR2Key, fileContent, file.mimeType || 'application/octet-stream');
       await db.insert(files).values({
         id: newId,
         userId,
-        parentId: file.parentId,
+        parentId: destParentId,
         name: newName,
         path: destPath,
         type: 'file',
@@ -732,13 +824,15 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
         r2Key: newR2Key,
         mimeType: file.mimeType,
         hash: file.hash,
+        refCount: 1,
         isFolder: false,
-        bucketId: file.bucketId,
+        bucketId: destBucketCfg.id,
         createdAt: now,
         updatedAt: now,
         deletedAt: null,
       });
-      await updateBucketStats(db, bucketCfgC.id, file.size, 1);
+      await updateBucketStats(db, destBucketCfg.id, file.size, 1);
+      totalCopiedSize += file.size;
     } else if (c.env.FILES) {
       const r2Object = await c.env.FILES.get(file.r2Key);
       if (r2Object) {
@@ -748,7 +842,7 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
         await db.insert(files).values({
           id: newId,
           userId,
-          parentId: file.parentId,
+          parentId: destParentId,
           name: newName,
           path: destPath,
           type: 'file',
@@ -756,14 +850,147 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
           r2Key: newR2Key,
           mimeType: file.mimeType,
           hash: file.hash,
+          refCount: 1,
           isFolder: false,
           bucketId: null,
           createdAt: now,
           updatedAt: now,
           deletedAt: null,
         });
+        totalCopiedSize += file.size;
       }
     }
+  } else {
+    const newFolderId = crypto.randomUUID();
+    const srcFolderPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
+
+    await db.insert(files).values({
+      id: newFolderId,
+      userId,
+      parentId: destParentId,
+      name: newName,
+      path: destPath + '/',
+      type: 'folder',
+      size: 0,
+      r2Key: `folders/${newFolderId}`,
+      mimeType: null,
+      hash: null,
+      refCount: 1,
+      isFolder: true,
+      bucketId: destBucketCfg?.id ?? null,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+
+    const allFiles = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
+      .all();
+
+    const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(srcFolderPath + '/'));
+
+    const idMapping: Map<string, string> = new Map();
+    idMapping.set(file.id, newFolderId);
+
+    for (const child of childFiles) {
+      const newChildId = crypto.randomUUID();
+      idMapping.set(child.id, newChildId);
+
+      const childRelativePath = child.path.slice(srcFolderPath.length);
+      const newChildPath = destPath + childRelativePath;
+
+      const childParentPath =
+        newChildPath.lastIndexOf('/') > 0 ? newChildPath.slice(0, newChildPath.lastIndexOf('/')) : '/';
+
+      let childParentId: string | null = null;
+      if (child.parentId && idMapping.has(child.parentId)) {
+        childParentId = idMapping.get(child.parentId)!;
+      } else if (childParentPath === destPath) {
+        childParentId = newFolderId;
+      }
+
+      if (child.isFolder) {
+        await db.insert(files).values({
+          id: newChildId,
+          userId,
+          parentId: childParentId,
+          name: child.name,
+          path: newChildPath.endsWith('/') ? newChildPath : newChildPath + '/',
+          type: 'folder',
+          size: 0,
+          r2Key: `folders/${newChildId}`,
+          mimeType: null,
+          hash: null,
+          refCount: 1,
+          isFolder: true,
+          bucketId: destBucketCfg?.id ?? null,
+          createdAt: now,
+          updatedAt: now,
+          deletedAt: null,
+        });
+      } else {
+        const newR2Key = `files/${userId}/${newChildId}/${child.name}`;
+        const srcBucketCfg = await resolveBucketConfig(db, userId, encKeyC, child.bucketId, child.parentId);
+
+        let copied = false;
+        if (destBucketCfg) {
+          let fileContent: ArrayBuffer;
+          if (srcBucketCfg) {
+            const srcRes = await s3Get(srcBucketCfg, child.r2Key);
+            fileContent = await srcRes.arrayBuffer();
+          } else if (c.env.FILES) {
+            const r2Object = await c.env.FILES.get(child.r2Key);
+            if (r2Object) {
+              fileContent = await r2Object.arrayBuffer();
+            } else {
+              continue;
+            }
+          } else {
+            continue;
+          }
+
+          await s3Put(destBucketCfg, newR2Key, fileContent, child.mimeType || 'application/octet-stream');
+          await updateBucketStats(db, destBucketCfg.id, child.size, 1);
+          copied = true;
+        } else if (c.env.FILES) {
+          const r2Object = await c.env.FILES.get(child.r2Key);
+          if (r2Object) {
+            await c.env.FILES.put(newR2Key, r2Object.body, {
+              httpMetadata: { contentType: child.mimeType || 'application/octet-stream' },
+            });
+            copied = true;
+          }
+        }
+
+        if (copied) {
+          await db.insert(files).values({
+            id: newChildId,
+            userId,
+            parentId: childParentId,
+            name: child.name,
+            path: newChildPath,
+            type: 'file',
+            size: child.size,
+            r2Key: newR2Key,
+            mimeType: child.mimeType,
+            hash: child.hash,
+            refCount: 1,
+            isFolder: false,
+            bucketId: destBucketCfg?.id ?? null,
+            createdAt: now,
+            updatedAt: now,
+            deletedAt: null,
+          });
+          totalCopiedSize += child.size;
+        }
+      }
+    }
+  }
+
+  if (totalCopiedSize > 0) {
+    await updateUserStorage(db, userId, totalCopiedSize);
   }
 
   return new Response(null, { status: 201, headers: DAV_BASE_HEADERS });

@@ -2,7 +2,7 @@
 
 本文档基于项目实际路由代码，详细描述 OSSshelf 的所有 API 接口。
 
-**当前版本**: v3.4.0
+**当前版本**: v3.5.0
 
 ---
 
@@ -25,6 +25,8 @@
 - [离线下载接口](#离线下载接口)
 - [预览接口](#预览接口)
 - [版本控制接口](#版本控制接口)
+- [文件笔记接口](#文件笔记接口)
+- [API Keys 接口](#api-keys-接口)
 - [管理员接口](#管理员接口)
 - [定时任务接口](#定时任务接口)
 - [WebDAV 接口](#webdav-接口)
@@ -42,7 +44,38 @@ https://your-api.workers.dev/api
 ### 认证方式
 
 - **Bearer Token (JWT)**: 大多数 API 使用此方式
+- **API Key**: 程序化访问推荐使用此方式（v4.0 新增）
 - **Basic Auth**: WebDAV 接口使用此方式
+
+#### JWT Token 认证
+
+```http
+Authorization: Bearer <jwt-token>
+```
+
+#### API Key 认证（v4.0 新增）
+
+API Key 适用于脚本、自动化工具、第三方集成等场景。
+
+**方式一：X-API-Key Header**
+
+```http
+X-API-Key: osk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+**方式二：Authorization Header**
+
+```http
+Authorization: ApiKey osk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+**API Key 格式**：`osk_live_` 前缀 + 64 位十六进制字符
+
+**API Key 特点**：
+- 仅在创建时显示一次，请妥善保存
+- 支持 Scope 权限控制
+- 支持过期时间设置
+- 可随时禁用或删除
 
 ### 响应格式
 
@@ -1664,6 +1697,8 @@ Authorization: Bearer <token>
 
 版本控制功能允许管理文件的历史版本，支持版本回滚和对比。
 
+> **v3.5.0 重要变更**: 版本控制仅支持可编辑的文本文件类型（代码、配置、Markdown 等）。图片、视频、音频等二进制文件不再支持版本控制。
+
 ### 获取文件版本列表
 
 ```http
@@ -1680,6 +1715,7 @@ Authorization: Bearer <token>
     "fileId": "file-id",
     "currentVersion": 3,
     "totalVersions": 3,
+    "versionable": true,
     "versions": [
       {
         "id": "version-id-1",
@@ -1847,6 +1883,214 @@ Authorization: Bearer <token>
     "newestVersion": "2024-03-24T12:00:00Z"
   }
 }
+```
+
+---
+
+## 文件笔记接口
+
+路由文件: `apps/api/src/routes/notes.ts`
+
+文件笔记功能允许用户为文件添加评论和讨论，支持 @提及和嵌套回复。
+
+### 获取文件笔记列表
+
+```http
+GET /api/notes/file/<fileId>
+Authorization: Bearer <token>
+```
+
+**查询参数**:
+
+| 参数     | 说明                     |
+| -------- | ------------------------ |
+| `page`   | 页码，默认 1             |
+| `limit`  | 每页数量，默认 20        |
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "notes": [
+      {
+        "id": "note-id",
+        "fileId": "file-id",
+        "content": "这是一条笔记评论",
+        "mentions": ["user-id-1", "user-id-2"],
+        "parentId": null,
+        "replies": [
+          {
+            "id": "reply-id",
+            "content": "这是一条回复",
+            "mentions": [],
+            "createdBy": {
+              "id": "user-id",
+              "name": "用户名",
+              "email": "user@example.com"
+            },
+            "createdAt": "2026-03-30T10:00:00Z"
+          }
+        ],
+        "createdBy": {
+          "id": "user-id",
+          "name": "用户名",
+          "email": "user@example.com"
+        },
+        "createdAt": "2026-03-30T09:00:00Z",
+        "updatedAt": "2026-03-30T09:00:00Z"
+      }
+    ],
+    "total": 10,
+    "page": 1,
+    "limit": 20
+  }
+}
+```
+
+### 创建笔记
+
+```http
+POST /api/notes
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "fileId": "file-id",
+  "content": "这是一条笔记，@user@example.com 请查看",
+  "parentId": null
+}
+```
+
+**说明**:
+- `content` 中使用 `@邮箱` 格式可以提及其他用户
+- `parentId` 为 null 时是顶级笔记，否则是回复
+
+### 更新笔记
+
+```http
+PATCH /api/notes/<noteId>
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "content": "更新后的笔记内容"
+}
+```
+
+### 删除笔记
+
+```http
+DELETE /api/notes/<noteId>
+Authorization: Bearer <token>
+```
+
+> **注意**: 删除顶级笔记会同时删除所有回复
+
+### 获取用户被提及的笔记
+
+```http
+GET /api/notes/mentions
+Authorization: Bearer <token>
+```
+
+---
+
+## API Keys 接口
+
+路由文件: `apps/api/src/routes/apiKeys.ts`
+
+API Key 管理功能允许用户创建和管理用于程序化访问的密钥。
+
+详细的 API Key 使用指南请参阅 [api-key-guide.md](api-key-guide.md)。
+
+### 获取 API Key 列表
+
+```http
+GET /api/api-keys
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "keys": [
+      {
+        "id": "key-id",
+        "name": "我的脚本密钥",
+        "prefix": "osk_live_abc123",
+        "scopes": ["files:read", "files:write"],
+        "expiresAt": "2027-03-30T00:00:00Z",
+        "lastUsedAt": "2026-03-29T15:30:00Z",
+        "createdAt": "2026-03-30T10:00:00Z"
+      }
+    ],
+    "total": 1
+  }
+}
+```
+
+> **注意**: 完整的密钥只在创建时显示一次，之后只显示前缀
+
+### 创建 API Key
+
+```http
+POST /api/api-keys
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "我的脚本密钥",
+  "scopes": ["files:read", "files:write"],
+  "expiresInDays": 365
+}
+```
+
+**可用 Scopes**:
+
+| Scope           | 说明               |
+| --------------- | ------------------ |
+| `files:read`    | 读取文件列表和内容 |
+| `files:write`   | 上传、修改、删除文件 |
+| `shares:read`   | 查看分享信息       |
+| `shares:write`  | 创建和管理分享     |
+| `buckets:read`  | 查看存储桶配置     |
+| `api_keys:read` | 查看 API Keys 列表 |
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "key-id",
+    "name": "我的脚本密钥",
+    "key": "osk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "scopes": ["files:read", "files:write"],
+    "expiresAt": "2027-03-30T00:00:00Z",
+    "createdAt": "2026-03-30T10:00:00Z"
+  }
+}
+```
+
+> **重要**: `key` 字段仅在创建时返回，请立即保存！
+
+### 撤销 API Key
+
+```http
+DELETE /api/api-keys/<keyId>
+Authorization: Bearer <token>
+```
+
+### 获取 API Key 使用统计
+
+```http
+GET /api/api-keys/<keyId>/stats
+Authorization: Bearer <token>
 ```
 
 ---

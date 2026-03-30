@@ -809,4 +809,85 @@ export const directLinkApi = {
   infoUrl: (token: string) => `${import.meta.env.VITE_API_URL || ''}/api/direct/${token}/info`,
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Notes (笔记)
+// ─────────────────────────────────────────────────────────────────────────────
+export interface FileNote {
+  id: string;
+  fileId: string;
+  userId: string;
+  content: string;
+  contentHtml: string | null;
+  isPinned: boolean;
+  version: number;
+  parentId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user: {
+    id: string;
+    name: string | null;
+    email: string;
+  } | null;
+}
+
+export const notesApi = {
+  list: (fileId: string, page = 1, limit = 20) =>
+    api.get<ApiResponse<{ notes: FileNote[]; total: number; page: number; limit: number }>>(
+      `/api/notes/${fileId}?page=${page}&limit=${limit}`
+    ),
+  create: (fileId: string, content: string, parentId?: string) =>
+    api.post<ApiResponse<FileNote>>(`/api/notes/${fileId}`, { content, parentId }),
+  update: (fileId: string, noteId: string, content: string) =>
+    api.put<ApiResponse<FileNote>>(`/api/notes/${fileId}/${noteId}`, { content }),
+  delete: (fileId: string, noteId: string) =>
+    api.delete<ApiResponse<{ message: string }>>(`/api/notes/${fileId}/${noteId}`),
+  pin: (fileId: string, noteId: string) =>
+    api.post<ApiResponse<{ isPinned: boolean; message: string }>>(`/api/notes/${fileId}/${noteId}/pin`),
+  history: (fileId: string, noteId: string) =>
+    api.get<ApiResponse<{ current: { id: string; content: string; version: number }; history: Array<{ id: string; content: string; version: number; editedBy: string | null; createdAt: string }> }>>(
+      `/api/notes/${fileId}/${noteId}/history`
+    ),
+  unreadMentions: () =>
+    api.get<ApiResponse<Array<{ id: string; noteId: string; createdAt: string }>>>('/api/notes/mentions/unread'),
+  markMentionRead: (mentionId: string) =>
+    api.put<ApiResponse<{ message: string }>>(`/api/notes/mentions/${mentionId}/read`),
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API Keys
+// ─────────────────────────────────────────────────────────────────────────────
+export interface ApiKey {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  scopes: string[];
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export const apiKeysApi = {
+  list: () => api.get<ApiResponse<ApiKey[]>>('/api/keys'),
+  create: (data: { name: string; scopes: string[]; expiresAt?: string }) =>
+    api.post<ApiResponse<ApiKey & { key: string; warning: string }>>('/api/keys', data),
+  get: (id: string) => api.get<ApiResponse<ApiKey>>(`/api/keys/${id}`),
+  update: (id: string, data: { name?: string; scopes?: string[]; isActive?: boolean }) =>
+    api.patch<ApiResponse<{ message: string }>>(`/api/keys/${id}`, data),
+  delete: (id: string) => api.delete<ApiResponse<{ message: string }>>(`/api/keys/${id}`),
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// File Content (文件内容编辑)
+// ─────────────────────────────────────────────────────────────────────────────
+export const fileContentApi = {
+  getRaw: (fileId: string) =>
+    api.get<ApiResponse<{ content: string; mimeType: string; size: number; name: string }>>(`/api/files/${fileId}/raw`),
+  update: (fileId: string, data: { content: string; changeSummary?: string }) =>
+    api.put<ApiResponse<{ message: string; size: number; hash: string; versionCreated: boolean }>>(
+      `/api/files/${fileId}/content`,
+      data
+    ),
+};
+
 export default api;

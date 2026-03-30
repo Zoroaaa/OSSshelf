@@ -47,10 +47,6 @@ jobs:
           database_name = "ossshelf-db"
           database_id = "${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}"
 
-          [[r2_buckets]]
-          binding = "FILES"
-          bucket_name = "r2shelf-files"
-
           [[kv_namespaces]]
           binding = "KV"
           id = "${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}"

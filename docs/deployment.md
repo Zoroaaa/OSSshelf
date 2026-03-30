@@ -2,7 +2,7 @@
 
 本文档基于项目实际配置文件，提供完整的部署指南，确保您能够一次性成功部署 OSSshelf。
 
-**当前版本**: v3.3.0
+**当前版本**: v3.5.0
 
 ---
 
@@ -72,7 +72,47 @@
 
 详细的版本更新日志请参阅 [CHANGELOG.md](../CHANGELOG.md)。
 
-### v3.3.0 (2024-03-24)
+### v3.5.0 (2026-03-30)
+
+本次更新包含以下重要变更：
+
+**数据库迁移**
+
+- 新增 `file_notes` 表用于文件笔记功能
+- 新增 `api_keys` 表用于 API Key 管理
+- 迁移文件：`0010_notes.sql`、`0011_api_keys.sql`
+
+**升级步骤**
+
+```bash
+# 1. 拉取最新代码
+git pull origin main
+
+# 2. 运行数据库迁移（重要！）
+pnpm db:migrate
+
+# 3. 推送触发部署
+git push origin main
+```
+
+### v3.4.0 (2026-03-27)
+
+本次更新包含以下重要变更：
+
+**功能增强**
+
+- 预览功能大幅强化，支持 EPUB、字体、ZIP、CSV 增强预览
+- 预览大小限制从 10MB 提升至 30MB
+
+**升级步骤**
+
+```bash
+git pull origin main
+pnpm db:migrate
+git push origin main
+```
+
+### v3.3.0 (2026-03-24)
 
 本次更新包含以下重要变更：
 

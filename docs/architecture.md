@@ -2,7 +2,7 @@
 
 本文档基于项目实际代码，详细描述 OSSshelf 的系统架构、数据库设计和核心功能实现。
 
-**当前版本**: v3.4.0
+**当前版本**: v3.5.0
 
 ---
 
@@ -37,7 +37,36 @@ OSSshelf 是一个基于 Cloudflare 部署的多厂商 OSS 文件管理系统，
 
 详细的版本更新日志请参阅 [CHANGELOG.md](../CHANGELOG.md)。
 
-### v3.4.0 (2024-03-27)
+### v3.5.0 (2026-03-30)
+
+**新功能**
+
+1. **API Keys 管理**
+   - 支持创建、管理 API 密钥，实现程序化访问
+   - 支持 6 种权限范围：文件读取、文件写入、分享读取、分享管理、存储桶查看、API Keys 管理
+   - 支持设置密钥过期时间
+   - 完整的 API Key 使用文档
+
+2. **文件笔记面板**
+   - 为文件添加评论和笔记
+   - 支持 @提及其他用户
+   - 支持笔记回复（嵌套评论）
+   - 支持删除笔记和回复
+
+3. **文件编辑功能**
+   - 直接在系统内创建和编辑文本文件
+   - 支持多种文本格式（代码、配置文件、Markdown 等）
+   - 编辑时自动创建版本快照
+
+**功能变更**
+
+1. **文件版本控制重构**
+   - 仅支持可编辑的文本文件类型（代码、配置、Markdown 等）
+   - 图片、视频、音频等二进制文件不再支持版本控制
+   - 版本存储优化：每次编辑生成独立的存储路径，确保历史版本内容不被覆盖
+   - 版本恢复功能修复：正确恢复到指定版本内容
+
+### v3.4.0 (2026-03-27)
 
 **新功能**
 
@@ -55,7 +84,7 @@ OSSshelf 是一个基于 Cloudflare 部署的多厂商 OSS 文件管理系统，
    - 预览窗口大小控制（小/中/大/全屏）
    - 统一预览类型配置（previewTypes.ts）
 
-### v3.3.0 (2024-03-24)
+### v3.3.0 (2026-03-24)
 
 **新功能**
 
@@ -133,6 +162,7 @@ ossshelf/
 │   │   │   │   ├── telegramClient.ts   # Telegram 客户端
 │   │   │   │   ├── telegramChunked.ts  # Telegram 分片上传
 │   │   │   │   ├── utils.ts        # 工具函数
+│   │   │   │   ├── versionManager.ts # 版本管理 (v3.5.0 重构)
 │   │   │   │   └── zipStream.ts    # ZIP 流式打包
 │   │   │   ├── middleware/
 │   │   │   │   ├── auth.ts         # 认证中间件
@@ -140,19 +170,21 @@ ossshelf/
 │   │   │   │   └── index.ts        # 中间件导出
 │   │   │   ├── routes/
 │   │   │   │   ├── admin.ts        # 管理员接口
+│   │   │   │   ├── apiKeys.ts      # API Keys 管理 (v3.5.0)
 │   │   │   │   ├── auth.ts         # 认证接口
 │   │   │   │   ├── batch.ts        # 批量操作
 │   │   │   │   ├── buckets.ts      # 存储桶管理
 │   │   │   │   ├── cron.ts         # 定时任务
+│   │   │   │   ├── directLink.ts   # 文件直链
 │   │   │   │   ├── downloads.ts    # 离线下载
 │   │   │   │   ├── files.ts        # 文件管理
 │   │   │   │   ├── migrate.ts      # 存储桶迁移
+│   │   │   │   ├── notes.ts        # 文件笔记 (v3.5.0)
 │   │   │   │   ├── permissions.ts  # 权限管理
 │   │   │   │   ├── presign.ts      # 预签名 URL
 │   │   │   │   ├── preview.ts      # 文件预览
 │   │   │   │   ├── search.ts       # 文件搜索
 │   │   │   │   ├── share.ts        # 文件分享
-│   │   │   │   ├── directLink.ts   # 文件直链
 │   │   │   │   ├── tasks.ts        # 上传任务
 │   │   │   │   ├── telegram.ts     # Telegram 存储
 │   │   │   │   ├── versions.ts     # 版本控制 (v3.3.0)
@@ -168,13 +200,19 @@ ossshelf/
 │   │   │   ├── 0004_telegram_storage.sql
 │   │   │   ├── 0005_dedup_and_upload_links.sql
 │   │   │   ├── 0006_upload_progress.sql
-│   │   │   └── 0007_phase7.sql
+│   │   │   ├── 0007_phase7.sql
+│   │   │   ├── 0008_file_versions.sql
+│   │   │   ├── 0010_notes.sql       # 文件笔记 (v3.5.0)
+│   │   │   └── 0011_api_keys.sql    # API Keys (v3.5.0)
 │   │   ├── drizzle.config.ts
 │   │   ├── wrangler.toml.example
 │   │   └── package.json
 │   └── web/                        # 前端应用
 │       ├── src/
 │       │   ├── components/         # UI 组件
+│       │   │   ├── editor/         # 文件编辑器 (v3.5.0)
+│       │   │   ├── notes/          # 文件笔记 (v3.5.0)
+│       │   │   └── settings/       # 设置组件
 │       │   ├── hooks/              # 自定义 Hooks
 │       │   ├── pages/              # 页面组件
 │       │   ├── services/           # API 服务
@@ -186,12 +224,19 @@ ossshelf/
 ├── packages/
 │   └── shared/                     # 共享代码
 │       ├── src/
-│       │   └── constants/
-│       │       └── index.ts        # 常量定义
+│       │   ├── constants/
+│       │   │   ├── index.ts        # 常量定义
+│       │   │   ├── errorCodes.ts   # 错误码定义
+│       │   │   └── previewTypes.ts # 预览类型配置
+│       │   ├── types/
+│       │   │   └── index.ts        # 类型定义
+│       │   └── utils/
+│       │       └── mimeTypes.ts    # MIME 类型工具
 │       ├── tsup.config.ts
 │       └── package.json
 └── docs/
     ├── api.md
+    ├── api-key-guide.md            # API Key 使用指南 (v3.5.0)
     ├── architecture.md
     └── deployment.md
 ```
@@ -757,6 +802,66 @@ ossshelf/
 │      "details": { "maxSize": 5368709120 }                    │
 │    }                                                         │
 │  }                                                           │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 文件预览架构（v3.4.0）
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   File Preview System                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  预览类型配置 (packages/shared/src/constants/previewTypes.ts)│
+│  ├─ IMAGE_MIME_PREFIX: 'image/'                              │
+│  ├─ VIDEO_MIME_PREFIX: 'video/'                              │
+│  ├─ AUDIO_MIME_PREFIX: 'audio/'                              │
+│  ├─ PDF_MIME_TYPE: 'application/pdf'                         │
+│  ├─ MARKDOWN_MIME_TYPE: 'text/markdown'                      │
+│  ├─ CSV_MIME_TYPE: 'text/csv'                                │
+│  ├─ EPUB_MIME_TYPES: ['application/epub+zip', ...]          │
+│  ├─ FONT_MIME_TYPES: ['font/ttf', 'font/otf', ...]          │
+│  ├─ ARCHIVE_PREVIEW_MIME_TYPES: ['application/zip', ...]    │
+│  └─ OFFICE_MIME_TYPES: { word, excel, powerpoint }          │
+│                                                              │
+│  前端预览组件 (apps/web/src/components/files/FilePreview.tsx)│
+│  ├─ 图片预览: <img> 原生 + 缩放                              │
+│  ├─ 视频预览: <video> 原生 + 流式播放                        │
+│  ├─ 音频预览: <audio> 原生                                   │
+│  ├─ PDF 预览: pdf.js 分页渲染 + 缩放控制                     │
+│  ├─ Markdown: react-markdown + GFM + KaTeX                   │
+│  ├─ 代码预览: highlight.js 语法高亮                          │
+│  ├─ Word 预览: docx-preview 本地渲染                         │
+│  ├─ Excel 预览: xlsx 库 + 样式保留 + 多工作表                │
+│  ├─ PowerPoint: pptx-preview 本地渲染                        │
+│  ├─ EPUB 预览: epub.js 电子书阅读器 + 目录导航               │
+│  ├─ 字体预览: FontFace API 字符展示                          │
+│  ├─ ZIP 预览: JSZip 文件树 + 压缩统计                        │
+│  └─ CSV 预览: PapaParse 表格 + 搜索/排序/分页                │
+│                                                              │
+│  预览窗口控制                                                │
+│  ├─ 窗口大小: small (60%) / medium (80%) / large (90%) / 全屏│
+│  ├─ 缩放控制: 50% - 200%                                     │
+│  └─ 键盘快捷键: ESC 关闭 / 左右箭头翻页(EPUB)                │
+│                                                              │
+│  后端预览接口 (apps/api/src/routes/preview.ts)               │
+│  ├─ GET /api/preview/:fileId/info - 预览信息                 │
+│  ├─ GET /api/preview/:fileId/raw - 原始内容 (≤30MB)          │
+│  ├─ GET /api/preview/:fileId/stream - 流式预览               │
+│  └─ GET /api/preview/:fileId/thumbnail - 缩略图              │
+│                                                              │
+│  预览依赖库                                                  │
+│  ├─ pdfjs-dist: PDF 渲染                                     │
+│  ├─ docx-preview: Word 文档                                  │
+│  ├─ xlsx: Excel 表格                                         │
+│  ├─ pptx-preview: PowerPoint                                 │
+│  ├─ epubjs: EPUB 电子书                                      │
+│  ├─ jszip: ZIP 解析                                          │
+│  ├─ papaparse: CSV 解析                                      │
+│  ├─ highlight.js: 代码高亮                                   │
+│  ├─ react-markdown: Markdown 渲染                            │
+│  └─ remark-gfm/rehype-highlight: Markdown 插件               │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```
