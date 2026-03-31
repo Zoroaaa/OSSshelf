@@ -675,9 +675,11 @@ files 表新增：
 
 ## 7. 综合执行大纲
 
-### Phase 1：基础稳固（2-3周）
+### Phase 1：基础稳固（已完成 ✅）
 
 **目标：填补现有功能的空洞，修复已识别的严重问题**
+
+**版本：3.5.0**
 
 ```
 Week 1:
@@ -695,18 +697,24 @@ Week 2:
 
 Week 3:
   ✅ API Key 机制：
-     - 数据库迁移：0012_api_keys.sql
+     - 数据库迁移：0011_api_keys.sql
      - apiKeyMiddleware 接入认证层
      - /api/keys CRUD 路由
      - KV 速率限制中间件
+  ✅ 文件编辑功能：
+     - 文件编辑 API（PUT /api/files/:id/content）
+     - 前端文件编辑器组件（CodeEditor、TextEditor、FileEditor）
+     - 新建文件增强（模板选择）
 ```
 
-### Phase 2：权限与 API 开放（2-3周）
+### Phase 2：权限与 API 开放（已完成 ✅）
+
+**版本：3.6.0**
 
 ```
 Week 4:
   ✅ 权限系统 v2：
-     - 数据库迁移：0011_permission_v2.sql
+     - 数据库迁移：0012_permission_v2.sql
      - user_groups / group_members 表及路由
      - permissionResolver.ts（递归 CTE 方案）
      - KV 权限缓存层
@@ -725,46 +733,46 @@ Week 6:
      - Webhook 基础实现
 ```
 
-### Phase 3：AI 智能化（2周）
+### Phase 3：AI 智能化（计划中）
 
 ```
 Week 7:
-  ✅ Workers AI 接入：
+  📋 Workers AI 接入：
      - wrangler.toml 配置 AI binding + Vectorize index
      - 文件向量化 pipeline（上传后 waitUntil）
      - 语义搜索接口 + 前端集成
 
 Week 8:
-  ✅ AI 功能扩展：
+  📋 AI 功能扩展：
      - /api/ai/summarize/:fileId（文本 + 图片）
      - 图片自动标签
      - 智能重命名建议 UI
 ```
 
-### Phase 4：体验完善（持续迭代）
+### Phase 4：体验完善（计划中）
 
 ```
-✅ 全文搜索 FTS5 升级
-✅ 通知系统 + 未读角标
-✅ 收藏夹功能
-✅ 存储分析 Dashboard
-✅ 2FA 双因素认证
-✅ 文本文件 diff 预览
-✅ 文件夹快照功能
+📋 全文搜索 FTS5 升级
+📋 通知系统 + 未读角标
+📋 收藏夹功能
+📋 存储分析 Dashboard
+📋 2FA 双因素认证
+📋 文本文件 diff 预览
+📋 文件夹快照功能
 ```
 
 ---
 
 ### 数据库迁移总览
 
-| 编号 | 文件名 | 涉及功能 |
-|------|--------|----------|
-| 0010 | `notes.sql` | file_notes, file_note_history, note_mentions |
-| 0011 | `permission_v2.sql` | user_groups, group_members, file_permissions 扩展字段 |
-| 0012 | `api_keys.sql` | api_keys, webhooks |
-| 0013 | `ai_features.sql` | files.description, files.ai_summary, files.is_starred |
-| 0014 | `fts5.sql` | files_fts virtual table + sync triggers |
-| 0015 | `notifications.sql` | notifications table |
+| 编号 | 文件名 | 涉及功能 | 状态 |
+|------|--------|----------|------|
+| 0010 | `notes.sql` | file_notes, file_note_history, note_mentions | ✅ 已完成 |
+| 0011 | `api_keys.sql` | api_keys | ✅ 已完成 |
+| 0012 | `permission_v2.sql` | user_groups, group_members, file_permissions 扩展字段 | ✅ 已完成 |
+| 0013 | `ai_features.sql` | files.description, files.ai_summary, files.is_starred | 📋 计划中 |
+| 0014 | `fts5.sql` | files_fts virtual table + sync triggers | 📋 计划中 |
+| 0015 | `notifications.sql` | notifications table | 📋 计划中 |
 
 ---
 
@@ -773,36 +781,47 @@ Week 8:
 ```
 apps/api/src/
 ├── lib/
-│   ├── versionManager.ts     ← NEW: 版本自动触发、清理
-│   ├── permissionResolver.ts ← NEW: RBAC + 继承链解析
-│   ├── vectorIndex.ts        ← NEW: Vectorize 向量管理
-│   ├── aiFeatures.ts         ← NEW: AI 功能封装
-│   ├── rateLimit.ts          ← NEW: KV 滑动窗口限流
-│   └── webhook.ts            ← NEW: Webhook 分发
+│   ├── versionManager.ts     ← ✅ 已实现: 版本自动触发、清理
+│   ├── permissionResolver.ts ← ✅ 已实现: RBAC + 继承链解析
+│   ├── vectorIndex.ts        ← 📋 计划中: Vectorize 向量管理
+│   ├── aiFeatures.ts         ← 📋 计划中: AI 功能封装
+│   ├── rateLimit.ts          ← ✅ 已实现: KV 滑动窗口限流
+│   └── webhook.ts            ← ✅ 已实现: Webhook 分发
 ├── routes/
-│   ├── notes.ts              ← NEW
-│   ├── groups.ts             ← NEW
-│   ├── apiKeys.ts            ← NEW
-│   ├── webhooks.ts           ← NEW
-│   ├── ai.ts                 ← NEW
-│   ├── analytics.ts          ← NEW
-│   └── v1/                   ← NEW: 开放 API v1
+│   ├── notes.ts              ← ✅ 已实现
+│   ├── groups.ts             ← ✅ 已实现
+│   ├── apiKeys.ts            ← ✅ 已实现
+│   ├── webhooks.ts           ← ✅ 已实现
+│   ├── ai.ts                 ← 📋 计划中
+│   ├── analytics.ts          ← 📋 计划中
+│   └── v1/                   ← ✅ 已实现: 开放 API v1
 │       ├── files.ts
 │       ├── folders.ts
 │       ├── shares.ts
 │       └── search.ts
 
 apps/web/src/components/
-├── notes/                    ← NEW
+├── notes/                    ← ✅ 已实现
 │   ├── NotePanel.tsx
 │   ├── NoteEditor.tsx
 │   ├── NoteCard.tsx
 │   └── NoteHistoryDialog.tsx
-├── permissions/              ← NEW
+├── permissions/              ← ✅ 已实现
 │   ├── PermissionPanel.tsx
 │   ├── GroupManager.tsx
 │   └── PermissionGrantDialog.tsx
-└── ai/                       ← NEW
+├── groups/                   ← ✅ 已实现
+│   ├── GroupList.tsx
+│   ├── GroupCreateDialog.tsx
+│   └── GroupMemberDialog.tsx
+├── webhooks/                 ← ✅ 已实现
+│   ├── WebhookList.tsx
+│   └── WebhookCreateDialog.tsx
+├── editor/                   ← ✅ 已实现
+│   ├── FileEditor.tsx
+│   ├── CodeEditor.tsx
+│   └── TextEditor.tsx
+└── ai/                       ← 📋 计划中
     ├── AISummaryCard.tsx
     ├── SmartRenameDialog.tsx
     └── SemanticSearchBar.tsx
@@ -810,4 +829,8 @@ apps/web/src/components/
 
 ---
 
-> **优先级建议**：Phase 1（版本控制修复 + 备忘录基础 + API Key）投入产出比最高，建议优先执行。AI 语义搜索是最具差异化的功能，可作为 Phase 3 的核心亮点。权限系统 v2 改动较大，建议留出充分测试时间。
+> **当前版本：3.6.0**
+> 
+> **已完成**：Phase 1（版本控制修复 + 备忘录基础 + API Key + 文件编辑）和 Phase 2（权限系统 v2 + RESTful v1 API + OpenAPI 文档 + Webhook）
+> 
+> **下一步**：Phase 3（AI 智能化）是最具差异化的功能，可作为下一阶段的核心亮点。AI 语义搜索将大幅提升用户体验。

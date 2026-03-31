@@ -8,14 +8,14 @@
  * - 查看权限列表
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { permissionsApi } from '@/services/api';
+import { permissionsApi, type SearchableUser } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/useToast';
 import { cn } from '@/utils';
-import { Shield, X, Trash2, Crown, Eye, Edit, UserPlus, Loader2 } from 'lucide-react';
+import { Shield, X, Trash2, Crown, Eye, Edit, UserPlus, Loader2, User } from 'lucide-react';
 
 interface FilePermissionsDialogProps {
   fileId: string;
@@ -35,21 +35,51 @@ const DEFAULT_PERMISSION = { label: '只读', icon: Eye, color: 'text-blue-500' 
 export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose }: FilePermissionsDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [newUserEmail, setNewUserEmail] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [newPermission, setNewPermission] = useState<'read' | 'write' | 'admin'>('read');
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [searchResults, setSearchResults] = useState<SearchableUser[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   const { data: permissionsData, isLoading } = useQuery({
     queryKey: ['permissions', fileId],
     queryFn: () => permissionsApi.getFilePermissions(fileId).then((r) => r.data.data),
   });
 
+  useEffect(() => {
+    if (!searchQuery || searchQuery.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const res = await permissionsApi.searchUsers(searchQuery);
+        const users = res.data.data ?? [];
+        const existingUserIds = new Set(
+          (permissionsData?.permissions ?? []).filter((p: any) => p.subjectType === 'user').map((p: any) => p.userId)
+        );
+        setSearchResults(users.filter((u) => !existingUserIds.has(u.id)));
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, permissionsData]);
+
   const grantMutation = useMutation({
     mutationFn: (data: { userId: string; permission: 'read' | 'write' | 'admin' }) =>
-      permissionsApi.grant({ fileId, ...data }),
+      permissionsApi.grant({ fileId, ...data, subjectType: 'user' }),
     onSuccess: () => {
       toast({ title: '权限已授予' });
       queryClient.invalidateQueries({ queryKey: ['permissions', fileId] });
-      setNewUserEmail('');
+      setSearchQuery('');
+      setSelectedUserId(null);
+      setSearchResults([]);
     },
     onError: (e: any) =>
       toast({
@@ -74,8 +104,11 @@ export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose }: F
   });
 
   const handleGrant = () => {
-    if (!newUserEmail.trim()) return;
-    grantMutation.mutate({ userId: newUserEmail.trim(), permission: newPermission });
+    if (!selectedUserId) {
+      toast({ title: '请选择用户', variant: 'destructive' });
+      return;
+    }
+    grantMutation.mutate({ userId: selectedUserId, permission: newPermission });
   };
 
   const isOwner = permissionsData?.isOwner;
@@ -118,7 +151,7 @@ export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose }: F
                   <div className="text-center py-6 text-muted-foreground text-sm">暂无其他用户权限</div>
                 ) : (
                   <div className="space-y-2">
-                    {permissions.map((perm) => {
+                    {permissions.map((perm: any) => {
                       const permInfo = PERMISSION_LABELS[perm.permission] ?? DEFAULT_PERMISSION;
                       const PermIcon = permInfo.icon;
                       return (
@@ -139,7 +172,7 @@ export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose }: F
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7 text-red-500 hover:text-red-600"
-                              onClick={() => revokeMutation.mutate(perm.userId)}
+                              onClick={() => perm.userId && revokeMutation.mutate(perm.userId)}
                               disabled={revokeMutation.isPending}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -155,35 +188,67 @@ export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose }: F
               {isOwner && (
                 <div className="space-y-3 pt-4 border-t">
                   <h3 className="text-sm font-medium">添加权限</h3>
-                  <div className="flex gap-2">
+                  <div className="space-y-2">
                     <Input
-                      placeholder="输入用户邮箱"
-                      value={newUserEmail}
-                      onChange={(e) => setNewUserEmail(e.target.value)}
-                      className="flex-1"
+                      placeholder="输入用户邮箱搜索..."
+                      value={searchQuery}
+                      onChange={(e) => {
+                        setSearchQuery(e.target.value);
+                        setSelectedUserId(null);
+                      }}
                     />
+                    {isSearching && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        搜索中...
+                      </div>
+                    )}
+                    {searchResults.length > 0 && (
+                      <div className="max-h-32 overflow-y-auto space-y-1 border rounded-lg p-1">
+                        {searchResults.slice(0, 5).map((user) => (
+                          <button
+                            key={user.id}
+                            onClick={() => {
+                              setSelectedUserId(user.id);
+                              setSearchQuery(user.name || user.email);
+                            }}
+                            className={cn(
+                              'w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left transition-colors',
+                              selectedUserId === user.id
+                                ? 'bg-primary text-primary-foreground'
+                                : 'hover:bg-muted'
+                            )}
+                          >
+                            <User className="h-3.5 w-3.5" />
+                            <span className="flex-1 truncate">{user.name || user.email}</span>
+                            <span className="text-xs opacity-70">{user.email}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
                     <select
                       value={newPermission}
                       onChange={(e) => setNewPermission(e.target.value as typeof newPermission)}
-                      className="h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      className="h-9 flex-1 rounded-md border border-input bg-background px-3 py-1 text-sm"
                     >
                       <option value="read">只读</option>
                       <option value="write">读写</option>
                       <option value="admin">管理</option>
                     </select>
+                    <Button
+                      onClick={handleGrant}
+                      disabled={!selectedUserId || grantMutation.isPending}
+                    >
+                      {grantMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : (
+                        <UserPlus className="h-4 w-4 mr-2" />
+                      )}
+                      授予权限
+                    </Button>
                   </div>
-                  <Button
-                    className="w-full"
-                    onClick={handleGrant}
-                    disabled={!newUserEmail.trim() || grantMutation.isPending}
-                  >
-                    {grantMutation.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    ) : (
-                      <UserPlus className="h-4 w-4 mr-2" />
-                    )}
-                    授予权限
-                  </Button>
                 </div>
               )}
             </>

@@ -35,12 +35,12 @@
 
 详细的版本更新日志请参阅 [CHANGELOG.md](CHANGELOG.md)。
 
-### 最新版本 v3.5.0
+### 最新版本 v3.6.0
 
-- **API Keys 管理**：支持创建、管理 API 密钥，实现程序化访问
-- **文件笔记面板**：为文件添加评论和笔记，支持 @提及和回复
-- **文件编辑功能**：直接在系统内创建和编辑文本文件
-- **版本控制重构**：仅支持可编辑的文本文件，优化版本存储和恢复逻辑
+- **权限系统 v2**：用户组管理、权限继承、时效性权限、递归 CTE 权限解析
+- **RESTful v1 API**：标准化 API 接口，支持 OpenAPI 文档和 Swagger UI
+- **Webhook 通知**：支持文件事件订阅，第三方系统集成
+- **OpenAPI 文档**：自动生成 API 文档，访问 `/api/v1/docs` 查看
 
 ---
 
@@ -68,8 +68,10 @@
   - **ZIP**: 压缩包内容列表、文件树展示
   - **CSV**: 表格视图、搜索、排序、分页
 - 📜 **版本控制**: 可编辑文本文件的版本历史管理、版本回滚（仅支持代码、配置、Markdown 等文本文件）
-- 🔐 **权限管理**: 文件/文件夹级别的权限控制
+- 🔐 **权限管理 v2**: 用户组管理、权限继承、时效性权限、RBAC 权限模型
 - 🔑 **API Keys**: 创建和管理 API 密钥，支持细粒度权限控制，实现程序化访问
+- 🌐 **RESTful v1 API**: 标准化 API 接口，支持 OpenAPI 文档和 Swagger UI
+- 🔔 **Webhook**: 文件事件订阅，支持第三方系统集成
 - 💬 **文件笔记**: 为文件添加评论和笔记，支持 @提及和回复
 - 🏷️ **标签系统**: 为文件添加自定义标签
 - 🔍 **高级搜索**: 按名称、类型、大小、时间等条件搜索
@@ -378,7 +380,9 @@ ossshelf/
 │   │   │   │   ├── telegramChunked.ts # Telegram 分片上传
 │   │   │   │   ├── crypto.ts    # 加密工具
 │   │   │   │   ├── dedup.ts     # 文件去重
-│   │   │   │   ├── versionManager.ts # 版本管理 (v3.5.0 重构)
+│   │   │   │   ├── versionManager.ts # 版本管理 (v3.5.0)
+│   │   │   │   ├── permissionResolver.ts # 权限解析 (v3.6.0)
+│   │   │   │   ├── webhook.ts   # Webhook 分发 (v3.6.0)
 │   │   │   │   └── cleanup.ts   # 清理任务
 │   │   │   ├── middleware/     # 中间件
 │   │   │   ├── routes/         # API 路由
@@ -397,6 +401,15 @@ ossshelf/
 │   │   │   │   ├── versions.ts  # 版本控制 (v3.3.0)
 │   │   │   │   ├── notes.ts     # 文件笔记 (v3.5.0)
 │   │   │   │   ├── apiKeys.ts   # API Keys 管理 (v3.5.0)
+│   │   │   │   ├── groups.ts    # 用户组管理 (v3.6.0)
+│   │   │   │   ├── webhooks.ts  # Webhook 管理 (v3.6.0)
+│   │   │   │   ├── v1/          # RESTful v1 API (v3.6.0)
+│   │   │   │   │   ├── index.ts
+│   │   │   │   │   ├── files.ts
+│   │   │   │   │   ├── folders.ts
+│   │   │   │   │   ├── shares.ts
+│   │   │   │   │   ├── search.ts
+│   │   │   │   │   └── me.ts
 │   │   │   │   ├── admin.ts     # 管理员
 │   │   │   │   ├── migrate.ts   # 迁移
 │   │   │   │   ├── telegram.ts  # Telegram
@@ -412,13 +425,17 @@ ossshelf/
 │   │   │   ├── 0006_upload_progress.sql
 │   │   │   ├── 0007_phase7.sql
 │   │   │   ├── 0010_notes.sql   # 文件笔记 (v3.5.0)
-│   │   │   └── 0011_api_keys.sql # API Keys (v3.5.0)
+│   │   │   ├── 0011_api_keys.sql # API Keys (v3.5.0)
+│   │   │   └── 0012_permission_v2.sql # 权限系统 v2 (v3.6.0)
 │   │   └── wrangler.toml       # Cloudflare 配置
 │   └── web/                    # 前端应用
 │       ├── src/
 │       │   ├── components/     # UI 组件
 │       │   │   ├── notes/      # 笔记组件 (v3.5.0)
 │       │   │   ├── editor/     # 编辑器组件 (v3.5.0)
+│       │   │   ├── groups/     # 用户组组件 (v3.6.0)
+│       │   │   ├── webhooks/   # Webhook 组件 (v3.6.0)
+│       │   │   ├── permissions/ # 权限组件 (v3.6.0)
 │       │   │   └── settings/   # 设置组件
 │       │   ├── hooks/          # 自定义 Hooks
 │       │   ├── pages/          # 页面组件
@@ -462,6 +479,10 @@ ossshelf/
 | `/api/versions`    | 版本控制 (v3.3.0) |
 | `/api/notes`       | 文件笔记 (v3.5.0) |
 | `/api/api-keys`    | API Keys 管理 (v3.5.0) |
+| `/api/groups`      | 用户组管理 (v3.6.0) |
+| `/api/webhooks`    | Webhook 管理 (v3.6.0) |
+| `/api/v1`          | RESTful v1 API (v3.6.0) |
+| `/api/v1/docs`     | OpenAPI 文档 (v3.6.0) |
 | `/api/admin`       | 管理员接口        |
 | `/api/migrate`     | 存储桶迁移        |
 | `/api/telegram`    | Telegram 存储     |

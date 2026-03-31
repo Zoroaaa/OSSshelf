@@ -2,7 +2,7 @@
 
 本文档基于项目实际路由代码，详细描述 OSSshelf 的所有 API 接口。
 
-**当前版本**: v3.5.0
+**当前版本**: v3.6.0
 
 ---
 
@@ -21,12 +21,15 @@
 - [批量操作接口](#批量操作接口)
 - [搜索接口](#搜索接口)
 - [权限与标签接口](#权限与标签接口)
+- [用户组接口](#用户组接口) - v3.6.0
+- [Webhook 接口](#webhook-接口) - v3.6.0
 - [上传任务接口](#上传任务接口)
 - [离线下载接口](#离线下载接口)
 - [预览接口](#预览接口)
 - [版本控制接口](#版本控制接口)
 - [文件笔记接口](#文件笔记接口)
 - [API Keys 接口](#api-keys-接口)
+- [RESTful v1 API](#restful-v1-api) - v3.6.0
 - [管理员接口](#管理员接口)
 - [定时任务接口](#定时任务接口)
 - [WebDAV 接口](#webdav-接口)
@@ -2314,4 +2317,332 @@ COPY /dav/file.txt HTTP/1.1
 Host: your-domain.com
 Authorization: Basic base64(email:password)
 Destination: https://your-domain.com/dav/copy-of-file.txt
+```
+
+---
+
+## 用户组接口
+
+路由文件: `apps/api/src/routes/groups.ts`
+
+用户组功能允许创建和管理用户组，实现批量权限管理。
+
+### 获取用户组列表
+
+```http
+GET /api/groups
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "group-id",
+      "name": "开发团队",
+      "description": "开发部门成员",
+      "ownerId": "user-id",
+      "memberCount": 5,
+      "createdAt": "2026-03-31T10:00:00Z",
+      "updatedAt": "2026-03-31T10:00:00Z"
+    }
+  ]
+}
+```
+
+### 创建用户组
+
+```http
+POST /api/groups
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "开发团队",
+  "description": "开发部门成员"
+}
+```
+
+### 获取用户组详情
+
+```http
+GET /api/groups/<groupId>
+Authorization: Bearer <token>
+```
+
+### 更新用户组
+
+```http
+PUT /api/groups/<groupId>
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "name": "新名称",
+  "description": "新描述"
+}
+```
+
+### 删除用户组
+
+```http
+DELETE /api/groups/<groupId>
+Authorization: Bearer <token>
+```
+
+### 获取组成员列表
+
+```http
+GET /api/groups/<groupId>/members
+Authorization: Bearer <token>
+```
+
+### 添加组成员
+
+```http
+POST /api/groups/<groupId>/members
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "userId": "user-id",
+  "role": "member"
+}
+```
+
+**role**: `member`（普通成员）或 `admin`（组管理员）
+
+### 移除组成员
+
+```http
+DELETE /api/groups/<groupId>/members/<userId>
+Authorization: Bearer <token>
+```
+
+### 更新成员角色
+
+```http
+PUT /api/groups/<groupId>/members/<userId>/role
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "role": "admin"
+}
+```
+
+---
+
+## Webhook 接口
+
+路由文件: `apps/api/src/routes/webhooks.ts`
+
+Webhook 功能允许订阅文件事件，实现第三方系统集成。
+
+### 获取 Webhook 列表
+
+```http
+GET /api/webhooks
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "webhook-id",
+      "url": "https://example.com/webhook",
+      "events": ["file.uploaded", "file.deleted"],
+      "isActive": true,
+      "lastStatus": 200,
+      "createdAt": "2026-03-31T10:00:00Z"
+    }
+  ]
+}
+```
+
+### 创建 Webhook
+
+```http
+POST /api/webhooks
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "url": "https://example.com/webhook",
+  "events": ["file.uploaded", "file.deleted", "file.updated"]
+}
+```
+
+**支持的事件**:
+
+| 事件 | 说明 |
+|------|------|
+| `file.uploaded` | 文件上传完成 |
+| `file.deleted` | 文件删除 |
+| `file.updated` | 文件更新 |
+| `share.created` | 分享创建 |
+| `share.deleted` | 分享删除 |
+| `permission.granted` | 权限授予 |
+| `permission.revoked` | 权限撤销 |
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "webhook-id",
+    "url": "https://example.com/webhook",
+    "secret": "whsec_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "events": ["file.uploaded", "file.deleted"],
+    "warning": "请妥善保存此密钥，系统不会再次显示"
+  }
+}
+```
+
+> **重要**: `secret` 字段仅在创建时返回，用于验证 Webhook 签名
+
+### 删除 Webhook
+
+```http
+DELETE /api/webhooks/<webhookId>
+Authorization: Bearer <token>
+```
+
+### Webhook 签名验证
+
+Webhook 请求会携带 `X-Webhook-Signature` 头，使用 HMAC-SHA256 签名：
+
+```typescript
+// 验证示例
+const signature = request.headers['x-webhook-signature'];
+const expectedSignature = await hmacSha256(secret, requestBody);
+
+if (signature === expectedSignature) {
+  // 验证通过
+}
+```
+
+### Webhook 请求格式
+
+```json
+{
+  "event": "file.uploaded",
+  "timestamp": "2026-03-31T10:00:00Z",
+  "data": {
+    "fileId": "file-id",
+    "fileName": "document.pdf",
+    "fileSize": 1048576,
+    "mimeType": "application/pdf",
+    "userId": "user-id",
+    "bucketId": "bucket-id"
+  }
+}
+```
+
+---
+
+## RESTful v1 API
+
+路由文件: `apps/api/src/routes/v1/`
+
+v3.6.0 新增的 RESTful API，遵循 OpenAPI 规范，提供标准化接口。
+
+### OpenAPI 文档
+
+```http
+GET /api/v1/openapi.json
+```
+
+返回 OpenAPI 3.1.0 规范的 JSON 文档。
+
+### Swagger UI
+
+访问 `/api/v1/docs` 查看交互式 API 文档。
+
+### v1 API 端点
+
+#### 文件 API
+
+```http
+GET /api/v1/files              # 列出文件
+POST /api/v1/files/upload      # 上传文件
+GET /api/v1/files/:id          # 获取文件信息
+GET /api/v1/files/:id/download # 下载文件
+DELETE /api/v1/files/:id       # 删除文件
+```
+
+#### 文件夹 API
+
+```http
+POST /api/v1/folders           # 创建文件夹
+GET /api/v1/folders/:id/tree   # 获取文件夹树
+```
+
+#### 分享 API
+
+```http
+POST /api/v1/shares            # 创建分享
+GET /api/v1/shares             # 列出分享
+DELETE /api/v1/shares/:id      # 删除分享
+```
+
+#### 搜索 API
+
+```http
+GET /api/v1/search             # 搜索文件
+```
+
+#### 当前用户 API
+
+```http
+GET /api/v1/me                 # 获取当前用户信息
+GET /api/v1/me/quota           # 获取存储配额
+```
+
+### v1 API 特点
+
+1. **标准化响应格式**
+
+```json
+{
+  "success": true,
+  "data": { ... },
+  "meta": {
+    "page": 1,
+    "limit": 50,
+    "total": 100
+  }
+}
+```
+
+2. **统一错误处理**
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "FILE_NOT_FOUND",
+    "message": "文件不存在"
+  }
+}
+```
+
+3. **支持 API Key 认证**
+
+```http
+X-API-Key: osk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+或
+
+```http
+Authorization: ApiKey osk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```

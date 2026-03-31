@@ -30,6 +30,7 @@ import {
   Trash2,
   Database,
   Shield,
+  ShieldCheck,
   ChevronLeft,
   ChevronRight,
   Keyboard,
@@ -51,6 +52,7 @@ const baseNavItems = [
   { path: '/downloads', label: '离线下载', icon: Download, exact: false },
   { path: '/trash', label: '回收站', icon: Trash2, exact: false },
   { path: '/buckets', label: '存储桶', icon: Database, exact: false },
+  { path: '/permissions', label: '权限管理', icon: ShieldCheck, exact: false },
   { path: '/settings', label: '设置', icon: Settings, exact: false },
 ];
 
