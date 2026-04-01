@@ -42,6 +42,7 @@ import { resolveBucketConfig, updateBucketStats, updateUserStorage, checkBucketQ
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 import { getUserOrFail, encodeFilename } from '../lib/utils';
 import { computeSha256Hex, checkAndClaimDedup, releaseFileRef } from '../lib/dedup';
+import { autoProcessFile, isAIConfigured } from '../lib/aiFeatures';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -242,6 +243,18 @@ app.post('/confirm', async (c) => {
     await updateBucketStats(db, bucketId, fileSize, 1);
   }
 
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        if (await isAIConfigured(c.env)) {
+          await autoProcessFile(c.env, fileId);
+        }
+      } catch (error) {
+        console.error('Failed to auto process file:', error);
+      }
+    })()
+  );
+
   return c.json({
     success: true,
     data: { id: fileId, name: fileName, size: fileSize, mimeType, path, bucketId: bucketId || null, createdAt: now },
@@ -403,6 +416,18 @@ app.post('/multipart/complete', async (c) => {
   await updateUserStorage(db, userId, fileSize);
   await updateBucketStats(db, bucketConfig.id, fileSize, 1);
 
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        if (await isAIConfigured(c.env)) {
+          await autoProcessFile(c.env, fileId);
+        }
+      } catch (error) {
+        console.error('Failed to process file with AI:', error);
+      }
+    })()
+  );
+
   return c.json({
     success: true,
     data: { id: fileId, name: fileName, size: fileSize, mimeType, path, bucketId: bucketConfig.id, createdAt: now },
@@ -458,6 +483,11 @@ app.get('/download/:id', async (c) => {
     return c.json({ success: true, data: { useProxy: true, proxyUrl: `/api/files/${fileId}/download` } });
   }
 
+  // Telegram 桶不支持预签名下载，让前端使用代理下载
+  if (bucketConfig.provider === 'telegram') {
+    return c.json({ success: true, data: { useProxy: true, proxyUrl: `/api/files/${fileId}/download` } });
+  }
+
   const downloadUrl = await s3PresignUrl(bucketConfig, 'GET', file.r2Key, DOWNLOAD_EXPIRY);
 
   return c.json({
@@ -497,6 +527,11 @@ app.get('/preview/:id', async (c) => {
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
   if (!bucketConfig) {
+    return c.json({ success: true, data: { useProxy: true, proxyUrl: `/api/files/${fileId}/preview` } });
+  }
+
+  // Telegram 桶不支持预签名预览，让前端使用代理预览
+  if (bucketConfig.provider === 'telegram') {
     return c.json({ success: true, data: { useProxy: true, proxyUrl: `/api/files/${fileId}/preview` } });
   }
 

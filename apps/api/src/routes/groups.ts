@@ -336,10 +336,7 @@ app.post('/:id/members', async (c) => {
     .get();
 
   if (existingMembership) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '用户已是组成员' } },
-      400
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '用户已是组成员' } }, 400);
   }
 
   const memberRecordId = crypto.randomUUID();
@@ -433,9 +430,7 @@ app.delete('/:id/members/:memberUserId', async (c) => {
     userAgent: getUserAgent(c),
   });
 
-  await db
-    .delete(groupMembers)
-    .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, memberUserId)));
+  await db.delete(groupMembers).where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, memberUserId)));
 
   return c.json({ success: true, data: { message: '成员已移除' } });
 });
@@ -447,10 +442,7 @@ app.put('/:id/members/:memberUserId/role', async (c) => {
   const { role } = await c.req.json();
 
   if (!role || !['member', 'admin'].includes(role)) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无效的角色' } },
-      400
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无效的角色' } }, 400);
   }
 
   const db = getDb(c.env.DB);

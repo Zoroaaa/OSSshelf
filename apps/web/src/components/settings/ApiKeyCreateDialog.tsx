@@ -29,9 +29,7 @@ const ApiKeyCreateDialog: React.FC<ApiKeyCreateDialogProps> = ({ onClose, onCrea
   const { toast } = useToast();
 
   const handleToggleScope = (scope: string) => {
-    setSelectedScopes((prev) =>
-      prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope]
-    );
+    setSelectedScopes((prev) => (prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope]));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

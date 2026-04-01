@@ -84,19 +84,22 @@ app.openapi(createShareRoute, async (c) => {
     createdAt: now,
   });
 
-  return c.json({
-    success: true,
-    data: {
-      id: shareId,
-      fileId,
-      fileName: file.name,
-      expiresAt: expiresAt || null,
-      downloadLimit: downloadLimit || null,
-      downloadCount: 0,
-      hasPassword: !!password,
-      createdAt: now,
+  return c.json(
+    {
+      success: true,
+      data: {
+        id: shareId,
+        fileId,
+        fileName: file.name,
+        expiresAt: expiresAt || null,
+        downloadLimit: downloadLimit || null,
+        downloadCount: 0,
+        hasPassword: !!password,
+        createdAt: now,
+      },
     },
-  }, 201);
+    201
+  );
 });
 
 const listSharesRoute = createRoute({

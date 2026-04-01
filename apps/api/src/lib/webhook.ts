@@ -100,19 +100,13 @@ async function sendWebhookRequest(
 
     clearTimeout(timeoutId);
 
-    await db
-      .update(webhooks)
-      .set({ lastStatus: response.status })
-      .where(eq(webhooks.id, webhook.id));
+    await db.update(webhooks).set({ lastStatus: response.status }).where(eq(webhooks.id, webhook.id));
 
     if (!response.ok) {
       console.error(`Webhook ${webhook.id} failed with status ${response.status}`);
     }
   } catch (error) {
-    await db
-      .update(webhooks)
-      .set({ lastStatus: 0 })
-      .where(eq(webhooks.id, webhook.id));
+    await db.update(webhooks).set({ lastStatus: 0 }).where(eq(webhooks.id, webhook.id));
 
     console.error(`Webhook ${webhook.id} request failed:`, error);
   }
@@ -123,13 +117,7 @@ async function hmacSha256(secret: string, data: string): Promise<string> {
   const keyData = encoder.encode(secret);
   const messageData = encoder.encode(data);
 
-  const key = await crypto.subtle.importKey(
-    'raw',
-    keyData,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
+  const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
 
   const signature = await crypto.subtle.sign('HMAC', key, messageData);
   const hexArray = Array.from(new Uint8Array(signature));

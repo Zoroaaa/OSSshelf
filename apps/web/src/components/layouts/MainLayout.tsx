@@ -148,57 +148,40 @@ export default function MainLayout() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* 移动端顶部栏 - 仅显示标题和导航按钮 */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur border-b px-4 py-3 flex items-center justify-between safe-top">
+      {/* 移动端顶部栏 - 精简版 */}
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur border-b px-3 py-2.5 flex items-center justify-between safe-top">
         <div className="flex items-center gap-2">
+          {location.pathname.startsWith('/files') && canGoBack() && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 -ml-1"
+              onClick={() => {
+                const targetFolderId = goBack();
+                if (targetFolderId !== null) {
+                  navigate(targetFolderId ? `/files/${targetFolderId}` : '/files');
+                }
+              }}
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </Button>
+          )}
           <div className="w-6 h-6 rounded bg-primary flex items-center justify-center">
             <HardDrive className="h-3.5 w-3.5 text-primary-foreground" />
           </div>
           <span className="font-bold text-sm">OSSshelf</span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-9 w-9 touch-target-sm"
             onClick={cycleTheme}
             title={`当前主题: ${theme === 'light' ? '浅色' : theme === 'dark' ? '深色' : '跟随系统'}`}
           >
-            <ThemeIcon className="h-4 w-4" />
+            <ThemeIcon className="h-4.5 w-4.5" />
           </Button>
-          {location.pathname.startsWith('/files') && (
-            <>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                disabled={!canGoBack()}
-                onClick={() => {
-                  const targetFolderId = goBack();
-                  if (targetFolderId !== null) {
-                    navigate(targetFolderId ? `/files/${targetFolderId}` : '/files');
-                  }
-                }}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                disabled={!canGoForward()}
-                onClick={() => {
-                  const targetFolderId = goForward();
-                  if (targetFolderId !== null) {
-                    navigate(targetFolderId ? `/files/${targetFolderId}` : '/files');
-                  }
-                }}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </>
-          )}
         </div>
       </div>
 

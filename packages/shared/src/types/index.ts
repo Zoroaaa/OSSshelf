@@ -43,6 +43,13 @@ export interface FileItem {
   deletedAt: string | null;
   tags?: FileTag[];
   permissions?: FilePermission[];
+  // AI fields
+  aiSummary?: string | null;
+  aiSummaryAt?: string | null;
+  aiTags?: string | null; // JSON array string
+  aiTagsAt?: string | null;
+  vectorIndexedAt?: string | null;
+  isStarred?: boolean;
 }
 
 export interface UploadedFile {

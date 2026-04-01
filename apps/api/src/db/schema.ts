@@ -58,6 +58,12 @@ export const files = sqliteTable(
     versionRetentionDays: integer('version_retention_days').default(30),
     description: text('description'),
     noteCount: integer('note_count').default(0),
+    aiSummary: text('ai_summary'),
+    aiSummaryAt: text('ai_summary_at'),
+    aiTags: text('ai_tags'),
+    aiTagsAt: text('ai_tags_at'),
+    vectorIndexedAt: text('vector_indexed_at'),
+    isStarred: integer('is_starred', { mode: 'boolean' }).default(false),
   },
   (table) => ({
     userParentIdx: index('idx_files_user_parent_active').on(table.userId, table.parentId),
@@ -69,6 +75,10 @@ export const files = sqliteTable(
     userSizeIdx: index('idx_files_user_size').on(table.userId, table.size),
     hashIdx: index('idx_files_hash').on(table.hash),
     directLinkTokenIdx: index('idx_files_direct_link_token').on(table.directLinkToken),
+    vectorIndexedIdx: index('idx_files_vector_indexed').on(table.userId, table.vectorIndexedAt),
+    aiSummaryIdx: index('idx_files_ai_summary').on(table.userId, table.aiSummaryAt),
+    aiTagsIdx: index('idx_files_ai_tags').on(table.userId, table.aiTagsAt),
+    isStarredIdx: index('idx_files_is_starred').on(table.userId, table.isStarred, table.updatedAt),
   })
 );
 
@@ -202,8 +212,7 @@ export const filePermissions = sqliteTable(
     fileId: text('file_id')
       .notNull()
       .references(() => files.id, { onDelete: 'cascade' }),
-    userId: text('user_id')
-      .references(() => users.id, { onDelete: 'cascade' }),
+    userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
     permission: text('permission').notNull().default('read'),
     grantedBy: text('granted_by')
       .notNull()

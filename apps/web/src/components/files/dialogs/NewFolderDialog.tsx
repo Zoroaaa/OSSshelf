@@ -5,16 +5,19 @@
  * 功能:
  * - 文件夹名称输入
  * - 根目录时可选择绑定存储桶
+ * - 移动端底部弹出面板
  */
 
 import { useQuery } from '@tanstack/react-query';
 import { bucketsApi, PROVIDER_META, type StorageBucket } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { MobileDialog, MobileDialogFooter, MobileDialogAction } from '@/components/ui/MobileDialog';
 import { cn } from '@/utils';
 import { Database } from 'lucide-react';
 
 interface NewFolderDialogProps {
+  open: boolean;
   isRoot: boolean;
   name: string;
   bucketId: string | null;
@@ -26,6 +29,7 @@ interface NewFolderDialogProps {
 }
 
 export function NewFolderDialog({
+  open,
   isRoot,
   name,
   bucketId,
@@ -45,10 +49,8 @@ export function NewFolderDialog({
   const defaultBucket = (buckets as StorageBucket[]).find((b) => b.isDefault);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-card border rounded-xl p-6 w-full max-w-md shadow-2xl space-y-4">
-        <h2 className="text-lg font-semibold">新建文件夹</h2>
-
+    <MobileDialog open={open} onClose={onCancel} title="新建文件夹" mode="sheet">
+      <div className="space-y-4">
         <div className="space-y-1.5">
           <label className="text-sm font-medium">文件夹名称</label>
           <Input
@@ -66,12 +68,12 @@ export function NewFolderDialog({
               <Database className="h-3.5 w-3.5 text-muted-foreground" />
               绑定存储桶
             </label>
-            <div className="space-y-1.5 max-h-40 overflow-y-auto rounded-lg border divide-y">
+            <div className="space-y-1 max-h-40 overflow-y-auto rounded-lg border divide-y">
               <button
                 type="button"
                 onClick={() => onBucketChange(null)}
                 className={cn(
-                  'w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors',
+                  'w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors',
                   !bucketId ? 'bg-primary/5 text-primary font-medium' : 'hover:bg-muted/50 text-muted-foreground'
                 )}
               >
@@ -96,7 +98,7 @@ export function NewFolderDialog({
                       type="button"
                       onClick={() => onBucketChange(b.id)}
                       className={cn(
-                        'w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors',
+                        'w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors',
                         isSelected ? 'bg-primary/5 text-primary font-medium' : 'hover:bg-muted/50'
                       )}
                     >
@@ -124,15 +126,20 @@ export function NewFolderDialog({
           </div>
         )}
 
-        <div className="flex justify-end gap-2 pt-1">
-          <Button variant="outline" onClick={onCancel} disabled={loading}>
+        <MobileDialogFooter>
+          <MobileDialogAction onClick={onCancel} disabled={loading}>
             取消
-          </Button>
-          <Button onClick={onConfirm} disabled={loading || !name.trim()}>
-            {loading ? '创建中…' : '创建'}
-          </Button>
-        </div>
+          </MobileDialogAction>
+          <MobileDialogAction
+            onClick={onConfirm}
+            variant="primary"
+            disabled={loading || !name.trim()}
+            loading={loading}
+          >
+            创建
+          </MobileDialogAction>
+        </MobileDialogFooter>
       </div>
-    </div>
+    </MobileDialog>
   );
 }

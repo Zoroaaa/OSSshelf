@@ -24,8 +24,7 @@ const GroupCreateDialog: React.FC<GroupCreateDialogProps> = ({ onClose, onCreate
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const createMutation = useMutation({
-    mutationFn: (data: { name: string; description?: string }) =>
-      groupsApi.create(data).then((r) => r.data),
+    mutationFn: (data: { name: string; description?: string }) => groupsApi.create(data).then((r) => r.data),
     onSuccess: () => {
       toast({ title: '用户组已创建' });
       onCreated();
@@ -66,10 +65,7 @@ const GroupCreateDialog: React.FC<GroupCreateDialogProps> = ({ onClose, onCreate
       <div className="bg-card rounded-lg shadow-lg w-full max-w-md mx-4">
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold">创建用户组</h2>
-          <button
-            onClick={onClose}
-            className="p-1 rounded hover:bg-muted transition-colors"
-          >
+          <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -88,9 +84,7 @@ const GroupCreateDialog: React.FC<GroupCreateDialogProps> = ({ onClose, onCreate
               placeholder="例如：开发团队"
               className={cn(errors.name && 'border-destructive')}
             />
-            {errors.name && (
-              <p className="text-xs text-destructive">{errors.name}</p>
-            )}
+            {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
           </div>
 
           <div className="space-y-1.5">
@@ -110,9 +104,7 @@ const GroupCreateDialog: React.FC<GroupCreateDialogProps> = ({ onClose, onCreate
               取消
             </Button>
             <Button type="submit" disabled={createMutation.isPending}>
-              {createMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-1" />
-              ) : null}
+              {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
               创建
             </Button>
           </div>

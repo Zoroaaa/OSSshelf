@@ -12,13 +12,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  permissionsApi,
-  groupsApi,
-  searchApi,
-  type SearchableUser,
-  type UserGroup,
-} from '@/services/api';
+import { permissionsApi, groupsApi, searchApi, type SearchableUser, type UserGroup } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/useToast';
@@ -161,8 +155,7 @@ const GlobalPermissions: React.FC = () => {
   });
 
   const revokeMutation = useMutation({
-    mutationFn: (data: { permissionId: string }) =>
-      permissionsApi.revokeById(data.permissionId),
+    mutationFn: (data: { permissionId: string }) => permissionsApi.revokeById(data.permissionId),
     onSuccess: () => {
       toast({ title: '权限已撤销' });
       queryClient.invalidateQueries({ queryKey: ['global-permissions'] });
@@ -204,9 +197,7 @@ const GlobalPermissions: React.FC = () => {
   };
 
   const toggleFileSelection = (fileId: string) => {
-    setSelectedFileIds((prev) =>
-      prev.includes(fileId) ? prev.filter((id) => id !== fileId) : [...prev, fileId]
-    );
+    setSelectedFileIds((prev) => (prev.includes(fileId) ? prev.filter((id) => id !== fileId) : [...prev, fileId]));
   };
 
   const handleGrant = () => {
@@ -225,9 +216,7 @@ const GlobalPermissions: React.FC = () => {
     grantMutation.mutate();
   };
 
-  const allGroups = groupsData
-    ? [...(groupsData.owned || []), ...(groupsData.memberOf || [])]
-    : [];
+  const allGroups = groupsData ? [...(groupsData.owned || []), ...(groupsData.memberOf || [])] : [];
 
   const permissions = (permissionsData?.permissions ?? []) as PermissionRecord[];
 
@@ -237,19 +226,25 @@ const GlobalPermissions: React.FC = () => {
     return true;
   });
 
-  const groupedBySubject = filteredPermissions.reduce((acc, p) => {
-    const key = `${p.subjectType}-${p.subjectId}`;
-    if (!acc[key]) {
-      acc[key] = {
-        subjectType: p.subjectType,
-        subjectId: p.subjectId,
-        subjectName: p.subjectName,
-        permissions: [],
-      };
-    }
-    acc[key].permissions.push(p);
-    return acc;
-  }, {} as Record<string, { subjectType: string; subjectId: string | null; subjectName: string; permissions: PermissionRecord[] }>);
+  const groupedBySubject = filteredPermissions.reduce(
+    (acc, p) => {
+      const key = `${p.subjectType}-${p.subjectId}`;
+      if (!acc[key]) {
+        acc[key] = {
+          subjectType: p.subjectType,
+          subjectId: p.subjectId,
+          subjectName: p.subjectName,
+          permissions: [],
+        };
+      }
+      acc[key].permissions.push(p);
+      return acc;
+    },
+    {} as Record<
+      string,
+      { subjectType: string; subjectId: string | null; subjectName: string; permissions: PermissionRecord[] }
+    >
+  );
 
   if (isLoading) {
     return (
@@ -264,9 +259,7 @@ const GlobalPermissions: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold">授权管理</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            查看和管理所有文件/文件夹的授权信息
-          </p>
+          <p className="text-sm text-muted-foreground mt-1">查看和管理所有文件/文件夹的授权信息</p>
         </div>
         <Button onClick={() => setShowGrantForm(!showGrantForm)}>
           {showGrantForm ? <X className="h-4 w-4 mr-1" /> : <Plus className="h-4 w-4 mr-1" />}
@@ -290,9 +283,7 @@ const GlobalPermissions: React.FC = () => {
                     }}
                     className={cn(
                       'flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-colors border',
-                      selectedSubjectType === 'user'
-                        ? 'bg-primary/10 text-primary border-primary'
-                        : 'hover:bg-muted'
+                      selectedSubjectType === 'user' ? 'bg-primary/10 text-primary border-primary' : 'hover:bg-muted'
                     )}
                   >
                     <User className="h-3.5 w-3.5" />
@@ -305,9 +296,7 @@ const GlobalPermissions: React.FC = () => {
                     }}
                     className={cn(
                       'flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-colors border',
-                      selectedSubjectType === 'group'
-                        ? 'bg-primary/10 text-primary border-primary'
-                        : 'hover:bg-muted'
+                      selectedSubjectType === 'group' ? 'bg-primary/10 text-primary border-primary' : 'hover:bg-muted'
                     )}
                   >
                     <Users className="h-3.5 w-3.5" />
@@ -338,9 +327,7 @@ const GlobalPermissions: React.FC = () => {
                           onClick={() => setSelectedUserId(user.id)}
                           className={cn(
                             'w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left transition-colors',
-                            selectedUserId === user.id
-                              ? 'bg-primary text-primary-foreground'
-                              : 'hover:bg-muted'
+                            selectedUserId === user.id ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
                           )}
                         >
                           <User className="h-3.5 w-3.5" />
@@ -361,9 +348,7 @@ const GlobalPermissions: React.FC = () => {
                         onClick={() => setSelectedGroupId(group.id)}
                         className={cn(
                           'w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left transition-colors',
-                          selectedGroupId === group.id
-                            ? 'bg-primary text-primary-foreground'
-                            : 'hover:bg-muted'
+                          selectedGroupId === group.id ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
                         )}
                       >
                         <Users className="h-3.5 w-3.5" />
@@ -398,20 +383,12 @@ const GlobalPermissions: React.FC = () => {
                         onClick={() => toggleFileSelection(file.id)}
                         className={cn(
                           'w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left transition-colors',
-                          selectedFileIds.includes(file.id)
-                            ? 'bg-primary text-primary-foreground'
-                            : 'hover:bg-muted'
+                          selectedFileIds.includes(file.id) ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
                         )}
                       >
-                        {file.isFolder ? (
-                          <Folder className="h-3.5 w-3.5" />
-                        ) : (
-                          <FileText className="h-3.5 w-3.5" />
-                        )}
+                        {file.isFolder ? <Folder className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />}
                         <span className="flex-1 truncate">{file.name}</span>
-                        {selectedFileIds.includes(file.id) && (
-                          <span className="text-xs">已选</span>
-                        )}
+                        {selectedFileIds.includes(file.id) && <span className="text-xs">已选</span>}
                       </button>
                     ))}
                   </div>
@@ -423,17 +400,12 @@ const GlobalPermissions: React.FC = () => {
                   <label className="text-sm font-medium">已选择 {selectedFileIds.length} 项</label>
                   <div className="flex flex-wrap gap-1">
                     {selectedFileIds.slice(0, 5).map((id) => (
-                      <span
-                        key={id}
-                        className="px-2 py-0.5 text-xs bg-primary/10 text-primary rounded"
-                      >
+                      <span key={id} className="px-2 py-0.5 text-xs bg-primary/10 text-primary rounded">
                         {id.slice(0, 8)}...
                       </span>
                     ))}
                     {selectedFileIds.length > 5 && (
-                      <span className="px-2 py-0.5 text-xs bg-muted rounded">
-                        +{selectedFileIds.length - 5} 更多
-                      </span>
+                      <span className="px-2 py-0.5 text-xs bg-muted rounded">+{selectedFileIds.length - 5} 更多</span>
                     )}
                   </div>
                 </div>
@@ -454,9 +426,7 @@ const GlobalPermissions: React.FC = () => {
                       onClick={() => setSelectedPermission(perm)}
                       className={cn(
                         'flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-colors border',
-                        selectedPermission === perm
-                          ? `${config.bg} ${config.color} border-current`
-                          : 'hover:bg-muted'
+                        selectedPermission === perm ? `${config.bg} ${config.color} border-current` : 'hover:bg-muted'
                       )}
                     >
                       <Icon className="h-3.5 w-3.5" />
@@ -528,9 +498,7 @@ const GlobalPermissions: React.FC = () => {
             <option value="admin">管理</option>
           </select>
         </div>
-        <span className="text-sm text-muted-foreground">
-          共 {filteredPermissions.length} 条授权记录
-        </span>
+        <span className="text-sm text-muted-foreground">共 {filteredPermissions.length} 条授权记录</span>
       </div>
 
       {Object.keys(groupedBySubject).length === 0 ? (

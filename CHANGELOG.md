@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.7.0] - 2026-04-01
+
+### Added
+
+- AI 功能集成（基于 Cloudflare AI）
+  - 文件摘要生成：自动为文本文件生成内容摘要
+  - 图片智能描述：自动识别图片内容并生成描述
+  - 图片标签生成：使用 ResNet-50 模型自动生成图片标签
+  - 智能重命名建议：根据文件内容智能推荐文件名
+  - 语义搜索：基于 Vectorize 实现语义相似文件搜索
+  - 向量索引管理：支持批量索引、增量索引、索引状态查询
+- 移动端页面排版优化
+  - 新增移动端底部操作栏（MobileFilesToolbar）
+  - 新增移动端搜索面板（MobileSearchPanel）
+  - 优化移动端底部导航（MobileBottomNav）
+  - 改进视图切换、排序、浮动操作按钮交互
+  - 增强移动端触摸体验和响应式布局
+- 预览组件拆分重构
+  - 将 FilePreview 拆分为独立预览组件
+  - 新增 filepreview 目录，包含 12 个独立预览组件
+  - ImagePreview、VideoPreview、AudioPreview
+  - PdfPreview、MarkdownPreview、CodePreview
+  - OfficePreview、CsvPreview、ZipPreview
+  - FontPreview、EpubPreview
+  - 新增 previewUtils 工具函数
+
+### Changed
+
+- 数据库结构扩展
+  - files 表新增 ai_summary、ai_summary_at 字段
+  - files 表新增 ai_tags、ai_tags_at 字段
+  - files 表新增 vector_indexed_at 字段
+  - files 表新增 is_starred 字段
+  - 新增迁移文件 0014_ai_features.sql
+
+### Improved
+
+- AI 功能自动触发：上传文件后自动生成摘要/标签
+- 语义搜索支持中文和多语言
+- 移动端交互体验优化
+
 ## [v3.6.0] - 2026-03-31
 
 ### Added

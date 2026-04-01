@@ -4,13 +4,13 @@
 
 **基于 Cloudflare 的多厂商 OSS 文件管理系统**
 
-支持 WebDAV 协议 · 多存储提供商 · 大文件分片上传 · 文件分享
+文件上传下载 · 在线预览 · 文件分享 · 多存储支持 · WebDAV 协议 · 权限管理 · 开放 API
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-green.svg)](https://nodejs.org)
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers-orange.svg)](https://workers.cloudflare.com)
 
-[功能特性](#-功能特性) • [快速开始](#-快速开始) • [部署指南](#-部署指南) • [使用说明](#-使用说明) • [API文档](#-api-文档)
+[功能特性](#-功能特性) • [快速开始](#-快速开始) • [部署指南](#-部署指南) • [API文档](#-api-文档)
 
 </div>
 
@@ -35,12 +35,11 @@
 
 详细的版本更新日志请参阅 [CHANGELOG.md](CHANGELOG.md)。
 
-### 最新版本 v3.6.0
+### 最新版本 v3.7.0
 
-- **权限系统 v2**：用户组管理、权限继承、时效性权限、递归 CTE 权限解析
-- **RESTful v1 API**：标准化 API 接口，支持 OpenAPI 文档和 Swagger UI
-- **Webhook 通知**：支持文件事件订阅，第三方系统集成
-- **OpenAPI 文档**：自动生成 API 文档，访问 `/api/v1/docs` 查看
+- **AI 功能集成**：文件摘要生成、图片智能描述、图片标签生成、智能重命名建议、语义搜索
+- **移动端优化**：底部操作栏、搜索面板、响应式布局优化
+- **预览组件拆分**：独立预览组件，提升代码可维护性
 
 ---
 
@@ -75,6 +74,7 @@
 - 💬 **文件笔记**: 为文件添加评论和笔记，支持 @提及和回复
 - 🏷️ **标签系统**: 为文件添加自定义标签
 - 🔍 **高级搜索**: 按名称、类型、大小、时间等条件搜索
+- 🤖 **AI 功能**: 文件摘要、图片描述、智能标签、语义搜索、智能重命名
 - 📥 **离线下载**: 支持 URL 离线下载到云存储
 - 📡 **WebDAV**: 完整的 WebDAV 协议支持（优化 Windows 资源管理器兼容性）
 - 🔄 **存储桶迁移**: 支持在不同存储桶之间迁移文件（跨 provider）
@@ -106,6 +106,7 @@
 | 后端   | Hono 4 + Cloudflare Workers          |
 | 数据库 | Cloudflare D1 (SQLite) + Drizzle ORM |
 | 存储   | S3 兼容协议 + Telegram Bot API       |
+| AI     | Cloudflare AI + Vectorize            |
 | 认证   | JWT + bcrypt                         |
 
 ---
@@ -383,6 +384,8 @@ ossshelf/
 │   │   │   │   ├── versionManager.ts # 版本管理 (v3.5.0)
 │   │   │   │   ├── permissionResolver.ts # 权限解析 (v3.6.0)
 │   │   │   │   ├── webhook.ts   # Webhook 分发 (v3.6.0)
+│   │   │   │   ├── aiFeatures.ts # AI 功能 (v3.7.0)
+│   │   │   │   ├── vectorIndex.ts # 向量索引 (v3.7.0)
 │   │   │   │   └── cleanup.ts   # 清理任务
 │   │   │   ├── middleware/     # 中间件
 │   │   │   ├── routes/         # API 路由
@@ -403,6 +406,7 @@ ossshelf/
 │   │   │   │   ├── apiKeys.ts   # API Keys 管理 (v3.5.0)
 │   │   │   │   ├── groups.ts    # 用户组管理 (v3.6.0)
 │   │   │   │   ├── webhooks.ts  # Webhook 管理 (v3.6.0)
+│   │   │   │   ├── ai.ts        # AI 功能 (v3.7.0)
 │   │   │   │   ├── v1/          # RESTful v1 API (v3.6.0)
 │   │   │   │   │   ├── index.ts
 │   │   │   │   │   ├── files.ts
@@ -426,16 +430,20 @@ ossshelf/
 │   │   │   ├── 0007_phase7.sql
 │   │   │   ├── 0010_notes.sql   # 文件笔记 (v3.5.0)
 │   │   │   ├── 0011_api_keys.sql # API Keys (v3.5.0)
-│   │   │   └── 0012_permission_v2.sql # 权限系统 v2 (v3.6.0)
+│   │   │   ├── 0012_permission_v2.sql # 权限系统 v2 (v3.6.0)
+│   │   │   ├── 0014_ai_features.sql # AI 功能 (v3.7.0)
 │   │   └── wrangler.toml       # Cloudflare 配置
 │   └── web/                    # 前端应用
 │       ├── src/
 │       │   ├── components/     # UI 组件
+│       │   │   ├── ai/         # AI 组件 (v3.7.0)
 │       │   │   ├── notes/      # 笔记组件 (v3.5.0)
 │       │   │   ├── editor/     # 编辑器组件 (v3.5.0)
 │       │   │   ├── groups/     # 用户组组件 (v3.6.0)
 │       │   │   ├── webhooks/   # Webhook 组件 (v3.6.0)
 │       │   │   ├── permissions/ # 权限组件 (v3.6.0)
+│       │   │   ├── files/      # 文件组件
+│       │   │   │   ├── filepreview/ # 预览组件 (v3.7.0 拆分)
 │       │   │   └── settings/   # 设置组件
 │       │   ├── hooks/          # 自定义 Hooks
 │       │   ├── pages/          # 页面组件
@@ -462,32 +470,33 @@ ossshelf/
 
 ### API 路由概览
 
-| 路由前缀           | 说明              |
-| ------------------ | ----------------- |
-| `/api/auth`        | 用户认证          |
-| `/api/files`       | 文件管理          |
-| `/api/buckets`     | 存储桶管理        |
-| `/api/share`       | 文件分享          |
-| `/api/direct`      | 文件直链          |
-| `/api/presign`     | 预签名 URL        |
-| `/api/tasks`       | 上传任务          |
-| `/api/downloads`   | 离线下载          |
-| `/api/batch`       | 批量操作          |
-| `/api/search`      | 文件搜索          |
-| `/api/permissions` | 权限与标签        |
-| `/api/preview`     | 文件预览          |
-| `/api/versions`    | 版本控制 (v3.3.0) |
-| `/api/notes`       | 文件笔记 (v3.5.0) |
-| `/api/api-keys`    | API Keys 管理 (v3.5.0) |
-| `/api/groups`      | 用户组管理 (v3.6.0) |
-| `/api/webhooks`    | Webhook 管理 (v3.6.0) |
+| 路由前缀           | 说明                    |
+| ------------------ | ----------------------- |
+| `/api/auth`        | 用户认证                |
+| `/api/files`       | 文件管理                |
+| `/api/buckets`     | 存储桶管理              |
+| `/api/share`       | 文件分享                |
+| `/api/direct`      | 文件直链                |
+| `/api/presign`     | 预签名 URL              |
+| `/api/tasks`       | 上传任务                |
+| `/api/downloads`   | 离线下载                |
+| `/api/batch`       | 批量操作                |
+| `/api/search`      | 文件搜索                |
+| `/api/permissions` | 权限与标签              |
+| `/api/preview`     | 文件预览                |
+| `/api/versions`    | 版本控制 (v3.3.0)       |
+| `/api/notes`       | 文件笔记 (v3.5.0)       |
+| `/api/api-keys`    | API Keys 管理 (v3.5.0)  |
+| `/api/groups`      | 用户组管理 (v3.6.0)     |
+| `/api/webhooks`    | Webhook 管理 (v3.6.0)   |
+| `/api/ai`          | AI 功能 (v3.7.0)        |
 | `/api/v1`          | RESTful v1 API (v3.6.0) |
-| `/api/v1/docs`     | OpenAPI 文档 (v3.6.0) |
-| `/api/admin`       | 管理员接口        |
-| `/api/migrate`     | 存储桶迁移        |
-| `/api/telegram`    | Telegram 存储     |
-| `/cron`            | 定时任务          |
-| `/dav`             | WebDAV            |
+| `/api/v1/docs`     | OpenAPI 文档 (v3.6.0)   |
+| `/api/admin`       | 管理员接口              |
+| `/api/migrate`     | 存储桶迁移              |
+| `/api/telegram`    | Telegram 存储           |
+| `/cron`            | 定时任务                |
+| `/dav`             | WebDAV                  |
 
 ---
 

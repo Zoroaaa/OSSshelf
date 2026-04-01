@@ -81,9 +81,7 @@ const WebhookCreateDialog: React.FC<WebhookCreateDialogProps> = ({ events, onClo
       if (prev.includes('*')) {
         return [eventValue];
       }
-      return prev.includes(eventValue)
-        ? prev.filter((e) => e !== eventValue)
-        : [...prev, eventValue];
+      return prev.includes(eventValue) ? prev.filter((e) => e !== eventValue) : [...prev, eventValue];
     });
     setErrors((prev) => ({ ...prev, events: '' }));
   };
@@ -128,9 +126,7 @@ const WebhookCreateDialog: React.FC<WebhookCreateDialogProps> = ({ events, onClo
 
             <div className="p-3 bg-muted/30 rounded-lg text-xs space-y-1">
               <p className="font-medium">验证签名示例：</p>
-              <code className="block text-muted-foreground">
-                X-Webhook-Signature = HMAC-SHA256(secret, body)
-              </code>
+              <code className="block text-muted-foreground">X-Webhook-Signature = HMAC-SHA256(secret, body)</code>
             </div>
           </div>
 
@@ -184,9 +180,7 @@ const WebhookCreateDialog: React.FC<WebhookCreateDialogProps> = ({ events, onClo
                   onClick={() => toggleEvent(event.value)}
                   className={cn(
                     'flex flex-col items-start p-2 rounded-md border text-left transition-colors',
-                    selectedEvents.includes(event.value)
-                      ? 'bg-primary/10 border-primary'
-                      : 'hover:bg-muted'
+                    selectedEvents.includes(event.value) ? 'bg-primary/10 border-primary' : 'hover:bg-muted'
                   )}
                 >
                   <span className="text-sm font-medium">{event.label}</span>
@@ -213,9 +207,7 @@ const WebhookCreateDialog: React.FC<WebhookCreateDialogProps> = ({ events, onClo
               取消
             </Button>
             <Button type="submit" disabled={createMutation.isPending}>
-              {createMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-1" />
-              ) : null}
+              {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
               创建
             </Button>
           </div>

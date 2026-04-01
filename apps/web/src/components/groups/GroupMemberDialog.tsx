@@ -172,9 +172,7 @@ const GroupMemberDialog: React.FC<GroupMemberDialogProps> = ({ groupId, onClose 
                       onClick={() => setSelectedUserId(user.id)}
                       className={cn(
                         'w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left transition-colors',
-                        selectedUserId === user.id
-                          ? 'bg-primary text-primary-foreground'
-                          : 'hover:bg-muted'
+                        selectedUserId === user.id ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
                       )}
                     >
                       <User className="h-3.5 w-3.5" />
@@ -192,9 +190,7 @@ const GroupMemberDialog: React.FC<GroupMemberDialogProps> = ({ groupId, onClose 
                     onClick={() => setSelectedRole('member')}
                     className={cn(
                       'flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-colors border',
-                      selectedRole === 'member'
-                        ? 'bg-blue-500/10 text-blue-500 border-blue-500'
-                        : 'hover:bg-muted'
+                      selectedRole === 'member' ? 'bg-blue-500/10 text-blue-500 border-blue-500' : 'hover:bg-muted'
                     )}
                   >
                     <User className="h-3.5 w-3.5" />
@@ -204,9 +200,7 @@ const GroupMemberDialog: React.FC<GroupMemberDialogProps> = ({ groupId, onClose 
                     onClick={() => setSelectedRole('admin')}
                     className={cn(
                       'flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-colors border',
-                      selectedRole === 'admin'
-                        ? 'bg-purple-500/10 text-purple-500 border-purple-500'
-                        : 'hover:bg-muted'
+                      selectedRole === 'admin' ? 'bg-purple-500/10 text-purple-500 border-purple-500' : 'hover:bg-muted'
                     )}
                   >
                     <Shield className="h-3.5 w-3.5" />

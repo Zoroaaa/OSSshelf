@@ -83,7 +83,10 @@ app.post('/', async (c) => {
   const invalidEvents = events.filter((e) => e !== '*' && !VALID_EVENTS.includes(e as WebhookEvent));
   if (invalidEvents.length > 0) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: `无效的事件类型: ${invalidEvents.join(', ')}` } },
+      {
+        success: false,
+        error: { code: ERROR_CODES.VALIDATION_ERROR, message: `无效的事件类型: ${invalidEvents.join(', ')}` },
+      },
       400
     );
   }
@@ -174,19 +177,28 @@ app.put('/:id', async (c) => {
 
   if (body.url !== undefined) {
     if (!z.string().url().safeParse(body.url).success) {
-      return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请输入有效的 URL' } }, 400);
+      return c.json(
+        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请输入有效的 URL' } },
+        400
+      );
     }
     updateData.url = body.url;
   }
 
   if (body.events !== undefined) {
     if (!Array.isArray(body.events) || body.events.length === 0) {
-      return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '至少选择一个事件' } }, 400);
+      return c.json(
+        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '至少选择一个事件' } },
+        400
+      );
     }
     const invalidEvents = body.events.filter((e: string) => e !== '*' && !VALID_EVENTS.includes(e as WebhookEvent));
     if (invalidEvents.length > 0) {
       return c.json(
-        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: `无效的事件类型: ${invalidEvents.join(', ')}` } },
+        {
+          success: false,
+          error: { code: ERROR_CODES.VALIDATION_ERROR, message: `无效的事件类型: ${invalidEvents.join(', ')}` },
+        },
         400
       );
     }

@@ -35,9 +35,7 @@ const PermissionHelpDialog: React.FC<PermissionHelpDialogProps> = ({ onClose }) 
                   <Eye className="h-5 w-5 text-blue-500" />
                   <span className="font-medium text-blue-500">只读</span>
                 </div>
-                <p className="text-sm text-muted-foreground mb-3">
-                  可以查看文件和文件夹内容，但不能进行任何修改操作。
-                </p>
+                <p className="text-sm text-muted-foreground mb-3">可以查看文件和文件夹内容，但不能进行任何修改操作。</p>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="flex items-center gap-1 text-green-600">
                     <Download className="h-3 w-3" /> 下载文件
@@ -175,8 +173,7 @@ const PermissionHelpDialog: React.FC<PermissionHelpDialogProps> = ({ onClose }) 
           <section>
             <h3 className="text-base font-semibold mb-3">权限有效期</h3>
             <p className="text-sm text-muted-foreground">
-              授权时可以设置过期时间。过期后权限将自动失效，用户将无法继续访问相关资源。
-              如需继续访问，需要重新授权。
+              授权时可以设置过期时间。过期后权限将自动失效，用户将无法继续访问相关资源。 如需继续访问，需要重新授权。
             </p>
           </section>
         </div>

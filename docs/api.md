@@ -2,7 +2,7 @@
 
 本文档基于项目实际路由代码，详细描述 OSSshelf 的所有 API 接口。
 
-**当前版本**: v3.6.0
+**当前版本**: v3.7.0
 
 ---
 
@@ -23,6 +23,7 @@
 - [权限与标签接口](#权限与标签接口)
 - [用户组接口](#用户组接口) - v3.6.0
 - [Webhook 接口](#webhook-接口) - v3.6.0
+- [AI 功能接口](#ai-功能接口) - v3.7.0
 - [上传任务接口](#上传任务接口)
 - [离线下载接口](#离线下载接口)
 - [预览接口](#预览接口)
@@ -75,6 +76,7 @@ Authorization: ApiKey osk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 **API Key 格式**：`osk_live_` 前缀 + 64 位十六进制字符
 
 **API Key 特点**：
+
 - 仅在创建时显示一次，请妥善保存
 - 支持 Scope 权限控制
 - 支持过期时间设置
@@ -1607,21 +1609,21 @@ Authorization: Bearer <token>
 
 ### 支持的预览类型
 
-| 类型 | MIME 类型 / 扩展名 | 预览方式 |
-|------|-------------------|----------|
-| 图片 | image/* | 浏览器原生 `<img>` |
-| 视频 | video/* | 浏览器原生 `<video>` |
-| 音频 | audio/* | 浏览器原生 `<audio>` |
-| PDF | application/pdf | pdf.js 分页渲染 |
-| Markdown | text/markdown, .md | react-markdown + GFM + 数学公式 |
-| 代码 | text/*, .js/.ts/.py 等 | highlight.js 语法高亮 |
-| Word | application/msword, .docx | docx-preview 本地渲染 |
-| Excel | application/vnd.ms-excel, .xlsx | xlsx 库 + 样式保留 |
-| PowerPoint | application/vnd.ms-powerpoint, .pptx | pptx-preview 本地渲染 |
-| EPUB | application/epub+zip, .epub | epub.js 电子书阅读器 |
-| 字体 | font/ttf, font/otf, font/woff, font/woff2 | FontFace API 字符预览 |
-| ZIP | application/zip | JSZip 文件列表预览 |
-| CSV | text/csv, .csv | PapaParse 表格视图 |
+| 类型       | MIME 类型 / 扩展名                        | 预览方式                        |
+| ---------- | ----------------------------------------- | ------------------------------- |
+| 图片       | image/\*                                  | 浏览器原生 `<img>`              |
+| 视频       | video/\*                                  | 浏览器原生 `<video>`            |
+| 音频       | audio/\*                                  | 浏览器原生 `<audio>`            |
+| PDF        | application/pdf                           | pdf.js 分页渲染                 |
+| Markdown   | text/markdown, .md                        | react-markdown + GFM + 数学公式 |
+| 代码       | text/\*, .js/.ts/.py 等                   | highlight.js 语法高亮           |
+| Word       | application/msword, .docx                 | docx-preview 本地渲染           |
+| Excel      | application/vnd.ms-excel, .xlsx           | xlsx 库 + 样式保留              |
+| PowerPoint | application/vnd.ms-powerpoint, .pptx      | pptx-preview 本地渲染           |
+| EPUB       | application/epub+zip, .epub               | epub.js 电子书阅读器            |
+| 字体       | font/ttf, font/otf, font/woff, font/woff2 | FontFace API 字符预览           |
+| ZIP        | application/zip                           | JSZip 文件列表预览              |
+| CSV        | text/csv, .csv                            | PapaParse 表格视图              |
 
 ### 预览大小限制
 
@@ -1905,10 +1907,10 @@ Authorization: Bearer <token>
 
 **查询参数**:
 
-| 参数     | 说明                     |
-| -------- | ------------------------ |
-| `page`   | 页码，默认 1             |
-| `limit`  | 每页数量，默认 20        |
+| 参数    | 说明              |
+| ------- | ----------------- |
+| `page`  | 页码，默认 1      |
+| `limit` | 每页数量，默认 20 |
 
 **响应**:
 
@@ -1967,6 +1969,7 @@ Content-Type: application/json
 ```
 
 **说明**:
+
 - `content` 中使用 `@邮箱` 格式可以提及其他用户
 - `parentId` 为 null 时是顶级笔记，否则是回复
 
@@ -2055,14 +2058,14 @@ Content-Type: application/json
 
 **可用 Scopes**:
 
-| Scope           | 说明               |
-| --------------- | ------------------ |
-| `files:read`    | 读取文件列表和内容 |
+| Scope           | 说明                 |
+| --------------- | -------------------- |
+| `files:read`    | 读取文件列表和内容   |
 | `files:write`   | 上传、修改、删除文件 |
-| `shares:read`   | 查看分享信息       |
-| `shares:write`  | 创建和管理分享     |
-| `buckets:read`  | 查看存储桶配置     |
-| `api_keys:read` | 查看 API Keys 列表 |
+| `shares:read`   | 查看分享信息         |
+| `shares:write`  | 创建和管理分享       |
+| `buckets:read`  | 查看存储桶配置       |
+| `api_keys:read` | 查看 API Keys 列表   |
 
 **响应**:
 
@@ -2482,15 +2485,15 @@ Content-Type: application/json
 
 **支持的事件**:
 
-| 事件 | 说明 |
-|------|------|
-| `file.uploaded` | 文件上传完成 |
-| `file.deleted` | 文件删除 |
-| `file.updated` | 文件更新 |
-| `share.created` | 分享创建 |
-| `share.deleted` | 分享删除 |
-| `permission.granted` | 权限授予 |
-| `permission.revoked` | 权限撤销 |
+| 事件                 | 说明         |
+| -------------------- | ------------ |
+| `file.uploaded`      | 文件上传完成 |
+| `file.deleted`       | 文件删除     |
+| `file.updated`       | 文件更新     |
+| `share.created`      | 分享创建     |
+| `share.deleted`      | 分享删除     |
+| `permission.granted` | 权限授予     |
+| `permission.revoked` | 权限撤销     |
 
 **响应**:
 
@@ -2546,6 +2549,304 @@ if (signature === expectedSignature) {
   }
 }
 ```
+
+---
+
+## AI 功能接口
+
+路由文件: `apps/api/src/routes/ai.ts`
+
+AI 功能基于 Cloudflare AI 和 Vectorize 实现，提供文件摘要、图片标签、智能重命名和语义搜索等功能。
+
+### 获取 AI 功能状态
+
+```http
+GET /api/ai/status
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "configured": true,
+    "features": {
+      "semanticSearch": true,
+      "summary": true,
+      "imageTags": true,
+      "renameSuggest": true
+    }
+  }
+}
+```
+
+### 语义搜索
+
+```http
+POST /api/ai/search
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "query": "查找关于项目计划的文档",
+  "limit": 20,
+  "threshold": 0.7,
+  "mimeType": "application/pdf"
+}
+```
+
+**参数说明**:
+
+| 参数        | 类型   | 必填 | 说明                              |
+| ----------- | ------ | ---- | --------------------------------- |
+| `query`     | string | 是   | 搜索查询文本                      |
+| `limit`     | number | 否   | 返回结果数量，默认 20，最大 50    |
+| `threshold` | number | 否   | 相似度阈值，默认 0.7，范围 0-1    |
+| `mimeType`  | string | 否   | MIME 类型过滤                     |
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "file-id",
+      "name": "项目计划书.pdf",
+      "size": 1048576,
+      "mimeType": "application/pdf",
+      "score": 0.85,
+      "aiSummary": "这是一份关于2026年项目开发的计划书...",
+      "createdAt": "2026-04-01T10:00:00Z"
+    }
+  ]
+}
+```
+
+### 生成文件摘要
+
+```http
+POST /api/ai/summarize/:fileId
+Authorization: Bearer <token>
+```
+
+为文本文件生成内容摘要，使用 Llama 3.1 8B 模型。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "summary": "这是一份项目开发文档，主要包含技术架构设计和开发计划...",
+    "cached": false
+  }
+}
+```
+
+### 生成图片标签
+
+```http
+POST /api/ai/tags/:fileId
+Authorization: Bearer <token>
+```
+
+为图片文件生成智能标签和描述，使用 LLaVA 1.5 7B 和 ResNet-50 模型。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "tags": ["风景", "山脉", "自然", "户外", "天空"],
+    "caption": "一张展示壮丽山脉风景的照片，天空中有白云..."
+  }
+}
+```
+
+### 智能重命名建议
+
+```http
+POST /api/ai/rename-suggest/:fileId
+Authorization: Bearer <token>
+```
+
+根据文件内容智能推荐文件名。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "suggestions": [
+      "项目开发计划书.pdf",
+      "2026年项目规划文档.pdf",
+      "技术架构设计方案.pdf"
+    ]
+  }
+}
+```
+
+### 获取文件 AI 信息
+
+```http
+GET /api/ai/file/:fileId
+Authorization: Bearer <token>
+```
+
+获取文件的 AI 处理信息，包括摘要、标签和向量索引状态。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "hasSummary": true,
+    "summary": "文件摘要内容...",
+    "summaryAt": "2026-04-01T10:00:00Z",
+    "hasTags": true,
+    "tags": ["标签1", "标签2"],
+    "tagsAt": "2026-04-01T10:00:00Z",
+    "vectorIndexed": true,
+    "vectorIndexedAt": "2026-04-01T10:00:00Z"
+  }
+}
+```
+
+### 向量索引单个文件
+
+```http
+POST /api/ai/index/:fileId
+Authorization: Bearer <token>
+```
+
+为单个文件创建向量索引，用于语义搜索。
+
+### 批量向量索引
+
+```http
+POST /api/ai/index/batch
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "fileIds": ["file-id-1", "file-id-2", "file-id-3"]
+}
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": [
+    { "fileId": "file-id-1", "status": "success" },
+    { "fileId": "file-id-2", "status": "success" },
+    { "fileId": "file-id-3", "status": "failed", "error": "Empty text content" }
+  ]
+}
+```
+
+### 索引所有文件
+
+```http
+POST /api/ai/index/all
+Authorization: Bearer <token>
+```
+
+启动后台任务，为所有未索引的文件创建向量索引。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "索引任务已启动，将在后台运行",
+    "task": {
+      "id": "task-uuid",
+      "status": "running",
+      "total": 0,
+      "processed": 0,
+      "failed": 0,
+      "startedAt": "2026-04-01T10:00:00Z"
+    }
+  }
+}
+```
+
+### 获取索引任务状态
+
+```http
+GET /api/ai/index/status
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "task-uuid",
+    "status": "running",
+    "total": 100,
+    "processed": 45,
+    "failed": 2,
+    "startedAt": "2026-04-01T10:00:00Z",
+    "updatedAt": "2026-04-01T10:05:00Z"
+  }
+}
+```
+
+### 取消索引任务
+
+```http
+DELETE /api/ai/index/task
+Authorization: Bearer <token>
+```
+
+### 删除文件向量索引
+
+```http
+DELETE /api/ai/index/:fileId
+Authorization: Bearer <token>
+```
+
+### AI 功能说明
+
+1. **文件摘要生成**
+   - 仅支持文本文件（代码、配置、Markdown 等）
+   - 使用 Llama 3.1 8B 模型
+   - 自动缓存结果，避免重复生成
+   - 文件上传后自动触发
+
+2. **图片智能描述和标签**
+   - 使用 LLaVA 1.5 7B 生成描述
+   - 使用 ResNet-50 生成标签
+   - 支持中英文输出
+   - 图片上传后自动触发
+
+3. **智能重命名**
+   - 根据文件内容或 AI 描述生成建议
+   - 提供 3 个候选名称
+   - 保留原文件扩展名
+
+4. **语义搜索**
+   - 使用 BGE-M3 多语言模型（1024 维向量）
+   - 支持中文和多语言搜索
+   - 需要先创建 Vectorize 索引
+   - 需要先为文件创建向量索引
+
+5. **Vectorize 配置要求**
+   - 索引维度：1024
+   - 距离度量：cosine
+   - 创建命令：`wrangler vectorize create ossshelf-vectors --dimensions=1024 --metric=cosine`
 
 ---
 

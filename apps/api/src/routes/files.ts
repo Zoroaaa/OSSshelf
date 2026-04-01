@@ -11,7 +11,16 @@
 
 import { Hono, type Context } from 'hono';
 import { eq, and, isNull, isNotNull, like, or, inArray, sql } from 'drizzle-orm';
-import { getDb, files, users, storageBuckets, filePermissions, telegramFileRefs, fileVersions, groupMembers } from '../db';
+import {
+  getDb,
+  files,
+  users,
+  storageBuckets,
+  filePermissions,
+  telegramFileRefs,
+  fileVersions,
+  groupMembers,
+} from '../db';
 import { checkFilePermission } from './permissions';
 import { inheritParentPermissions } from './permissions';
 import { authMiddleware } from '../middleware/auth';
@@ -40,6 +49,7 @@ import {
 } from '../lib/telegramChunked';
 import { checkAndClaimDedup, releaseFileRef, computeSha256Hex } from '../lib/dedup';
 import { createVersionSnapshot, shouldCreateVersion } from '../lib/versionManager';
+import { autoProcessFile, isAIConfigured } from '../lib/aiFeatures';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -486,7 +496,7 @@ app.get('/', async (c) => {
 
   // 构建查询条件
   const conditions: any[] = [isNull(files.deletedAt)];
-  
+
   if (parentId) {
     // 如果指定了 parentId，查询该目录下的文件
     // 用户需要有权限访问该目录（已在上面检查）
@@ -495,7 +505,7 @@ app.get('/', async (c) => {
     // 未指定 parentId，返回：
     // 1. 用户自己的根目录文件
     // 2. 被授权访问的文件（无论在哪个目录）
-    
+
     // 获取用户所属的用户组
     const userGroups = await db
       .select({ groupId: groupMembers.groupId })
@@ -535,7 +545,7 @@ app.get('/', async (c) => {
     );
     conditions.push(ownershipCondition);
   }
-  
+
   if (search) conditions.push(like(files.name, `%${search}%`));
 
   const items = await db
@@ -984,6 +994,18 @@ app.post('/create', async (c) => {
     const b = await db.select().from(storageBuckets).where(eq(storageBuckets.id, effectiveBucketId)).get();
     if (b) bucketInfo = { id: b.id, name: b.name, provider: b.provider };
   }
+
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        if (await isAIConfigured(c.env)) {
+          await autoProcessFile(c.env, fileId);
+        }
+      } catch (error) {
+        console.error('Failed to auto process file:', error);
+      }
+    })()
+  );
 
   return c.json({
     success: true,
@@ -1441,9 +1463,7 @@ async function deleteFileFromStorage(
     .all();
 
   // 收集所有需要删除的版本 r2Key（去重后）
-  const versionKeysToDelete = new Set(
-    versions.filter((v) => v.r2Key !== file.r2Key).map((v) => v.r2Key)
-  );
+  const versionKeysToDelete = new Set(versions.filter((v) => v.r2Key !== file.r2Key).map((v) => v.r2Key));
 
   // ── Telegram 桶：清理 DB 引用（物理文件在 Telegram 服务器，无法强制删除）
   if (file.bucketId) {

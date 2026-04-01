@@ -27,6 +27,7 @@ export interface ItemProps {
   onTagClick?: (tagName: string) => void;
   onUploadLink?: (f: FileItem) => void;
   onDirectLink?: (f: FileItem) => void;
+  onVersionHistory?: (f: FileItem) => void;
 }
 
 export interface GalleryItemProps {

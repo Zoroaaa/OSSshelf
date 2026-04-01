@@ -19,14 +19,14 @@
 
 ## 0. 现状诊断总结
 
-| 模块 | 现状评估 | 主要问题 |
-|------|----------|----------|
-| **备忘录/笔记** | 几乎缺失。`storageBuckets.notes` 仅有桶级备注，文件/文件夹无任何 memo 字段 | 零功能，需从头建设 |
-| **权限管控** | 有 `filePermissions` 表（read/write/admin），支持文件夹递归授权 | 无组/角色概念；权限继承依赖路径前缀字符串比较，脆弱；无时效性/条件权限 |
-| **版本控制** | `fileVersions` 表已建，支持查询/回滚/下载/删除；Restore 逻辑为"复制旧版本 r2Key 创建新版本号"，基于 ref_count CoW | 版本触发点不明确（何时自动创建新版本？）；版本清理 cron 未见实现；`maxVersions` 限制检查缺失；版本 diff 无法比较；文件夹版本完全不支持 |
-| **API 开放** | 所有路由需 JWT auth，无 API Key 机制，无速率限制，无版本号，无 OpenAPI 文档 | 对第三方集成极不友好 |
-| **AI 智能化** | 无任何 AI 功能 | 空白，有大量发挥空间 |
-| **整体架构** | Hono + D1 + R2/S3 + KV，monorepo，已有 audit、dedup、WebDAV | 搜索为 LIKE 查询，无全文索引；无通知系统；无文件内容预处理管道 |
+| 模块            | 现状评估                                                                                                          | 主要问题                                                                                                                               |
+| --------------- | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| **备忘录/笔记** | 几乎缺失。`storageBuckets.notes` 仅有桶级备注，文件/文件夹无任何 memo 字段                                        | 零功能，需从头建设                                                                                                                     |
+| **权限管控**    | 有 `filePermissions` 表（read/write/admin），支持文件夹递归授权                                                   | 无组/角色概念；权限继承依赖路径前缀字符串比较，脆弱；无时效性/条件权限                                                                 |
+| **版本控制**    | `fileVersions` 表已建，支持查询/回滚/下载/删除；Restore 逻辑为"复制旧版本 r2Key 创建新版本号"，基于 ref_count CoW | 版本触发点不明确（何时自动创建新版本？）；版本清理 cron 未见实现；`maxVersions` 限制检查缺失；版本 diff 无法比较；文件夹版本完全不支持 |
+| **API 开放**    | 所有路由需 JWT auth，无 API Key 机制，无速率限制，无版本号，无 OpenAPI 文档                                       | 对第三方集成极不友好                                                                                                                   |
+| **AI 智能化**   | 无任何 AI 功能                                                                                                    | 空白，有大量发挥空间                                                                                                                   |
+| **整体架构**    | Hono + D1 + R2/S3 + KV，monorepo，已有 audit、dedup、WebDAV                                                       | 搜索为 LIKE 查询，无全文索引；无通知系统；无文件内容预处理管道                                                                         |
 
 ---
 
@@ -190,7 +190,7 @@ export async function resolveEffectivePermission(
   fileId: string,
   userId: string,
   requiredLevel: PermissionLevel
-): Promise<PermissionResolution>
+): Promise<PermissionResolution>;
 ```
 
 关键优化：用 **递归 CTE** 一次性查整条祖先链，避免逐层 round-trip：
@@ -238,20 +238,21 @@ apps/web/src/components/permissions/
 ### 3.1 现有实现评估
 
 **合理之处：**
+
 - `fileVersions` 表结构合理，`ref_count` + CoW 实现去重存储，避免同一内容多份存储
 - Restore 逻辑正确：将旧版本 r2Key 创建为新的最高版本号（非原地覆盖），保留完整历史
 - `maxVersions` / `versionRetentionDays` 配置放在 files 表，支持文件级独立配置
 
 **问题：**
 
-| 问题 | 严重性 | 说明 |
-|------|--------|------|
-| **版本创建时机不明确** | 🔴 严重 | 现有 `files.ts` PUT 逻辑未见自动创建版本快照的代码，版本功能实质上是"手动"的 |
-| **maxVersions 限制未执行** | 🔴 严重 | 版本数超限时没有自动裁剪旧版本的逻辑 |
-| **版本 cron 清理未实现** | 🟡 中 | `versionRetentionDays` 字段存在但 `cleanup.ts` 中无对应 job |
-| **孤儿版本 r2Key 泄漏** | 🟡 中 | 删除版本时仅更新 `ref_count`，`ref_count` 降为 0 后不一定及时从 R2 删除 |
-| **版本 diff 无法比较** | 🟠 低 | 文本文件无增量 diff，用户只能逐版本下载对比 |
-| **文件夹无版本支持** | 🟠 低 | `FOLDER_VERSION_NOT_SUPPORTED` 是直接报错，无快照机制 |
+| 问题                       | 严重性  | 说明                                                                         |
+| -------------------------- | ------- | ---------------------------------------------------------------------------- |
+| **版本创建时机不明确**     | 🔴 严重 | 现有 `files.ts` PUT 逻辑未见自动创建版本快照的代码，版本功能实质上是"手动"的 |
+| **maxVersions 限制未执行** | 🔴 严重 | 版本数超限时没有自动裁剪旧版本的逻辑                                         |
+| **版本 cron 清理未实现**   | 🟡 中   | `versionRetentionDays` 字段存在但 `cleanup.ts` 中无对应 job                  |
+| **孤儿版本 r2Key 泄漏**    | 🟡 中   | 删除版本时仅更新 `ref_count`，`ref_count` 降为 0 后不一定及时从 R2 删除      |
+| **版本 diff 无法比较**     | 🟠 低   | 文本文件无增量 diff，用户只能逐版本下载对比                                  |
+| **文件夹无版本支持**       | 🟠 低   | `FOLDER_VERSION_NOT_SUPPORTED` 是直接报错，无快照机制                        |
 
 ### 3.2 修复方案
 
@@ -273,17 +274,13 @@ export async function createVersionSnapshot(
   // 4. 更新 files.currentVersion
 }
 
-export async function pruneExcessVersions(
-  db: DrizzleDb,
-  env: Env,
-  fileId: string,
-  maxVersions: number
-): Promise<void> {
+export async function pruneExcessVersions(db: DrizzleDb, env: Env, fileId: string, maxVersions: number): Promise<void> {
   // 查最老的超量版本 → 递减 ref_count → ref_count=0 则加入 R2 删除队列
 }
 ```
 
 触发时机：
+
 - 直接上传（`PUT /api/files/:id` 替换内容时）
 - 预签名上传完成回调
 - WebDAV PUT
@@ -395,10 +392,10 @@ export const apiKeyMiddleware = async (c, next) => {
 // lib/rateLimit.ts
 export async function checkRateLimit(
   kv: KVNamespace,
-  key: string,          // api_key_id 或 user_id 或 ip
-  limit: number,        // 默认 1000 req/hour
+  key: string, // api_key_id 或 user_id 或 ip
+  limit: number, // 默认 1000 req/hour
   windowMs: number
-): Promise<{ allowed: boolean; remaining: number; resetAt: number }>
+): Promise<{ allowed: boolean; remaining: number; resetAt: number }>;
 
 // 在 /api/v1/* 路由挂载
 app.use('/api/v1/*', rateLimitMiddleware({ limit: 1000, window: 3600_000 }));
@@ -467,13 +464,13 @@ CREATE TABLE IF NOT EXISTS webhooks (
 
 Workers AI 在 OSSShelf 场景下最有价值的模型：
 
-| 模型 | 用途 | 延迟 |
-|------|------|------|
-| `@cf/meta/llama-3.1-8b-instruct` | 文件总结、智能重命名、问答 | ~1-3s |
-| `@cf/baai/bge-base-en-v1.5` | 文本向量化（语义搜索） | ~100ms |
-| `@cf/microsoft/resnet-50` | 图片分类标签 | ~200ms |
-| `@cf/openai/whisper` | 音频/视频转文字 | ~5-30s |
-| `@cf/llava-hf/llava-1.5-7b-hf` | 图片内容理解 | ~2-5s |
+| 模型                             | 用途                       | 延迟   |
+| -------------------------------- | -------------------------- | ------ |
+| `@cf/meta/llama-3.1-8b-instruct` | 文件总结、智能重命名、问答 | ~1-3s  |
+| `@cf/baai/bge-base-en-v1.5`      | 文本向量化（语义搜索）     | ~100ms |
+| `@cf/microsoft/resnet-50`        | 图片分类标签               | ~200ms |
+| `@cf/openai/whisper`             | 音频/视频转文字            | ~5-30s |
+| `@cf/llava-hf/llava-1.5-7b-hf`   | 图片内容理解               | ~2-5s  |
 
 ### 5.2 功能一：语义搜索（核心，强烈推荐）
 
@@ -498,11 +495,13 @@ Workers AI 在 OSSShelf 场景下最有价值的模型：
 export async function indexFileVector(env: Env, file: File, notes: string[]): Promise<void> {
   const text = [file.name, file.description, ...notes].filter(Boolean).join('\n');
   const { data } = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: [text] });
-  await env.VECTORIZE.upsert([{
-    id: file.id,
-    values: data[0],
-    metadata: { userId: file.userId, mimeType: file.mimeType }
-  }]);
+  await env.VECTORIZE.upsert([
+    {
+      id: file.id,
+      values: data[0],
+      metadata: { userId: file.userId, mimeType: file.mimeType },
+    },
+  ]);
 }
 
 // wrangler.toml 新增：
@@ -527,9 +526,9 @@ const textContent = await fetchFileText(env, file); // 截取前 4096 字符
 const summary = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
   messages: [
     { role: 'system', content: '你是文件助手，用3句话概括文件内容。' },
-    { role: 'user', content: textContent }
+    { role: 'user', content: textContent },
   ],
-  max_tokens: 200
+  max_tokens: 200,
 });
 // 缓存到 KV，TTL 24h，key = `ai:summary:${file.id}:${file.hash}`
 
@@ -537,7 +536,7 @@ const summary = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
 const imgBase64 = await fetchImageBase64(env, file);
 const caption = await env.AI.run('@cf/llava-hf/llava-1.5-7b-hf', {
   image: imgBase64,
-  prompt: '描述这张图片的主要内容，用于文件管理系统的搜索标签。'
+  prompt: '描述这张图片的主要内容，用于文件管理系统的搜索标签。',
 });
 ```
 
@@ -548,7 +547,7 @@ const caption = await env.AI.run('@cf/llava-hf/llava-1.5-7b-hf', {
 ```typescript
 // 图片上传完成后 waitUntil
 const result = await env.AI.run('@cf/microsoft/resnet-50', {
-  image: [...imageBytes]
+  image: [...imageBytes],
 });
 // result.label 如 "document, spreadsheet" 自动写入 fileTags
 ```
@@ -765,14 +764,14 @@ Week 8:
 
 ### 数据库迁移总览
 
-| 编号 | 文件名 | 涉及功能 | 状态 |
-|------|--------|----------|------|
-| 0010 | `notes.sql` | file_notes, file_note_history, note_mentions | ✅ 已完成 |
-| 0011 | `api_keys.sql` | api_keys | ✅ 已完成 |
+| 编号 | 文件名              | 涉及功能                                              | 状态      |
+| ---- | ------------------- | ----------------------------------------------------- | --------- |
+| 0010 | `notes.sql`         | file_notes, file_note_history, note_mentions          | ✅ 已完成 |
+| 0011 | `api_keys.sql`      | api_keys                                              | ✅ 已完成 |
 | 0012 | `permission_v2.sql` | user_groups, group_members, file_permissions 扩展字段 | ✅ 已完成 |
-| 0013 | `ai_features.sql` | files.description, files.ai_summary, files.is_starred | 📋 计划中 |
-| 0014 | `fts5.sql` | files_fts virtual table + sync triggers | 📋 计划中 |
-| 0015 | `notifications.sql` | notifications table | 📋 计划中 |
+| 0013 | `ai_features.sql`   | files.description, files.ai_summary, files.is_starred | 📋 计划中 |
+| 0014 | `fts5.sql`          | files_fts virtual table + sync triggers               | 📋 计划中 |
+| 0015 | `notifications.sql` | notifications table                                   | 📋 计划中 |
 
 ---
 
@@ -830,7 +829,7 @@ apps/web/src/components/
 ---
 
 > **当前版本：3.6.0**
-> 
+>
 > **已完成**：Phase 1（版本控制修复 + 备忘录基础 + API Key + 文件编辑）和 Phase 2（权限系统 v2 + RESTful v1 API + OpenAPI 文档 + Webhook）
-> 
+>
 > **下一步**：Phase 3（AI 智能化）是最具差异化的功能，可作为下一阶段的核心亮点。AI 语义搜索将大幅提升用户体验。

@@ -84,22 +84,22 @@ export default function Dashboard() {
     <div className="space-y-6">
       {/* Greeting */}
       <div>
-        <h1 className="text-2xl font-bold">
+        <h1 className="text-xl lg:text-2xl font-bold">
           {greeting()}，{user?.name || user?.email?.split('@')[0]} 👋
         </h1>
         <p className="text-muted-foreground text-sm mt-0.5">这是您的文件存储概览</p>
       </div>
 
       {isLoading ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 lg:gap-4">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-28 rounded-xl border bg-card animate-pulse" />
+            <div key={i} className="h-24 lg:h-28 rounded-xl border bg-card animate-pulse" />
           ))}
         </div>
       ) : (
         <>
-          {/* ── Stat cards ── */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {/* ── Stat cards - 移动端横向滚动 ── */}
+          <div className="mobile-scroll-x md:grid md:grid-cols-4">
             <StatCard
               label="文件总数"
               value={stats?.fileCount ?? 0}
@@ -138,7 +138,7 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {/* ── Recent files ── */}
             <div className="lg:col-span-2 bg-card border rounded-xl overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-4 border-b">
+              <div className="flex items-center justify-between px-4 lg:px-5 py-3 lg:py-4 border-b">
                 <div className="flex items-center gap-2">
                   <Clock className="h-4 w-4 text-muted-foreground" />
                   <h2 className="font-semibold text-sm">最近上传</h2>
@@ -151,8 +151,8 @@ export default function Dashboard() {
                 </button>
               </div>
               {stats?.recentFiles?.length === 0 ? (
-                <div className="text-center py-10 text-muted-foreground text-sm">
-                  <FilesIcon className="h-10 w-10 mx-auto mb-2 opacity-20" />
+                <div className="text-center py-8 lg:py-10 text-muted-foreground text-sm">
+                  <FilesIcon className="h-8 w-8 lg:h-10 lg:w-10 mx-auto mb-2 opacity-20" />
                   还没有上传任何文件
                 </div>
               ) : (
@@ -160,13 +160,13 @@ export default function Dashboard() {
                   {(stats?.recentFiles ?? []).map((file) => (
                     <div
                       key={file.id}
-                      className="flex items-center gap-3 px-5 py-3 hover:bg-accent/30 cursor-pointer transition-colors"
+                      className="flex items-center gap-3 px-4 lg:px-5 py-2.5 lg:py-3 hover:bg-accent/30 cursor-pointer transition-colors active:bg-accent/50"
                       onClick={() => navigate(`/files${file.parentId ? `/${file.parentId}` : ''}`)}
                     >
                       <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="sm" className="flex-shrink-0" />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{decodeFileName(file.name)}</p>
-                        <p className="text-xs text-muted-foreground">{formatBytes(file.size)}</p>
+                        <p className="text-xs text-muted-foreground hidden sm:block">{formatBytes(file.size)}</p>
                       </div>
                       <span className="text-xs text-muted-foreground flex-shrink-0">{formatDate(file.createdAt)}</span>
                     </div>
@@ -178,7 +178,7 @@ export default function Dashboard() {
             {/* ── Right column ── */}
             <div className="space-y-4">
               {/* Storage — multi-bucket */}
-              <div className="bg-card border rounded-xl p-5 space-y-4">
+              <div className="bg-card border rounded-xl p-4 lg:p-5 space-y-3 lg:space-y-4">
                 <h2 className="font-semibold text-sm">存储空间</h2>
                 <StorageBar used={stats?.storageUsed ?? 0} quota={stats?.storageQuota ?? 10737418240} />
                 {stats?.bucketBreakdown && stats.bucketBreakdown.length > 0 && (
@@ -192,14 +192,16 @@ export default function Dashboard() {
                           <div className="flex items-center justify-between text-xs">
                             <span className="flex items-center gap-1.5 text-muted-foreground">
                               <span>{meta?.icon ?? '📦'}</span>
-                              <span className="truncate max-w-[120px]">{b.name}</span>
+                              <span className="truncate max-w-[80px] lg:max-w-[120px]">{b.name}</span>
                               {b.isDefault && (
                                 <span className="px-1 py-0.5 rounded text-[9px] bg-primary/10 text-primary">默认</span>
                               )}
                             </span>
                             <span className="text-muted-foreground">
                               {formatBytes(b.storageUsed)}
-                              {b.storageQuota && <span className="opacity-50"> / {formatBytes(b.storageQuota)}</span>}
+                              {b.storageQuota && (
+                                <span className="opacity-50 hidden sm:inline"> / {formatBytes(b.storageQuota)}</span>
+                              )}
                             </span>
                           </div>
                           {pct !== null && (
@@ -224,12 +226,13 @@ export default function Dashboard() {
               </div>
 
               {/* Type breakdown */}
-              <div className="bg-card border rounded-xl p-5">
-                <h2 className="font-semibold text-sm mb-4">文件类型分布</h2>
+              <div className="bg-card border rounded-xl p-4 lg:p-5">
+                <h2 className="font-semibold text-sm mb-3 lg:mb-4">文件类型分布</h2>
                 {stats && Object.keys(stats.typeBreakdown).length > 0 ? (
-                  <div className="space-y-2.5">
+                  <div className="space-y-2">
                     {Object.entries(stats.typeBreakdown)
                       .sort(([, a], [, b]) => b - a)
+                      .slice(0, 5)
                       .map(([type, bytes]) => {
                         const meta = getCategoryMeta(type);
                         const total = Object.values(stats.typeBreakdown).reduce((a, b) => a + b, 0);

@@ -27,13 +27,13 @@
 
 API Key 是 OSSShelf v4.0 新增的认证方式，专为程序化访问设计。与 JWT Token 相比，API Key 具有以下优势：
 
-| 特性 | JWT Token | API Key |
-|------|-----------|---------|
-| 有效期 | 短期（通常 7 天） | 可设置长期或永不过期 |
-| 权限控制 | 完全权限 | 细粒度 Scope 控制 |
-| 使用场景 | Web 应用登录 | 脚本、自动化、第三方集成 |
-| 撤销方式 | 登出 | 禁用或删除 |
-| 安全性 | 可刷新 | 仅显示一次，需妥善保存 |
+| 特性     | JWT Token         | API Key                  |
+| -------- | ----------------- | ------------------------ |
+| 有效期   | 短期（通常 7 天） | 可设置长期或永不过期     |
+| 权限控制 | 完全权限          | 细粒度 Scope 控制        |
+| 使用场景 | Web 应用登录      | 脚本、自动化、第三方集成 |
+| 撤销方式 | 登出              | 禁用或删除               |
+| 安全性   | 可刷新            | 仅显示一次，需妥善保存   |
 
 ---
 
@@ -111,12 +111,12 @@ print(response.json())
 ### JavaScript 示例
 
 ```javascript
-const API_KEY = "osk_live_your_api_key_here";
-const BASE_URL = "https://api.example.com/api";
+const API_KEY = 'osk_live_your_api_key_here';
+const BASE_URL = 'https://api.example.com/api';
 
 const headers = {
-  "X-API-Key": API_KEY,
-  "Content-Type": "application/json",
+  'X-API-Key': API_KEY,
+  'Content-Type': 'application/json',
 };
 
 // 列出文件
@@ -131,14 +131,14 @@ fetch(`${BASE_URL}/files`, { headers })
 
 OSSShelf API Key 支持以下权限范围：
 
-| Scope | 描述 | 可访问的接口 |
-|-------|------|-------------|
-| `files:read` | 读取文件 | 列出、下载、搜索、预览文件 |
-| `files:write` | 写入文件 | 上传、修改、删除文件，创建文件夹 |
-| `shares:read` | 查看分享 | 查看自己的分享列表和详情 |
-| `shares:write` | 管理分享 | 创建、删除分享链接 |
-| `buckets:read` | 查看存储桶 | 查看存储桶配置和统计 |
-| `admin:read` | 管理员权限 | 仅管理员可授予，查看系统统计 |
+| Scope          | 描述       | 可访问的接口                     |
+| -------------- | ---------- | -------------------------------- |
+| `files:read`   | 读取文件   | 列出、下载、搜索、预览文件       |
+| `files:write`  | 写入文件   | 上传、修改、删除文件，创建文件夹 |
+| `shares:read`  | 查看分享   | 查看自己的分享列表和详情         |
+| `shares:write` | 管理分享   | 创建、删除分享链接               |
+| `buckets:read` | 查看存储桶 | 查看存储桶配置和统计             |
+| `admin:read`   | 管理员权限 | 仅管理员可授予，查看系统统计     |
 
 ### 权限组合示例
 
@@ -580,13 +580,13 @@ curl -X GET "https://api.example.com/api/buckets/providers" \
 
 ### 常见错误码
 
-| 错误码 | HTTP 状态码 | 描述 |
-|--------|-------------|------|
-| `UNAUTHORIZED` | 401 | API Key 无效或已过期 |
-| `FORBIDDEN` | 403 | 权限不足（Scope 不匹配） |
-| `FILE_NOT_FOUND` | 404 | 文件不存在 |
-| `VALIDATION_ERROR` | 400 | 参数验证失败 |
-| `STORAGE_EXCEEDED` | 413 | 存储空间不足 |
+| 错误码             | HTTP 状态码 | 描述                     |
+| ------------------ | ----------- | ------------------------ |
+| `UNAUTHORIZED`     | 401         | API Key 无效或已过期     |
+| `FORBIDDEN`        | 403         | 权限不足（Scope 不匹配） |
+| `FILE_NOT_FOUND`   | 404         | 文件不存在               |
+| `VALIDATION_ERROR` | 400         | 参数验证失败             |
+| `STORAGE_EXCEEDED` | 413         | 存储空间不足             |
 
 ### 错误响应格式
 
@@ -690,6 +690,7 @@ A: 不可以。API Key 一旦创建，内容不会改变。如需更换，请创
 ### Q: 多个 API Key 可以同时使用吗？
 
 A: 可以。您可以为不同用途创建多个 API Key，例如：
+
 - 备份脚本专用 Key
 - CI/CD 专用 Key
 - 第三方集成专用 Key
@@ -701,6 +702,7 @@ A: API Key 本身没有并发限制，但受域名层面的速率限制约束。
 ### Q: 如何撤销 API Key？
 
 A: 两种方式：
+
 1. **禁用**: 临时停用，可以随时重新启用
 2. **删除**: 永久删除，不可恢复
 
@@ -774,7 +776,7 @@ def backup_folder(folder_id, local_dir):
     """备份整个文件夹"""
     files = list_files(folder_id)
     os.makedirs(local_dir, exist_ok=True)
-    
+
     for file in files:
         if file["isFolder"]:
             # 递归备份子文件夹
@@ -802,25 +804,25 @@ if __name__ == "__main__":
  * 使用 API Key 认证
  */
 
-const fs = require("fs");
-const path = require("path");
-const axios = require("axios");
+const fs = require('fs');
+const path = require('path');
+const axios = require('axios');
 
 const API_KEY = process.env.OSSSHELF_API_KEY;
-const BASE_URL = "https://api.example.com/api";
+const BASE_URL = 'https://api.example.com/api';
 
 const api = axios.create({
   baseURL: BASE_URL,
   headers: {
-    "X-API-Key": API_KEY,
-    "Content-Type": "application/json",
+    'X-API-Key': API_KEY,
+    'Content-Type': 'application/json',
   },
 });
 
 // 列出文件
 async function listFiles(parentId = null) {
   const params = parentId ? { parentId } : {};
-  const { data } = await api.get("/files", { params });
+  const { data } = await api.get('/files', { params });
   return data.data.files;
 }
 
@@ -828,13 +830,13 @@ async function listFiles(parentId = null) {
 async function uploadFile(filePath, parentId = null) {
   const fileName = path.basename(filePath);
   const fileContent = fs.readFileSync(filePath);
-  
+
   const formData = new FormData();
-  formData.append("file", new Blob([fileContent]), fileName);
-  if (parentId) formData.append("parentId", parentId);
-  
-  const { data } = await api.post("/files/upload", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
+  formData.append('file', new Blob([fileContent]), fileName);
+  if (parentId) formData.append('parentId', parentId);
+
+  const { data } = await api.post('/files/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
   });
   return data;
 }
@@ -842,14 +844,14 @@ async function uploadFile(filePath, parentId = null) {
 // 下载文件
 async function downloadFile(fileId, localPath) {
   const response = await api.get(`/files/${fileId}/download`, {
-    responseType: "arraybuffer",
+    responseType: 'arraybuffer',
   });
   fs.writeFileSync(localPath, response.data);
 }
 
 // 搜索文件
 async function searchFiles(query) {
-  const { data } = await api.get("/search", { params: { query } });
+  const { data } = await api.get('/search', { params: { query } });
   return data.data.files;
 }
 
@@ -859,13 +861,12 @@ async function main() {
     // 列出根目录文件
     const files = await listFiles();
     console.log(`找到 ${files.length} 个文件/文件夹`);
-    
+
     // 搜索特定文件
-    const results = await searchFiles("report");
+    const results = await searchFiles('report');
     console.log(`搜索 "report" 找到 ${results.length} 个结果`);
-    
   } catch (error) {
-    console.error("错误:", error.response?.data || error.message);
+    console.error('错误:', error.response?.data || error.message);
   }
 }
 

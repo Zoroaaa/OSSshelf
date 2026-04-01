@@ -2,7 +2,7 @@
 
 本文档基于项目实际配置文件，提供完整的部署指南，确保您能够一次性成功部署 OSSshelf。
 
-**当前版本**: v3.5.0
+**当前版本**: v3.7.0
 
 ---
 
@@ -71,6 +71,66 @@
 ## 版本更新说明
 
 详细的版本更新日志请参阅 [CHANGELOG.md](../CHANGELOG.md)。
+
+### v3.7.0 (2026-04-01)
+
+本次更新包含以下重要变更：
+
+**新功能**
+
+1. **AI 功能集成**
+   - 文件摘要生成（Llama 3.1 8B）
+   - 图片智能描述和标签（LLaVA 1.5 7B + ResNet-50）
+   - 智能重命名建议
+   - 语义搜索（BGE-M3 模型）
+
+2. **移动端优化**
+   - 新增移动端底部操作栏
+   - 新增移动端搜索面板
+   - 优化移动端交互体验
+
+3. **预览组件拆分**
+   - 将 FilePreview 拆分为 12 个独立预览组件
+
+**数据库迁移**
+
+- files 表新增 ai_summary、ai_summary_at 字段
+- files 表新增 ai_tags、ai_tags_at 字段
+- files 表新增 vector_indexed_at 字段
+- files 表新增 is_starred 字段
+- 迁移文件：`0014_ai_features.sql`
+
+**升级步骤**
+
+```bash
+# 1. 拉取最新代码
+git pull origin main
+
+# 2. 创建 Vectorize 索引（如果需要 AI 功能）
+wrangler vectorize create ossshelf-vectors --dimensions=1024 --metric=cosine
+
+# 3. 更新 wrangler.toml 配置
+# 添加以下配置：
+# [[vectorize]]
+# binding = "VECTORIZE"
+# index_name = "ossshelf-vectors"
+
+# 4. 运行数据库迁移（重要！）
+pnpm db:migrate
+
+# 5. 推送触发部署
+git push origin main
+```
+
+**AI 功能配置（可选）**
+
+如果需要启用 AI 功能，需要在 Cloudflare Dashboard 中：
+
+1. 启用 Workers AI
+2. 创建 Vectorize 索引
+3. 更新 wrangler.toml 配置
+
+详细配置请参阅 [AI 功能配置](#ai-功能配置) 章节。
 
 ### v3.5.0 (2026-03-30)
 
@@ -911,6 +971,112 @@ wrangler d1 execute ossshelf-db --command "SELECT name FROM sqlite_master WHERE 
 2. 检查文件 MIME 类型是否支持
 3. 对于 CAD/3D 模型预览，确认文件格式正确
 4. 查看浏览器控制台是否有渲染错误
+
+---
+
+## 安全建议
+
+### 1. 环境变量管理
+
+- 使用 `wrangler secret` 管理敏感信息
+- 不要在代码中硬编码密钥
+- 定期轮换 JWT_SECRET 和 ENCRYPTION_KEY
+
+### 2. 访问控制
+
+- 限制管理员接口访问
+- 启用登录保护（默认已启用）
+- 定期检查审计日志
+
+### 3. 存储桶安全
+
+- 使用最小权限原则配置 Access Key
+- 定期检查存储桶使用情况
+- 启用存储桶加密
+
+### 4. AI 功能安全
+
+- AI 功能需要显式配置才能启用
+- 文件内容仅在处理时临时读取
+- 向量索引存储在 Cloudflare Vectorize
+- 不会将文件内容永久存储在 AI 服务中
+
+---
+
+## AI 功能配置
+
+### 前置要求
+
+1. Cloudflare Workers AI 已启用
+2. Cloudflare Vectorize 已创建索引
+
+### 配置步骤
+
+#### 1. 启用 Workers AI
+
+在 Cloudflare Dashboard 中：
+
+1. 进入 Workers & Pages
+2. 选择你的 Worker
+3. 点击 Settings → Variables
+4. 确认 AI binding 已配置
+
+#### 2. 创建 Vectorize 索引
+
+```bash
+# 创建向量索引
+wrangler vectorize create ossshelf-vectors --dimensions=1024 --metric=cosine
+
+# 验证索引创建成功
+wrangler vectorize list
+```
+
+#### 3. 更新 wrangler.toml
+
+```toml
+# 添加 AI binding（通常已自动配置）
+[ai]
+binding = "AI"
+
+# 添加 Vectorize binding
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "ossshelf-vectors"
+```
+
+#### 4. 部署更新
+
+```bash
+# 重新部署
+pnpm deploy:api
+```
+
+### AI 功能验证
+
+部署完成后，访问 AI 设置页面验证功能：
+
+1. 登录系统
+2. 进入「设置」→「AI 功能」
+3. 检查功能状态是否显示为已配置
+
+### AI 功能说明
+
+| 功能           | 模型                    | 说明                       |
+| -------------- | ----------------------- | -------------------------- |
+| 文件摘要       | Llama 3.1 8B            | 自动为文本文件生成摘要     |
+| 图片描述       | LLaVA 1.5 7B            | 自动识别图片内容并描述     |
+| 图片标签       | ResNet-50               | 自动生成图片分类标签       |
+| 智能重命名     | Llama 3.1 8B            | 根据内容推荐文件名         |
+| 语义搜索       | BGE-M3 (1024 维)        | 基于语义相似度搜索文件     |
+
+### 成本说明
+
+Cloudflare Workers AI 和 Vectorize 的定价：
+
+- Workers AI：按请求计费，有免费额度
+- Vectorize：按向量数量和查询次数计费
+
+详细定价请参阅 Cloudflare 官方文档。
 
 ---
 

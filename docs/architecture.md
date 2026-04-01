@@ -2,7 +2,7 @@
 
 本文档基于项目实际代码，详细描述 OSSshelf 的系统架构、数据库设计和核心功能实现。
 
-**当前版本**: v3.6.0
+**当前版本**: v3.7.0
 
 ---
 
@@ -36,6 +36,42 @@ OSSshelf 是一个基于 Cloudflare 部署的多厂商 OSS 文件管理系统，
 ## 版本更新
 
 详细的版本更新日志请参阅 [CHANGELOG.md](../CHANGELOG.md)。
+
+### v3.7.0 (2026-04-01)
+
+**新功能**
+
+1. **AI 功能集成（基于 Cloudflare AI）**
+   - 文件摘要生成：自动为文本文件生成内容摘要（Llama 3.1 8B）
+   - 图片智能描述：自动识别图片内容并生成描述（LLaVA 1.5 7B）
+   - 图片标签生成：使用 ResNet-50 模型自动生成图片标签
+   - 智能重命名建议：根据文件内容智能推荐文件名
+   - 语义搜索：基于 Vectorize 实现语义相似文件搜索（BGE-M3 模型）
+   - 向量索引管理：批量索引、增量索引、索引状态查询
+
+2. **移动端页面排版优化**
+   - 新增移动端底部操作栏（MobileFilesToolbar）
+   - 新增移动端搜索面板（MobileSearchPanel）
+   - 优化移动端底部导航（MobileBottomNav）
+   - 改进视图切换、排序、浮动操作按钮交互
+   - 增强移动端触摸体验和响应式布局
+
+3. **预览组件拆分重构**
+   - 将 FilePreview 拆分为独立预览组件
+   - 新增 filepreview 目录，包含 12 个独立预览组件
+   - ImagePreview、VideoPreview、AudioPreview
+   - PdfPreview、MarkdownPreview、CodePreview
+   - OfficePreview、CsvPreview、ZipPreview
+   - FontPreview、EpubPreview
+   - 新增 previewUtils 工具函数
+
+**数据库变更**
+
+- files 表新增 ai_summary、ai_summary_at 字段
+- files 表新增 ai_tags、ai_tags_at 字段
+- files 表新增 vector_indexed_at 字段
+- files 表新增 is_starred 字段
+- 新增迁移文件 0014_ai_features.sql
 
 ### v3.6.0 (2026-03-31)
 
@@ -150,6 +186,8 @@ OSSshelf 是一个基于 Cloudflare 部署的多厂商 OSS 文件管理系统，
 | ------------------ | -------- |
 | Hono 4             | Web 框架 |
 | Cloudflare Workers | 运行时   |
+| Cloudflare AI      | AI 服务  |
+| Vectorize          | 向量搜索 |
 | Drizzle ORM 0.29   | ORM      |
 | Zod 3              | 验证     |
 | bcrypt             | 密码哈希 |
@@ -186,7 +224,11 @@ ossshelf/
 │   │   │   │   ├── telegramChunked.ts  # Telegram 分片上传
 │   │   │   │   ├── utils.ts        # 工具函数
 │   │   │   │   ├── versionManager.ts # 版本管理 (v3.5.0 重构)
-│   │   │   │   └── zipStream.ts    # ZIP 流式打包
+│   │   │   │   ├── permissionResolver.ts # 权限解析 (v3.6.0)
+│   │   │   │   ├── webhook.ts   # Webhook 分发 (v3.6.0)
+│   │   │   │   ├── aiFeatures.ts # AI 功能 (v3.7.0)
+│   │   │   │   ├── vectorIndex.ts # 向量索引 (v3.7.0)
+│   │   │   │   └── zipStream.ts # ZIP 流式打包
 │   │   │   ├── middleware/
 │   │   │   │   ├── auth.ts         # 认证中间件
 │   │   │   │   ├── error.ts        # 错误处理
@@ -211,7 +253,9 @@ ossshelf/
 │   │   │   │   ├── tasks.ts        # 上传任务
 │   │   │   │   ├── telegram.ts     # Telegram 存储
 │   │   │   │   ├── versions.ts     # 版本控制 (v3.3.0)
-│   │   │   │   └── webdav.ts       # WebDAV 协议
+│   │   │   │   ├── webhooks.ts  # Webhook 管理 (v3.6.0)
+│   │   │   │   ├── ai.ts        # AI 功能 (v3.7.0)
+│   │   │   │   └── webdav.ts    # WebDAV 协议
 │   │   │   ├── types/
 │   │   │   │   ├── env.ts          # 环境变量类型
 │   │   │   │   └── index.ts        # 类型导出
@@ -226,15 +270,23 @@ ossshelf/
 │   │   │   ├── 0007_phase7.sql
 │   │   │   ├── 0008_file_versions.sql
 │   │   │   ├── 0010_notes.sql       # 文件笔记 (v3.5.0)
-│   │   │   └── 0011_api_keys.sql    # API Keys (v3.5.0)
+│   │   │   ├── 0011_api_keys.sql    # API Keys (v3.5.0)
+│   │   │   ├── 0012_permission_v2.sql # 权限系统 v2 (v3.6.0)
+│   │   │   └── 0014_ai_features.sql # AI 功能 (v3.7.0)
 │   │   ├── drizzle.config.ts
 │   │   ├── wrangler.toml.example
 │   │   └── package.json
 │   └── web/                        # 前端应用
 │       ├── src/
 │       │   ├── components/         # UI 组件
+│       │   │   ├── ai/             # AI 组件 (v3.7.0)
 │       │   │   ├── editor/         # 文件编辑器 (v3.5.0)
 │       │   │   ├── notes/          # 文件笔记 (v3.5.0)
+│       │   │   ├── groups/         # 用户组 (v3.6.0)
+│       │   │   ├── webhooks/       # Webhook (v3.6.0)
+│       │   │   ├── permissions/    # 权限管理 (v3.6.0)
+│       │   │   ├── files/          # 文件组件
+│       │   │   │   ├── filepreview/ # 预览组件 (v3.7.0 拆分)
 │       │   │   └── settings/       # 设置组件
 │       │   ├── hooks/              # 自定义 Hooks
 │       │   ├── pages/              # 页面组件
@@ -306,11 +358,17 @@ ossshelf/
 | `bucketId`            | TEXT    | -      | 所属存储桶 ID           |
 | `directLinkToken`     | TEXT    | -      | 直链访问令牌（唯一）    |
 | `directLinkExpiresAt` | TEXT    | -      | 直链过期时间            |
+| `aiSummary`           | TEXT    | -      | AI 生成的摘要 (v3.7.0)  |
+| `aiSummaryAt`         | TEXT    | -      | 摘要生成时间 (v3.7.0)   |
+| `aiTags`              | TEXT    | -      | AI 生成的标签 (v3.7.0)  |
+| `aiTagsAt`            | TEXT    | -      | 标签生成时间 (v3.7.0)   |
+| `vectorIndexedAt`     | TEXT    | -      | 向量索引时间 (v3.7.0)   |
+| `isStarred`           | BOOLEAN | false  | 是否收藏 (v3.7.0)       |
 | `createdAt`           | TEXT    | -      | 创建时间                |
 | `updatedAt`           | TEXT    | -      | 更新时间                |
 | `deletedAt`           | TEXT    | -      | 删除时间 (回收站)       |
 
-**索引**: `idx_files_user_parent_active`, `idx_files_user_deleted`, `idx_files_user_type`, `idx_files_user_mime`, `idx_files_user_created`, `idx_files_user_updated`, `idx_files_user_size`, `idx_files_hash`, `idx_files_direct_link_token`
+**索引**: `idx_files_user_parent_active`, `idx_files_user_deleted`, `idx_files_user_type`, `idx_files_user_mime`, `idx_files_user_created`, `idx_files_user_updated`, `idx_files_user_size`, `idx_files_hash`, `idx_files_direct_link_token`, `idx_files_vector_indexed`, `idx_files_ai_summary`, `idx_files_ai_tags`, `idx_files_is_starred`
 
 #### storage_buckets (存储桶表)
 
@@ -388,34 +446,34 @@ ossshelf/
 
 #### file_permissions (文件权限表) - v3.6.0 扩展
 
-| 字段                | 类型 | 默认值    | 说明                         |
-| ------------------- | ---- | --------- | ---------------------------- |
-| `id`                | TEXT | -         | 主键                         |
-| `fileId`            | TEXT | -         | 文件 ID (外键 → files)       |
-| `userId`            | TEXT | -         | 用户 ID (外键 → users，可空) |
-| `groupId`           | TEXT | -         | 组 ID (外键 → user_groups，可空) |
-| `subjectType`       | TEXT | 'user'    | 主体类型 (user/group)        |
-| `permission`        | TEXT | 'read'    | 权限 (read/write/admin)      |
-| `grantedBy`         | TEXT | -         | 授权人 ID (外键 → users)     |
-| `expiresAt`         | TEXT | -         | 过期时间（可选）             |
-| `inheritToChildren` | BOOL | true      | 是否继承到子文件             |
-| `scope`             | TEXT | 'explicit'| 权限来源 (explicit/inherited)|
-| `sourcePermissionId`| TEXT | -         | 来源权限 ID（继承时）        |
-| `createdAt`         | TEXT | -         | 创建时间                     |
-| `updatedAt`         | TEXT | -         | 更新时间                     |
+| 字段                 | 类型 | 默认值     | 说明                             |
+| -------------------- | ---- | ---------- | -------------------------------- |
+| `id`                 | TEXT | -          | 主键                             |
+| `fileId`             | TEXT | -          | 文件 ID (外键 → files)           |
+| `userId`             | TEXT | -          | 用户 ID (外键 → users，可空)     |
+| `groupId`            | TEXT | -          | 组 ID (外键 → user_groups，可空) |
+| `subjectType`        | TEXT | 'user'     | 主体类型 (user/group)            |
+| `permission`         | TEXT | 'read'     | 权限 (read/write/admin)          |
+| `grantedBy`          | TEXT | -          | 授权人 ID (外键 → users)         |
+| `expiresAt`          | TEXT | -          | 过期时间（可选）                 |
+| `inheritToChildren`  | BOOL | true       | 是否继承到子文件                 |
+| `scope`              | TEXT | 'explicit' | 权限来源 (explicit/inherited)    |
+| `sourcePermissionId` | TEXT | -          | 来源权限 ID（继承时）            |
+| `createdAt`          | TEXT | -          | 创建时间                         |
+| `updatedAt`          | TEXT | -          | 更新时间                         |
 
 **索引**: `idx_file_permissions_file`, `idx_file_permissions_user`, `idx_file_permissions_group`, `idx_file_permissions_expires`, `idx_file_permissions_scope`, `idx_file_permissions_unique` (唯一)
 
 #### user_groups (用户组表) - v3.6.0
 
-| 字段        | 类型 | 默认值 | 说明                   |
-| ----------- | ---- | ------ | ---------------------- |
-| `id`        | TEXT | -      | 主键                   |
-| `ownerId`   | TEXT | -      | 所有者 ID (外键 → users) |
-| `name`      | TEXT | -      | 组名称                 |
-| `description`| TEXT| -      | 描述                   |
-| `createdAt` | TEXT | -      | 创建时间               |
-| `updatedAt` | TEXT | -      | 更新时间               |
+| 字段          | 类型 | 默认值 | 说明                     |
+| ------------- | ---- | ------ | ------------------------ |
+| `id`          | TEXT | -      | 主键                     |
+| `ownerId`     | TEXT | -      | 所有者 ID (外键 → users) |
+| `name`        | TEXT | -      | 组名称                   |
+| `description` | TEXT | -      | 描述                     |
+| `createdAt`   | TEXT | -      | 创建时间                 |
+| `updatedAt`   | TEXT | -      | 更新时间                 |
 
 **索引**: `idx_user_groups_owner`
 
@@ -434,16 +492,16 @@ ossshelf/
 
 #### webhooks (Webhook 表) - v3.6.0
 
-| 字段        | 类型 | 默认值 | 说明                       |
-| ----------- | ---- | ------ | -------------------------- |
-| `id`        | TEXT | -      | 主键                       |
-| `userId`    | TEXT | -      | 用户 ID (外键 → users)     |
-| `url`       | TEXT | -      | Webhook URL                |
-| `secret`    | TEXT | -      | 签名密钥                   |
-| `events`    | TEXT | -      | 订阅事件 (JSON 数组)       |
-| `isActive`  | BOOL | true   | 是否启用                   |
-| `lastStatus`| INT  | -      | 最后响应状态码             |
-| `createdAt` | TEXT | -      | 创建时间                   |
+| 字段         | 类型 | 默认值 | 说明                   |
+| ------------ | ---- | ------ | ---------------------- |
+| `id`         | TEXT | -      | 主键                   |
+| `userId`     | TEXT | -      | 用户 ID (外键 → users) |
+| `url`        | TEXT | -      | Webhook URL            |
+| `secret`     | TEXT | -      | 签名密钥               |
+| `events`     | TEXT | -      | 订阅事件 (JSON 数组)   |
+| `isActive`   | BOOL | true   | 是否启用               |
+| `lastStatus` | INT  | -      | 最后响应状态码         |
+| `createdAt`  | TEXT | -      | 创建时间               |
 
 **索引**: `idx_webhooks_user`, `idx_webhooks_active`
 
@@ -653,6 +711,12 @@ ossshelf/
 | `/api/permissions` | permissions.ts | 权限与标签        |
 | `/api/preview`     | preview.ts     | 文件预览          |
 | `/api/versions`    | versions.ts    | 版本控制 (v3.3.0) |
+| `/api/notes`       | notes.ts       | 文件笔记 (v3.5.0) |
+| `/api/api-keys`    | apiKeys.ts     | API Keys (v3.5.0) |
+| `/api/groups`      | groups.ts      | 用户组管理 (v3.6.0) |
+| `/api/webhooks`    | webhooks.ts    | Webhook 管理 (v3.6.0) |
+| `/api/ai`          | ai.ts          | AI 功能 (v3.7.0)  |
+| `/api/v1`          | v1/index.ts    | RESTful v1 (v3.6.0) |
 | `/api/admin`       | admin.ts       | 管理员接口        |
 | `/api/migrate`     | migrate.ts     | 存储桶迁移        |
 | `/api/telegram`    | telegram.ts    | Telegram 存储     |

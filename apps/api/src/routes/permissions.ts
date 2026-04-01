@@ -132,8 +132,7 @@ export async function checkFilePermission(
 
   const permissionLevels = { read: 1, write: 2, admin: 3 };
   const hasAccess =
-    permissionLevels[permission.permission as keyof typeof permissionLevels] >=
-    permissionLevels[requiredPermission];
+    permissionLevels[permission.permission as keyof typeof permissionLevels] >= permissionLevels[requiredPermission];
 
   return { hasAccess, permission: permission.permission, isOwner: false };
 }
@@ -158,12 +157,7 @@ export async function inheritParentPermissions(
   const parentPermissions = await db
     .select()
     .from(filePermissions)
-    .where(
-      and(
-        eq(filePermissions.fileId, parentId),
-        eq(filePermissions.inheritToChildren, true)
-      )
-    )
+    .where(and(eq(filePermissions.fileId, parentId), eq(filePermissions.inheritToChildren, true)))
     .all();
 
   if (parentPermissions.length === 0) return;
@@ -192,12 +186,8 @@ export async function inheritParentPermissions(
       .where(
         and(
           eq(filePermissions.fileId, fileId),
-          perm.userId
-            ? eq(filePermissions.userId, perm.userId)
-            : isNull(filePermissions.userId),
-          perm.groupId
-            ? eq(filePermissions.groupId, perm.groupId)
-            : isNull(filePermissions.groupId)
+          perm.userId ? eq(filePermissions.userId, perm.userId) : isNull(filePermissions.userId),
+          perm.groupId ? eq(filePermissions.groupId, perm.groupId) : isNull(filePermissions.groupId)
         )
       )
       .get();
@@ -268,7 +258,7 @@ app.get('/all', async (c) => {
     id: p.id,
     subjectType: p.subjectType,
     subjectId: p.subjectType === 'user' ? p.userId : p.groupId,
-    subjectName: p.subjectType === 'user' ? (p.userName || p.userEmail || '未知用户') : (p.groupName || '未知组'),
+    subjectName: p.subjectType === 'user' ? p.userName || p.userEmail || '未知用户' : p.groupName || '未知组',
     fileId: p.fileId,
     fileName: p.fileName,
     filePath: p.filePath,
@@ -343,17 +333,11 @@ app.post('/grant', async (c) => {
   const { fileId, userId: targetUserId, groupId, permission, subjectType, expiresAt } = result.data;
 
   if (subjectType === 'user' && !targetUserId) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '用户ID不能为空' } },
-      400
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '用户ID不能为空' } }, 400);
   }
 
   if (subjectType === 'group' && !groupId) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '用户组ID不能为空' } },
-      400
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '用户组ID不能为空' } }, 400);
   }
 
   const db = getDb(c.env.DB);
@@ -730,11 +714,7 @@ app.patch('/:permissionId', async (c) => {
   const { permission, expiresAt } = result.data;
   const db = getDb(c.env.DB);
 
-  const existingPermission = await db
-    .select()
-    .from(filePermissions)
-    .where(eq(filePermissions.id, permissionId))
-    .get();
+  const existingPermission = await db.select().from(filePermissions).where(eq(filePermissions.id, permissionId)).get();
 
   if (!existingPermission) {
     throwAppError('NOT_FOUND', '权限记录不存在');
@@ -788,11 +768,7 @@ app.delete('/:permissionId', async (c) => {
   const permissionId = c.req.param('permissionId');
   const db = getDb(c.env.DB);
 
-  const existingPermission = await db
-    .select()
-    .from(filePermissions)
-    .where(eq(filePermissions.id, permissionId))
-    .get();
+  const existingPermission = await db.select().from(filePermissions).where(eq(filePermissions.id, permissionId)).get();
 
   if (!existingPermission) {
     throwAppError('NOT_FOUND', '权限记录不存在');

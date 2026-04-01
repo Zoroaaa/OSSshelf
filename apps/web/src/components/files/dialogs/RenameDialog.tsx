@@ -1,22 +1,34 @@
+/**
+ * RenameDialog.tsx
+ * 重命名对话框组件
+ *
+ * 功能:
+ * - 文件/文件夹重命名
+ * - 移动端底部弹出面板
+ */
+
 import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { MobileDialog, MobileDialogFooter, MobileDialogAction } from '@/components/ui/MobileDialog';
 import { decodeFileName } from '@/utils';
 
 interface RenameDialogProps {
+  open: boolean;
   currentName: string;
   onConfirm: (newName: string) => void;
   onCancel: () => void;
   isPending?: boolean;
 }
 
-export function RenameDialog({ currentName, onConfirm, onCancel, isPending }: RenameDialogProps) {
+export function RenameDialog({ open, currentName, onConfirm, onCancel, isPending }: RenameDialogProps) {
   const decodedName = decodeFileName(currentName);
   const [name, setName] = useState(decodedName);
 
   useEffect(() => {
-    setName(decodedName);
-  }, [decodedName]);
+    if (open) {
+      setName(decodedName);
+    }
+  }, [decodedName, open]);
 
   const handleSubmit = () => {
     const trimmed = name.trim();
@@ -28,9 +40,8 @@ export function RenameDialog({ currentName, onConfirm, onCancel, isPending }: Re
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-card border rounded-lg p-6 w-full max-w-md shadow-xl">
-        <h2 className="text-lg font-semibold mb-4">重命名</h2>
+    <MobileDialog open={open} onClose={onCancel} title="重命名" mode="sheet">
+      <div className="space-y-4">
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -40,15 +51,20 @@ export function RenameDialog({ currentName, onConfirm, onCancel, isPending }: Re
           }}
           autoFocus
         />
-        <div className="flex justify-end gap-2 mt-4">
-          <Button variant="outline" onClick={onCancel}>
+        <MobileDialogFooter>
+          <MobileDialogAction onClick={onCancel} disabled={isPending}>
             取消
-          </Button>
-          <Button onClick={handleSubmit} disabled={isPending || !name.trim()}>
-            {isPending ? '保存中...' : '确认'}
-          </Button>
-        </div>
+          </MobileDialogAction>
+          <MobileDialogAction
+            onClick={handleSubmit}
+            variant="primary"
+            disabled={isPending || !name.trim()}
+            loading={isPending}
+          >
+            确认
+          </MobileDialogAction>
+        </MobileDialogFooter>
       </div>
-    </div>
+    </MobileDialog>
   );
 }

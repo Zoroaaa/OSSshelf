@@ -42,9 +42,7 @@ const Permissions: React.FC = () => {
                 <Settings className="h-8 w-8 text-primary" />
                 <div>
                   <h1 className="text-2xl font-semibold">权限管理</h1>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    管理用户组、授权、Webhook 和 API Key
-                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">管理用户组、授权、Webhook 和 API Key</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -77,16 +75,12 @@ const Permissions: React.FC = () => {
                   onClick={() => setActiveTab(tab.id)}
                   className={cn(
                     'flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors relative',
-                    activeTab === tab.id
-                      ? 'text-primary'
-                      : 'text-muted-foreground hover:text-foreground'
+                    activeTab === tab.id ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
                   )}
                 >
                   <Icon className="h-4 w-4" />
                   {tab.label}
-                  {activeTab === tab.id && (
-                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
-                  )}
+                  {activeTab === tab.id && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />}
                 </button>
               );
             })}

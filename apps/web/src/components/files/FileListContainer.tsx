@@ -63,7 +63,7 @@ export function FileListContainer({
   onTagClick,
   onUploadLink,
   onDirectLink,
-  onVersionHistory: _onVersionHistory,
+  onVersionHistory,
 }: FileListContainerProps) {
   const hasImages = imageFiles.length > 0;
 
@@ -119,6 +119,7 @@ export function FileListContainer({
             onTagClick={onTagClick}
             onUploadLink={onUploadLink}
             onDirectLink={onDirectLink}
+            onVersionHistory={onVersionHistory}
           />
         ))}
       </div>
@@ -147,6 +148,7 @@ export function FileListContainer({
             onTagClick={onTagClick}
             onUploadLink={onUploadLink}
             onDirectLink={onDirectLink}
+            onVersionHistory={onVersionHistory}
           />
         ))}
       </div>

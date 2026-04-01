@@ -17,20 +17,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/useToast';
 import { cn } from '@/utils';
-import {
-  Shield,
-  Plus,
-  X,
-  Loader2,
-  User,
-  Crown,
-  Edit,
-  Eye,
-  Trash2,
-  Users,
-  ArrowUpRight,
-  Calendar,
-} from 'lucide-react';
+import { Shield, Plus, X, Loader2, User, Crown, Edit, Eye, Trash2, Users, ArrowUpRight, Calendar } from 'lucide-react';
 
 interface FilePermissionManagerProps {
   fileId: string;
@@ -96,7 +83,9 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
           const res = await permissionsApi.searchUsers(searchQuery);
           const users = res.data.data ?? [];
           const existingUserIds = new Set(
-            (permissionData?.permissions as PermissionItem[])?.filter((p) => p.subjectType === 'user').map((p) => p.userId) ?? []
+            (permissionData?.permissions as PermissionItem[])
+              ?.filter((p) => p.subjectType === 'user')
+              .map((p) => p.userId) ?? []
           );
           setSearchResults(users.filter((u) => !existingUserIds.has(u.id)));
           setGroupResults([]);
@@ -104,7 +93,9 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
           const allGroups = userGroups ?? { owned: [], memberOf: [] };
           const allGroupsList = [...(allGroups.owned || []), ...(allGroups.memberOf || [])];
           const existingGroupIds = new Set(
-            (permissionData?.permissions as PermissionItem[])?.filter((p) => p.subjectType === 'group').map((p) => p.groupId) ?? []
+            (permissionData?.permissions as PermissionItem[])
+              ?.filter((p) => p.subjectType === 'group')
+              .map((p) => p.groupId) ?? []
           );
           setGroupResults(
             allGroupsList.filter(
@@ -227,9 +218,7 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
                 }}
                 className={cn(
                   'flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-colors border',
-                  subjectType === 'user'
-                    ? 'bg-primary/10 text-primary border-primary'
-                    : 'hover:bg-muted'
+                  subjectType === 'user' ? 'bg-primary/10 text-primary border-primary' : 'hover:bg-muted'
                 )}
               >
                 <User className="h-3.5 w-3.5" />
@@ -243,9 +232,7 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
                 }}
                 className={cn(
                   'flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-colors border',
-                  subjectType === 'group'
-                    ? 'bg-primary/10 text-primary border-primary'
-                    : 'hover:bg-muted'
+                  subjectType === 'group' ? 'bg-primary/10 text-primary border-primary' : 'hover:bg-muted'
                 )}
               >
                 <Users className="h-3.5 w-3.5" />
@@ -255,9 +242,7 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-medium">
-              {subjectType === 'user' ? '搜索用户' : '搜索用户组'}
-            </label>
+            <label className="text-xs font-medium">{subjectType === 'user' ? '搜索用户' : '搜索用户组'}</label>
             <Input
               placeholder={subjectType === 'user' ? '输入邮箱搜索...' : '输入组名搜索...'}
               value={searchQuery}
@@ -386,10 +371,7 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
             return (
               <div
                 key={perm.id}
-                className={cn(
-                  'flex items-center gap-3 p-2 rounded-lg border bg-muted/30',
-                  isExpired && 'opacity-50'
-                )}
+                className={cn('flex items-center gap-3 p-2 rounded-lg border bg-muted/30', isExpired && 'opacity-50')}
               >
                 <div
                   className={cn(
@@ -416,9 +398,7 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
                     )}
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span className="truncate">
-                      {perm.subjectType === 'group' ? '用户组' : perm.userEmail}
-                    </span>
+                    <span className="truncate">{perm.subjectType === 'group' ? '用户组' : perm.userEmail}</span>
                     {perm.expiresAt && (
                       <span className={cn(isExpired && 'text-destructive')}>
                         {isExpired ? '已过期' : `过期: ${new Date(perm.expiresAt).toLocaleDateString('zh-CN')}`}
