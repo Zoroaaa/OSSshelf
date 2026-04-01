@@ -42,6 +42,7 @@ import { resolveBucketConfig, updateBucketStats, updateUserStorage, checkBucketQ
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 import { getUserOrFail, encodeFilename } from '../lib/utils';
 import { computeSha256Hex, checkAndClaimDedup, releaseFileRef } from '../lib/dedup';
+import { indexFileVector, buildFileTextForVector, isAIConfigured } from '../lib/vectorIndex';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -242,6 +243,21 @@ app.post('/confirm', async (c) => {
     await updateBucketStats(db, bucketId, fileSize, 1);
   }
 
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        if (await isAIConfigured(c.env)) {
+          const text = await buildFileTextForVector(c.env, fileId);
+          if (text) {
+            await indexFileVector(c.env, fileId, text);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to index file vector:', error);
+      }
+    })()
+  );
+
   return c.json({
     success: true,
     data: { id: fileId, name: fileName, size: fileSize, mimeType, path, bucketId: bucketId || null, createdAt: now },
@@ -402,6 +418,21 @@ app.post('/multipart/complete', async (c) => {
 
   await updateUserStorage(db, userId, fileSize);
   await updateBucketStats(db, bucketConfig.id, fileSize, 1);
+
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        if (await isAIConfigured(c.env)) {
+          const text = await buildFileTextForVector(c.env, fileId);
+          if (text) {
+            await indexFileVector(c.env, fileId, text);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to index file vector:', error);
+      }
+    })()
+  );
 
   return c.json({
     success: true,

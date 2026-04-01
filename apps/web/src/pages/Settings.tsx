@@ -9,7 +9,6 @@
  * - 登录安全
  * - 存储空间
  * - WebDAV 配置
- * - API Keys 管理
  */
 
 import { useState } from 'react';
@@ -23,7 +22,6 @@ import { StorageBar } from '@/components/files/StorageBar';
 import { useToast } from '@/components/ui/useToast';
 import { formatBytes, formatDate } from '@/utils';
 import { cn } from '@/utils';
-import { ApiKeyList } from '@/components/settings';
 import {
   User,
   Lock,
@@ -44,10 +42,11 @@ import {
   Clock,
   MapPin,
   Loader2,
-  Key,
+  Sparkles,
 } from 'lucide-react';
+import { AISettings } from '@/components/ai';
 
-type SettingsTab = 'profile' | 'security' | 'api-keys';
+type SettingsTab = 'profile' | 'security' | 'ai';
 
 function getDeviceIcon(userAgent: string): typeof Monitor {
   const ua = userAgent.toLowerCase();
@@ -195,7 +194,7 @@ export default function Settings() {
   const tabs: { id: SettingsTab; label: string; icon: typeof User }[] = [
     { id: 'profile', label: '个人信息', icon: User },
     { id: 'security', label: '安全设置', icon: Shield },
-    { id: 'api-keys', label: 'API Keys', icon: Key },
+    { id: 'ai', label: 'AI 功能', icon: Sparkles },
   ];
 
   return (
@@ -617,7 +616,13 @@ export default function Settings() {
         </>
       )}
 
-      {activeTab === 'api-keys' && <ApiKeyList />}
+      {activeTab === 'ai' && (
+        <Card>
+          <CardContent className="pt-6">
+            <AISettings />
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

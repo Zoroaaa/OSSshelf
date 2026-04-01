@@ -43,6 +43,13 @@ export interface FileItem {
   deletedAt: string | null;
   tags?: FileTag[];
   permissions?: FilePermission[];
+  // AI fields
+  aiSummary?: string | null;
+  aiSummaryAt?: string | null;
+  aiTags?: string | null; // JSON array string
+  aiTagsAt?: string | null;
+  vectorIndexedAt?: string | null;
+  isStarred?: boolean;
 }
 
 export interface UploadedFile {
@@ -124,14 +131,27 @@ export type AuditAction =
   | 'file.delete'
   | 'file.move'
   | 'file.rename'
+  | 'file.update'
   | 'folder.create'
   | 'share.create'
   | 'share.access'
+  | 'share.delete'
   | 'bucket.create'
   | 'bucket.update'
   | 'bucket.delete'
   | 'permission.grant'
   | 'permission.revoke'
+  | 'permission.update'
+  | 'permission.delete'
+  | 'group.create'
+  | 'group.update'
+  | 'group.delete'
+  | 'group.member.add'
+  | 'group.member.remove'
+  | 'group.member.role_change'
+  | 'webhook.create'
+  | 'webhook.update'
+  | 'webhook.delete'
   | 'admin.user_update'
   | 'admin.config_change'
   | 'admin.invite_code_generate'

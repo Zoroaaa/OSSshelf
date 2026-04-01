@@ -104,6 +104,92 @@ app.get('/:fileId/versions', async (c) => {
   });
 });
 
+app.get('/:fileId/versions/diff', async (c) => {
+  const userId = c.get('userId');
+  const fileId = c.req.param('fileId');
+  const fromVersion = parseInt(c.req.query('from') || '', 10);
+  const toVersion = parseInt(c.req.query('to') || '', 10);
+
+  if (isNaN(fromVersion) || isNaN(toVersion)) {
+    throwAppError('INVALID_VERSION_NUMBER', '请提供有效的版本号');
+  }
+
+  const db = getDb(c.env.DB);
+
+  const file = await db.select().from(files).where(eq(files.id, fileId)).get();
+  if (!file) {
+    throwAppError('FILE_NOT_FOUND');
+  }
+
+  if (file.userId !== userId) {
+    throwAppError('FILE_ACCESS_DENIED');
+  }
+
+  const fromVer = await db
+    .select()
+    .from(fileVersions)
+    .where(and(eq(fileVersions.fileId, fileId), eq(fileVersions.version, fromVersion)))
+    .get();
+
+  const toVer = await db
+    .select()
+    .from(fileVersions)
+    .where(and(eq(fileVersions.fileId, fileId), eq(fileVersions.version, toVersion)))
+    .get();
+
+  if (!fromVer || !toVer) {
+    throwAppError('VERSION_NOT_FOUND');
+  }
+
+  const isTextFile = (mimeType: string | null) => {
+    if (!mimeType) return false;
+    return (
+      mimeType.startsWith('text/') ||
+      mimeType === 'application/json' ||
+      mimeType === 'application/xml' ||
+      mimeType === 'application/javascript'
+    );
+  };
+
+  if (!isTextFile(fromVer.mimeType) || !isTextFile(toVer.mimeType)) {
+    return c.json({
+      success: true,
+      data: {
+        canDiff: false,
+        message: '仅支持文本文件的版本对比',
+        fromVersion: {
+          version: fromVersion,
+          size: fromVer.size,
+          mimeType: fromVer.mimeType,
+        },
+        toVersion: {
+          version: toVersion,
+          size: toVer.size,
+          mimeType: toVer.mimeType,
+        },
+      },
+    });
+  }
+
+  return c.json({
+    success: true,
+    data: {
+      canDiff: true,
+      fromVersion: {
+        version: fromVersion,
+        size: fromVer.size,
+        mimeType: fromVer.mimeType,
+      },
+      toVersion: {
+        version: toVersion,
+        size: toVer.size,
+        mimeType: toVer.mimeType,
+      },
+      message: '请使用 /raw 端点获取文件内容进行对比',
+    },
+  });
+});
+
 app.get('/:fileId/versions/:version', async (c) => {
   const userId = c.get('userId');
   const fileId = c.req.param('fileId');
@@ -266,9 +352,6 @@ app.post('/:fileId/versions/:version/restore', async (c) => {
     })
     .where(eq(files.id, fileId));
 
-  // 恢复版本不更新存储空间，因为版本的存储对象已经存在
-  // 文件的 size 字段仅表示当前版本的大小，不反映实际存储占用
-
   await db
     .update(fileVersions)
     .set({ refCount: sql`${fileVersions.refCount} + 1` })
@@ -319,7 +402,6 @@ app.delete('/:fileId/versions/:version', async (c) => {
     throwAppError('VERSION_NOT_FOUND');
   }
 
-  // 检查同一 r2Key 是否还有其他版本引用（去重场景）
   const sharedRefs = await db
     .select({ id: fileVersions.id })
     .from(fileVersions)
@@ -328,10 +410,8 @@ app.delete('/:fileId/versions/:version', async (c) => {
 
   const isLastRef = sharedRefs.length <= 1 && version.r2Key !== file.r2Key;
 
-  // 删除版本记录
   await db.delete(fileVersions).where(eq(fileVersions.id, version.id));
 
-  // 若是最后一个引用且与主文件 r2Key 不同，清理物理对象
   if (isLastRef) {
     const encKey = getEncryptionKey(c.env);
     const bucketConfig = await resolveBucketConfig(db, userId!, encKey, file.bucketId);
@@ -342,7 +422,6 @@ app.delete('/:fileId/versions/:version', async (c) => {
     } else if (c.env.FILES) {
       await (c.env.FILES as R2Bucket).delete(version.r2Key).catch(() => {});
     }
-    // 释放存储空间
     await updateUserStorage(db, userId!, -version.size);
   }
 
@@ -389,92 +468,6 @@ app.patch('/:fileId/version-settings', async (c) => {
       message: '版本设置已更新',
       maxVersions: parsed.data.maxVersions ?? file.maxVersions,
       versionRetentionDays: parsed.data.versionRetentionDays ?? file.versionRetentionDays,
-    },
-  });
-});
-
-app.get('/:fileId/versions/diff', async (c) => {
-  const userId = c.get('userId');
-  const fileId = c.req.param('fileId');
-  const fromVersion = parseInt(c.req.query('from') || '', 10);
-  const toVersion = parseInt(c.req.query('to') || '', 10);
-
-  if (isNaN(fromVersion) || isNaN(toVersion)) {
-    throwAppError('INVALID_VERSION_NUMBER', '请提供有效的版本号');
-  }
-
-  const db = getDb(c.env.DB);
-
-  const file = await db.select().from(files).where(eq(files.id, fileId)).get();
-  if (!file) {
-    throwAppError('FILE_NOT_FOUND');
-  }
-
-  if (file.userId !== userId) {
-    throwAppError('FILE_ACCESS_DENIED');
-  }
-
-  const fromVer = await db
-    .select()
-    .from(fileVersions)
-    .where(and(eq(fileVersions.fileId, fileId), eq(fileVersions.version, fromVersion)))
-    .get();
-
-  const toVer = await db
-    .select()
-    .from(fileVersions)
-    .where(and(eq(fileVersions.fileId, fileId), eq(fileVersions.version, toVersion)))
-    .get();
-
-  if (!fromVer || !toVer) {
-    throwAppError('VERSION_NOT_FOUND');
-  }
-
-  const isTextFile = (mimeType: string | null) => {
-    if (!mimeType) return false;
-    return (
-      mimeType.startsWith('text/') ||
-      mimeType === 'application/json' ||
-      mimeType === 'application/xml' ||
-      mimeType === 'application/javascript'
-    );
-  };
-
-  if (!isTextFile(fromVer.mimeType) || !isTextFile(toVer.mimeType)) {
-    return c.json({
-      success: true,
-      data: {
-        canDiff: false,
-        message: '仅支持文本文件的版本对比',
-        fromVersion: {
-          version: fromVersion,
-          size: fromVer.size,
-          mimeType: fromVer.mimeType,
-        },
-        toVersion: {
-          version: toVersion,
-          size: toVer.size,
-          mimeType: toVer.mimeType,
-        },
-      },
-    });
-  }
-
-  return c.json({
-    success: true,
-    data: {
-      canDiff: true,
-      fromVersion: {
-        version: fromVersion,
-        size: fromVer.size,
-        mimeType: fromVer.mimeType,
-      },
-      toVersion: {
-        version: toVersion,
-        size: toVer.size,
-        mimeType: toVer.mimeType,
-      },
-      message: '请使用 /raw 端点获取文件内容进行对比',
     },
   });
 });

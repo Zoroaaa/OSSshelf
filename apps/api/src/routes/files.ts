@@ -11,8 +11,9 @@
 
 import { Hono, type Context } from 'hono';
 import { eq, and, isNull, isNotNull, like, or, inArray, sql } from 'drizzle-orm';
-import { getDb, files, users, storageBuckets, filePermissions, telegramFileRefs, fileVersions } from '../db';
+import { getDb, files, users, storageBuckets, filePermissions, telegramFileRefs, fileVersions, groupMembers } from '../db';
 import { checkFilePermission } from './permissions';
+import { inheritParentPermissions } from './permissions';
 import { authMiddleware } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
 import { ERROR_CODES, MAX_FILE_SIZE, isPreviewableMimeType, inferMimeType } from '@osshelf/shared';
@@ -39,6 +40,7 @@ import {
 } from '../lib/telegramChunked';
 import { checkAndClaimDedup, releaseFileRef, computeSha256Hex } from '../lib/dedup';
 import { createVersionSnapshot, shouldCreateVersion } from '../lib/versionManager';
+import { indexFileVector, buildFileTextForVector, isAIConfigured } from '../lib/vectorIndex';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -185,7 +187,7 @@ app.get('/:id/download', async (c) => {
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
-  const { hasAccess } = await checkFilePermission(db, fileId, userId!, 'read');
+  const { hasAccess } = await checkFilePermission(db, fileId, userId!, 'read', c.env);
   if (!hasAccess) throwAppError('FILE_ACCESS_DENIED', '无权下载此文件');
 
   const file = await db
@@ -437,6 +439,8 @@ app.post('/upload', async (c) => {
     deletedAt: null,
   });
 
+  await inheritParentPermissions(db, fileId, parentId);
+
   if (user) {
     await updateUserStorage(db, userId, uploadFile.size);
   }
@@ -473,32 +477,72 @@ app.get('/', async (c) => {
 
   const db = getDb(c.env.DB);
 
-  // 查询用户通过权限表获得授权访问的文件ID
-  const permittedFileIds = await db
-    .select({ fileId: filePermissions.fileId })
-    .from(filePermissions)
-    .where(eq(filePermissions.userId, userId))
-    .all();
-  const permittedIds = permittedFileIds.map((p) => p.fileId);
-
-  // 构建查询条件：用户自己的文件 或 被授权访问的文件
-  const ownershipCondition = or(
-    eq(files.userId, userId),
-    permittedIds.length > 0 ? inArray(files.id, permittedIds) : undefined
-  );
-
-  const conditions = [ownershipCondition, isNull(files.deletedAt)];
+  // 如果指定了 parentId，需要检查用户是否有权限访问该目录
   if (parentId) {
+    const { hasAccess } = await checkFilePermission(db, parentId, userId, 'read', c.env);
+    if (!hasAccess) {
+      throwAppError('FILE_ACCESS_DENIED', '无权访问此目录');
+    }
+  }
+
+  // 构建查询条件
+  const conditions: any[] = [isNull(files.deletedAt)];
+  
+  if (parentId) {
+    // 如果指定了 parentId，查询该目录下的文件
+    // 用户需要有权限访问该目录（已在上面检查）
     conditions.push(eq(files.parentId, parentId));
   } else {
-    conditions.push(isNull(files.parentId));
+    // 未指定 parentId，返回：
+    // 1. 用户自己的根目录文件
+    // 2. 被授权访问的文件（无论在哪个目录）
+    
+    // 获取用户所属的用户组
+    const userGroups = await db
+      .select({ groupId: groupMembers.groupId })
+      .from(groupMembers)
+      .where(eq(groupMembers.userId, userId))
+      .all();
+    const groupIds = userGroups.map((g) => g.groupId);
+
+    // 查询用户直接获得授权的文件ID
+    const userPermittedFiles = await db
+      .select({ fileId: filePermissions.fileId })
+      .from(filePermissions)
+      .where(and(eq(filePermissions.userId, userId), eq(filePermissions.subjectType, 'user')))
+      .all();
+
+    // 查询用户组获得授权的文件ID
+    let groupPermittedFiles: { fileId: string }[] = [];
+    if (groupIds.length > 0) {
+      groupPermittedFiles = await db
+        .select({ fileId: filePermissions.fileId })
+        .from(filePermissions)
+        .where(and(inArray(filePermissions.groupId, groupIds), eq(filePermissions.subjectType, 'group')))
+        .all();
+    }
+
+    const permittedIds = new Set([
+      ...userPermittedFiles.map((p) => p.fileId),
+      ...groupPermittedFiles.map((p) => p.fileId),
+    ]);
+
+    // 根目录查询条件：
+    // - 用户自己的根目录文件 (userId = current AND parentId IS NULL)
+    // - 或被授权访问的文件 (id IN permittedIds)
+    const ownershipCondition = or(
+      and(eq(files.userId, userId), isNull(files.parentId)),
+      permittedIds.size > 0 ? inArray(files.id, Array.from(permittedIds)) : undefined
+    );
+    conditions.push(ownershipCondition);
   }
+  
   if (search) conditions.push(like(files.name, `%${search}%`));
 
   const items = await db
     .select()
     .from(files)
-    .where(and(...(conditions.filter(Boolean) as any[])))
+    .where(and(...conditions.filter(Boolean)))
     .all();
   const sorted = [...items].sort((a, b) => {
     const aVal = a[sortBy] ?? '';
@@ -531,13 +575,12 @@ app.get('/', async (c) => {
     for (const u of ownerRows) ownerMap[u.id] = u;
   }
 
-  // 权限信息（纯内存计算，无需额外 DB 查询）
-  const permittedIdSet = new Set(permittedIds);
+  // 权限信息
   const permissionsMap: Record<string, { permission: string | null; isOwner: boolean }> = {};
   for (const file of sorted) {
     const isOwner = file.userId === userId;
     permissionsMap[file.id] = {
-      permission: isOwner ? 'admin' : permittedIdSet.has(file.id) ? 'read' : null,
+      permission: isOwner ? 'admin' : null,
       isOwner,
     };
   }
@@ -752,6 +795,7 @@ app.post('/', async (c) => {
     deletedAt: null,
   };
   await db.insert(files).values(newFolder);
+  await inheritParentPermissions(db, folderId, parentId || null);
 
   let bucketInfo: { id: string; name: string; provider: string } | null = null;
   if (effectiveBucketId) {
@@ -923,6 +967,8 @@ app.post('/create', async (c) => {
     deletedAt: null,
   });
 
+  await inheritParentPermissions(db, fileId, parentId || null);
+
   if (user) {
     await updateUserStorage(db, userId, fileSize);
   }
@@ -939,6 +985,21 @@ app.post('/create', async (c) => {
     const b = await db.select().from(storageBuckets).where(eq(storageBuckets.id, effectiveBucketId)).get();
     if (b) bucketInfo = { id: b.id, name: b.name, provider: b.provider };
   }
+
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        if (await isAIConfigured(c.env)) {
+          const text = await buildFileTextForVector(c.env, fileId);
+          if (text) {
+            await indexFileVector(c.env, fileId, text);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to index file vector:', error);
+      }
+    })()
+  );
 
   return c.json({
     success: true,
@@ -963,7 +1024,7 @@ app.get('/:id', async (c) => {
   const db = getDb(c.env.DB);
 
   // 使用权限检查函数，允许被授权的用户访问
-  const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'read');
+  const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'read', c.env);
   if (!hasAccess) {
     throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
   }
@@ -1005,7 +1066,7 @@ app.put('/:id', async (c) => {
   const db = getDb(c.env.DB);
 
   // 使用权限检查函数，需要 write 权限
-  const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'write');
+  const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'write', c.env);
   if (!hasAccess) {
     throwAppError('FILE_WRITE_DENIED', '无权修改此文件');
   }
@@ -1047,7 +1108,7 @@ app.get('/:id/raw', async (c) => {
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
 
-  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read');
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
   if (!hasAccess) {
     throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
   }
@@ -1139,7 +1200,7 @@ app.put('/:id/content', async (c) => {
   const { content, changeSummary } = result.data;
   const db = getDb(c.env.DB);
 
-  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'write');
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'write', c.env);
   if (!hasAccess) {
     throwAppError('FILE_WRITE_DENIED', '无权修改此文件');
   }
@@ -1345,7 +1406,7 @@ app.delete('/:id', async (c) => {
   const db = getDb(c.env.DB);
 
   // 使用权限检查函数，需要 admin 权限才能删除
-  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'admin');
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'admin', c.env);
   if (!hasAccess) {
     throwAppError('FILE_DELETE_DENIED', '无权删除此文件');
   }

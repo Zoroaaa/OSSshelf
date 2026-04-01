@@ -34,6 +34,19 @@ jobs:
       - name: Build shared package
         run: pnpm --filter @osshelf/shared build
 
+      - name: Create Vectorize index
+        run: |
+          echo "Checking if Vectorize index exists..."
+          if ! npx wrangler vectorize list 2>/dev/null | grep -q "ossshelf-files"; then
+            echo "Creating Vectorize index..."
+            npx wrangler vectorize create ossshelf-files --dimensions=768 --metric=cosine
+          else
+            echo "Vectorize index already exists, skipping creation"
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Generate wrangler.toml
         run: |
           cat > apps/api/wrangler.toml << EOF
@@ -41,6 +54,13 @@ jobs:
           main = "src/index.ts"
           compatibility_date = "2024-01-01"
           compatibility_flags = ["nodejs_compat"]
+
+          [ai]
+          binding = "AI"
+
+          [[vectorize]]
+          binding = "VECTORIZE"
+          index_name = "ossshelf-files"
 
           [[d1_databases]]
           binding = "DB"

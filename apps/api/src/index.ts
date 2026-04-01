@@ -33,6 +33,10 @@ import directLinkRoutes from './routes/directLink';
 import versionsRoutes from './routes/versions';
 import notesRoutes from './routes/notes';
 import apiKeysRoutes from './routes/apiKeys';
+import groupsRoutes from './routes/groups';
+import webhooksRoutes from './routes/webhooks';
+import aiRoutes from './routes/ai';
+import v1Routes from './routes/v1';
 import { errorHandler } from './middleware/error';
 import { runAllCleanupTasks } from './lib/cleanup';
 import type { Env } from './types/env';
@@ -124,7 +128,7 @@ app.use('*', errorHandler);
 app.get('/', (c) => {
   return c.json({
     name: 'OSSshelf API',
-    version: '0.2.0',
+    version: '3.5.0',
     description: '基于 Cloudflare 部署的多厂商 OSS 文件管理系统 API',
   });
 });
@@ -151,6 +155,10 @@ app.route('/api/direct', directLinkRoutes);
 app.route('/api/versions', versionsRoutes);
 app.route('/api/notes', notesRoutes);
 app.route('/api/keys', apiKeysRoutes);
+app.route('/api/groups', groupsRoutes);
+app.route('/api/webhooks', webhooksRoutes);
+app.route('/api/ai', aiRoutes);
+app.route('/api/v1', v1Routes);
 app.route('/cron', cronRoutes);
 app.route('/dav', webdavRoutes);
 

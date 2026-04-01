@@ -25,6 +25,7 @@ import {
   LogOut,
   Download,
   Shield,
+  ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/utils';
 import { useFileStore } from '@/stores/files';

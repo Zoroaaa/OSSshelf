@@ -2,7 +2,7 @@
 
 本文档基于项目实际代码，详细描述 OSSshelf 的系统架构、数据库设计和核心功能实现。
 
-**当前版本**: v3.5.0
+**当前版本**: v3.6.0
 
 ---
 
@@ -36,6 +36,29 @@ OSSshelf 是一个基于 Cloudflare 部署的多厂商 OSS 文件管理系统，
 ## 版本更新
 
 详细的版本更新日志请参阅 [CHANGELOG.md](../CHANGELOG.md)。
+
+### v3.6.0 (2026-03-31)
+
+**新功能**
+
+1. **权限系统 v2**
+   - 用户组管理：创建和管理用户组
+   - 组成员管理：添加/移除成员，设置管理员角色
+   - 权限继承：子文件自动继承父文件夹权限
+   - 时效性权限：支持设置权限过期时间
+   - 递归 CTE 权限解析：高效查询权限继承链
+   - KV 权限缓存：减少数据库查询
+
+2. **RESTful v1 API**
+   - 标准化 API 接口设计
+   - OpenAPI 3.1.0 文档自动生成
+   - Swagger UI 交互式文档
+   - API Key 认证支持
+
+3. **Webhook 通知**
+   - 文件事件订阅（上传、删除、更新等）
+   - HMAC-SHA256 签名验证
+   - Webhook 管理界面
 
 ### v3.5.0 (2026-03-30)
 
@@ -363,19 +386,66 @@ ossshelf/
 
 **索引**: `idx_tg_chunks_group`
 
-#### file_permissions (文件权限表)
+#### file_permissions (文件权限表) - v3.6.0 扩展
 
-| 字段         | 类型 | 默认值 | 说明                     |
-| ------------ | ---- | ------ | ------------------------ |
-| `id`         | TEXT | -      | 主键                     |
-| `fileId`     | TEXT | -      | 文件 ID (外键 → files)   |
-| `userId`     | TEXT | -      | 用户 ID (外键 → users)   |
-| `permission` | TEXT | 'read' | 权限 (read/write/admin)  |
-| `grantedBy`  | TEXT | -      | 授权人 ID (外键 → users) |
-| `createdAt`  | TEXT | -      | 创建时间                 |
-| `updatedAt`  | TEXT | -      | 更新时间                 |
+| 字段                | 类型 | 默认值    | 说明                         |
+| ------------------- | ---- | --------- | ---------------------------- |
+| `id`                | TEXT | -         | 主键                         |
+| `fileId`            | TEXT | -         | 文件 ID (外键 → files)       |
+| `userId`            | TEXT | -         | 用户 ID (外键 → users，可空) |
+| `groupId`           | TEXT | -         | 组 ID (外键 → user_groups，可空) |
+| `subjectType`       | TEXT | 'user'    | 主体类型 (user/group)        |
+| `permission`        | TEXT | 'read'    | 权限 (read/write/admin)      |
+| `grantedBy`         | TEXT | -         | 授权人 ID (外键 → users)     |
+| `expiresAt`         | TEXT | -         | 过期时间（可选）             |
+| `inheritToChildren` | BOOL | true      | 是否继承到子文件             |
+| `scope`             | TEXT | 'explicit'| 权限来源 (explicit/inherited)|
+| `sourcePermissionId`| TEXT | -         | 来源权限 ID（继承时）        |
+| `createdAt`         | TEXT | -         | 创建时间                     |
+| `updatedAt`         | TEXT | -         | 更新时间                     |
 
-**索引**: `idx_file_permissions_file`, `idx_file_permissions_user`, `idx_file_permissions_unique` (唯一)
+**索引**: `idx_file_permissions_file`, `idx_file_permissions_user`, `idx_file_permissions_group`, `idx_file_permissions_expires`, `idx_file_permissions_scope`, `idx_file_permissions_unique` (唯一)
+
+#### user_groups (用户组表) - v3.6.0
+
+| 字段        | 类型 | 默认值 | 说明                   |
+| ----------- | ---- | ------ | ---------------------- |
+| `id`        | TEXT | -      | 主键                   |
+| `ownerId`   | TEXT | -      | 所有者 ID (外键 → users) |
+| `name`      | TEXT | -      | 组名称                 |
+| `description`| TEXT| -      | 描述                   |
+| `createdAt` | TEXT | -      | 创建时间               |
+| `updatedAt` | TEXT | -      | 更新时间               |
+
+**索引**: `idx_user_groups_owner`
+
+#### group_members (组成员表) - v3.6.0
+
+| 字段        | 类型 | 默认值   | 说明                       |
+| ----------- | ---- | -------- | -------------------------- |
+| `id`        | TEXT | -        | 主键                       |
+| `groupId`   | TEXT | -        | 组 ID (外键 → user_groups) |
+| `userId`    | TEXT | -        | 用户 ID (外键 → users)     |
+| `role`      | TEXT | 'member' | 角色 (member/admin)        |
+| `addedBy`   | TEXT | -        | 添加人 ID (外键 → users)   |
+| `createdAt` | TEXT | -        | 创建时间                   |
+
+**索引**: `idx_group_members_user`, `idx_group_members_group`, `idx_group_members_unique` (唯一)
+
+#### webhooks (Webhook 表) - v3.6.0
+
+| 字段        | 类型 | 默认值 | 说明                       |
+| ----------- | ---- | ------ | -------------------------- |
+| `id`        | TEXT | -      | 主键                       |
+| `userId`    | TEXT | -      | 用户 ID (外键 → users)     |
+| `url`       | TEXT | -      | Webhook URL                |
+| `secret`    | TEXT | -      | 签名密钥                   |
+| `events`    | TEXT | -      | 订阅事件 (JSON 数组)       |
+| `isActive`  | BOOL | true   | 是否启用                   |
+| `lastStatus`| INT  | -      | 最后响应状态码             |
+| `createdAt` | TEXT | -      | 创建时间                   |
+
+**索引**: `idx_webhooks_user`, `idx_webhooks_active`
 
 #### file_tags (文件标签表)
 

@@ -712,6 +712,20 @@ export const searchApi = {
 // ─────────────────────────────────────────────────────────────────────────────
 // Permissions & Tags
 // ─────────────────────────────────────────────────────────────────────────────
+export interface GlobalPermission {
+  id: string;
+  subjectType: 'user' | 'group';
+  subjectId: string | null;
+  subjectName: string;
+  fileId: string;
+  fileName: string;
+  filePath: string;
+  isFolder: boolean;
+  permission: 'read' | 'write' | 'admin';
+  expiresAt: string | null;
+  createdAt: string;
+}
+
 export interface SearchableUser {
   id: string;
   email: string;
@@ -720,9 +734,15 @@ export interface SearchableUser {
 }
 
 export const permissionsApi = {
-  grant: (data: { fileId: string; userId: string; permission: 'read' | 'write' | 'admin' }) =>
-    api.post<ApiResponse<{ message: string }>>('/api/permissions/grant', data),
-  revoke: (data: { fileId: string; userId: string }) =>
+  grant: (data: {
+    fileId: string;
+    userId?: string;
+    groupId?: string;
+    permission: 'read' | 'write' | 'admin';
+    subjectType?: 'user' | 'group';
+    expiresAt?: string;
+  }) => api.post<ApiResponse<{ message: string }>>('/api/permissions/grant', data),
+  revoke: (data: { fileId: string; userId?: string; groupId?: string }) =>
     api.post<ApiResponse<{ message: string }>>('/api/permissions/revoke', data),
   getFilePermissions: (fileId: string) =>
     api.get<
@@ -730,10 +750,15 @@ export const permissionsApi = {
         isOwner: boolean;
         permissions: Array<{
           id: string;
-          userId: string;
+          userId: string | null;
+          groupId: string | null;
           permission: string;
           userName: string | null;
           userEmail: string;
+          groupName?: string;
+          subjectType: 'user' | 'group';
+          expiresAt: string | null;
+          scope: 'explicit' | 'inherited';
           createdAt: string;
         }>;
       }>
@@ -742,6 +767,17 @@ export const permissionsApi = {
     api.get<ApiResponse<{ hasAccess: boolean; permission: string | null; isOwner: boolean }>>(
       `/api/permissions/check/${fileId}`
     ),
+  resolvePermission: (fileId: string) =>
+    api.get<
+      ApiResponse<{
+        hasAccess: boolean;
+        permission: string | null;
+        source: 'explicit' | 'inherited' | 'owner';
+        sourceFileId?: string;
+        sourceFilePath?: string;
+        expiresAt?: string;
+      }>
+    >(`/api/permissions/resolve/${fileId}`),
   searchUsers: (query: string) =>
     api.get<ApiResponse<SearchableUser[]>>('/api/permissions/users/search', { params: { q: query } }),
   addTag: (data: { fileId: string; name: string; color?: string }) =>
@@ -752,6 +788,12 @@ export const permissionsApi = {
   getUserTags: () => api.get<ApiResponse<FileTag[]>>('/api/permissions/tags/user'),
   getBatchFileTags: (fileIds: string[]) =>
     api.post<ApiResponse<Record<string, FileTag[]>>>('/api/permissions/tags/batch', { fileIds }),
+  getAllPermissions: () =>
+    api.get<ApiResponse<{ permissions: GlobalPermission[] }>>('/api/permissions/all'),
+  revokeById: (permissionId: string) =>
+    api.delete<ApiResponse<{ message: string }>>(`/api/permissions/${permissionId}`),
+  updatePermission: (permissionId: string, permission: 'read' | 'write' | 'admin', expiresAt?: string) =>
+    api.patch<ApiResponse<{ message: string }>>(`/api/permissions/${permissionId}`, { permission, expiresAt }),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -888,6 +930,182 @@ export const fileContentApi = {
       `/api/files/${fileId}/content`,
       data
     ),
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Groups (用户组)
+// ─────────────────────────────────────────────────────────────────────────────
+export interface UserGroup {
+  id: string;
+  name: string;
+  description: string | null;
+  ownerId: string;
+  isOwner: boolean;
+  memberCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GroupMember {
+  id: string;
+  groupId: string;
+  userId: string;
+  role: 'member' | 'admin';
+  addedBy: string | null;
+  createdAt: string;
+  name: string | null;
+  email: string;
+}
+
+export const groupsApi = {
+  list: () =>
+    api.get<ApiResponse<{ owned: UserGroup[]; memberOf: UserGroup[] }>>('/api/groups'),
+  create: (data: { name: string; description?: string }) =>
+    api.post<ApiResponse<UserGroup>>('/api/groups', data),
+  get: (id: string) => api.get<ApiResponse<UserGroup>>(`/api/groups/${id}`),
+  update: (id: string, data: { name?: string; description?: string }) =>
+    api.put<ApiResponse<{ message: string }>>(`/api/groups/${id}`, data),
+  delete: (id: string) => api.delete<ApiResponse<{ message: string }>>(`/api/groups/${id}`),
+  getMembers: (id: string) => api.get<ApiResponse<GroupMember[]>>(`/api/groups/${id}/members`),
+  addMember: (groupId: string, data: { userId: string; role?: 'member' | 'admin' }) =>
+    api.post<ApiResponse<GroupMember>>(`/api/groups/${groupId}/members`, data),
+  removeMember: (groupId: string, userId: string) =>
+    api.delete<ApiResponse<{ message: string }>>(`/api/groups/${groupId}/members/${userId}`),
+  updateMemberRole: (groupId: string, userId: string, role: 'member' | 'admin') =>
+    api.put<ApiResponse<{ message: string }>>(`/api/groups/${groupId}/members/${userId}/role`, { role }),
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Webhooks
+// ─────────────────────────────────────────────────────────────────────────────
+export interface Webhook {
+  id: string;
+  userId: string;
+  url: string;
+  events: string[];
+  isActive: boolean;
+  lastStatus: number | null;
+  createdAt: string;
+}
+
+export interface WebhookEvent {
+  value: string;
+  label: string;
+  description: string;
+}
+
+export const webhooksApi = {
+  list: () => api.get<ApiResponse<Webhook[]>>('/api/webhooks'),
+  create: (data: { url: string; events: string[]; secret?: string }) =>
+    api.post<ApiResponse<Webhook & { secret: string; warning: string }>>('/api/webhooks', data),
+  get: (id: string) => api.get<ApiResponse<Webhook>>(`/api/webhooks/${id}`),
+  update: (id: string, data: { url?: string; events?: string[]; isActive?: boolean }) =>
+    api.put<ApiResponse<{ message: string }>>(`/api/webhooks/${id}`, data),
+  delete: (id: string) => api.delete<ApiResponse<{ message: string }>>(`/api/webhooks/${id}`),
+  test: (id: string) => api.post<ApiResponse<{ message: string }>>(`/api/webhooks/${id}/test`),
+  getEvents: () => api.get<ApiResponse<WebhookEvent[]>>('/api/webhooks/events'),
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Global Permissions (全局权限管理)
+// ─────────────────────────────────────────────────────────────────────────────
+export interface GlobalPermission {
+  id: string;
+  subjectType: 'user' | 'group';
+  subjectId: string | null;
+  subjectName: string;
+  fileId: string;
+  fileName: string;
+  filePath: string;
+  isFolder: boolean;
+  permission: 'read' | 'write' | 'admin';
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export const globalPermissionsApi = {
+  getAll: () =>
+    api.get<ApiResponse<{ permissions: GlobalPermission[] }>>('/api/permissions/all'),
+  revokeById: (permissionId: string) =>
+    api.delete<ApiResponse<{ message: string }>>(`/api/permissions/${permissionId}`),
+  update: (permissionId: string, data: { permission: 'read' | 'write' | 'admin'; expiresAt?: string }) =>
+    api.patch<ApiResponse<{ message: string }>>(`/api/permissions/${permissionId}`, data),
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Features (AI 功能)
+// ─────────────────────────────────────────────────────────────────────────────
+export interface AIStatus {
+  configured: boolean;
+  features: {
+    semanticSearch: boolean;
+    summary: boolean;
+    imageTags: boolean;
+    renameSuggest: boolean;
+  };
+}
+
+export interface AIFileStatus {
+  hasSummary: boolean;
+  summary: string | null;
+  summaryAt: string | null;
+  hasTags: boolean;
+  tags: string[];
+  tagsAt: string | null;
+  vectorIndexed: boolean;
+  vectorIndexedAt: string | null;
+}
+
+export interface AISummaryResult {
+  summary: string;
+  cached: boolean;
+}
+
+export interface AIImageTagResult {
+  tags: string[];
+  caption?: string;
+}
+
+export interface AIRenameSuggestion {
+  suggestions: string[];
+}
+
+export interface AIIndexTask {
+  id: string;
+  status: 'running' | 'completed' | 'failed' | 'idle';
+  total: number;
+  processed: number;
+  failed: number;
+  startedAt?: string;
+  completedAt?: string;
+  updatedAt?: string;
+  error?: string;
+}
+
+export const aiApi = {
+  getStatus: () => api.get<ApiResponse<AIStatus>>('/api/ai/status'),
+
+  getFileStatus: (fileId: string) => api.get<ApiResponse<AIFileStatus>>(`/api/ai/file/${fileId}`),
+
+  search: (query: string, options?: { limit?: number; threshold?: number; mimeType?: string }) =>
+    api.post<ApiResponse<FileItem[]>>('/api/ai/search', { query, ...options }),
+
+  summarize: (fileId: string) => api.post<ApiResponse<AISummaryResult>>(`/api/ai/summarize/${fileId}`),
+
+  generateTags: (fileId: string) => api.post<ApiResponse<AIImageTagResult>>(`/api/ai/tags/${fileId}`),
+
+  suggestRename: (fileId: string) => api.post<ApiResponse<AIRenameSuggestion>>(`/api/ai/rename-suggest/${fileId}`),
+
+  indexFile: (fileId: string) => api.post<ApiResponse<{ message: string }>>(`/api/ai/index/${fileId}`),
+
+  indexBatch: (fileIds: string[]) =>
+    api.post<ApiResponse<Array<{ fileId: string; status: string; error?: string }>>>('/api/ai/index/batch', { fileIds }),
+
+  indexAll: () => api.post<ApiResponse<{ message: string; task: AIIndexTask }>>('/api/ai/index/all'),
+
+  getIndexStatus: () => api.get<ApiResponse<AIIndexTask>>('/api/ai/index/status'),
+
+  deleteIndex: (fileId: string) => api.delete<ApiResponse<{ message: string }>>(`/api/ai/index/${fileId}`),
 };
 
 export default api;

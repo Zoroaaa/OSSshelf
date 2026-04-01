@@ -59,6 +59,7 @@ import {
   MessageSquare,
   Edit3,
   History,
+  Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { FileIcon } from '@/components/files/FileIcon';
@@ -71,6 +72,7 @@ import { isEditableFile } from '@osshelf/shared';
 import { cn } from '@/utils';
 import { NotePanel } from '@/components/notes';
 import { FileEditor } from '@/components/editor';
+import { AISummaryCard, ImageTagsDisplay, SmartRenameDialog } from '@/components/ai';
 
 import 'highlight.js/styles/github-dark.css';
 import 'katex/dist/katex.min.css';
@@ -481,6 +483,18 @@ export function FilePreview({
   const [excelLoading, setExcelLoading] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
+  const [showSmartRename, setShowSmartRename] = useState(false);
+  // 从 file 对象读取已缓存的 AI 数据，避免每次打开都要重新生成
+  const [aiSummary, setAiSummary] = useState<string | null>(file.aiSummary ?? null);
+  const [aiSummaryAt, setAiSummaryAt] = useState<string | null>(file.aiSummaryAt ?? null);
+  const [aiTags, setAiTags] = useState<string[]>(() => {
+    if (!file.aiTags) return [];
+    try {
+      return JSON.parse(file.aiTags);
+    } catch {
+      return [];
+    }
+  });
 
   const canPreview = isPreviewable(file.mimeType);
   const isImage = file.mimeType?.startsWith('image/');
@@ -1387,6 +1401,15 @@ export function FilePreview({
             >
               <MessageSquare className="h-4 w-4" />
             </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              title="智能重命名"
+              onClick={() => setShowSmartRename(true)}
+            >
+              <Sparkles className="h-4 w-4" />
+            </Button>
             <Button variant="ghost" size="icon" className="h-8 w-8" title="关闭" onClick={onClose}>
               <X className="h-4 w-4" />
             </Button>
@@ -1429,6 +1452,24 @@ export function FilePreview({
                   <p className="text-sm text-muted-foreground mt-1">{formatBytes(file.size)}</p>
                   <p className="text-sm text-muted-foreground">{file.mimeType || '未知类型'}</p>
                 </div>
+                <div className="space-y-3 max-w-sm mx-auto">
+                  <AISummaryCard
+                    fileId={file.id}
+                    summary={aiSummary}
+                    summaryAt={aiSummaryAt}
+                    onSummaryGenerated={(summary) => {
+                      setAiSummary(summary);
+                      setAiSummaryAt(new Date().toISOString());
+                    }}
+                  />
+                  {file.mimeType?.startsWith('image/') && (
+                    <ImageTagsDisplay
+                      fileId={file.id}
+                      tags={aiTags}
+                      onTagsGenerated={setAiTags}
+                    />
+                  )}
+                </div>
                 <Button onClick={() => onDownload(file)}>
                   <Download className="h-4 w-4 mr-2" />
                   下载文件
@@ -1440,7 +1481,7 @@ export function FilePreview({
               <div className="text-muted-foreground text-sm py-12">加载中...</div>
             </div>
           ) : isImage ? (
-            <div className="flex items-center justify-center h-full overflow-auto p-4">
+            <div className="relative flex items-center justify-center h-full overflow-auto p-4">
               <img
                 src={resolvedUrl}
                 alt={decodeFileName(file.name)}
@@ -1448,6 +1489,24 @@ export function FilePreview({
                 style={{ transform: `scale(${zoomLevel / 100})` }}
                 onError={() => setLoadError(true)}
               />
+              <div className="absolute bottom-4 left-4 right-4 max-w-md mx-auto">
+                <div className="bg-background/95 backdrop-blur border rounded-lg p-3 space-y-2 shadow-lg">
+                  <AISummaryCard
+                    fileId={file.id}
+                    summary={aiSummary}
+                    summaryAt={aiSummaryAt}
+                    onSummaryGenerated={(summary) => {
+                      setAiSummary(summary);
+                      setAiSummaryAt(new Date().toISOString());
+                    }}
+                  />
+                  <ImageTagsDisplay
+                    fileId={file.id}
+                    tags={aiTags}
+                    onTagsGenerated={setAiTags}
+                  />
+                </div>
+              </div>
             </div>
           ) : isVideo ? (
             <div className="flex items-center justify-center h-full">
@@ -1988,6 +2047,19 @@ export function FilePreview({
       </div>
 
       {showNotes && <NotePanel fileId={file.id} isOpen={showNotes} onClose={() => setShowNotes(false)} />}
+
+      {showSmartRename && (
+        <SmartRenameDialog
+          open={showSmartRename}
+          onClose={() => setShowSmartRename(false)}
+          fileId={file.id}
+          currentName={file.name}
+          onRenamed={(newName) => {
+            file.name = newName;
+            setShowSmartRename(false);
+          }}
+        />
+      )}
 
       {showEditor && (
         <FileEditor

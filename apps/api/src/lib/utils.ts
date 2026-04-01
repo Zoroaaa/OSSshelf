@@ -4,8 +4,12 @@
  */
 
 import { eq, and, isNull } from 'drizzle-orm';
-import { users, files } from '../db/schema';
+import { users, files, storageBuckets } from '../db/schema';
 import type { DrizzleDb } from '../db';
+import { getDb } from '../db';
+import type { Env } from '../types/env';
+import { makeBucketConfigAsync } from './s3client';
+import { s3Get } from './s3client';
 
 export function encodeFilename(name: string): string {
   return name.replace(/[^\w.\-\u4e00-\u9fa5]/g, '_');
@@ -100,4 +104,40 @@ export async function buildFolderPath(db: DrizzleDb, userId: string, parentId: s
   const result = `${parentPath}${parent.name}/`;
   pathCache.set(cacheKey, result);
   return result;
+}
+
+export async function getFileContent(
+  env: Env,
+  bucketId: string,
+  r2Key: string
+): Promise<ArrayBuffer | null> {
+  if (bucketId === 'r2' && env.FILES) {
+    const object = await env.FILES.get(r2Key);
+    if (!object) return null;
+    return object.arrayBuffer();
+  }
+
+  const db = getDbFromEnv(env);
+  const bucket = await db
+    .select()
+    .from(storageBuckets)
+    .where(eq(storageBuckets.id, bucketId))
+    .get();
+
+  if (!bucket) return null;
+
+  const bucketConfig = await makeBucketConfigAsync(bucket, env.JWT_SECRET);
+  if (!bucketConfig) return null;
+
+  try {
+    const response = await s3Get(bucketConfig, r2Key);
+    if (!response.ok) return null;
+    return response.arrayBuffer();
+  } catch {
+    return null;
+  }
+}
+
+function getDbFromEnv(env: Env): DrizzleDb {
+  return getDb(env.DB);
 }

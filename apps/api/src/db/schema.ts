@@ -58,6 +58,12 @@ export const files = sqliteTable(
     versionRetentionDays: integer('version_retention_days').default(30),
     description: text('description'),
     noteCount: integer('note_count').default(0),
+    aiSummary: text('ai_summary'),
+    aiSummaryAt: text('ai_summary_at'),
+    aiTags: text('ai_tags'),
+    aiTagsAt: text('ai_tags_at'),
+    vectorIndexedAt: text('vector_indexed_at'),
+    isStarred: integer('is_starred', { mode: 'boolean' }).default(false),
   },
   (table) => ({
     userParentIdx: index('idx_files_user_parent_active').on(table.userId, table.parentId),
@@ -69,6 +75,10 @@ export const files = sqliteTable(
     userSizeIdx: index('idx_files_user_size').on(table.userId, table.size),
     hashIdx: index('idx_files_hash').on(table.hash),
     directLinkTokenIdx: index('idx_files_direct_link_token').on(table.directLinkToken),
+    vectorIndexedIdx: index('idx_files_vector_indexed').on(table.userId, table.vectorIndexedAt),
+    aiSummaryIdx: index('idx_files_ai_summary').on(table.userId, table.aiSummaryAt),
+    aiTagsIdx: index('idx_files_ai_tags').on(table.userId, table.aiTagsAt),
+    isStarredIdx: index('idx_files_is_starred').on(table.userId, table.isStarred, table.updatedAt),
   })
 );
 
@@ -157,6 +167,44 @@ export const fileTags = sqliteTable(
   })
 );
 
+export const userGroups = sqliteTable(
+  'user_groups',
+  {
+    id: text('id').primaryKey(),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description'),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+    updatedAt: text('updated_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    ownerIdx: index('idx_user_groups_owner').on(table.ownerId),
+  })
+);
+
+export const groupMembers = sqliteTable(
+  'group_members',
+  {
+    id: text('id').primaryKey(),
+    groupId: text('group_id')
+      .notNull()
+      .references(() => userGroups.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    role: text('role').notNull().default('member'),
+    addedBy: text('added_by').references(() => users.id),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    userIdx: index('idx_group_members_user').on(table.userId),
+    groupIdx: index('idx_group_members_group').on(table.groupId),
+    uniqueIdx: uniqueIndex('idx_group_members_unique').on(table.groupId, table.userId),
+  })
+);
+
 export const filePermissions = sqliteTable(
   'file_permissions',
   {
@@ -165,19 +213,28 @@ export const filePermissions = sqliteTable(
       .notNull()
       .references(() => files.id, { onDelete: 'cascade' }),
     userId: text('user_id')
-      .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     permission: text('permission').notNull().default('read'),
     grantedBy: text('granted_by')
       .notNull()
       .references(() => users.id),
+    subjectType: text('subject_type').notNull().default('user'),
+    groupId: text('group_id').references(() => userGroups.id, { onDelete: 'cascade' }),
+    expiresAt: text('expires_at'),
+    inheritToChildren: integer('inherit_to_children', { mode: 'boolean' }).notNull().default(true),
+    scope: text('scope').notNull().default('explicit'),
+    sourcePermissionId: text('source_permission_id'),
     createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
     updatedAt: text('updated_at').notNull().default('CURRENT_TIMESTAMP'),
   },
   (table) => ({
     fileIdx: index('idx_file_permissions_file').on(table.fileId),
     userIdx: index('idx_file_permissions_user').on(table.userId),
-    uniqueIdx: uniqueIndex('idx_file_permissions_unique').on(table.fileId, table.userId),
+    groupIdx: index('idx_file_permissions_group').on(table.groupId),
+    expiresIdx: index('idx_file_permissions_expires').on(table.expiresAt),
+    scopeIdx: index('idx_file_permissions_scope').on(table.scope),
+    uniqueUserIdx: uniqueIndex('idx_file_permissions_unique_user').on(table.fileId, table.userId),
+    uniqueGroupIdx: uniqueIndex('idx_file_permissions_unique_group').on(table.fileId, table.groupId),
   })
 );
 
@@ -478,3 +535,6 @@ export type File = typeof files.$inferSelect;
 export type FileVersion = typeof fileVersions.$inferSelect;
 export type FileNote = typeof fileNotes.$inferSelect;
 export type ApiKey = typeof apiKeys.$inferSelect;
+export type UserGroup = typeof userGroups.$inferSelect;
+export type GroupMember = typeof groupMembers.$inferSelect;
+export type FilePermission = typeof filePermissions.$inferSelect;

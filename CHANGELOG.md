@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.6.0] - 2026-03-31
+
+### Added
+
+- 权限系统 v2：用户组管理、权限继承、时效性权限
+  - 新增用户组（user_groups）和组成员（group_members）表
+  - 支持为用户或组授予文件权限
+  - 权限支持设置过期时间
+  - 权限继承：子文件自动继承父文件夹权限
+  - 递归 CTE 权限解析算法
+  - KV 权限缓存层
+- RESTful v1 API：标准化 API 接口
+  - `/api/v1/files` - 文件管理 API
+  - `/api/v1/folders` - 文件夹管理 API
+  - `/api/v1/shares` - 分享管理 API
+  - `/api/v1/search` - 搜索 API
+  - `/api/v1/me` - 当前用户 API
+- OpenAPI 文档：自动生成 API 文档
+  - 访问 `/api/v1/openapi.json` 获取 OpenAPI 规范
+  - 访问 `/api/v1/docs` 查看 Swagger UI
+- Webhook 通知：文件事件订阅
+  - 支持订阅文件上传、删除、更新等事件
+  - HMAC-SHA256 签名验证
+  - Webhook 管理界面
+
+### Changed
+
+- 权限管理界面重构
+  - 支持选择用户或组进行授权
+  - 显示权限来源（显式/继承）
+  - 显示继承路径提示
+
+### Improved
+
+- 权限解析性能优化：使用递归 CTE 一次性查询整条祖先链
+- API 文档完善：所有 v1 API 端点有完整的请求/响应 schema
+
 ## [v3.5.0] - 2026-03-30
 
 ### Added

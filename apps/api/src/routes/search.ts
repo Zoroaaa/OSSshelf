@@ -20,6 +20,7 @@ import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { buildFolderPath, clearFilePathCache } from '../lib/utils';
+import { searchSimilarFiles, isAIConfigured } from '../lib/vectorIndex';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -41,6 +42,8 @@ const searchSchema = z.object({
   sortOrder: z.enum(['asc', 'desc']).optional(),
   page: z.number().int().min(1).default(1).optional(),
   limit: z.number().int().min(1).max(100).default(50).optional(),
+  semantic: z.boolean().optional(),
+  hybrid: z.boolean().optional(),
 });
 
 const advancedSearchSchema = z.object({
@@ -104,6 +107,8 @@ app.get('/', async (c) => {
     sortOrder: query.sortOrder as 'asc' | 'desc' | undefined,
     page: query.page ? parseInt(query.page, 10) : 1,
     limit: query.limit ? parseInt(query.limit, 10) : 50,
+    semantic: query.semantic === 'true',
+    hybrid: query.hybrid === 'true',
   };
 
   const result = searchSchema.safeParse(params);
@@ -127,7 +132,25 @@ app.get('/', async (c) => {
     }
   }
 
-  if (searchParams.query) {
+  let semanticResults: Map<string, number> = new Map();
+  const useSemantic = (searchParams.semantic || searchParams.hybrid) && searchParams.query && (await isAIConfigured(c.env));
+
+  if (useSemantic && searchParams.query) {
+    const results = await searchSimilarFiles(c.env, searchParams.query, userId, {
+      limit: searchParams.limit || 50,
+      threshold: 0.5, // bge-m3 cosine 分数普遍低于 bge-base-en，0.6 会过滤过多
+      mimeType: searchParams.mimeType,
+    });
+    for (const r of results) {
+      semanticResults.set(r.fileId, r.score);
+    }
+  }
+
+  if (searchParams.query && !searchParams.semantic) {
+    conditions.push(like(files.name, `%${searchParams.query}%`));
+  } else if (searchParams.semantic && semanticResults.size > 0) {
+    conditions.push(inArray(files.id, Array.from(semanticResults.keys())));
+  } else if (searchParams.hybrid && searchParams.query) {
     conditions.push(like(files.name, `%${searchParams.query}%`));
   }
 
@@ -519,18 +542,18 @@ app.get('/history', async (c) => {
   return c.json({ success: true, data: rows });
 });
 
+app.delete('/history', async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+  await db.delete(searchHistory).where(eq(searchHistory.userId, userId));
+  return c.json({ success: true });
+});
+
 app.delete('/history/:id', async (c) => {
   const userId = c.get('userId')!;
   const id = c.req.param('id');
   const db = getDb(c.env.DB);
   await db.delete(searchHistory).where(and(eq(searchHistory.id, id), eq(searchHistory.userId, userId)));
-  return c.json({ success: true });
-});
-
-app.delete('/history', async (c) => {
-  const userId = c.get('userId')!;
-  const db = getDb(c.env.DB);
-  await db.delete(searchHistory).where(eq(searchHistory.userId, userId));
   return c.json({ success: true });
 });
 
