@@ -120,6 +120,9 @@ export async function checkFilePermission(
         .get();
 
       if (groupPermission) {
+        if (groupPermission.expiresAt && new Date(groupPermission.expiresAt) < new Date()) {
+          return { hasAccess: false, permission: null, isOwner: false };
+        }
         const permissionLevels = { read: 1, write: 2, admin: 3 };
         const hasAccess =
           permissionLevels[groupPermission.permission as keyof typeof permissionLevels] >=
@@ -128,6 +131,10 @@ export async function checkFilePermission(
       }
     }
 
+    return { hasAccess: false, permission: null, isOwner: false };
+  }
+
+  if (permission.expiresAt && new Date(permission.expiresAt) < new Date()) {
     return { hasAccess: false, permission: null, isOwner: false };
   }
 
@@ -600,7 +607,9 @@ app.post('/tags/remove', async (c) => {
     throwAppError('FILE_WRITE_DENIED', '无权修改此文件');
   }
 
-  await db.delete(fileTags).where(and(eq(fileTags.fileId, fileId), eq(fileTags.name, tagName)));
+  await db
+    .delete(fileTags)
+    .where(and(eq(fileTags.fileId, fileId), eq(fileTags.name, tagName), eq(fileTags.userId, userId)));
 
   return c.json({ success: true, data: { message: '标签已移除' } });
 });
@@ -623,7 +632,19 @@ app.post('/tags/batch', async (c) => {
   const { fileIds } = result.data;
   const db = getDb(c.env.DB);
 
-  const tags = await db.select().from(fileTags).where(inArray(fileTags.fileId, fileIds)).all();
+  const permittedFileIds: string[] = [];
+  for (const fid of fileIds) {
+    const { hasAccess } = await checkFilePermission(db, fid, userId, 'read', c.env);
+    if (hasAccess) {
+      permittedFileIds.push(fid);
+    }
+  }
+
+  if (permittedFileIds.length === 0) {
+    return c.json({ success: true, data: {} });
+  }
+
+  const tags = await db.select().from(fileTags).where(inArray(fileTags.fileId, permittedFileIds)).all();
 
   const tagsByFileId: Record<string, typeof tags> = {};
   for (const tag of tags) {

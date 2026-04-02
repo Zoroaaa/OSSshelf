@@ -737,6 +737,7 @@ Week 6:
 **版本：3.7.0**
 
 **实际完成情况与计划偏差：**
+
 - 迁移文件编号：0013 → 0014（中间插入了 0013_fix_user_id_nullable.sql）
 - 向量模型升级：bge-base-en-v1.5 (768维) → bge-m3 (1024维，多语言支持更好)
 - 搜索阈值调整：0.7 → 0.5（bge-m3 cosine 分数偏低）
@@ -816,17 +817,17 @@ Week 11（可选 - 未实现）:
 
 ### 数据库迁移总览
 
-| 编号 | 文件名              | 涉及功能                                              | 状态      |
-| ---- | ------------------- | ----------------------------------------------------- | --------- |
-| 0010 | `notes.sql`         | file_notes, file_note_history, note_mentions          | ✅ 已完成 |
-| 0011 | `api_keys.sql`      | api_keys                                              | ✅ 已完成 |
-| 0012 | `permission_v2.sql` | user_groups, group_members, file_permissions 扩展字段 | ✅ 已完成 |
-| 0013 | `fix_user_id_nullable.sql` | 修复 user_id 可空问题 | ✅ 已完成 |
-| 0014 | `ai_features.sql`   | files.ai_summary, files.ai_tags, files.vector_indexed_at, files.is_starred | ✅ 已完成 |
-| 0015 | `notifications.sql` | notifications table                                   | ✅ 已完成 |
-| 0016 | `fts5.sql`          | files_fts virtual table + sync triggers               | ✅ 已完成 |
-| 0017 | `2fa.sql`           | users.totp_secret, users.totp_enabled                 | 📋 计划中 |
-| 0018 | `folder_snapshots.sql` | folder_snapshots table                             | 📋 计划中 |
+| 编号 | 文件名                     | 涉及功能                                                                   | 状态      |
+| ---- | -------------------------- | -------------------------------------------------------------------------- | --------- |
+| 0010 | `notes.sql`                | file_notes, file_note_history, note_mentions                               | ✅ 已完成 |
+| 0011 | `api_keys.sql`             | api_keys                                                                   | ✅ 已完成 |
+| 0012 | `permission_v2.sql`        | user_groups, group_members, file_permissions 扩展字段                      | ✅ 已完成 |
+| 0013 | `fix_user_id_nullable.sql` | 修复 user_id 可空问题                                                      | ✅ 已完成 |
+| 0014 | `ai_features.sql`          | files.ai_summary, files.ai_tags, files.vector_indexed_at, files.is_starred | ✅ 已完成 |
+| 0015 | `notifications.sql`        | notifications table                                                        | ✅ 已完成 |
+| 0016 | `fts5.sql`                 | files_fts virtual table + sync triggers                                    | ✅ 已完成 |
+| 0017 | `2fa.sql`                  | users.totp_secret, users.totp_enabled                                      | 📋 计划中 |
+| 0018 | `folder_snapshots.sql`     | folder_snapshots table                                                     | 📋 计划中 |
 
 ---
 

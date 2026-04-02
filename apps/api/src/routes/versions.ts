@@ -15,7 +15,9 @@ import { eq, and, desc, sql } from 'drizzle-orm';
 import { getDb, files, fileVersions, filePermissions } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
+import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
+import { checkFilePermission } from './permissions';
 import { z } from 'zod';
 import { updateUserStorage } from '../lib/bucketResolver';
 import { s3Get, s3Delete } from '../lib/s3client';
@@ -42,15 +44,9 @@ app.get('/:fileId/versions', async (c) => {
     throwAppError('FILE_NOT_FOUND');
   }
 
-  if (file.userId !== userId) {
-    const permission = await db
-      .select()
-      .from(filePermissions)
-      .where(and(eq(filePermissions.fileId, fileId), eq(filePermissions.userId, userId!)))
-      .get();
-    if (!permission) {
-      throwAppError('FILE_ACCESS_DENIED');
-    }
+  const { hasAccess } = await checkFilePermission(db, fileId, userId!, 'read', c.env);
+  if (!hasAccess) {
+    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权访问此文件' } }, 403);
   }
 
   if (file.isFolder) {
@@ -259,19 +255,23 @@ app.get('/:fileId/versions/:version/download', async (c) => {
     throwAppError('VERSION_NOT_FOUND');
   }
 
-  if (!file.bucketId) {
+  const encKey = await getEncryptionKey(c.env);
+
+  let fileBuffer: ArrayBuffer;
+  if (file.bucketId) {
+    const bucketConfig = await resolveBucketConfig(db, userId!, encKey, file.bucketId);
+    if (!bucketConfig) {
+      throwAppError('BUCKET_CONNECTION_FAILED');
+    }
+    const fileResponse = await s3Get(bucketConfig, version.r2Key);
+    fileBuffer = await fileResponse.arrayBuffer();
+  } else if (c.env.FILES) {
+    const obj = await c.env.FILES.get(version.r2Key);
+    if (!obj) throwAppError('FILE_CONTENT_NOT_FOUND', '版本文件内容不存在');
+    fileBuffer = await obj.arrayBuffer();
+  } else {
     throwAppError('BUCKET_NOT_FOUND');
   }
-
-  const encKey = await getEncryptionKey(c.env);
-  const bucketConfig = await resolveBucketConfig(db, userId!, encKey, file.bucketId);
-
-  if (!bucketConfig) {
-    throwAppError('BUCKET_CONNECTION_FAILED');
-  }
-
-  const fileResponse = await s3Get(bucketConfig, version.r2Key);
-  const fileBuffer = await fileResponse.arrayBuffer();
 
   c.header('Content-Type', version.mimeType || 'application/octet-stream');
   c.header('Content-Disposition', `attachment; filename="${encodeURIComponent(file.name)}"`);

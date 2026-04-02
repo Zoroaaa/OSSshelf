@@ -10,8 +10,8 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, isNotNull, isNull, lt, sql } from 'drizzle-orm';
-import { getDb, files, users, shares, uploadTasks, loginAttempts, userDevices, fileVersions } from '../db';
+import { eq, and, or, isNotNull, isNull, lt, sql } from 'drizzle-orm';
+import { getDb, files, users, shares, uploadTasks, loginAttempts, userDevices, fileVersions, emailTokens } from '../db';
 import { TRASH_RETENTION_DAYS, DEVICE_SESSION_EXPIRY, ERROR_CODES } from '@osshelf/shared';
 import type { Env } from '../types/env';
 import { s3Delete } from '../lib/s3client';
@@ -131,12 +131,18 @@ app.post('/cron/session-cleanup', async (c) => {
     .where(lt(userDevices.lastActive, deviceExpiryThreshold))
     .returning({ id: userDevices.id });
 
+  const expiredEmailTokens = await db
+    .delete(emailTokens)
+    .where(or(lt(emailTokens.expiresAt, now), isNotNull(emailTokens.usedAt)))
+    .returning({ id: emailTokens.id });
+
   return c.json({
     success: true,
     data: {
       uploadTasksExpired: expiredUploadTasks.length,
       loginAttemptsCleaned: oldLoginAttempts.length,
       devicesCleaned: expiredDevices.length,
+      emailTokensCleaned: expiredEmailTokens.length,
     },
   });
 });

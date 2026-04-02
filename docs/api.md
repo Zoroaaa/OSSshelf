@@ -341,13 +341,20 @@ GET /api/auth/stats
 Authorization: Bearer <token>
 ```
 
-### 邮箱验证 - v4.0.0
+### 验证验证码 - v4.0.0
 
 ```http
-GET /api/auth/verify-email?token=<token>
+POST /api/auth/verify-code
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "code": "123456",
+  "type": "verify_email"
+}
 ```
 
-**说明**: 验证用户邮箱，token从验证邮件中获取。
+**说明**: 验证6位数字验证码。type类型：`verify_email`（邮箱验证）、`reset_password`（密码重置）、`change_email`（更换邮箱）。
 
 **响应**:
 
@@ -355,12 +362,13 @@ GET /api/auth/verify-email?token=<token>
 {
   "success": true,
   "data": {
-    "message": "邮箱验证成功"
+    "message": "邮箱验证成功",
+    "verified": true
   }
 }
 ```
 
-### 重发验证邮件 - v4.0.0
+### 重发验证码 - v4.0.0
 
 ```http
 POST /api/auth/resend-verification
@@ -371,7 +379,7 @@ Content-Type: application/json
 }
 ```
 
-**说明**: 重新发送邮箱验证邮件，限流1分钟1次。
+**说明**: 重新发送6位验证码邮件，限流1分钟1次。
 
 **响应**:
 
@@ -395,7 +403,7 @@ Content-Type: application/json
 }
 ```
 
-**说明**: 发送密码重置邮件，无论邮箱是否存在都返回200（防邮箱枚举攻击）。
+**说明**: 发送6位验证码邮件，无论邮箱是否存在都返回200（防邮箱枚举攻击）。验证码有效期10分钟。
 
 **响应**:
 
@@ -415,12 +423,13 @@ POST /api/auth/reset-password
 Content-Type: application/json
 
 {
-  "token": "reset-token-from-email",
+  "email": "user@example.com",
+  "code": "123456",
   "newPassword": "newPassword123"
 }
 ```
 
-**说明**: 通过邮件token重置密码，token有效期1小时。
+**说明**: 通过6位验证码重置密码，验证码有效期10分钟。
 
 **响应**:
 
@@ -446,7 +455,7 @@ Content-Type: application/json
 }
 ```
 
-**说明**: 申请更换邮箱，会发送确认邮件到新邮箱。
+**说明**: 申请更换邮箱，会发送6位验证码到新邮箱。
 
 **响应**:
 
@@ -454,26 +463,7 @@ Content-Type: application/json
 {
   "success": true,
   "data": {
-    "message": "确认邮件已发送到新邮箱"
-  }
-}
-```
-
-### 确认更换邮箱 - v4.0.0
-
-```http
-GET /api/auth/confirm-change-email?token=<token>
-```
-
-**说明**: 确认更换邮箱，token从确认邮件中获取。
-
-**响应**:
-
-```json
-{
-  "success": true,
-  "data": {
-    "message": "邮箱更换成功"
+    "message": "验证码已发送到新邮箱"
   }
 }
 ```
@@ -1626,8 +1616,8 @@ Authorization: Bearer <token>
 
 **查询参数**:
 
-| 参数  | 类型   | 说明                     |
-| ----- | ------ | ------------------------ |
+| 参数   | 类型   | 说明                       |
+| ------ | ------ | -------------------------- |
 | `days` | number | 统计天数，默认 30，最大 90 |
 
 **响应**:
@@ -1660,9 +1650,9 @@ Authorization: Bearer <token>
 
 **查询参数**:
 
-| 参数     | 类型   | 说明                  |
-| -------- | ------ | --------------------- |
-| `limit`  | number | 返回数量，默认 20，最大 100 |
+| 参数    | 类型   | 说明                        |
+| ------- | ------ | --------------------------- |
+| `limit` | number | 返回数量，默认 20，最大 100 |
 
 **响应**:
 
@@ -1692,8 +1682,8 @@ Authorization: Bearer <token>
 
 **查询参数**:
 
-| 参数  | 类型   | 说明                     |
-| ----- | ------ | ------------------------ |
+| 参数   | 类型   | 说明                       |
+| ------ | ------ | -------------------------- |
 | `days` | number | 统计天数，默认 30，最大 90 |
 
 **响应**:
@@ -1748,13 +1738,13 @@ Authorization: Bearer <token>
 
 ### 通知类型
 
-| 类型                | 说明               |
-| ------------------- | ------------------ |
-| `share_received`    | 收到文件分享       |
-| `mention`           | 在笔记中被 @提及   |
-| `permission_granted`| 被授予文件权限     |
-| `ai_complete`       | AI 处理完成        |
-| `system`            | 系统通知           |
+| 类型                 | 说明             |
+| -------------------- | ---------------- |
+| `share_received`     | 收到文件分享     |
+| `mention`            | 在笔记中被 @提及 |
+| `permission_granted` | 被授予文件权限   |
+| `ai_complete`        | AI 处理完成      |
+| `system`             | 系统通知         |
 
 ### 获取通知列表
 
@@ -1765,10 +1755,10 @@ Authorization: Bearer <token>
 
 **查询参数**:
 
-| 参数         | 类型    | 说明                     |
-| ------------ | ------- | ------------------------ |
-| `unreadOnly` | boolean | 仅未读，默认 false       |
-| `page`       | number  | 页码，默认 1             |
+| 参数         | 类型    | 说明                        |
+| ------------ | ------- | --------------------------- |
+| `unreadOnly` | boolean | 仅未读，默认 false          |
+| `page`       | number  | 页码，默认 1                |
 | `limit`      | number  | 每页数量，默认 20，最大 100 |
 
 **响应**:
@@ -2787,11 +2777,11 @@ Content-Type: application/json
 
 **请求参数**:
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `subject` | string | 是 | 邮件主题 |
-| `body` | string | 是 | 邮件正文 |
-| `userFilter.role` | string | 否 | 筛选用户角色：`admin` 或 `user` |
+| 参数              | 类型   | 必填 | 说明                            |
+| ----------------- | ------ | ---- | ------------------------------- |
+| `subject`         | string | 是   | 邮件主题                        |
+| `body`            | string | 是   | 邮件正文                        |
+| `userFilter.role` | string | 否   | 筛选用户角色：`admin` 或 `user` |
 
 **响应**:
 
@@ -3210,12 +3200,12 @@ Content-Type: application/json
 
 **参数说明**:
 
-| 参数        | 类型   | 必填 | 说明                              |
-| ----------- | ------ | ---- | --------------------------------- |
-| `query`     | string | 是   | 搜索查询文本                      |
-| `limit`     | number | 否   | 返回结果数量，默认 20，最大 50    |
-| `threshold` | number | 否   | 相似度阈值，默认 0.7，范围 0-1    |
-| `mimeType`  | string | 否   | MIME 类型过滤                     |
+| 参数        | 类型   | 必填 | 说明                           |
+| ----------- | ------ | ---- | ------------------------------ |
+| `query`     | string | 是   | 搜索查询文本                   |
+| `limit`     | number | 否   | 返回结果数量，默认 20，最大 50 |
+| `threshold` | number | 否   | 相似度阈值，默认 0.7，范围 0-1 |
+| `mimeType`  | string | 否   | MIME 类型过滤                  |
 
 **响应**:
 
@@ -3293,11 +3283,7 @@ Authorization: Bearer <token>
 {
   "success": true,
   "data": {
-    "suggestions": [
-      "项目开发计划书.pdf",
-      "2026年项目规划文档.pdf",
-      "技术架构设计方案.pdf"
-    ]
+    "suggestions": ["项目开发计划书.pdf", "2026年项目规划文档.pdf", "技术架构设计方案.pdf"]
   }
 }
 ```

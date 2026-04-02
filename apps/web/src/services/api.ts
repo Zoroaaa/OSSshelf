@@ -79,12 +79,13 @@ export const authApi = {
   devices: () => api.get<ApiResponse<UserDevice[]>>('/api/auth/devices'),
   deleteDevice: (deviceId: string) =>
     api.delete<ApiResponse<{ message: string }>>(`/api/auth/devices/${encodeURIComponent(deviceId)}`),
-  verifyEmail: (token: string) => api.get<ApiResponse<{ message: string }>>(`/api/auth/verify-email?token=${token}`),
+  verifyCode: (params: { email: string; code: string; type: 'verify_email' | 'reset_password' | 'change_email' }) =>
+    api.post<ApiResponse<{ message: string; verified?: boolean; resetTokenId?: string }>>('/api/auth/verify-code', params),
   resendVerification: (params: { email: string }) =>
     api.post<ApiResponse<{ message: string }>>('/api/auth/resend-verification', params),
   forgotPassword: (params: { email: string }) =>
     api.post<ApiResponse<{ message: string }>>('/api/auth/forgot-password', params),
-  resetPassword: (params: { token: string; newPassword: string }) =>
+  resetPassword: (params: { email: string; code: string; newPassword: string }) =>
     api.post<ApiResponse<{ message: string }>>('/api/auth/reset-password', params),
   changeEmail: (params: { newEmail: string; password: string }) =>
     api.post<ApiResponse<{ message: string }>>('/api/auth/change-email', params),

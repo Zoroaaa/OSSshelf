@@ -562,7 +562,7 @@ export const emailTokens = sqliteTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     email: text('email').notNull(),
     type: text('type').notNull(),
-    tokenHash: text('token_hash').notNull().unique(),
+    code: text('code').notNull(),
     expiresAt: text('expires_at').notNull(),
     usedAt: text('used_at'),
     createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
@@ -570,6 +570,25 @@ export const emailTokens = sqliteTable(
   (table) => ({
     userIdx: index('idx_email_tokens_user').on(table.userId, table.type),
     expiresIdx: index('idx_email_tokens_expires').on(table.expiresAt),
+    codeIdx: index('idx_email_tokens_code').on(table.email, table.code, table.type),
+  })
+);
+
+export const userStars = sqliteTable(
+  'user_stars',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    fileId: text('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'cascade' }),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    uniqueIdx: uniqueIndex('idx_user_stars_unique').on(table.userId, table.fileId),
+    userIdx: index('idx_user_stars_user').on(table.userId),
+    fileIdIdx: index('idx_user_stars_file').on(table.fileId),
   })
 );
 

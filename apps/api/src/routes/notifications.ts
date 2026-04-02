@@ -107,6 +107,15 @@ app.put('/read-all', async (c) => {
   return c.json({ success: true, data: { message: '已全部标记为已读' } });
 });
 
+app.delete('/read', async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+
+  await db.delete(notifications).where(and(eq(notifications.userId, userId), eq(notifications.isRead, true)));
+
+  return c.json({ success: true, data: { message: '已清除已读通知' } });
+});
+
 app.delete('/:id', async (c) => {
   const userId = c.get('userId')!;
   const notificationId = c.req.param('id');
@@ -125,15 +134,6 @@ app.delete('/:id', async (c) => {
   await db.delete(notifications).where(eq(notifications.id, notificationId));
 
   return c.json({ success: true, data: { message: '已删除' } });
-});
-
-app.delete('/read', async (c) => {
-  const userId = c.get('userId')!;
-  const db = getDb(c.env.DB);
-
-  await db.delete(notifications).where(and(eq(notifications.userId, userId), eq(notifications.isRead, true)));
-
-  return c.json({ success: true, data: { message: '已清除已读通知' } });
 });
 
 export async function createNotification(

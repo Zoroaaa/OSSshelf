@@ -1,19 +1,20 @@
 /**
  * ForgotPassword.tsx
- * 忘记密码页面
+ * 忘记密码页面（6位验证码版本）
  */
 
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { authApi } from '@/services/api';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/useToast';
-import { Mail, ArrowLeft } from 'lucide-react';
+import { Mail, ArrowLeft, Loader2, CheckCircle2 } from 'lucide-react';
 
 export default function ForgotPassword() {
+  const navigate = useNavigate();
   const { toast } = useToast();
   const [email, setEmail] = useState('');
   const [submitted, setSubmitted] = useState(false);
@@ -45,6 +46,10 @@ export default function ForgotPassword() {
     forgotMutation.mutate();
   };
 
+  const handleGoToReset = () => {
+    navigate('/reset-password', { state: { email } });
+  };
+
   if (submitted) {
     return (
       <Card>
@@ -54,15 +59,23 @@ export default function ForgotPassword() {
               <Mail className="h-6 w-6 text-white" />
             </div>
           </div>
-          <CardTitle>邮件已发送</CardTitle>
-          <CardDescription>如果邮箱存在，您将收到重置密码邮件</CardDescription>
+          <CardTitle>验证码已发送</CardTitle>
+          <CardDescription>如果邮箱存在，您将收到密码重置验证码</CardDescription>
         </CardHeader>
-        <CardContent className="text-center">
-          <p className="text-sm text-muted-foreground mb-4">请检查您的邮箱（包括垃圾邮件文件夹）</p>
-          <p className="text-xs text-muted-foreground">邮件链接有效期为1小时</p>
+        <CardContent className="text-center space-y-4">
+          <p className="text-sm text-muted-foreground">请检查您的邮箱（包括垃圾邮件文件夹）</p>
+          <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+            <p className="text-xs text-muted-foreground">发送到：</p>
+            <p className="text-sm font-medium break-all">{email}</p>
+            <p className="text-xs text-muted-foreground">验证码有效期为10分钟</p>
+          </div>
         </CardContent>
-        <CardFooter className="flex justify-center">
-          <Link to="/login" className="text-sm text-primary hover:underline">
+        <CardFooter className="flex flex-col gap-3">
+          <Button className="w-full" onClick={handleGoToReset}>
+            输入验证码并重置密码
+          </Button>
+          <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 mx-auto">
+            <ArrowLeft className="h-3 w-3" />
             返回登录
           </Link>
         </CardFooter>
@@ -73,8 +86,13 @@ export default function ForgotPassword() {
   return (
     <Card>
       <CardHeader className="text-center">
+        <div className="flex justify-center mb-3">
+          <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+            <Mail className="h-6 w-6 text-primary" />
+          </div>
+        </div>
         <CardTitle>忘记密码</CardTitle>
-        <CardDescription>输入您的邮箱地址</CardDescription>
+        <CardDescription>输入您的邮箱地址获取重置验证码</CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-4">
@@ -91,11 +109,18 @@ export default function ForgotPassword() {
               required
             />
           </div>
-          <p className="text-xs text-muted-foreground">我们将向您的注册邮箱发送密码重置链接</p>
+          <p className="text-xs text-muted-foreground">我们将向您的注册邮箱发送6位数字验证码</p>
         </CardContent>
         <CardFooter className="flex flex-col gap-4">
           <Button type="submit" className="w-full" disabled={forgotMutation.isPending}>
-            {forgotMutation.isPending ? '发送中...' : '发送重置邮件'}
+            {forgotMutation.isPending ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                发送中...
+              </>
+            ) : (
+              '发送验证码'
+            )}
           </Button>
           <Link
             to="/login"

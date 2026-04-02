@@ -18,10 +18,7 @@ export default function Starred() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const {
-    data: files = [],
-    isLoading,
-  } = useQuery<FileItem[]>({
+  const { data: files = [], isLoading } = useQuery<FileItem[]>({
     queryKey: ['files', 'starred'],
     queryFn: () => filesApi.list({ starred: 'true' }).then((r) => r.data.data ?? []),
     staleTime: 30000,

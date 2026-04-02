@@ -5,7 +5,7 @@
 
 import { OpenAPIHono, createRoute } from '@hono/zod-openapi';
 import { z } from 'zod';
-import { eq, sql } from 'drizzle-orm';
+import { eq, and, isNull, sql } from 'drizzle-orm';
 import { getDb, users, files, storageBuckets } from '../../db';
 import { authMiddleware } from '../../middleware/auth';
 import { throwAppError } from '../../middleware/error';
@@ -52,7 +52,7 @@ app.openapi(getMeRoute, async (c) => {
   const storageResult = await db
     .select({ total: sql<number>`COALESCE(SUM(size), 0)` })
     .from(files)
-    .where(eq(files.userId, userId))
+    .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
     .get();
 
   return c.json({

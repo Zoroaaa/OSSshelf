@@ -82,8 +82,13 @@ export async function sendEmail(
   }
 }
 
+export function generateVerificationCode(): string {
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  return code;
+}
+
 export const emailTemplates = {
-  verifyEmail: (name: string, link: string): string => `
+  verifyEmail: (name: string, code: string, expiryMinutes: number = 10): string => `
 <!DOCTYPE html>
 <html>
 <head>
@@ -91,42 +96,48 @@ export const emailTemplates = {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>验证您的邮箱</title>
 </head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f9fafb;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="padding: 40px 20px;">
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f0f4f8;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding: 40px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
     <tr>
       <td align="center">
-        <table width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);">
+        <table width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 16px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15); overflow: hidden;">
           <tr>
-            <td style="padding: 40px 40px 20px 40px; text-align: center;">
-              <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #111827;">验证您的邮箱地址</h1>
+            <td style="padding: 50px 40px 30px 40px; text-align: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+              <div style="width: 70px; height: 70px; background-color: rgba(255, 255, 255, 0.2); border-radius: 20px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 20px;">
+                <span style="font-size: 36px;">✉️</span>
+              </div>
+              <h1 style="margin: 0; font-size: 28px; font-weight: 700; color: #ffffff;">验证您的邮箱地址</h1>
             </td>
           </tr>
           <tr>
-            <td style="padding: 0 40px 40px 40px;">
-              <p style="margin: 0 0 20px 0; font-size: 16px; line-height: 24px; color: #374151;">
-                您好，${name}！
+            <td style="padding: 35px 40px 25px 40px;">
+              <p style="margin: 0 0 16px 0; font-size: 17px; line-height: 26px; color: #374151;">
+                您好，<strong>${name}</strong>！
               </p>
-              <p style="margin: 0 0 30px 0; font-size: 16px; line-height: 24px; color: #374151;">
-                感谢您注册 OSSShelf。请点击下方按钮验证您的邮箱地址：
+              <p style="margin: 0 0 32px 0; font-size: 15px; line-height: 24px; color: #6b7280;">
+                感谢您注册 OSSShelf。请使用下方 <strong>6 位验证码</strong> 完成邮箱验证：
               </p>
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td align="center">
-                    <a href="${link}" style="display: inline-block; padding: 12px 32px; font-size: 16px; font-weight: 500; color: #ffffff; background-color: #4f46e5; border-radius: 6px; text-decoration: none;">
-                      验证邮箱
-                    </a>
-                  </td>
-                </tr>
-              </table>
-              <p style="margin: 30px 0 0 0; font-size: 14px; line-height: 20px; color: #6b7280;">
-                此链接将在 24 小时后过期。如果您没有注册 OSSShelf 账户，请忽略此邮件。
-              </p>
+              <div style="background: linear-gradient(135deg, #f5f7fa 0%, #e9ecf3 100%); border-radius: 12px; padding: 28px; margin: 24px 0; border: 2px dashed #c7d2fe;">
+                <p style="margin: 0 0 12px 0; font-size: 13px; color: #6b7280; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600;">您的验证码</p>
+                <div style="letter-spacing: 12px; font-size: 42px; font-weight: 700; color: #4f46e5; font-family: 'Courier New', monospace; user-select: all;">
+                  ${code}
+                </div>
+              </div>
+              <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 14px 18px; border-radius: 6px; margin-top: 24px;">
+                <p style="margin: 0; font-size: 13px; line-height: 20px; color: #92400e;">
+                  ⏰ 验证码有效期为 <strong>${expiryMinutes} 分钟</strong>，请尽快使用
+                </p>
+              </div>
             </td>
           </tr>
           <tr>
-            <td style="padding: 20px 40px; border-top: 1px solid #e5e7eb;">
-              <p style="margin: 0; font-size: 12px; color: #9ca3af; text-align: center;">
-                © ${new Date().getFullYear()} OSSShelf. All rights reserved.
+            <td style="padding: 20px 40px; background-color: #f9fafb; border-top: 1px solid #e5e7eb;">
+              <p style="margin: 0 0 8px 0; font-size: 12px; color: #9ca3af; text-align: center; line-height: 18px;">
+                此验证码仅供本次操作使用，请勿泄露给他人<br/>
+                如果您没有注册 OSSShelf 账户，请忽略此邮件
+              </p>
+              <p style="margin: 0; font-size: 11px; color: #d1d5db; text-align: center;">
+                © ${new Date().getFullYear()} OSSShelf · 安全存储，智能管理
               </p>
             </td>
           </tr>
@@ -138,50 +149,61 @@ export const emailTemplates = {
 </html>
 `,
 
-  resetPassword: (name: string, link: string): string => `
+  resetPassword: (name: string, code: string, expiryMinutes: number = 10): string => `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>重置密码</title>
+  <title>重置密码验证码</title>
 </head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f9fafb;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="padding: 40px 20px;">
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f0f4f8;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding: 40px 20px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
     <tr>
       <td align="center">
-        <table width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);">
+        <table width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 16px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15); overflow: hidden;">
           <tr>
-            <td style="padding: 40px 40px 20px 40px; text-align: center;">
-              <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #111827;">重置您的密码</h1>
+            <td style="padding: 50px 40px 30px 40px; text-align: center; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+              <div style="width: 70px; height: 70px; background-color: rgba(255, 255, 255, 0.2); border-radius: 20px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 20px;">
+                <span style="font-size: 36px;">🔐</span>
+              </div>
+              <h1 style="margin: 0; font-size: 28px; font-weight: 700; color: #ffffff;">重置您的密码</h1>
             </td>
           </tr>
           <tr>
-            <td style="padding: 0 40px 40px 40px;">
-              <p style="margin: 0 0 20px 0; font-size: 16px; line-height: 24px; color: #374151;">
-                您好，${name}！
+            <td style="padding: 35px 40px 25px 40px;">
+              <p style="margin: 0 0 16px 0; font-size: 17px; line-height: 26px; color: #374151;">
+                您好，<strong>${name}</strong>！
               </p>
-              <p style="margin: 0 0 30px 0; font-size: 16px; line-height: 24px; color: #374151;">
-                我们收到了重置您密码的请求。请点击下方按钮设置新密码：
+              <p style="margin: 0 0 32px 0; font-size: 15px; line-height: 24px; color: #6b7280;">
+                我们收到了重置您密码的请求。请使用下方 <strong>6 位验证码</strong> 进行身份验证：
               </p>
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td align="center">
-                    <a href="${link}" style="display: inline-block; padding: 12px 32px; font-size: 16px; font-weight: 500; color: #ffffff; background-color: #4f46e5; border-radius: 6px; text-decoration: none;">
-                      重置密码
-                    </a>
-                  </td>
-                </tr>
-              </table>
-              <p style="margin: 30px 0 0 0; font-size: 14px; line-height: 20px; color: #6b7280;">
-                此链接将在 1 小时后过期。如果您没有请求重置密码，请忽略此邮件。
-              </p>
+              <div style="background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%); border-radius: 12px; padding: 28px; margin: 24px 0; border: 2px dashed #fca5a5;">
+                <p style="margin: 0 0 12px 0; font-size: 13px; color: #6b7280; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600;">密码重置验证码</p>
+                <div style="letter-spacing: 12px; font-size: 42px; font-weight: 700; color: #dc2626; font-family: 'Courier New', monospace; user-select: all;">
+                  ${code}
+                </div>
+              </div>
+              <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 14px 18px; border-radius: 6px; margin-top: 24px;">
+                <p style="margin: 0; font-size: 13px; line-height: 20px; color: #92400e;">
+                  ⏰ 验证码有效期为 <strong>${expiryMinutes} 分钟</strong>，请尽快使用
+                </p>
+              </div>
+              <div style="background-color: #eff6ff; border-left: 4px solid #3b82f6; padding: 14px 18px; border-radius: 6px; margin-top: 16px;">
+                <p style="margin: 0; font-size: 13px; line-height: 20px; color: #1e40af;">
+                  🔒 如果这不是您本人的操作，请忽略此邮件，您的账户安全不受影响
+                </p>
+              </div>
             </td>
           </tr>
           <tr>
-            <td style="padding: 20px 40px; border-top: 1px solid #e5e7eb;">
-              <p style="margin: 0; font-size: 12px; color: #9ca3af; text-align: center;">
-                © ${new Date().getFullYear()} OSSShelf. All rights reserved.
+            <td style="padding: 20px 40px; background-color: #f9fafb; border-top: 1px solid #e5e7eb;">
+              <p style="margin: 0 0 8px 0; font-size: 12px; color: #9ca3af; text-align: center; line-height: 18px;">
+                此验证码仅供本次操作使用，请勿泄露给他人<br/>
+                如果您没有请求重置密码，请忽略此邮件
+              </p>
+              <p style="margin: 0; font-size: 11px; color: #d1d5db; text-align: center;">
+                © ${new Date().getFullYear()} OSSShelf · 安全存储，智能管理
               </p>
             </td>
           </tr>
@@ -193,53 +215,64 @@ export const emailTemplates = {
 </html>
 `,
 
-  changeEmail: (name: string, newEmail: string, link: string): string => `
+  changeEmail: (name: string, newEmail: string, code: string, expiryMinutes: number = 10): string => `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>确认更换邮箱</title>
+  <title>更换邮箱验证码</title>
 </head>
-<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f9fafb;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="padding: 40px 20px;">
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f0f4f8;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding: 40px 20px; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
     <tr>
       <td align="center">
-        <table width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);">
+        <table width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 16px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15); overflow: hidden;">
           <tr>
-            <td style="padding: 40px 40px 20px 40px; text-align: center;">
-              <h1 style="margin: 0; font-size: 24px; font-weight: 600; color: #111827;">确认更换邮箱</h1>
+            <td style="padding: 50px 40px 30px 40px; text-align: center; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+              <div style="width: 70px; height: 70px; background-color: rgba(255, 255, 255, 0.2); border-radius: 20px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 20px;">
+                <span style="font-size: 36px;">📧</span>
+              </div>
+              <h1 style="margin: 0; font-size: 28px; font-weight: 700; color: #ffffff;">确认更换邮箱</h1>
             </td>
           </tr>
           <tr>
-            <td style="padding: 0 40px 40px 40px;">
-              <p style="margin: 0 0 20px 0; font-size: 16px; line-height: 24px; color: #374151;">
-                您好，${name}！
+            <td style="padding: 35px 40px 25px 40px;">
+              <p style="margin: 0 0 16px 0; font-size: 17px; line-height: 26px; color: #374151;">
+                您好，<strong>${name}</strong>！
               </p>
-              <p style="margin: 0 0 20px 0; font-size: 16px; line-height: 24px; color: #374151;">
-                您正在申请将账户邮箱更换为：<strong>${newEmail}</strong>
+              <p style="margin: 0 0 16px 0; font-size: 15px; line-height: 24px; color: #6b7280;">
+                您正在申请将账户邮箱更换为：
               </p>
-              <p style="margin: 0 0 30px 0; font-size: 16px; line-height: 24px; color: #374151;">
-                请点击下方按钮确认更换：
+              <div style="background-color: #eff6ff; border: 2px solid #bfdbfe; border-radius: 8px; padding: 16px; margin: 16px 0; text-align: center;">
+                <p style="margin: 0; font-size: 16px; font-weight: 600; color: #1d4ed8; word-break: break-all;">
+                  📬 ${newEmail}
+                </p>
+              </div>
+              <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #6b7280;">
+                请使用下方 <strong>6 位验证码</strong> 确认更换：
               </p>
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td align="center">
-                    <a href="${link}" style="display: inline-block; padding: 12px 32px; font-size: 16px; font-weight: 500; color: #ffffff; background-color: #4f46e5; border-radius: 6px; text-decoration: none;">
-                      确认更换
-                    </a>
-                  </td>
-                </tr>
-              </table>
-              <p style="margin: 30px 0 0 0; font-size: 14px; line-height: 20px; color: #6b7280;">
-                此链接将在 1 小时后过期。如果您没有申请更换邮箱，请忽略此邮件。
-              </p>
+              <div style="background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border-radius: 12px; padding: 28px; margin: 24px 0; border: 2px dashed #6ee7b7;">
+                <p style="margin: 0 0 12px 0; font-size: 13px; color: #6b7280; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600;">邮箱更换验证码</p>
+                <div style="letter-spacing: 12px; font-size: 42px; font-weight: 700; color: #059669; font-family: 'Courier New', monospace; user-select: all;">
+                  ${code}
+                </div>
+              </div>
+              <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 14px 18px; border-radius: 6px; margin-top: 24px;">
+                <p style="margin: 0; font-size: 13px; line-height: 20px; color: #92400e;">
+                  ⏰ 验证码有效期为 <strong>${expiryMinutes} 分钟</strong>，请尽快使用
+                </p>
+              </div>
             </td>
           </tr>
           <tr>
-            <td style="padding: 20px 40px; border-top: 1px solid #e5e7eb;">
-              <p style="margin: 0; font-size: 12px; color: #9ca3af; text-align: center;">
-                © ${new Date().getFullYear()} OSSShelf. All rights reserved.
+            <td style="padding: 20px 40px; background-color: #f9fafb; border-top: 1px solid #e5e7eb;">
+              <p style="margin: 0 0 8px 0; font-size: 12px; color: #9ca3af; text-align: center; line-height: 18px;">
+                此验证码仅供本次操作使用，请勿泄露给他人<br/>
+                如果您没有申请更换邮箱，请忽略此邮件
+              </p>
+              <p style="margin: 0; font-size: 11px; color: #d1d5db; text-align: center;">
+                © ${new Date().getFullYear()} OSSShelf · 安全存储，智能管理
               </p>
             </td>
           </tr>

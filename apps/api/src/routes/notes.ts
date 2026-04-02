@@ -18,6 +18,7 @@ import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createNotification, getUserInfo } from '../lib/notificationUtils';
+import { checkFilePermission } from './permissions';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -81,6 +82,11 @@ app.get('/:fileId', async (c) => {
   const offset = (page - 1) * limit;
 
   const db = getDb(c.env.DB);
+
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
+  if (!hasAccess) {
+    throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
+  }
 
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
   if (!file) throwAppError('FILE_NOT_FOUND');
@@ -151,6 +157,11 @@ app.post('/:fileId', async (c) => {
 
   const { content, parentId } = result.data;
   const db = getDb(c.env.DB);
+
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
+  if (!hasAccess) {
+    throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
+  }
 
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
   if (!file) throwAppError('FILE_NOT_FOUND');
@@ -377,7 +388,12 @@ app.delete('/:fileId/:noteId', async (c) => {
 
   const now = new Date().toISOString();
 
-  // 软删除此笔记及其所有子笔记（回复）
+  const childCountBeforeDelete = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(fileNotes)
+    .where(and(eq(fileNotes.parentId, noteId), isNull(fileNotes.deletedAt)))
+    .get();
+
   await db
     .update(fileNotes)
     .set({ deletedAt: now, updatedAt: now })
@@ -385,19 +401,12 @@ app.delete('/:fileId/:noteId', async (c) => {
 
   await db.update(fileNotes).set({ deletedAt: now, updatedAt: now }).where(eq(fileNotes.id, noteId));
 
-  // 计算删除的笔记数量（包括子笔记）
-  const childCount = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(fileNotes)
-    .where(and(eq(fileNotes.parentId, noteId), eq(fileNotes.deletedAt, now)))
-    .get();
-
-  const deletedCount = 1 + (childCount?.count ?? 0);
+  const deletedCount = 1 + (childCountBeforeDelete?.count ?? 0);
 
   await db
     .update(files)
     .set({
-      noteCount: sql`MAX(0, ${files.noteCount} - ${deletedCount})`,
+      noteCount: sql`CASE WHEN ${files.noteCount} > ${deletedCount} THEN ${files.noteCount} - ${deletedCount} ELSE 0 END`,
       updatedAt: now,
     })
     .where(eq(files.id, fileId));

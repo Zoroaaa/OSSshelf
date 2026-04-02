@@ -7,24 +7,26 @@ All notable changes to this project will be documented in this file.
 ### Added - 邮件通知系统
 
 #### 核心功能
-- **注册邮箱验证**
-  - 新用户注册后自动发送验证邮件
-  - 邮箱验证链接有效期24小时
+
+- **注册邮箱验证（6位验证码）**
+  - 新用户注册后自动发送6位数字验证码邮件
+  - 验证码有效期10分钟
   - 首个注册用户（管理员）自动验证
   - 未验证用户显示提示横幅
-  - API: GET /api/auth/verify-email, POST /api/auth/resend-verification
+  - API: POST /api/auth/verify-code, POST /api/auth/resend-verification
 
-- **密码重置流程**
-  - 忘记密码邮件重置功能
-  - 重置链接有效期1小时
+- **密码重置流程（6位验证码）**
+  - 忘记密码发送6位验证码邮件
+  - 验证码有效期10分钟
   - 防邮箱枚举攻击（无论邮箱是否存在都返回200）
   - API: POST /api/auth/forgot-password, POST /api/auth/reset-password
 
-- **邮箱更换功能**
+- **邮箱更换功能（6位验证码）**
   - 更换邮箱需要验证新邮箱
-  - 更换确认链接有效期1小时
+  - 发送6位验证码到新邮箱
+  - 验证码有效期10分钟
   - 旧邮箱收到更换成功通知
-  - API: POST /api/auth/change-email, GET /api/auth/confirm-change-email
+  - API: POST /api/auth/change-email, POST /api/auth/verify-code
 
 - **邮件偏好设置**
   - 用户可自定义邮件通知偏好
@@ -40,35 +42,41 @@ All notable changes to this project will be documented in this file.
   - API: GET/PUT /api/admin/email/config, POST /api/admin/email/test, POST /api/admin/email/broadcast
 
 #### 安全增强
+
 - **JWT失效机制**
   - 密码修改后自动更新 `passwordChangedAt`
   - 密码重置后自动更新 `passwordChangedAt`
   - 登录时检查JWT是否失效
   - 失效后自动清除会话并要求重新登录
 
-- **Token安全**
-  - Token使用SHA-256哈希存储
-  - Token一次性使用机制
-  - Token过期时间控制
-  - 重发验证邮件限流（1分钟1次）
+- **验证码安全**
+  - 6位随机数字验证码
+  - 验证码一次性使用机制
+  - 验证码10分钟有效期
+  - 重发验证码限流（1分钟1次）
+  - 验证码明文存储（短有效期，无需哈希）
 
-- **环境变量检查**
-  - 所有邮件链接生成前检查 `PUBLIC_URL`
-  - 未配置时抛出明确错误提示
-  - 防止生产环境使用localhost
+- **邮件模板**
+  - 3套精美邮件模板（注册验证/密码重置/更换邮箱）
+  - 不同验证类型使用不同配色方案
+  - 响应式设计，移动端友好
 
 #### 数据库变更
+
 - 新增迁移文件 `0018_email.sql`
-  - 新增 `email_tokens` 表（存储验证Token）
+  - 新增 `email_tokens` 表（存储6位验证码）
+    - `code` 字段存储验证码（明文，10分钟有效期）
+    - 支持3种类型：verify_email、reset_password、change_email
   - `users` 表新增 `email_verified` 字段
   - `users` 表新增 `email_preferences` 字段
   - `users` 表新增 `password_changed_at` 字段
 
 #### 前端页面
-- 新增页面
-  - `VerifyEmail.tsx` - 邮箱验证落地页
-  - `ForgotPassword.tsx` - 忘记密码页面
-  - `ResetPassword.tsx` - 重置密码页面
+
+- 新增/更新页面
+  - `VerifyEmail.tsx` - 邮箱验证码输入页（6位验证码输入框）
+  - `ForgotPassword.tsx` - 忘记密码页面（发送验证码）
+  - `ResetPassword.tsx` - 重置密码页面（验证码+新密码）
   - `EmailConfig.tsx` - 管理面板邮件配置页面
 
 - 新增组件
@@ -83,16 +91,19 @@ All notable changes to this project will be documented in this file.
   - MainLayout 集成验证提示横幅
 
 #### 邮件模板
-- 5个邮件模板
-  - 验证邮箱模板
-  - 重置密码模板
-  - 更换邮箱确认模板
+
+- 5个精美邮件模板
+  - 验证邮箱模板（紫色渐变主题）
+  - 重置密码模板（粉红渐变主题）
+  - 更换邮箱确认模板（蓝色渐变主题）
   - 密码变更通知模板
   - 系统通知模板
 
-#### GitHub Actions
-- 新增 `PUBLIC_URL` 环境变量配置
-- 部署时自动注入环境变量
+#### 环境变量变更
+
+- `PUBLIC_URL` 从必填改为可选
+  - 不再用于邮件验证链接
+  - 仅用于文件直接访问链接生成
 
 ### Changed
 
@@ -161,7 +172,7 @@ All notable changes to this project will be documented in this file.
   - 大文件排行 Top 20
   - 存储趋势分析（按天统计上传量）
   - 存储桶统计
-  - API: GET /api/analytics/*
+  - API: GET /api/analytics/\*
 - 通知系统
   - 实时通知铃铛（PC端侧边栏底部、移动端顶部栏）
   - 通知列表弹窗（向上/向下展开自适应）

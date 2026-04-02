@@ -11,7 +11,7 @@
  * - WebDAV 配置
  */
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useAuthStore } from '@/stores/auth';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { authApi, type EmailPreferences } from '@/services/api';
@@ -44,6 +44,7 @@ import {
   Loader2,
   Sparkles,
   Mail,
+  RefreshCw,
 } from 'lucide-react';
 import { AISettings } from '@/components/ai';
 
@@ -82,15 +83,19 @@ function getOSName(userAgent: string): string {
 
 function EmailChangeForm() {
   const { toast } = useToast();
+  const [step, setStep] = useState<'input' | 'verify' | 'done'>('input');
   const [newEmail, setNewEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [code, setCode] = useState(['', '', '', '', '', '']);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [countdown, setCountdown] = useState(0);
 
-  const changeEmailMutation = useMutation({
+  const sendCodeMutation = useMutation({
     mutationFn: () => authApi.changeEmail({ newEmail, password }),
     onSuccess: () => {
-      toast({ title: '确认邮件已发送', description: '请查收新邮箱并点击确认链接' });
-      setNewEmail('');
-      setPassword('');
+      toast({ title: '验证码已发送', description: `6位验证码已发送到 ${newEmail}` });
+      setStep('verify');
+      startCountdown(60);
     },
     onError: (e: any) => {
       toast({
@@ -101,21 +106,201 @@ function EmailChangeForm() {
     },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const verifyMutation = useMutation({
+    mutationFn: () => authApi.verifyCode({ email: newEmail, code: code.join(''), type: 'change_email' }),
+    onSuccess: () => {
+      toast({ title: '邮箱更换成功', description: '您的邮箱已成功更换' });
+      setStep('done');
+      setNewEmail('');
+      setPassword('');
+      setCode(['', '', '', '', '', '']);
+    },
+    onError: (e: any) => {
+      toast({
+        title: '验证失败',
+        description: e.response?.data?.error?.message || '验证码错误或已过期',
+        variant: 'destructive',
+      });
+      setCode(['', '', '', '', '', '']);
+      inputRefs.current[0]?.focus();
+    },
+  });
+
+  const handleSendCode = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newEmail || !password) {
       toast({ title: '请填写完整信息', variant: 'destructive' });
       return;
     }
-    changeEmailMutation.mutate();
+    sendCodeMutation.mutate();
   };
 
+  const handleCodeChange = (index: number, value: string) => {
+    if (!/^\d*$/.test(value)) return;
+    const newCode = [...code];
+    newCode[index] = value.slice(-1);
+    setCode(newCode);
+    if (value && index < 5) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !code[index] && index > 0) {
+      inputRefs.current[index - 1]?.focus();
+    }
+    if (e.key === 'Enter' && code.every((d) => d)) {
+      verifyMutation.mutate();
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (pastedData.length > 0) {
+      const newCode = [...code];
+      pastedData.split('').forEach((char, i) => {
+        if (i < 6) newCode[i] = char;
+      });
+      setCode(newCode);
+      const nextIndex = Math.min(pastedData.length, 5);
+      inputRefs.current[nextIndex]?.focus();
+    }
+  };
+
+  const handleVerify = () => {
+    if (code.some((d) => !d)) {
+      toast({ title: '请输入完整验证码', variant: 'destructive' });
+      return;
+    }
+    verifyMutation.mutate();
+  };
+
+  const handleResend = () => {
+    sendCodeMutation.mutate();
+  };
+
+  const startCountdown = (seconds: number) => {
+    setCountdown(seconds);
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const handleReset = () => {
+    setStep('input');
+    setCode(['', '', '', '', '', '']);
+    setPassword('');
+  };
+
+  if (step === 'done') {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 text-emerald-600 bg-emerald-500/10 p-3 rounded-md">
+          <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+          <span className="text-sm">邮箱更换成功！</span>
+        </div>
+        <Button size="sm" variant="outline" onClick={handleReset}>
+          继续更换邮箱
+        </Button>
+      </div>
+    );
+  }
+
+  if (step === 'verify') {
+    return (
+      <div className="space-y-4">
+        <div className="bg-muted/50 rounded-lg p-3 space-y-1">
+          <p className="text-xs text-muted-foreground">验证码发送至：</p>
+          <p className="text-sm font-medium break-all">{newEmail}</p>
+          <p className="text-xs text-muted-foreground">验证码有效期为10分钟</p>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium">输入6位验证码</label>
+          <div className="flex gap-2 justify-center">
+            {code.map((digit, index) => (
+              <Input
+                key={index}
+                ref={(el) => { inputRefs.current[index] = el; }}
+                type="text"
+                inputMode="numeric"
+                maxLength={1}
+                value={digit}
+                onChange={(e) => handleCodeChange(index, e.target.value)}
+                onKeyDown={(e) => handleKeyDown(index, e)}
+                onPaste={index === 0 ? handlePaste : undefined}
+                className="w-10 h-11 text-center text-lg font-semibold"
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            onClick={handleVerify}
+            disabled={code.some((d) => !d) || verifyMutation.isPending}
+            className="flex-1"
+          >
+            {verifyMutation.isPending ? (
+              <>
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                验证中...
+              </>
+            ) : (
+              '确认更换'
+            )}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={countdown > 0 || sendCodeMutation.isPending}
+            onClick={handleResend}
+          >
+            {sendCodeMutation.isPending ? (
+              '发送中...'
+            ) : countdown > 0 ? (
+              `${countdown}s`
+            ) : (
+              <>
+                <RefreshCw className="h-3 w-3 mr-1" />
+                重发
+              </>
+            )}
+          </Button>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleReset}
+          className="text-xs text-muted-foreground hover:text-foreground"
+        >
+          返回修改
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
+    <form onSubmit={handleSendCode} className="space-y-3">
       <Input type="email" placeholder="新邮箱地址" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
       <Input type="password" placeholder="当前密码" value={password} onChange={(e) => setPassword(e.target.value)} />
-      <Button type="submit" size="sm" disabled={changeEmailMutation.isPending}>
-        {changeEmailMutation.isPending ? '发送中...' : '发送确认邮件'}
+      <Button type="submit" size="sm" disabled={sendCodeMutation.isPending}>
+        {sendCodeMutation.isPending ? (
+          <>
+            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+            发送中...
+          </>
+        ) : (
+          '发送验证码'
+        )}
       </Button>
     </form>
   );

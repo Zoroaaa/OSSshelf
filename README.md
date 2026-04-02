@@ -38,6 +38,7 @@
 ### 最新版本 v4.0.0 - 邮件通知系统
 
 **核心功能**：
+
 - 📧 **邮件验证**：注册邮箱验证、邮箱更换确认
 - 🔐 **密码重置**：忘记密码邮件重置流程
 - ⚙️ **邮件偏好**：用户可自定义邮件通知偏好设置
@@ -45,6 +46,7 @@
 - 🔒 **安全增强**：JWT失效机制、密码变更通知
 
 **技术实现**：
+
 - Resend API 集成（Serverless友好）
 - Token SHA-256哈希存储
 - 防邮箱枚举攻击
@@ -52,6 +54,7 @@
 - KV配置热更新
 
 **管理功能**：
+
 - 管理面板邮件配置页面
 - 发送测试邮件
 - 群发系统公告（支持角色筛选）
@@ -76,7 +79,7 @@
 - 🔗 **文件直链**: 为文件生成公开访问直链，支持设置有效期，无需登录即可访问
 - 📤 **上传链接**: 创建公开上传链接，允许他人无需登录上传文件到指定文件夹
 - 📁 **文件夹上传**: 支持拖拽上传整个文件夹，自动重建目录结构
-- 📧 **邮件通知系统 v4.0.0**: 
+- 📧 **邮件通知系统 v4.0.0**:
   - 注册邮箱验证、邮箱更换确认
   - 忘记密码邮件重置
   - 用户可自定义邮件通知偏好（@提及、分享接收、配额警告、AI完成、系统通知）
@@ -109,28 +112,28 @@
 <details>
 <summary>📋 通知触发场景</summary>
 
-| 场景 | 通知类型 | 触发条件 |
-|------|----------|----------|
-| **文件分享** | `share_received` | 分享链接被下载时通知文件所有者 |
-| | `upload_link_received` | 上传链接收到新文件时通知链接创建者 |
-| **笔记互动** | `mention` | 笔记中 @提及其他用户（需输入完整邮箱） |
-| | `reply` | 笔记被回复时通知原笔记作者 |
-| **权限授予** | `permission_granted` | 被授予文件/文件夹权限时通知被授予者 |
-| | `permission_granted_to` | 权限授予成功时通知授予者 |
-| **AI 处理** | `ai_complete` | AI 摘要/标签生成完成时通知 |
-| **文件操作** | `file_uploaded` | 文件上传成功 |
-| | `file_downloaded` | 文件下载成功 |
-| | `file_deleted` / `folder_deleted` | 文件/文件夹移入回收站 |
-| | `file_starred` / `file_unstarred` | 收藏/取消收藏 |
-| **存储桶管理** | `bucket_created` | 存储桶创建成功 |
-| | `bucket_updated` | 存储桶配置更新 |
-| | `bucket_deleted` | 存储桶删除 |
-| **Webhook** | `webhook_created` / `deleted` | Webhook 创建/删除 |
-| **API Key** | `apikey_created` / `deleted` | API Key 创建/删除 |
-| **账户安全** | `password_changed` | 密码更改成功（安全提醒） |
-| **系统管理** | `invite_code_created` | 邀请码生成 |
-| | `registration_opened` / `closed` | 注册开放/关闭 |
-| | `invite_registration_opened` / `closed` | 邀请码注册开放/关闭 |
+| 场景           | 通知类型                                | 触发条件                               |
+| -------------- | --------------------------------------- | -------------------------------------- |
+| **文件分享**   | `share_received`                        | 分享链接被下载时通知文件所有者         |
+|                | `upload_link_received`                  | 上传链接收到新文件时通知链接创建者     |
+| **笔记互动**   | `mention`                               | 笔记中 @提及其他用户（需输入完整邮箱） |
+|                | `reply`                                 | 笔记被回复时通知原笔记作者             |
+| **权限授予**   | `permission_granted`                    | 被授予文件/文件夹权限时通知被授予者    |
+|                | `permission_granted_to`                 | 权限授予成功时通知授予者               |
+| **AI 处理**    | `ai_complete`                           | AI 摘要/标签生成完成时通知             |
+| **文件操作**   | `file_uploaded`                         | 文件上传成功                           |
+|                | `file_downloaded`                       | 文件下载成功                           |
+|                | `file_deleted` / `folder_deleted`       | 文件/文件夹移入回收站                  |
+|                | `file_starred` / `file_unstarred`       | 收藏/取消收藏                          |
+| **存储桶管理** | `bucket_created`                        | 存储桶创建成功                         |
+|                | `bucket_updated`                        | 存储桶配置更新                         |
+|                | `bucket_deleted`                        | 存储桶删除                             |
+| **Webhook**    | `webhook_created` / `deleted`           | Webhook 创建/删除                      |
+| **API Key**    | `apikey_created` / `deleted`            | API Key 创建/删除                      |
+| **账户安全**   | `password_changed`                      | 密码更改成功（安全提醒）               |
+| **系统管理**   | `invite_code_created`                   | 邀请码生成                             |
+|                | `registration_opened` / `closed`        | 注册开放/关闭                          |
+|                | `invite_registration_opened` / `closed` | 邀请码注册开放/关闭                    |
 
 </details>
 
@@ -333,12 +336,12 @@ curl https://your-api.workers.dev/api/auth/registration-config
 
 ### 环境变量说明
 
-| 变量名           | 必填 | 说明                                  |
-| ---------------- | ---- | ------------------------------------- |
-| `JWT_SECRET`     | ✅   | JWT 签名密钥，建议 32+ 字符随机字符串 |
-| `ENCRYPTION_KEY` | ✅   | 存储桶凭证加密密钥，32 字节           |
-| `PUBLIC_URL`     | ✅   | 应用公网地址，用于生成邮件链接（v4.0.0+）|
-| `CORS_ORIGINS`   | ✅   | CORS 允许域名，多个用逗号分隔         |
+| 变量名           | 必填 | 说明                                            |
+| ---------------- | ---- | ----------------------------------------------- |
+| `JWT_SECRET`     | ✅   | JWT 签名密钥，建议 32+ 字符随机字符串           |
+| `ENCRYPTION_KEY` | ✅   | 存储桶凭证加密密钥，32 字节                     |
+| `PUBLIC_URL`     | ⚪   | 应用公网地址，用于生成文件直接访问链接（可选）  |
+| `CORS_ORIGINS`   | ✅   | CORS 允许域名，多个用逗号分隔                   |
 
 ---
 
@@ -545,35 +548,35 @@ ossshelf/
 
 ### API 路由概览
 
-| 路由前缀           | 说明                    |
-| ------------------ | ----------------------- |
-| `/api/auth`        | 用户认证、邮箱验证、密码重置 (v4.0.0增强) |
-| `/api/files`       | 文件管理                |
-| `/api/buckets`     | 存储桶管理              |
-| `/api/share`       | 文件分享                |
-| `/api/direct`      | 文件直链                |
-| `/api/presign`     | 预签名 URL              |
-| `/api/tasks`       | 上传任务                |
-| `/api/downloads`   | 离线下载                |
-| `/api/batch`       | 批量操作                |
-| `/api/search`      | 文件搜索                |
-| `/api/permissions` | 权限与标签              |
-| `/api/preview`     | 文件预览                |
-| `/api/versions`    | 版本控制 (v3.3.0)       |
-| `/api/notes`       | 文件笔记 (v3.5.0)       |
-| `/api/api-keys`    | API Keys 管理 (v3.5.0)  |
-| `/api/groups`      | 用户组管理 (v3.6.0)     |
-| `/api/webhooks`    | Webhook 管理 (v3.6.0)   |
-| `/api/ai`          | AI 功能 (v3.7.0)        |
-| `/api/analytics`   | 存储分析 (v3.8.0)       |
-| `/api/notifications` | 通知系统 (v3.8.0)     |
-| `/api/v1`          | RESTful v1 API (v3.6.0) |
-| `/api/v1/docs`     | OpenAPI 文档 (v3.6.0)   |
-| `/api/admin`       | 管理员接口、邮件配置 (v4.0.0增强) |
-| `/api/migrate`     | 存储桶迁移              |
-| `/api/telegram`    | Telegram 存储           |
-| `/cron`            | 定时任务                |
-| `/dav`             | WebDAV                  |
+| 路由前缀             | 说明                                      |
+| -------------------- | ----------------------------------------- |
+| `/api/auth`          | 用户认证、邮箱验证、密码重置 (v4.0.0增强) |
+| `/api/files`         | 文件管理                                  |
+| `/api/buckets`       | 存储桶管理                                |
+| `/api/share`         | 文件分享                                  |
+| `/api/direct`        | 文件直链                                  |
+| `/api/presign`       | 预签名 URL                                |
+| `/api/tasks`         | 上传任务                                  |
+| `/api/downloads`     | 离线下载                                  |
+| `/api/batch`         | 批量操作                                  |
+| `/api/search`        | 文件搜索                                  |
+| `/api/permissions`   | 权限与标签                                |
+| `/api/preview`       | 文件预览                                  |
+| `/api/versions`      | 版本控制 (v3.3.0)                         |
+| `/api/notes`         | 文件笔记 (v3.5.0)                         |
+| `/api/api-keys`      | API Keys 管理 (v3.5.0)                    |
+| `/api/groups`        | 用户组管理 (v3.6.0)                       |
+| `/api/webhooks`      | Webhook 管理 (v3.6.0)                     |
+| `/api/ai`            | AI 功能 (v3.7.0)                          |
+| `/api/analytics`     | 存储分析 (v3.8.0)                         |
+| `/api/notifications` | 通知系统 (v3.8.0)                         |
+| `/api/v1`            | RESTful v1 API (v3.6.0)                   |
+| `/api/v1/docs`       | OpenAPI 文档 (v3.6.0)                     |
+| `/api/admin`         | 管理员接口、邮件配置 (v4.0.0增强)         |
+| `/api/migrate`       | 存储桶迁移                                |
+| `/api/telegram`      | Telegram 存储                             |
+| `/cron`              | 定时任务                                  |
+| `/dav`               | WebDAV                                    |
 
 ---
 

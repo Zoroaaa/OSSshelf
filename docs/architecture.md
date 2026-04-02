@@ -106,7 +106,7 @@ OSSshelf 是一个基于 Cloudflare 部署的多厂商 OSS 文件管理系统，
    - 大文件排行 Top 20
    - 存储趋势分析（按天统计上传量）
    - 存储桶统计
-   - API: GET /api/analytics/*
+   - API: GET /api/analytics/\*
 
 3. **通知系统**
    - 实时通知铃铛（PC端侧边栏底部、移动端顶部栏）
@@ -422,35 +422,35 @@ ossshelf/
 
 #### users (用户表)
 
-| 字段           | 类型    | 默认值      | 说明              |
-| -------------- | ------- | ----------- | ----------------- |
-| `id`           | TEXT    | -           | 主键              |
-| `email`        | TEXT    | -           | 邮箱 (唯一)       |
-| `passwordHash` | TEXT    | -           | 密码哈希          |
-| `name`         | TEXT    | -           | 昵称              |
-| `role`         | TEXT    | 'user'      | 角色 (user/admin) |
-| `storageQuota` | INTEGER | 10737418240 | 存储配额 (10GB)   |
-| `storageUsed`  | INTEGER | 0           | 已用空间          |
-| `emailVerified`| BOOLEAN | false       | 邮箱验证状态 (v4.0.0) |
-| `emailPreferences` | TEXT | '{}'      | 邮件偏好设置 (JSON) (v4.0.0) |
-| `passwordChangedAt` | TEXT | -        | 密码变更时间 (v4.0.0) |
-| `createdAt`    | TEXT    | -           | 创建时间          |
-| `updatedAt`    | TEXT    | -           | 更新时间          |
+| 字段                | 类型    | 默认值      | 说明                         |
+| ------------------- | ------- | ----------- | ---------------------------- |
+| `id`                | TEXT    | -           | 主键                         |
+| `email`             | TEXT    | -           | 邮箱 (唯一)                  |
+| `passwordHash`      | TEXT    | -           | 密码哈希                     |
+| `name`              | TEXT    | -           | 昵称                         |
+| `role`              | TEXT    | 'user'      | 角色 (user/admin)            |
+| `storageQuota`      | INTEGER | 10737418240 | 存储配额 (10GB)              |
+| `storageUsed`       | INTEGER | 0           | 已用空间                     |
+| `emailVerified`     | BOOLEAN | false       | 邮箱验证状态 (v4.0.0)        |
+| `emailPreferences`  | TEXT    | '{}'        | 邮件偏好设置 (JSON) (v4.0.0) |
+| `passwordChangedAt` | TEXT    | -           | 密码变更时间 (v4.0.0)        |
+| `createdAt`         | TEXT    | -           | 创建时间                     |
+| `updatedAt`         | TEXT    | -           | 更新时间                     |
 
 **索引**: `idx_users_role`, `idx_users_created`
 
 #### email_tokens (邮件Token表) - v4.0.0
 
-| 字段        | 类型    | 默认值 | 说明                         |
-| ----------- | ------- | ------ | ---------------------------- |
-| `id`        | TEXT    | -      | 主键                         |
-| `userId`    | TEXT    | -      | 用户ID (外键 → users)        |
-| `email`     | TEXT    | -      | 关联邮箱                     |
-| `type`      | TEXT    | -      | Token类型 (verify_email/reset_password/change_email) |
-| `tokenHash` | TEXT    | -      | Token哈希 (SHA-256)          |
-| `expiresAt` | TEXT    | -      | 过期时间                     |
-| `usedAt`    | TEXT    | -      | 使用时间 (可空)              |
-| `createdAt` | TEXT    | -      | 创建时间                     |
+| 字段        | 类型 | 默认值 | 说明                                                 |
+| ----------- | ---- | ------ | ---------------------------------------------------- |
+| `id`        | TEXT | -      | 主键                                                 |
+| `userId`    | TEXT | -      | 用户ID (外键 → users)                                |
+| `email`     | TEXT | -      | 关联邮箱                                             |
+| `type`      | TEXT | -      | Token类型 (verify_email/reset_password/change_email) |
+| `tokenHash` | TEXT | -      | Token哈希 (SHA-256)                                  |
+| `expiresAt` | TEXT | -      | 过期时间                                             |
+| `usedAt`    | TEXT | -      | 使用时间 (可空)                                      |
+| `createdAt` | TEXT | -      | 创建时间                                             |
 
 **索引**: `idx_email_tokens_hash`, `idx_email_tokens_user`
 
@@ -812,34 +812,34 @@ ossshelf/
 
 ## API 路由（定义于 `apps/api/src/index.ts`）
 
-| 路由前缀           | 模块           | 说明              |
-| ------------------ | -------------- | ----------------- |
-| `/api/auth`        | auth.ts        | 用户认证、邮箱验证、密码重置 (v4.0.0增强) |
-| `/api/files`       | files.ts       | 文件管理          |
-| `/api/buckets`     | buckets.ts     | 存储桶管理        |
-| `/api/share`       | share.ts       | 文件分享          |
-| `/api/direct`      | directLink.ts  | 文件直链          |
-| `/api/presign`     | presign.ts     | 预签名 URL        |
-| `/api/tasks`       | tasks.ts       | 上传任务          |
-| `/api/downloads`   | downloads.ts   | 离线下载          |
-| `/api/batch`       | batch.ts       | 批量操作          |
-| `/api/search`      | search.ts      | 文件搜索          |
-| `/api/permissions` | permissions.ts | 权限与标签        |
-| `/api/preview`     | preview.ts     | 文件预览          |
-| `/api/versions`    | versions.ts    | 版本控制 (v3.3.0) |
-| `/api/notes`       | notes.ts       | 文件笔记 (v3.5.0) |
-| `/api/api-keys`    | apiKeys.ts     | API Keys (v3.5.0) |
-| `/api/groups`      | groups.ts      | 用户组管理 (v3.6.0) |
-| `/api/webhooks`    | webhooks.ts    | Webhook 管理 (v3.6.0) |
-| `/api/ai`          | ai.ts          | AI 功能 (v3.7.0)  |
-| `/api/analytics`   | analytics.ts   | 存储分析 (v3.8.0) |
-| `/api/notifications` | notifications.ts | 通知系统 (v3.8.0) |
-| `/api/v1`          | v1/index.ts    | RESTful v1 (v3.6.0) |
-| `/api/admin`       | admin.ts       | 管理员接口、邮件配置 (v4.0.0增强) |
-| `/api/migrate`     | migrate.ts     | 存储桶迁移        |
-| `/api/telegram`    | telegram.ts    | Telegram 存储     |
-| `/cron`            | cron.ts        | 定时任务          |
-| `/dav`             | webdav.ts      | WebDAV 协议       |
+| 路由前缀             | 模块             | 说明                                      |
+| -------------------- | ---------------- | ----------------------------------------- |
+| `/api/auth`          | auth.ts          | 用户认证、邮箱验证、密码重置 (v4.0.0增强) |
+| `/api/files`         | files.ts         | 文件管理                                  |
+| `/api/buckets`       | buckets.ts       | 存储桶管理                                |
+| `/api/share`         | share.ts         | 文件分享                                  |
+| `/api/direct`        | directLink.ts    | 文件直链                                  |
+| `/api/presign`       | presign.ts       | 预签名 URL                                |
+| `/api/tasks`         | tasks.ts         | 上传任务                                  |
+| `/api/downloads`     | downloads.ts     | 离线下载                                  |
+| `/api/batch`         | batch.ts         | 批量操作                                  |
+| `/api/search`        | search.ts        | 文件搜索                                  |
+| `/api/permissions`   | permissions.ts   | 权限与标签                                |
+| `/api/preview`       | preview.ts       | 文件预览                                  |
+| `/api/versions`      | versions.ts      | 版本控制 (v3.3.0)                         |
+| `/api/notes`         | notes.ts         | 文件笔记 (v3.5.0)                         |
+| `/api/api-keys`      | apiKeys.ts       | API Keys (v3.5.0)                         |
+| `/api/groups`        | groups.ts        | 用户组管理 (v3.6.0)                       |
+| `/api/webhooks`      | webhooks.ts      | Webhook 管理 (v3.6.0)                     |
+| `/api/ai`            | ai.ts            | AI 功能 (v3.7.0)                          |
+| `/api/analytics`     | analytics.ts     | 存储分析 (v3.8.0)                         |
+| `/api/notifications` | notifications.ts | 通知系统 (v3.8.0)                         |
+| `/api/v1`            | v1/index.ts      | RESTful v1 (v3.6.0)                       |
+| `/api/admin`         | admin.ts         | 管理员接口、邮件配置 (v4.0.0增强)         |
+| `/api/migrate`       | migrate.ts       | 存储桶迁移                                |
+| `/api/telegram`      | telegram.ts      | Telegram 存储                             |
+| `/cron`              | cron.ts          | 定时任务                                  |
+| `/dav`               | webdav.ts        | WebDAV 协议                               |
 
 ---
 
@@ -1178,36 +1178,37 @@ v4.0.0 新增的邮件通知系统基于 Resend API 实现，支持多种邮件�
 
 ```typescript
 // 主要功能
-- getResendConfig(env)     // 从KV获取Resend配置
-- saveResendConfig(env, config)  // 保存配置到KV
-- sendEmail(env, to, subject, html)  // 发送邮件
-- emailTemplates           // 邮件模板集合
-- parseEmailPreferences(json)  // 解析邮件偏好
-- shouldSendEmail(type, preferences)  // 判断是否发送
+-getResendConfig(env) - // 从KV获取Resend配置
+  saveResendConfig(env, config) - // 保存配置到KV
+  sendEmail(env, to, subject, html) - // 发送邮件
+  emailTemplates - // 邮件模板集合
+  parseEmailPreferences(json) - // 解析邮件偏好
+  shouldSendEmail(type, preferences); // 判断是否发送
 ```
 
 #### 2. Token管理 (`email_tokens` 表)
 
-| Token类型 | 有效期 | 用途 |
-|----------|-------|------|
-| `verify_email` | 24小时 | 注册邮箱验证 |
-| `reset_password` | 1小时 | 密码重置 |
-| `change_email` | 1小时 | 邮箱更换确认 |
+| Token类型        | 有效期 | 用途         |
+| ---------------- | ------ | ------------ |
+| `verify_email`   | 24小时 | 注册邮箱验证 |
+| `reset_password` | 1小时  | 密码重置     |
+| `change_email`   | 1小时  | 邮箱更换确认 |
 
 **安全措施**：
+
 - Token使用SHA-256哈希存储
 - Token一次性使用
 - 使用后标记 `usedAt`
 
 #### 3. 邮件模板
 
-| 模板名称 | 用途 | 包含内容 |
-|---------|------|---------|
-| `verifyEmail` | 注册验证 | 验证链接、有效期 |
-| `resetPassword` | 密码重置 | 重置链接、有效期 |
-| `changeEmail` | 邮箱更换 | 确认链接、新邮箱 |
-| `passwordChanged` | 密码变更通知 | 变更时间、IP地址 |
-| `systemNotify` | 系统通知 | 标题、内容、可选链接 |
+| 模板名称          | 用途         | 包含内容             |
+| ----------------- | ------------ | -------------------- |
+| `verifyEmail`     | 注册验证     | 验证链接、有效期     |
+| `resetPassword`   | 密码重置     | 重置链接、有效期     |
+| `changeEmail`     | 邮箱更换     | 确认链接、新邮箱     |
+| `passwordChanged` | 密码变更通知 | 变更时间、IP地址     |
+| `systemNotify`    | 系统通知     | 标题、内容、可选链接 |
 
 ### 邮件发送流程
 
@@ -1216,21 +1217,19 @@ v4.0.0 新增的邮件通知系统基于 Resend API 实现，支持多种邮件�
 ```
 用户注册
     ↓
-生成验证Token (SHA-256哈希)
+生成6位验证码 (随机数字)
     ↓
-存储到 email_tokens 表
+存储到 email_tokens 表 (code字段)
     ↓
-生成验证链接 (PUBLIC_URL + token)
+发送验证码邮件 (Resend API)
     ↓
-发送验证邮件 (Resend API)
+用户输入6位验证码
     ↓
-用户点击链接
-    ↓
-验证Token有效性
+验证码有效性检查
     ↓
 更新 users.email_verified = true
     ↓
-标记Token已使用
+标记验证码已使用
 ```
 
 #### 受偏好控制的邮件
@@ -1259,10 +1258,10 @@ v4.0.0 新增的邮件通知系统基于 Resend API 实现，支持多种邮件�
 
 ```typescript
 // API端点
-GET  /api/admin/email/config     // 获取配置（API Key脱敏）
-PUT  /api/admin/email/config     // 保存配置
-POST /api/admin/email/test       // 发送测试邮件
-POST /api/admin/email/broadcast  // 群发系统公告
+GET / api / admin / email / config; // 获取配置（API Key脱敏）
+PUT / api / admin / email / config; // 保存配置
+POST / api / admin / email / test; // 发送测试邮件
+POST / api / admin / email / broadcast; // 群发系统公告
 ```
 
 #### 群发系统公告
@@ -1292,46 +1291,46 @@ POST /api/admin/email/broadcast  // 群发系统公告
 
 #### email_tokens 表
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `id` | TEXT | 主键 |
-| `userId` | TEXT | 用户ID (外键) |
-| `email` | TEXT | 关联邮箱 |
-| `type` | TEXT | Token类型 |
+| 字段        | 类型 | 说明                |
+| ----------- | ---- | ------------------- |
+| `id`        | TEXT | 主键                |
+| `userId`    | TEXT | 用户ID (外键)       |
+| `email`     | TEXT | 关联邮箱            |
+| `type`      | TEXT | Token类型           |
 | `tokenHash` | TEXT | Token哈希 (SHA-256) |
-| `expiresAt` | TEXT | 过期时间 |
-| `usedAt` | TEXT | 使用时间 (可空) |
-| `createdAt` | TEXT | 创建时间 |
+| `expiresAt` | TEXT | 过期时间            |
+| `usedAt`    | TEXT | 使用时间 (可空)     |
+| `createdAt` | TEXT | 创建时间            |
 
 **索引**: `idx_email_tokens_hash`, `idx_email_tokens_user`
 
 #### users 表扩展字段
 
-| 字段 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `email_verified` | BOOLEAN | false | 邮箱验证状态 |
-| `email_preferences` | TEXT | '{}' | 邮件偏好 (JSON) |
-| `password_changed_at` | TEXT | null | 密码变更时间 |
+| 字段                  | 类型    | 默认值 | 说明            |
+| --------------------- | ------- | ------ | --------------- |
+| `email_verified`      | BOOLEAN | false  | 邮箱验证状态    |
+| `email_preferences`   | TEXT    | '{}'   | 邮件偏好 (JSON) |
+| `password_changed_at` | TEXT    | null   | 密码变更时间    |
 
 ### 环境变量
 
-| 变量名 | 必填 | 说明 |
-|--------|------|------|
-| `PUBLIC_URL` | ✅ | 应用公网地址，用于生成邮件链接 |
+| 变量名       | 必填 | 说明                                     |
+| ------------ | ---- | ---------------------------------------- |
+| `PUBLIC_URL` | ⚪   | 应用公网地址，用于生成文件直接访问链接（可选） |
 
-**注意**: `PUBLIC_URL` 必须配置，否则邮件功能无法使用。
+**注意**: 邮件验证使用6位验证码方式，无需配置 `PUBLIC_URL`。
 
 ### 前端集成
 
 #### 页面组件
 
-| 组件 | 路由 | 功能 |
-|------|------|------|
-| `VerifyEmail` | `/verify-email` | 邮箱验证落地页 |
-| `ForgotPassword` | `/forgot-password` | 忘记密码页面 |
-| `ResetPassword` | `/reset-password` | 重置密码页面 |
-| `EmailConfig` | `/admin` (邮件配置选项卡) | 管理员邮件配置 |
-| `EmailVerificationBanner` | - | 未验证用户提示横幅 |
+| 组件                      | 路由                      | 功能                     |
+| ------------------------- | ------------------------- | ------------------------ |
+| `VerifyEmail`             | `/verify-email`           | 邮箱验证码输入页         |
+| `ForgotPassword`          | `/forgot-password`        | 忘记密码页面       |
+| `ResetPassword`           | `/reset-password`         | 重置密码页面       |
+| `EmailConfig`             | `/admin` (邮件配置选项卡) | 管理员邮件配置     |
+| `EmailVerificationBanner` | -                         | 未验证用户提示横幅 |
 
 #### 设置页面集成
 
@@ -1349,7 +1348,7 @@ POST /api/admin/email/broadcast  // 群发系统公告
 // 密码修改/重置后更新
 await db.update(users).set({
   passwordHash: newPasswordHash,
-  passwordChangedAt: now  // 记录变更时间
+  passwordChangedAt: now, // 记录变更时间
 });
 
 // 登录时检查
@@ -1368,12 +1367,12 @@ if (user.passwordChangedAt && decoded.iat) {
 // 忘记密码无论邮箱是否存在都返回200
 app.post('/forgot-password', async (c) => {
   const user = await db.select().from(users).where(eq(users.email, email)).get();
-  
+
   if (!user) {
     // 不透露邮箱是否存在
     return c.json({ success: true, message: '如果邮箱存在，您将收到重置邮件' });
   }
-  
+
   // 发送重置邮件...
   return c.json({ success: true, message: '如果邮箱存在，您将收到重置邮件' });
 });

@@ -20,6 +20,7 @@ import {
   telegramFileRefs,
   fileVersions,
   groupMembers,
+  userStars,
 } from '../db';
 import { checkFilePermission } from './permissions';
 import { inheritParentPermissions } from './permissions';
@@ -339,6 +340,13 @@ app.post('/upload', async (c) => {
     );
   }
 
+  if (parentId) {
+    const { hasAccess } = await checkFilePermission(db, parentId, userId, 'write', c.env);
+    if (!hasAccess) {
+      return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权向此目录上传文件' } }, 403);
+    }
+  }
+
   const encKey = getEncryptionKey(c.env);
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, requestedBucketId, parentId);
 
@@ -548,7 +556,20 @@ app.get('/', async (c) => {
 
   // 收藏文件筛选
   if (starred) {
-    conditions.push(eq(files.isStarred, true));
+    const starredFileIds = await db
+      .select({ fileId: userStars.fileId })
+      .from(userStars)
+      .where(eq(userStars.userId, userId))
+      .all();
+    if (starredFileIds.length === 0) {
+      return c.json({ success: true, data: { files: [], total: 0 } });
+    }
+    conditions.push(
+      inArray(
+        files.id,
+        starredFileIds.map((s) => s.fileId)
+      )
+    );
   }
 
   if (parentId) {
@@ -900,6 +921,13 @@ app.post('/create', async (c) => {
       },
       400
     );
+  }
+
+  if (parentId) {
+    const { hasAccess } = await checkFilePermission(db, parentId, userId, 'write', c.env);
+    if (!hasAccess) {
+      return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权向此目录创建文件' } }, 403);
+    }
   }
 
   const existing = await db
@@ -1349,6 +1377,7 @@ app.put('/:id/content', async (c) => {
       r2Key: newR2Key,
       size: newSize,
       hash: newHash,
+      currentVersion: currentVersion + 1,
       updatedAt: now,
     })
     .where(eq(files.id, fileId));
@@ -1431,6 +1460,14 @@ app.post('/:id/move', async (c) => {
     .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
     .get();
   if (!file) throwAppError('FILE_NOT_FOUND');
+
+  if (targetParentId) {
+    const { hasAccess: targetAccess } = await checkFilePermission(db, targetParentId, userId, 'write', c.env);
+    if (!targetAccess) {
+      return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权向目标目录移动文件' } }, 403);
+    }
+  }
+
   if (file.isFolder && targetParentId) {
     let checkId: string | null = targetParentId;
     while (checkId) {
@@ -1457,8 +1494,26 @@ app.post('/:id/move', async (c) => {
       409
     );
   const now = new Date().toISOString();
+  const oldPath = file.path;
   const newPath = targetParentId ? `${targetParentId}/${file.name}` : `/${file.name}`;
   await db.update(files).set({ parentId: targetParentId, path: newPath, updatedAt: now }).where(eq(files.id, fileId));
+
+  if (file.isFolder) {
+    const folderPath = oldPath.endsWith('/') ? oldPath.slice(0, -1) : oldPath;
+    const allFiles = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
+      .all();
+
+    const childFiles = allFiles.filter((f) => f.id !== fileId && f.path && f.path.startsWith(folderPath + '/'));
+    for (const child of childFiles) {
+      const relativePath = child.path!.slice(folderPath.length);
+      const childNewPath = `${newPath.endsWith('/') ? newPath.slice(0, -1) : newPath}${relativePath}`;
+      await db.update(files).set({ path: childNewPath, updatedAt: now }).where(eq(files.id, child.id));
+    }
+  }
+
   return c.json({ success: true, data: { message: '移动成功' } });
 });
 
@@ -1598,8 +1653,15 @@ app.post('/:id/star', async (c) => {
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
   if (!file) throwAppError('FILE_NOT_FOUND');
 
-  const now = new Date().toISOString();
-  await db.update(files).set({ isStarred: true, updatedAt: now }).where(eq(files.id, fileId));
+  const existing = await db
+    .select()
+    .from(userStars)
+    .where(and(eq(userStars.userId, userId), eq(userStars.fileId, fileId)))
+    .get();
+
+  if (!existing) {
+    await db.insert(userStars).values({ userId, fileId, createdAt: new Date().toISOString() });
+  }
 
   sendNotification(c, {
     userId,
@@ -1629,8 +1691,7 @@ app.delete('/:id/star', async (c) => {
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
   if (!file) throwAppError('FILE_NOT_FOUND');
 
-  const now = new Date().toISOString();
-  await db.update(files).set({ isStarred: false, updatedAt: now }).where(eq(files.id, fileId));
+  await db.delete(userStars).where(and(eq(userStars.userId, userId), eq(userStars.fileId, fileId)));
 
   sendNotification(c, {
     userId,

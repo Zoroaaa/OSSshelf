@@ -27,7 +27,7 @@ import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getRegConfig } from '../lib/utils';
 import { AppError, throwAppError } from '../middleware/error';
 import { createNotification, sendNotification } from '../lib/notificationUtils';
-import { sendEmail, emailTemplates, parseEmailPreferences, shouldSendEmail } from '../lib/emailService';
+import { sendEmail, emailTemplates, parseEmailPreferences, shouldSendEmail, generateVerificationCode } from '../lib/emailService';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -250,31 +250,21 @@ app.post('/register', async (c) => {
 
   // 非首个用户需要邮箱验证
   if (!isFirstUser) {
-    if (!c.env.PUBLIC_URL) {
-      console.error('PUBLIC_URL not configured, cannot send verification email');
-      throwAppError('EMAIL_NOT_CONFIGURED', '邮件服务未配置：缺少PUBLIC_URL');
-    }
-
-    const verifyToken = crypto.randomUUID();
-    const tokenHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifyToken));
-    const tokenHashHex = Array.from(new Uint8Array(tokenHash))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-    const verifyExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const code = generateVerificationCode();
+    const verifyExpiry = new Date(Date.now() + VERIFICATION_CODE_EXPIRY_MINUTES * 60 * 1000).toISOString();
 
     await db.insert(emailTokens).values({
       id: crypto.randomUUID(),
       userId,
       email,
       type: 'verify_email',
-      tokenHash: tokenHashHex,
+      code,
       expiresAt: verifyExpiry,
       createdAt: now,
     });
 
-    const verifyLink = `${c.env.PUBLIC_URL}/verify-email?token=${verifyToken}`;
-    const html = emailTemplates.verifyEmail(name || email, verifyLink);
-    await sendEmail(c.env, email, '验证您的邮箱', html);
+    const html = emailTemplates.verifyEmail(name || email, code, VERIFICATION_CODE_EXPIRY_MINUTES);
+    await sendEmail(c.env, email, '验证您的邮箱 - 验证码', html);
   }
 
   const token = await signJWT({ userId, email, role }, c.env.JWT_SECRET);
@@ -401,6 +391,7 @@ app.post('/login', async (c) => {
         email: user.email,
         name: user.name,
         role: user.role,
+        emailVerified: user.emailVerified,
         storageQuota: user.storageQuota,
         storageUsed: user.storageUsed,
         createdAt: user.createdAt,
@@ -452,6 +443,7 @@ app.get('/me', authMiddleware, async (c) => {
       email: user.email,
       name: user.name,
       role: user.role,
+      emailVerified: user.emailVerified,
       storageQuota: user.storageQuota,
       storageUsed: actualStorageUsed,
       createdAt: user.createdAt,
@@ -798,55 +790,118 @@ app.get('/stats', authMiddleware, async (c) => {
   });
 });
 
-// ── Email Verification ─────────────────────────────────────────────────────
+// ── Email Verification (6位验证码) ──────────────────────────────────────
 
-app.get('/verify-email', async (c) => {
-  const token = c.req.query('token');
-  if (!token) {
-    throwAppError('VALIDATION_ERROR', '缺少验证Token');
+const VERIFICATION_CODE_EXPIRY_MINUTES = 10;
+
+app.post('/verify-code', async (c) => {
+  const body = await c.req.json();
+  const { email, code, type } = body;
+
+  if (!email || !code || !type) {
+    throwAppError('VALIDATION_ERROR', '缺少必要参数');
+  }
+
+  if (!/^\d{6}$/.test(code)) {
+    throwAppError('VALIDATION_ERROR', '验证码格式错误，应为6位数字');
+  }
+
+  const validTypes = ['verify_email', 'reset_password', 'change_email'];
+  if (!validTypes.includes(type)) {
+    throwAppError('VALIDATION_ERROR', '无效的验证类型');
   }
 
   const db = getDb(c.env.DB);
   const now = new Date().toISOString();
 
-  const tokenHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
-  const tokenHashHex = Array.from(new Uint8Array(tokenHash))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-
-  const tokenRecord = await db.select().from(emailTokens).where(eq(emailTokens.tokenHash, tokenHashHex)).get();
+  const tokenRecord = await db
+    .select()
+    .from(emailTokens)
+    .where(and(eq(emailTokens.email, email), eq(emailTokens.code, code), eq(emailTokens.type, type)))
+    .get();
 
   if (!tokenRecord) {
-    throwAppError('EMAIL_TOKEN_INVALID', '验证链接无效');
+    throwAppError('EMAIL_CODE_INVALID', '验证码无效或错误');
   }
 
   if (tokenRecord.usedAt) {
-    throwAppError('EMAIL_TOKEN_USED', '验证链接已使用');
+    throwAppError('EMAIL_CODE_USED', '验证码已使用');
   }
 
   if (new Date(tokenRecord.expiresAt) < new Date(now)) {
-    throwAppError('EMAIL_TOKEN_EXPIRED', '验证链接已过期');
+    throwAppError('EMAIL_CODE_EXPIRED', '验证码已过期，请重新获取');
   }
-
-  await db.update(users).set({ emailVerified: true, updatedAt: now }).where(eq(users.id, tokenRecord.userId));
 
   await db.update(emailTokens).set({ usedAt: now }).where(eq(emailTokens.id, tokenRecord.id));
 
-  await createAuditLog({
-    env: c.env,
-    userId: tokenRecord.userId,
-    action: 'user.update',
-    resourceType: 'user',
-    resourceId: tokenRecord.userId,
-    details: { action: 'verify_email' },
-    ipAddress: getClientIp(c),
-    userAgent: getUserAgent(c),
-  });
+  if (type === 'verify_email') {
+    await db.update(users).set({ emailVerified: true, updatedAt: now }).where(eq(users.id, tokenRecord.userId));
 
-  return c.json({
-    success: true,
-    data: { message: '邮箱验证成功' },
-  });
+    await createAuditLog({
+      env: c.env,
+      userId: tokenRecord.userId,
+      action: 'user.update',
+      resourceType: 'user',
+      resourceId: tokenRecord.userId,
+      details: { action: 'verify_email' },
+      ipAddress: getClientIp(c),
+      userAgent: getUserAgent(c),
+    });
+
+    return c.json({
+      success: true,
+      data: { message: '邮箱验证成功', verified: true },
+    });
+  }
+
+  if (type === 'reset_password') {
+    return c.json({
+      success: true,
+      data: { message: '验证成功，请设置新密码', resetTokenId: tokenRecord.id },
+    });
+  }
+
+  if (type === 'change_email') {
+    const user = await db.select().from(users).where(eq(users.id, tokenRecord.userId)).get();
+    if (!user) {
+      throwAppError('USER_NOT_FOUND');
+    }
+
+    const oldEmail = user.email;
+
+    await db
+      .update(users)
+      .set({ email: tokenRecord.email!, emailVerified: false, updatedAt: now })
+      .where(eq(users.id, tokenRecord.userId));
+
+    const preferences = parseEmailPreferences(user.emailPreferences);
+    if (shouldSendEmail('system', preferences)) {
+      const html = emailTemplates.systemNotify(
+        oldEmail,
+        '邮箱已更换',
+        `您的账户邮箱已从 ${oldEmail} 更换为 ${tokenRecord.email}`
+      );
+      await sendEmail(c.env, oldEmail, '邮箱已更换', html);
+    }
+
+    await createAuditLog({
+      env: c.env,
+      userId: tokenRecord.userId,
+      action: 'user.update',
+      resourceType: 'user',
+      resourceId: tokenRecord.userId,
+      details: { action: 'change_email', oldEmail, newEmail: tokenRecord.email },
+      ipAddress: getClientIp(c),
+      userAgent: getUserAgent(c),
+    });
+
+    return c.json({
+      success: true,
+      data: { message: '邮箱更换成功' },
+    });
+  }
+
+  throwAppError('VALIDATION_ERROR', '无效的验证类型');
 });
 
 app.post('/resend-verification', async (c) => {
@@ -875,38 +930,33 @@ app.post('/resend-verification', async (c) => {
   }
 
   const now = new Date().toISOString();
-  const verifyToken = crypto.randomUUID();
-  const tokenHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifyToken));
-  const tokenHashHex = Array.from(new Uint8Array(tokenHash))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-  const verifyExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const code = generateVerificationCode();
+  const verifyExpiry = new Date(Date.now() + VERIFICATION_CODE_EXPIRY_MINUTES * 60 * 1000).toISOString();
+
+  await db
+    .update(emailTokens)
+    .set({ usedAt: now })
+    .where(and(eq(emailTokens.userId, user.id), eq(emailTokens.type, 'verify_email'), isNull(emailTokens.usedAt)));
 
   await db.insert(emailTokens).values({
     id: crypto.randomUUID(),
     userId: user.id,
     email: user.email,
     type: 'verify_email',
-    tokenHash: tokenHashHex,
+    code,
     expiresAt: verifyExpiry,
     createdAt: now,
   });
 
-  if (!c.env.PUBLIC_URL) {
-    console.error('PUBLIC_URL not configured, cannot send verification email');
-    throwAppError('EMAIL_NOT_CONFIGURED', '邮件服务未配置：缺少PUBLIC_URL');
-  }
-
-  const verifyLink = `${c.env.PUBLIC_URL}/verify-email?token=${verifyToken}`;
-  const html = emailTemplates.verifyEmail(user.name || user.email, verifyLink);
-  await sendEmail(c.env, user.email, '验证您的邮箱', html);
+  const html = emailTemplates.verifyEmail(user.name || user.email, code, VERIFICATION_CODE_EXPIRY_MINUTES);
+  await sendEmail(c.env, user.email, '验证您的邮箱 - 验证码', html);
 
   await c.env.KV.put(rateKey, '1', { expirationTtl: 60 });
 
   return c.json({ success: true, data: { message: '如果邮箱存在，您将收到验证邮件' } });
 });
 
-// ── Password Reset ─────────────────────────────────────────────────────────
+// ── Password Reset (6位验证码) ───────────────────────────────────────────
 
 app.post('/forgot-password', async (c) => {
   const body = await c.req.json();
@@ -914,6 +964,12 @@ app.post('/forgot-password', async (c) => {
 
   if (!email) {
     throwAppError('VALIDATION_ERROR', '请输入邮箱地址');
+  }
+
+  const rateKey = `rate:forgot:${email}`;
+  const rateExists = await c.env.KV.get(rateKey);
+  if (rateExists) {
+    throwAppError('RATE_LIMIT_EXCEEDED', '请等待1分钟后重试');
   }
 
   const db = getDb(c.env.DB);
@@ -924,41 +980,42 @@ app.post('/forgot-password', async (c) => {
   }
 
   const now = new Date().toISOString();
-  const resetToken = crypto.randomUUID();
-  const tokenHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(resetToken));
-  const tokenHashHex = Array.from(new Uint8Array(tokenHash))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-  const resetExpiry = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const code = generateVerificationCode();
+  const resetExpiry = new Date(Date.now() + VERIFICATION_CODE_EXPIRY_MINUTES * 60 * 1000).toISOString();
+
+  await db
+    .update(emailTokens)
+    .set({ usedAt: now })
+    .where(and(eq(emailTokens.userId, user.id), eq(emailTokens.type, 'reset_password'), isNull(emailTokens.usedAt)));
 
   await db.insert(emailTokens).values({
     id: crypto.randomUUID(),
     userId: user.id,
     email: user.email,
     type: 'reset_password',
-    tokenHash: tokenHashHex,
+    code,
     expiresAt: resetExpiry,
     createdAt: now,
   });
 
-  if (!c.env.PUBLIC_URL) {
-    console.error('PUBLIC_URL not configured, cannot send reset password email');
-    throwAppError('EMAIL_NOT_CONFIGURED', '邮件服务未配置：缺少PUBLIC_URL');
-  }
+  const html = emailTemplates.resetPassword(user.name || user.email, code, VERIFICATION_CODE_EXPIRY_MINUTES);
+  await sendEmail(c.env, user.email, '重置您的密码 - 验证码', html);
 
-  const resetLink = `${c.env.PUBLIC_URL}/reset-password?token=${resetToken}`;
-  const html = emailTemplates.resetPassword(user.name || user.email, resetLink);
-  await sendEmail(c.env, user.email, '重置您的密码', html);
+  await c.env.KV.put(rateKey, '1', { expirationTtl: 60 });
 
   return c.json({ success: true, data: { message: '如果邮箱存在，您将收到重置邮件' } });
 });
 
 app.post('/reset-password', async (c) => {
   const body = await c.req.json();
-  const { token, newPassword } = body;
+  const { email, code, newPassword } = body;
 
-  if (!token || !newPassword) {
+  if (!email || !code || !newPassword) {
     throwAppError('VALIDATION_ERROR', '缺少必要参数');
+  }
+
+  if (!/^\d{6}$/.test(code)) {
+    throwAppError('VALIDATION_ERROR', '验证码格式错误，应为6位数字');
   }
 
   if (newPassword.length < 6) {
@@ -968,23 +1025,22 @@ app.post('/reset-password', async (c) => {
   const db = getDb(c.env.DB);
   const now = new Date().toISOString();
 
-  const tokenHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
-  const tokenHashHex = Array.from(new Uint8Array(tokenHash))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  const tokenRecord = await db
+    .select()
+    .from(emailTokens)
+    .where(and(eq(emailTokens.email, email), eq(emailTokens.code, code), eq(emailTokens.type, 'reset_password')))
+    .get();
 
-  const tokenRecord = await db.select().from(emailTokens).where(eq(emailTokens.tokenHash, tokenHashHex)).get();
-
-  if (!tokenRecord || tokenRecord.type !== 'reset_password') {
-    throwAppError('EMAIL_TOKEN_INVALID', '重置链接无效');
+  if (!tokenRecord) {
+    throwAppError('EMAIL_CODE_INVALID', '验证码无效或错误');
   }
 
   if (tokenRecord.usedAt) {
-    throwAppError('EMAIL_TOKEN_USED', '重置链接已使用');
+    throwAppError('EMAIL_CODE_USED', '验证码已使用');
   }
 
   if (new Date(tokenRecord.expiresAt) < new Date(now)) {
-    throwAppError('EMAIL_TOKEN_EXPIRED', '重置链接已过期');
+    throwAppError('EMAIL_CODE_EXPIRED', '验证码已过期，请重新获取');
   }
 
   const passwordHash = await hashPassword(newPassword);
@@ -1020,7 +1076,7 @@ app.post('/reset-password', async (c) => {
   return c.json({ success: true, data: { message: '密码重置成功' } });
 });
 
-// ── Change Email ───────────────────────────────────────────────────────────
+// ── Change Email (6位验证码) ─────────────────────────────────────────────
 
 app.post('/change-email', authMiddleware, async (c) => {
   const userId = c.get('userId')!;
@@ -1049,96 +1105,28 @@ app.post('/change-email', authMiddleware, async (c) => {
   }
 
   const now = new Date().toISOString();
-  const changeToken = crypto.randomUUID();
-  const tokenHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(changeToken));
-  const tokenHashHex = Array.from(new Uint8Array(tokenHash))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-  const changeExpiry = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const code = generateVerificationCode();
+  const changeExpiry = new Date(Date.now() + VERIFICATION_CODE_EXPIRY_MINUTES * 60 * 1000).toISOString();
+
+  await db
+    .update(emailTokens)
+    .set({ usedAt: now })
+    .where(and(eq(emailTokens.userId, userId), eq(emailTokens.type, 'change_email'), isNull(emailTokens.usedAt)));
 
   await db.insert(emailTokens).values({
     id: crypto.randomUUID(),
     userId,
     email: newEmail,
     type: 'change_email',
-    tokenHash: tokenHashHex,
+    code,
     expiresAt: changeExpiry,
     createdAt: now,
   });
 
-  if (!c.env.PUBLIC_URL) {
-    console.error('PUBLIC_URL not configured, cannot send change email confirmation');
-    throwAppError('EMAIL_NOT_CONFIGURED', '邮件服务未配置：缺少PUBLIC_URL');
-  }
+  const html = emailTemplates.changeEmail(user.name || user.email, newEmail, code, VERIFICATION_CODE_EXPIRY_MINUTES);
+  await sendEmail(c.env, newEmail, '确认更换邮箱 - 验证码', html);
 
-  const changeLink = `${c.env.PUBLIC_URL}/confirm-change-email?token=${changeToken}`;
-  const html = emailTemplates.changeEmail(user.name || user.email, newEmail, changeLink);
-  await sendEmail(c.env, newEmail, '确认更换邮箱', html);
-
-  return c.json({ success: true, data: { message: '确认邮件已发送到新邮箱' } });
-});
-
-app.get('/confirm-change-email', async (c) => {
-  const token = c.req.query('token');
-  if (!token) {
-    throwAppError('VALIDATION_ERROR', '缺少验证Token');
-  }
-
-  const db = getDb(c.env.DB);
-  const now = new Date().toISOString();
-
-  const tokenHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
-  const tokenHashHex = Array.from(new Uint8Array(tokenHash))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-
-  const tokenRecord = await db.select().from(emailTokens).where(eq(emailTokens.tokenHash, tokenHashHex)).get();
-
-  if (!tokenRecord || tokenRecord.type !== 'change_email') {
-    throwAppError('EMAIL_TOKEN_INVALID', '验证链接无效');
-  }
-
-  if (tokenRecord.usedAt) {
-    throwAppError('EMAIL_TOKEN_USED', '验证链接已使用');
-  }
-
-  if (new Date(tokenRecord.expiresAt) < new Date(now)) {
-    throwAppError('EMAIL_TOKEN_EXPIRED', '验证链接已过期');
-  }
-
-  const user = await db.select().from(users).where(eq(users.id, tokenRecord.userId)).get();
-  if (!user) {
-    throwAppError('USER_NOT_FOUND');
-  }
-
-  const oldEmail = user.email;
-
-  await db.update(users).set({ email: tokenRecord.email!, updatedAt: now }).where(eq(users.id, tokenRecord.userId));
-
-  await db.update(emailTokens).set({ usedAt: now }).where(eq(emailTokens.id, tokenRecord.id));
-
-  const preferences = parseEmailPreferences(user.emailPreferences);
-  if (shouldSendEmail('system', preferences)) {
-    const html = emailTemplates.systemNotify(
-      oldEmail,
-      '邮箱已更换',
-      `您的账户邮箱已从 ${oldEmail} 更换为 ${tokenRecord.email}`
-    );
-    await sendEmail(c.env, oldEmail, '邮箱已更换', html);
-  }
-
-  await createAuditLog({
-    env: c.env,
-    userId: tokenRecord.userId,
-    action: 'user.update',
-    resourceType: 'user',
-    resourceId: tokenRecord.userId,
-    details: { action: 'change_email', oldEmail, newEmail: tokenRecord.email },
-    ipAddress: getClientIp(c),
-    userAgent: getUserAgent(c),
-  });
-
-  return c.json({ success: true, data: { message: '邮箱更换成功' } });
+  return c.json({ success: true, data: { message: '验证码已发送到新邮箱' } });
 });
 
 // ── Email Preferences ─────────────────────────────────────────────────────

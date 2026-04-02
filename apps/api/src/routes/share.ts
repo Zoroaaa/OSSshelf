@@ -1403,7 +1403,7 @@ app.post('/upload/:token', async (c) => {
   // 更新上传链接计数
   await db
     .update(shares)
-    .set({ uploadCount: share.uploadCount + 1 })
+    .set({ uploadCount: sql`${shares.uploadCount} + 1` })
     .where(eq(shares.id, share.id));
 
   c.executionCtx.waitUntil(
