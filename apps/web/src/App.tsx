@@ -15,6 +15,9 @@ import MainLayout from './components/layouts/MainLayout';
 import AuthLayout from './components/layouts/AuthLayout';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import VerifyEmail from './pages/VerifyEmail';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import Files from './pages/Files';
 import Shares from './pages/Shares';
@@ -57,7 +60,12 @@ function App() {
       <Route element={<AuthLayout />}>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
       </Route>
+
+      {/* Email verification (public) */}
+      <Route path="/verify-email" element={<VerifyEmail />} />
 
       {/* Public share page & upload link */}
       <Route path="/share/:shareId" element={<SharePage />} />

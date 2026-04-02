@@ -9,7 +9,6 @@
 
 import React from 'react';
 import { X, Eye, Edit, Crown, Folder, FileText, Share2, Trash2, Download, Upload, Settings, Users } from 'lucide-react';
-import { cn } from '@/utils';
 
 interface PermissionHelpDialogProps {
   onClose: () => void;

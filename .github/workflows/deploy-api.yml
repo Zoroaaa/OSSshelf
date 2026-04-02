@@ -84,6 +84,7 @@ jobs:
           [vars]
           ENVIRONMENT = "production"
           JWT_SECRET = "${{ secrets.JWT_SECRET }}"
+          PUBLIC_URL = "${{ secrets.PUBLIC_URL }}"
           CORS_ORIGINS = "${{ secrets.CORS_ORIGINS }}"
           TRASH_RETENTION_DAYS = "${{ secrets.TRASH_RETENTION_DAYS || '30' }}"
           ALERT_TG_BOT_TOKEN = "${{ secrets.ALERT_TG_BOT_TOKEN }}"

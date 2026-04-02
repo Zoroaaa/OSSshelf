@@ -27,7 +27,6 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { X, Download, FileText, ZoomIn, ZoomOut, Maximize2, Minimize2, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { FileIcon } from '@/components/files/FileIcon';
-import { shareApi } from '@/services/api';
 import { formatBytes, decodeFileName } from '@/utils';
 import { cn } from '@/utils';
 

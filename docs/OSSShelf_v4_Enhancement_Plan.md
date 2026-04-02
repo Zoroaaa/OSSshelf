@@ -1,920 +1,761 @@
 # OSSShelf v4.0 增强优化方案
 
-> 基于对当前代码库（schema、routes、lib、前端组件）的完整审阅，针对五大核心方向及补充改善提出可落地执行方案。
+> 基于对 v3.8.0 代码库的完整审阅，针对三大核心方向提出可落地执行方案：邮件通知集成、双因素认证、React Native 移动端 App。
 
 ---
 
 ## 目录
 
 1. [现状诊断总结](#0-现状诊断总结)
-2. [备忘录与笔记功能深化](#1-备忘录与笔记功能深化)
-3. [文件夹/文件权限管控深化](#2-文件夹文件权限管控深化)
-4. [文件版本控制优化](#3-文件版本控制优化)
-5. [API 驱动：RESTful 开放 API](#4-api-驱动restful-开放-api)
-6. [智能化体验：Cloudflare Workers AI](#5-智能化体验cloudflare-workers-ai)
-7. [其他质量提升补充](#6-其他质量提升补充)
-8. [综合执行大纲](#7-综合执行大纲)
+2. [邮件通知：Resend 集成](#1-邮件通知resend-集成)
+3. [安全加固：双因素认证（TOTP）](#2-安全加固双因素认证totp)
+4. [移动端：React Native App](#3-移动端react-native-app)
+5. [综合执行大纲](#4-综合执行大纲)
 
 ---
 
 ## 0. 现状诊断总结
 
-| 模块            | 现状评估                                                                                                          | 主要问题                                                                                                                               |
-| --------------- | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| **备忘录/笔记** | 几乎缺失。`storageBuckets.notes` 仅有桶级备注，文件/文件夹无任何 memo 字段                                        | 零功能，需从头建设                                                                                                                     |
-| **权限管控**    | 有 `filePermissions` 表（read/write/admin），支持文件夹递归授权                                                   | 无组/角色概念；权限继承依赖路径前缀字符串比较，脆弱；无时效性/条件权限                                                                 |
-| **版本控制**    | `fileVersions` 表已建，支持查询/回滚/下载/删除；Restore 逻辑为"复制旧版本 r2Key 创建新版本号"，基于 ref_count CoW | 版本触发点不明确（何时自动创建新版本？）；版本清理 cron 未见实现；`maxVersions` 限制检查缺失；版本 diff 无法比较；文件夹版本完全不支持 |
-| **API 开放**    | 所有路由需 JWT auth，无 API Key 机制，无速率限制，无版本号，无 OpenAPI 文档                                       | 对第三方集成极不友好                                                                                                                   |
-| **AI 智能化**   | 无任何 AI 功能                                                                                                    | 空白，有大量发挥空间                                                                                                                   |
-| **整体架构**    | Hono + D1 + R2/S3 + KV，monorepo，已有 audit、dedup、WebDAV                                                       | 搜索为 LIKE 查询，无全文索引；无通知系统；无文件内容预处理管道                                                                         |
+| 模块 | 现状评估 | 主要问题 |
+| --- | --- | --- |
+| **邮件通知** | 纯站内通知系统（v3.8.0），用户离线时无任何触达手段 | 注册无验证邮件；忘记密码无重置流程（依赖管理员手动操作）；更换邮箱/密码无安全确认；系统通知无邮件推送 |
+| **账户安全** | JWT + bcrypt，登录限流 5 次/15 分钟，API Key scope 控制 | 无第二因素认证；账号被盗后无任何阻断机制 |
+| **移动端** | Web 已做响应式优化（v3.7.0），MobileBottomNav 等组件 | 无原生 App；无系统相册直传；无后台下载；无离线缓存；无推送通知；Web 在移动端体验受浏览器限制 |
 
 ---
 
-## 1. 备忘录与笔记功能深化
+## 1. 邮件通知：Resend 集成
 
 ### 1.1 需求定位
 
-当前 `storageBuckets` 有一个简单 `notes` text 字段，但文件、文件夹均无任何 memo/annotation 机制。需要建设一套支持 **文件级笔记、文件夹级笔记、富文本内容、版本历史、@提及** 的完整备忘录系统。
+当前用户注册后直接激活，无邮件验证；忘记密码需管理员介入；更换邮箱/密码无安全二次确认；站内通知用户不打开应用就看不到。以上问题的根因都是缺少邮件通道。
 
 ### 1.2 数据库结构
 
 ```sql
--- migration: 0010_notes.sql
+-- migration: 0017_email.sql
 
-CREATE TABLE IF NOT EXISTS file_notes (
+-- 邮件验证 Token（注册验证、密码重置、邮箱更换）
+CREATE TABLE IF NOT EXISTS email_tokens (
   id          TEXT PRIMARY KEY,
-  file_id     TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
-  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  content     TEXT NOT NULL,          -- Markdown 原文
-  content_html TEXT,                  -- 预渲染 HTML（由 Worker AI 或服务端生成）
-  is_pinned   INTEGER NOT NULL DEFAULT 0,
-  version     INTEGER NOT NULL DEFAULT 1,
-  parent_id   TEXT REFERENCES file_notes(id),   -- 支持回复/线程
-  created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  deleted_at  TEXT
-);
-
-CREATE INDEX idx_file_notes_file    ON file_notes(file_id, deleted_at, created_at DESC);
-CREATE INDEX idx_file_notes_user    ON file_notes(user_id, created_at DESC);
-CREATE INDEX idx_file_notes_pinned  ON file_notes(file_id, is_pinned);
-
--- 笔记版本历史（轻量快照）
-CREATE TABLE IF NOT EXISTS file_note_history (
-  id        TEXT PRIMARY KEY,
-  note_id   TEXT NOT NULL REFERENCES file_notes(id) ON DELETE CASCADE,
-  content   TEXT NOT NULL,
-  version   INTEGER NOT NULL,
-  edited_by TEXT REFERENCES users(id),
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
--- 笔记 @提及
-CREATE TABLE IF NOT EXISTS note_mentions (
-  id       TEXT PRIMARY KEY,
-  note_id  TEXT NOT NULL REFERENCES file_notes(id) ON DELETE CASCADE,
-  user_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  is_read  INTEGER NOT NULL DEFAULT 0,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_note_mentions_user ON note_mentions(user_id, is_read);
-
--- files 表新增字段
-ALTER TABLE files ADD COLUMN description TEXT;           -- 一行简介（用于搜索/预览）
-ALTER TABLE files ADD COLUMN note_count INTEGER DEFAULT 0; -- 缓存笔记数
-```
-
-### 1.3 后端路由结构
-
-```
-apps/api/src/routes/notes.ts
-
-GET    /api/notes/:fileId           -- 获取文件所有笔记（支持分页、排序）
-POST   /api/notes/:fileId           -- 新建笔记
-PUT    /api/notes/:fileId/:noteId   -- 编辑笔记（自动追加历史快照）
-DELETE /api/notes/:fileId/:noteId   -- 软删除
-GET    /api/notes/:fileId/:noteId/history  -- 查看编辑历史
-POST   /api/notes/:fileId/:noteId/pin      -- 置顶/取消置顶
-GET    /api/notes/mentions/unread   -- 获取未读 @提及
-PUT    /api/notes/mentions/:id/read -- 标为已读
-```
-
-### 1.4 前端组件规划
-
-```
-apps/web/src/components/notes/
-├── NotePanel.tsx          -- 右侧抽屉/面板，与 FilePreview 并列
-├── NoteEditor.tsx         -- Markdown 编辑器（推荐 @uiw/react-md-editor，轻量）
-├── NoteThread.tsx         -- 线程视图（主笔记 + 回复列表）
-├── NoteCard.tsx           -- 单条笔记卡片，含置顶标记、时间、操作
-├── MentionBadge.tsx       -- 顶部导航未读提醒
-└── NoteHistoryDialog.tsx  -- 历史版本对比 diff 视图
-```
-
-### 1.5 关键实现要点
-
-- **Markdown 安全渲染**：服务端用 `unified + remark-parse + rehype-sanitize` 预处理，结果存 `content_html`，前端直接渲染，避免 XSS
-- **@提及解析**：POST/PUT 时正则扫描 `@username`，查用户表，批量写 `note_mentions`
-- **files.note_count 维护**：通过 trigger 或在 notes 路由中手动 `+1/-1`（D1 无 trigger，选后者）
-- **笔记搜索集成**：`/api/search` 增加 `includeNotes: boolean` 参数，LIKE 扫描 `file_notes.content`
-
----
-
-## 2. 文件夹/文件权限管控深化
-
-### 2.1 现状问题分析
-
-当前权限系统的核心问题：
-
-1. **无组/角色层**：每次授权都是"用户 → 文件"的点对点关系，管理 N 个用户 × M 个文件夹复杂度是 O(N×M)
-2. **文件夹递归授权脆弱**：`/grant` 路由通过 `path.startsWith(folderPath + '/')` 字符串匹配子文件，路径变更即失效
-3. **无继承模型**：子文件夹无法从父文件夹继承权限，子文件授权状态与父级解耦
-4. **无时效/条件权限**：不支持"只读 7 天"、"仅在 IP 范围内有效"等场景
-5. **Permission check 是逐文件查询**：`checkFilePermission` 在循环中会产生 N+1
-
-### 2.2 重新设计：RBAC + 继承链
-
-#### 数据库结构
-
-```sql
--- migration: 0011_permission_v2.sql
-
--- 用户组
-CREATE TABLE IF NOT EXISTS user_groups (
-  id          TEXT PRIMARY KEY,
-  owner_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  name        TEXT NOT NULL,
-  description TEXT,
+  user_id     TEXT REFERENCES users(id) ON DELETE CASCADE,
+  email       TEXT NOT NULL,          -- 目标邮箱（更换邮箱时为新邮箱）
+  type        TEXT NOT NULL,          -- verify_email | reset_password | change_email
+  token_hash  TEXT NOT NULL UNIQUE,   -- SHA-256(token)，明文仅在邮件中出现一次
+  expires_at  TEXT NOT NULL,
+  used_at     TEXT,
   created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX idx_email_tokens_user    ON email_tokens(user_id, type);
+CREATE INDEX idx_email_tokens_expires ON email_tokens(expires_at);
 
--- 组成员
-CREATE TABLE IF NOT EXISTS group_members (
-  id        TEXT PRIMARY KEY,
-  group_id  TEXT NOT NULL REFERENCES user_groups(id) ON DELETE CASCADE,
-  user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  role      TEXT NOT NULL DEFAULT 'member',  -- member | admin
-  added_by  TEXT REFERENCES users(id),
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(group_id, user_id)
-);
-CREATE INDEX idx_group_members_user  ON group_members(user_id);
-CREATE INDEX idx_group_members_group ON group_members(group_id);
-
--- 权限记录 v2（替换现有 filePermissions）
--- 支持 subject_type: user | group
--- 支持 scope: explicit | inherited
--- 支持过期时间
-ALTER TABLE file_permissions ADD COLUMN subject_type TEXT NOT NULL DEFAULT 'user';
-ALTER TABLE file_permissions ADD COLUMN group_id TEXT REFERENCES user_groups(id) ON DELETE CASCADE;
-ALTER TABLE file_permissions ADD COLUMN expires_at TEXT;
-ALTER TABLE file_permissions ADD COLUMN inherit_to_children INTEGER NOT NULL DEFAULT 1;
-ALTER TABLE file_permissions ADD COLUMN scope TEXT NOT NULL DEFAULT 'explicit'; -- explicit | inherited
-ALTER TABLE file_permissions ADD COLUMN source_permission_id TEXT REFERENCES file_permissions(id);
-
-CREATE INDEX idx_file_permissions_group   ON file_permissions(group_id);
-CREATE INDEX idx_file_permissions_expires ON file_permissions(expires_at);
+-- users 表新增字段
+ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN email_preferences TEXT NOT NULL DEFAULT '{}';
+-- email_preferences JSON:
+-- { mention: true, share_received: true, quota_warning: true, security_alert: true, system: true }
 ```
 
-#### 权限解析算法（`lib/permissionResolver.ts`）
+### 1.3 邮件服务封装
 
 ```typescript
-// 优先级：显式权限 > 继承权限；用户权限 > 组权限
-// 步骤：
-// 1. 查当前文件的显式 user 权限
-// 2. 查当前文件的显式 group 权限（需先查用户所在组）
-// 3. 沿 parentId 链向上遍历（最多 N 层），查 inherit_to_children=1 的权限
-// 4. 取最高级别
-export async function resolveEffectivePermission(
-  db: DrizzleDb,
-  fileId: string,
-  userId: string,
-  requiredLevel: PermissionLevel
-): Promise<PermissionResolution>;
-```
+// apps/api/src/lib/emailService.ts
 
-关键优化：用 **递归 CTE** 一次性查整条祖先链，避免逐层 round-trip：
+interface ResendConfig {
+  apiKey: string;
+  fromAddress: string;   // 如 noreply@mail.yourdomain.com
+  fromName: string;      // 如 OSSShelf
+}
 
-```sql
-WITH RECURSIVE ancestors AS (
-  SELECT id, parent_id, 0 AS depth FROM files WHERE id = ?
-  UNION ALL
-  SELECT f.id, f.parent_id, a.depth + 1
-  FROM files f JOIN ancestors a ON f.id = a.parent_id
-  WHERE a.depth < 10
-)
-SELECT fp.* FROM file_permissions fp
-JOIN ancestors a ON fp.file_id = a.id
-WHERE (fp.user_id = ? OR fp.group_id IN (...))
-  AND (fp.expires_at IS NULL OR fp.expires_at > CURRENT_TIMESTAMP)
-ORDER BY a.depth ASC, fp.permission DESC
-LIMIT 1;
-```
+// 配置存 KV key: "config:resend"，支持管理面板热更新，无需重部署
+export async function getResendConfig(kv: KVNamespace): Promise<ResendConfig | null>;
 
-### 2.3 权限事件传播
-
-取消原有"授权时批量写子文件"的做法（O(n) 写入，且文件增删后失效），改为：
-
-- **读时解析**（lazy resolution）：`resolveEffectivePermission` 实时沿继承链查询
-- **缓存层**：结果写入 KV，key = `perm:${fileId}:${userId}`，TTL 5 分钟
-- **失效策略**：文件夹权限变更时，通过 `invalidatePermissionCache(folderId)` 批量删除 KV 前缀
-
-### 2.4 前端权限管理 UI
-
-```
-apps/web/src/components/permissions/
-├── PermissionPanel.tsx       -- 整体面板，tab: 用户 / 组 / 继承来源
-├── UserPermissionList.tsx    -- 直接授权的用户列表
-├── GroupManager.tsx          -- 创建/管理用户组
-├── PermissionGrantDialog.tsx -- 授权弹窗（支持选用户/组、级别、过期时间）
-├── InheritedPermBadge.tsx    -- 显示"继承自 /parent/folder"的来源提示
-└── PermissionAuditLog.tsx    -- 权限操作历史（复用 auditLogs）
-```
-
----
-
-## 3. 文件版本控制优化
-
-### 3.1 现有实现评估
-
-**合理之处：**
-
-- `fileVersions` 表结构合理，`ref_count` + CoW 实现去重存储，避免同一内容多份存储
-- Restore 逻辑正确：将旧版本 r2Key 创建为新的最高版本号（非原地覆盖），保留完整历史
-- `maxVersions` / `versionRetentionDays` 配置放在 files 表，支持文件级独立配置
-
-**问题：**
-
-| 问题                       | 严重性  | 说明                                                                         |
-| -------------------------- | ------- | ---------------------------------------------------------------------------- |
-| **版本创建时机不明确**     | 🔴 严重 | 现有 `files.ts` PUT 逻辑未见自动创建版本快照的代码，版本功能实质上是"手动"的 |
-| **maxVersions 限制未执行** | 🔴 严重 | 版本数超限时没有自动裁剪旧版本的逻辑                                         |
-| **版本 cron 清理未实现**   | 🟡 中   | `versionRetentionDays` 字段存在但 `cleanup.ts` 中无对应 job                  |
-| **孤儿版本 r2Key 泄漏**    | 🟡 中   | 删除版本时仅更新 `ref_count`，`ref_count` 降为 0 后不一定及时从 R2 删除      |
-| **版本 diff 无法比较**     | 🟠 低   | 文本文件无增量 diff，用户只能逐版本下载对比                                  |
-| **文件夹无版本支持**       | 🟠 低   | `FOLDER_VERSION_NOT_SUPPORTED` 是直接报错，无快照机制                        |
-
-### 3.2 修复方案
-
-#### 3.2.1 版本自动触发（核心修复）
-
-在 `files.ts` 的文件更新路由中，增加版本快照逻辑：
-
-```typescript
-// lib/versionManager.ts
-export async function createVersionSnapshot(
-  db: DrizzleDb,
+export async function sendEmail(
   env: Env,
-  file: File,
-  options: { changeSummary?: string; createdBy: string }
-): Promise<void> {
-  // 1. 如果 hash 相同，跳过（内容未变）
-  // 2. 检查现有版本数，超过 maxVersions 则先裁剪最老版本
-  // 3. 写入 fileVersions 记录
-  // 4. 更新 files.currentVersion
+  to: string,
+  subject: string,
+  html: string
+): Promise<{ success: boolean; error?: string }> {
+  const config = await getResendConfig(env.KV);
+  if (!config) return { success: false, error: 'Email not configured' };
+
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: `${config.fromName} <${config.fromAddress}>`,
+      to,
+      subject,
+      html,
+    }),
+  });
+  return { success: res.ok };
 }
 
-export async function pruneExcessVersions(db: DrizzleDb, env: Env, fileId: string, maxVersions: number): Promise<void> {
-  // 查最老的超量版本 → 递减 ref_count → ref_count=0 则加入 R2 删除队列
-}
-```
-
-触发时机：
-
-- 直接上传（`PUT /api/files/:id` 替换内容时）
-- 预签名上传完成回调
-- WebDAV PUT
-
-#### 3.2.2 版本清理 Cron Job
-
-在 `cleanup.ts` 新增：
-
-```typescript
-export async function cleanExpiredVersions(env: Env): Promise<CleanupResult> {
-  // 1. 查 versionRetentionDays 过期的 fileVersions
-  //    WHERE created_at < datetime('now', '-' || f.version_retention_days || ' days')
-  // 2. 对每个过期版本：ref_count-- → 若 =0 则 s3Delete(r2Key)
-  // 3. DELETE from fileVersions WHERE id IN (...)
-}
-```
-
-#### 3.2.3 文本文件 Diff 预览
-
-对 `text/*` 和 `application/json` 类 MIME，版本下载时可在 preview 路由中加一个 diff 端点：
-
-```
-GET /api/versions/:fileId/diff?from=3&to=5
-```
-
-使用 `diff` npm 包（pure JS，兼容 Workers）计算 unified diff，返回给前端渲染高亮。
-
-#### 3.2.4 文件夹快照（轻量方案）
-
-文件夹快照不存储实际内容，只记录"时间点的子树清单"：
-
-```sql
-CREATE TABLE IF NOT EXISTS folder_snapshots (
-  id          TEXT PRIMARY KEY,
-  folder_id   TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
-  snapshot    TEXT NOT NULL,  -- JSON: [{id, name, path, hash, size}]
-  label       TEXT,
-  created_by  TEXT REFERENCES users(id),
-  created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-可用于恢复时对比"哪些文件在这个时间点存在"，不涉及 R2 存储。
-
----
-
-## 4. API 驱动：RESTful 开放 API
-
-### 4.1 现状问题
-
-目前所有接口仅支持 JWT（用户会话 Token），没有适合程序调用的 API Key 机制，也无速率限制和 OpenAPI 文档。第三方工具（CLI、CI/CD、n8n、Zapier）无法安全集成。
-
-### 4.2 API Key 机制
-
-#### 数据库结构
-
-```sql
--- migration: 0012_api_keys.sql
-CREATE TABLE IF NOT EXISTS api_keys (
-  id          TEXT PRIMARY KEY,
-  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  name        TEXT NOT NULL,
-  key_hash    TEXT NOT NULL UNIQUE,   -- SHA-256(key)，明文只在创建时返回一次
-  key_prefix  TEXT NOT NULL,          -- 展示用，如 "osk_live_abc123..."
-  scopes      TEXT NOT NULL,          -- JSON array: ["files:read","files:write","shares:read"]
-  last_used_at TEXT,
-  expires_at  TEXT,
-  is_active   INTEGER NOT NULL DEFAULT 1,
-  created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_api_keys_user   ON api_keys(user_id, is_active);
-CREATE INDEX idx_api_keys_prefix ON api_keys(key_prefix);
-```
-
-#### Scope 设计
-
-```
-files:read        -- 列出、下载、搜索文件
-files:write       -- 上传、修改、删除文件
-shares:read       -- 查看分享
-shares:write      -- 创建/删除分享
-buckets:read      -- 查看存储桶配置
-admin:read        -- 管理员查询（仅 admin 角色可授予）
-```
-
-#### 认证中间件扩展
-
-```typescript
-// middleware/auth.ts - 扩展
-// 优先检查 Authorization: Bearer <jwt>
-// 其次检查 Authorization: ApiKey osk_live_xxxx
-// 或 X-API-Key: osk_live_xxxx header
-
-export const apiKeyMiddleware = async (c, next) => {
-  const apiKey = c.req.header('X-API-Key') || extractApiKeyFromBearer(c);
-  if (apiKey) {
-    const hash = await sha256(apiKey);
-    const keyRecord = await db.select()...where(eq(api_keys.key_hash, hash)).get();
-    // 验证、检查过期、检查 scope、更新 last_used_at
-  }
+// 邮件模板函数（返回 HTML 字符串，统一品牌样式）
+export const emailTemplates = {
+  verifyEmail:     (name: string, link: string) => string,
+  resetPassword:   (name: string, link: string) => string,
+  changeEmail:     (name: string, newEmail: string, link: string) => string,
+  passwordChanged: (name: string, ip: string, time: string) => string,
+  systemNotify:    (name: string, title: string, body: string, link?: string) => string,
 };
 ```
 
-### 4.3 速率限制
+### 1.4 后端路由结构
 
-利用已有的 KV binding 实现滑动窗口限流：
+**注册验证**
+
+```
+POST /api/auth/register
+  → 创建用户（email_verified=0）
+  → 生成 verify token（TTL 24h）
+  → 发送验证邮件
+  → 返回 { requireEmailVerification: true }
+
+GET  /api/auth/verify-email?token=xxx
+  → 验证 token → 设置 email_verified=1 → 返回成功
+
+POST /api/auth/resend-verification
+  → 限流：同邮箱 1 分钟内只能发 1 次（KV 控制）
+  → 重新发送验证邮件
+```
+
+**未验证用户限制**：登录后若 `email_verified=0`，前端展示验证提示横幅，核心功能（上传、分享）受限，但可以浏览文件。
+
+**忘记密码**
+
+```
+POST /api/auth/forgot-password { email }
+  → 查用户 → 生成 reset token（TTL 1h）
+  → 发送重置邮件（含链接 /reset-password?token=xxx）
+  → 无论邮箱是否存在，始终返回 200（防止邮箱枚举）
+
+POST /api/auth/reset-password { token, newPassword }
+  → 验证 token → 更新密码 → 标记 token 已使用
+  → 发送「密码已更改」安全通知邮件
+  → 使该用户所有现有 JWT 失效（users 表加 password_changed_at，JWT 验证时比对）
+```
+
+**更换邮箱**
+
+```
+POST /api/auth/change-email { newEmail, password }
+  → 验证当前密码
+  → 检查 newEmail 未被其他账号占用
+  → 生成 change_email token（TTL 1h），绑定 newEmail
+  → 向 newEmail 发送确认邮件
+
+GET  /api/auth/confirm-change-email?token=xxx
+  → 验证 token → 更新 users.email → 发送「邮箱已更改」通知到旧邮箱
+```
+
+**更换密码**
+
+```
+POST /api/auth/change-password { currentPassword, newPassword }
+  → 验证 currentPassword
+  → 更新密码 + 更新 password_changed_at
+  → 发送「密码已更改」安全通知邮件（含 IP、时间）
+```
+
+**系统通知邮件**
+
+复用现有 `createNotification()` 函数，在写入 `notifications` 表后，同步检查用户 `email_preferences`，若对应类型开启则调用 `sendEmail()`：
 
 ```typescript
-// lib/rateLimit.ts
-export async function checkRateLimit(
-  kv: KVNamespace,
-  key: string, // api_key_id 或 user_id 或 ip
-  limit: number, // 默认 1000 req/hour
-  windowMs: number
-): Promise<{ allowed: boolean; remaining: number; resetAt: number }>;
-
-// 在 /api/v1/* 路由挂载
-app.use('/api/v1/*', rateLimitMiddleware({ limit: 1000, window: 3600_000 }));
-```
-
-### 4.4 API 版本化与路由结构
-
-```
-/api/v1/
-├── files/
-│   ├── GET    /                  -- 列出文件（支持 path= 参数）
-│   ├── POST   /upload            -- 直接上传（multipart）
-│   ├── GET    /:id               -- 文件元数据
-│   ├── GET    /:id/download      -- 下载
-│   ├── DELETE /:id               -- 删除
-│   └── GET    /:id/versions      -- 版本列表
-├── folders/
-│   ├── POST   /                  -- 创建文件夹
-│   └── GET    /:id/tree          -- 子树列表
-├── shares/
-│   ├── POST   /                  -- 创建分享链接
-│   └── DELETE /:id               -- 撤销分享
-├── search/
-│   └── GET    /                  -- 全文搜索
-└── me/
-    └── GET    /                  -- 当前用户信息 + 配额
-```
-
-### 4.5 OpenAPI / Swagger 文档
-
-使用 `@hono/zod-openapi` 替换现有的 zod 手动 parse 方式：
-
-```typescript
-import { createRoute, OpenAPIHono } from '@hono/zod-openapi';
-// 路由定义同时即是文档，零额外维护成本
-
-// 自动生成 /api/v1/openapi.json
-// 挂载 Swagger UI 在 /api/v1/docs
-app.doc('/api/v1/openapi.json', { openapi: '3.1.0', info: { title: 'OSSShelf API', version: '1.0.0' } });
-```
-
-### 4.6 Webhook 通知
-
-支持第三方系统订阅文件事件：
-
-```sql
-CREATE TABLE IF NOT EXISTS webhooks (
-  id          TEXT PRIMARY KEY,
-  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  url         TEXT NOT NULL,
-  secret      TEXT NOT NULL,    -- HMAC 签名密钥
-  events      TEXT NOT NULL,    -- JSON: ["file.uploaded","file.deleted","share.created"]
-  is_active   INTEGER NOT NULL DEFAULT 1,
-  last_status INTEGER,
-  created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-事件分发在各路由操作完成后，通过 `ctx.waitUntil(dispatchWebhook(...))` 异步执行，不阻塞响应。
-
----
-
-## 5. 智能化体验：Cloudflare Workers AI
-
-### 5.1 可用能力评估
-
-Workers AI 在 OSSShelf 场景下最有价值的模型：
-
-| 模型                             | 用途                       | 延迟   |
-| -------------------------------- | -------------------------- | ------ |
-| `@cf/meta/llama-3.1-8b-instruct` | 文件总结、智能重命名、问答 | ~1-3s  |
-| `@cf/baai/bge-base-en-v1.5`      | 文本向量化（语义搜索）     | ~100ms |
-| `@cf/microsoft/resnet-50`        | 图片分类标签               | ~200ms |
-| `@cf/openai/whisper`             | 音频/视频转文字            | ~5-30s |
-| `@cf/llava-hf/llava-1.5-7b-hf`   | 图片内容理解               | ~2-5s  |
-
-### 5.2 功能一：语义搜索（核心，强烈推荐）
-
-当前搜索是 `LIKE '%keyword%'`，无法处理同义词、模糊描述。
-
-**实现方案：**
-
-```
-1. 文件上传/修改后（异步，waitUntil）：
-   - 提取文件名、description、笔记内容 → 合并为 text
-   - 调用 bge-base 生成 embedding（768维 float32）
-   - 存入 Vectorize index（Cloudflare 托管向量数据库）
-
-2. 搜索时：
-   - 同时发起：① 现有 LIKE 关键词搜索  ② Vectorize ANN 查询
-   - 合并结果，向量结果赋予相似度分数
-   - 返回混合排序结果
-```
-
-```typescript
-// lib/vectorIndex.ts
-export async function indexFileVector(env: Env, file: File, notes: string[]): Promise<void> {
-  const text = [file.name, file.description, ...notes].filter(Boolean).join('\n');
-  const { data } = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: [text] });
-  await env.VECTORIZE.upsert([
-    {
-      id: file.id,
-      values: data[0],
-      metadata: { userId: file.userId, mimeType: file.mimeType },
-    },
-  ]);
-}
-
-// wrangler.toml 新增：
-// [[vectorize]]
-// binding = "VECTORIZE"
-// index_name = "ossshelf-files"
-// dimensions = 768
-// metric = "cosine"
-```
-
-### 5.3 功能二：文件内容 AI 总结
-
-针对文本文件（txt/md/pdf 预览内容）和图片，生成智能摘要：
-
-```
-GET /api/ai/summarize/:fileId
-```
-
-```typescript
-// 文本文件
-const textContent = await fetchFileText(env, file); // 截取前 4096 字符
-const summary = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-  messages: [
-    { role: 'system', content: '你是文件助手，用3句话概括文件内容。' },
-    { role: 'user', content: textContent },
-  ],
-  max_tokens: 200,
-});
-// 缓存到 KV，TTL 24h，key = `ai:summary:${file.id}:${file.hash}`
-
-// 图片文件
-const imgBase64 = await fetchImageBase64(env, file);
-const caption = await env.AI.run('@cf/llava-hf/llava-1.5-7b-hf', {
-  image: imgBase64,
-  prompt: '描述这张图片的主要内容，用于文件管理系统的搜索标签。',
-});
-```
-
-结果存入 `files.description` 字段（用户可手动覆盖）。
-
-### 5.4 功能三：图片自动标签
-
-```typescript
-// 图片上传完成后 waitUntil
-const result = await env.AI.run('@cf/microsoft/resnet-50', {
-  image: [...imageBytes],
-});
-// result.label 如 "document, spreadsheet" 自动写入 fileTags
-```
-
-### 5.5 功能四：智能重命名建议
-
-上传时文件名为 `IMG_20240315_143022.jpg` 类的场景：
-
-```
-POST /api/ai/rename-suggest
-{ "fileId": "xxx" }
-→ { "suggestions": ["合同签署现场照片", "办公室会议记录", "产品原型截图"] }
-```
-
-结合图片理解模型分析图片内容，给出3个命名建议，用户一键采纳。
-
-### 5.6 功能五：对话式文件问答（进阶）
-
-```
-POST /api/ai/chat
-{
-  "fileId": "xxx",
-  "message": "这份合同的付款条款是什么？"
+// lib/notificationService.ts（现有逻辑扩展）
+export async function createNotification(env, userId, type, title, body, data?) {
+  // 1. 写入 notifications 表（现有逻辑）
+  // 2. 查用户 email_preferences + email
+  // 3. 若对应 type 已开启 → sendEmail（ctx.waitUntil，不阻塞响应）
 }
 ```
 
-流程：提取文件文本 → RAG（Vectorize 检索相关段落）→ LLM 回答。适用于 PDF/文档类文件。
+触发邮件通知的系统事件（用户可在个人设置中逐项开关）：
 
-### 5.7 Workers AI 配置补充
+| 事件 | 默认开启 |
+| --- | --- |
+| 被 @提及 | ✅ |
+| 收到文件分享 | ✅ |
+| 存储配额超过 90% | ✅ |
+| 安全告警（密码/邮箱变更） | ✅（不可关闭） |
+| AI 处理完成 | ❌ |
+| 系统公告（管理员群发） | ✅ |
 
-```toml
-# wrangler.toml 新增
-[ai]
-binding = "AI"
+### 1.5 管理面板配置
 
-[[vectorize]]
-binding = "VECTORIZE"
-index_name = "ossshelf-files"
-dimensions = 768
-metric = "cosine"
+```
+GET  /api/admin/email/config         -- 查看当前 Resend 配置（apiKey 脱敏显示）
+PUT  /api/admin/email/config         -- 保存配置到 KV
+POST /api/admin/email/test           -- 发送测试邮件到管理员自己的邮箱
+POST /api/admin/email/broadcast      -- 向所有用户或指定用户群发系统公告邮件
+```
+
+### 1.6 前端组件规划
+
+```
+apps/web/src/
+├── pages/
+│   ├── VerifyEmail.tsx              -- 验证邮箱落地页（从邮件链接跳转）
+│   ├── ForgotPassword.tsx           -- 忘记密码表单
+│   └── ResetPassword.tsx            -- 重置密码表单（token 来自 URL）
+├── components/
+│   ├── auth/
+│   │   └── EmailVerificationBanner.tsx  -- 顶部未验证提示横幅
+│   └── settings/
+│       └── EmailPreferences.tsx     -- 个人设置：通知偏好开关
+└── (admin)
+    └── EmailConfig.tsx              -- 管理面板：Resend 配置 + 测试 + 群发
 ```
 
 ---
 
-## 6. 其他质量提升补充
+## 2. 安全加固：双因素认证（TOTP）
 
-### 6.1 全文搜索升级
+### 2.1 需求定位
 
-D1 支持 FTS5 扩展，可建 virtual table：
+邮件通知建立了基础账户安全（密码重置有验证、变更有通知），但账号被盗后仍无第二道门。TOTP 是目前最成熟的无服务器 2FA 方案，与 Workers 运行时完全兼容。
 
-```sql
-CREATE VIRTUAL TABLE files_fts USING fts5(
-  id UNINDEXED,
-  name,
-  description,
-  content=files,
-  content_rowid=rowid
-);
--- 触发器维护：INSERT/UPDATE/DELETE 时同步 fts 表
-```
-
-搜索时：`WHERE files_fts MATCH 'invoice 2024'`，性能远超 LIKE 并支持词干匹配。
-
-### 6.2 通知系统
+### 2.2 数据库结构
 
 ```sql
-CREATE TABLE IF NOT EXISTS notifications (
+-- migration: 0018_2fa.sql
+
+ALTER TABLE users ADD COLUMN totp_secret TEXT;           -- AES-GCM 加密存储（用 ENCRYPTION_KEY）
+ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN totp_backup_codes TEXT;
+-- totp_backup_codes JSON: 8 个恢复码的 bcrypt hash 数组
+-- 使用一个即从数组中删除，用完需重新生成
+
+-- 信任设备（「记住此设备 30 天」）
+CREATE TABLE IF NOT EXISTS trusted_devices (
   id          TEXT PRIMARY KEY,
   user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  type        TEXT NOT NULL,    -- share_received | mention | permission_granted | quota_warning
-  title       TEXT NOT NULL,
-  body        TEXT,
-  data        TEXT,             -- JSON 附加数据
-  is_read     INTEGER DEFAULT 0,
+  device_hash TEXT NOT NULL UNIQUE,  -- SHA-256(userId + userAgent + ip + salt)
+  name        TEXT,                  -- 用户自定义设备名
+  last_used   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at  TEXT NOT NULL,
   created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX idx_trusted_devices_user    ON trusted_devices(user_id);
+CREATE INDEX idx_trusted_devices_expires ON trusted_devices(expires_at);
 ```
 
-前端通过 SSE（Server-Sent Events）或 WebSocket（Durable Objects）实时推送。轻量方案：轮询 `/api/notifications/unread-count`，每 30s 一次。
-
-### 6.3 收藏夹 / 快速访问
-
-```sql
-ALTER TABLE files ADD COLUMN is_starred INTEGER DEFAULT 0;
-CREATE INDEX idx_files_starred ON files(user_id, is_starred, updated_at DESC);
-```
-
-前端侧边栏增加"收藏"分区，`GET /api/files?starred=true`。
-
-### 6.4 文件预览增强
-
-- **Office 文件在线编辑**：集成 Collabora Online 或 OnlyOffice（自建），提供 WOPI 接口
-- **视频转码缩略图**：上传视频后 waitUntil 调用 Cloudflare Images 或自建 FFmpeg Worker 生成封面
-- **PDF 首页缩略图**：通过 Cloudflare Images Transform 生成，存入 R2 缓存
-
-### 6.5 存储分析 Dashboard
-
-在 Admin 和用户个人页增加：
+### 2.3 认证流程
 
 ```
-GET /api/analytics/storage-breakdown  -- 按 MIME 类型分布
-GET /api/analytics/activity-heatmap   -- 上传/下载活跃度（7/30/90天）
-GET /api/analytics/large-files        -- 最占空间的 Top 20 文件
-GET /api/analytics/shared-links-stats -- 分享链接访问统计
+正常登录（2FA 未开启）：邮箱 + 密码 → JWT  ← 现有流程不变
+
+登录（2FA 已开启）：
+  POST /api/auth/login
+    → 邮箱 + 密码验证通过
+    → 检查请求设备是否在 trusted_devices 且未过期
+    → 是：直接颁发 JWT（跳过 2FA）
+    → 否：返回 { requireTotp: true, tempToken: <JWT 5 分钟有效> }
+
+  POST /api/auth/totp/verify { tempToken, code, trustDevice? }
+    → 验证 tempToken 未过期
+    → 验证 TOTP code（otpauth 包，允许 ±1 步容差）
+    → code 无效时尝试 backup_codes（bcrypt 比对，匹配则删除已用码）
+    → 验证通过 → 颁发正式 JWT
+    → trustDevice=true → 写入 trusted_devices（TTL 30 天）
 ```
 
-数据来源：`auditLogs` 聚合查询 + `files` 表统计，无需额外存储。
-
-### 6.6 双因素认证（2FA）
-
-`users` 表新增 `totp_secret` 字段，`/api/auth/2fa` 路由实现 TOTP（RFC 6238）。使用 `otpauth` npm 包（Workers 兼容），配合前端展示二维码。
-
-### 6.7 客户端加密（端对端）
-
-在浏览器端用 Web Crypto API 加密文件后再上传（密钥不离开客户端），服务端仅存密文。适合高隐私需求用户。
+### 2.4 后端路由
 
 ```
-files 表新增：
-- is_client_encrypted INTEGER DEFAULT 0
-- encryption_hint TEXT    -- 密钥提示，不存密钥本身
+apps/api/src/routes/auth2fa.ts
+
+POST /api/auth/2fa/setup
+  → 生成 TOTP secret（otpauth.TOTP）
+  → AES-GCM 加密后暂存 KV（TTL 10min，key=2fa:setup:{userId}）
+  → 返回 { otpauthUri, secret（明文，仅此一次） }
+
+POST /api/auth/2fa/enable { code }
+  → 从 KV 取 setup secret → 验证 code 是否正确
+  → 正确：secret 写入 users.totp_secret（加密），totp_enabled=1
+  → 生成 8 个备用恢复码 → bcrypt hash 后存 users.totp_backup_codes
+  → 返回明文备用恢复码（仅此一次）
+  → 发送「2FA 已开启」安全通知邮件
+
+POST /api/auth/2fa/disable { code }
+  → 需提供当前有效 TOTP code 或 backup code 才能关闭
+  → 清除 totp_secret、totp_enabled=0、清空 totp_backup_codes
+  → 删除该用户所有 trusted_devices
+  → 发送「2FA 已关闭」安全通知邮件
+
+POST /api/auth/2fa/backup-codes/regenerate { code }
+  → 需提供当前有效 TOTP code
+  → 生成新的 8 个恢复码，旧码全部作废
+  → 返回新明文恢复码
+
+GET    /api/auth/2fa/trusted-devices         -- 列出信任设备
+DELETE /api/auth/2fa/trusted-devices/:id     -- 撤销指定设备
+```
+
+### 2.5 关键实现要点
+
+**Secret 加密存储**
+
+```typescript
+// lib/crypto.ts（现有文件扩展）
+// users.totp_secret 存储格式：base64(iv) + ':' + base64(ciphertext)
+// 使用 ENCRYPTION_KEY + AES-GCM 加密，防止 D1 泄露直接得到 TOTP secret
+export async function encryptTotpSecret(secret: string, key: string): Promise<string>;
+export async function decryptTotpSecret(encrypted: string, key: string): Promise<string>;
+```
+
+**TOTP 验证**
+
+```typescript
+import * as OTPAuth from 'otpauth'; // 纯 JS，Workers 兼容
+
+const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(plainSecret), period: 30 });
+const delta = totp.validate({ token: code, window: 1 }); // ±1 步容差，约 ±30 秒
+// delta !== null → 验证通过
+```
+
+**防重放**：TOTP code 验证通过后，将 `${userId}:${code}` 写入 KV，TTL 90 秒，同一 code 在窗口内直接拒绝。
+
+### 2.6 前端组件规划
+
+```
+apps/web/src/components/auth/
+├── TwoFactorSetup.tsx       -- 设置向导（3步：扫码 → 验证 → 保存备用码）
+├── TwoFactorVerify.tsx      -- 登录时弹出的 TOTP 输入框
+├── TwoFactorDisable.tsx     -- 关闭 2FA 确认弹窗
+├── BackupCodesDisplay.tsx   -- 备用恢复码展示（含复制/下载）
+└── TrustedDevicesList.tsx   -- 已信任设备列表 + 撤销按钮
+
+apps/web/src/pages/
+└── Login.tsx                -- 现有页面扩展：检测 requireTotp → 显示 TwoFactorVerify
 ```
 
 ---
 
-## 7. 综合执行大纲
+## 3. 移动端：React Native App
 
-### Phase 1：基础稳固（已完成 ✅）
+### 3.1 技术选型依据
 
-**目标：填补现有功能的空洞，修复已识别的严重问题**
+| 方案 | 复用现有代码 | 原生能力 | 构建复杂度 |
+| --- | --- | --- | --- |
+| React Native (Expo) | 部分（API 调用层、类型、常量） | ✅ 系统相册、后台下载、推送通知 | 低（Expo 托管工作流） |
+| Flutter | ❌ | ✅ | 高（全新技术栈） |
+| PWA | Web 代码复用 | ❌ 后台下载、推送受限 | 极低但能力上限低 |
 
-**版本：3.5.0**
+选 **Expo (React Native)**。可复用：`packages/shared` 常量、API 调用封装（`services/`）、TypeScript 类型定义。不可复用：所有 UI 组件（Web 基于 DOM，RN 基于 View/Text）。
+
+### 3.2 仓库结构
+
+```
+ossshelf/
+├── apps/
+│   ├── api/           ← 不变
+│   ├── web/           ← 不变
+│   └── mobile/        ← 新增，Expo managed workflow
+│       ├── app/                  -- Expo Router 文件路由
+│       │   ├── (auth)/
+│       │   │   ├── login.tsx
+│       │   │   └── forgot-password.tsx
+│       │   ├── (app)/
+│       │   │   ├── _layout.tsx   -- Tab 导航
+│       │   │   ├── files/
+│       │   │   │   ├── index.tsx        -- 文件列表
+│       │   │   │   └── [id]/index.tsx   -- 文件详情/预览
+│       │   │   ├── starred.tsx          -- 收藏夹
+│       │   │   ├── search.tsx           -- 搜索
+│       │   │   └── settings/
+│       │   │       ├── index.tsx        -- 设置首页
+│       │   │       ├── profile.tsx      -- 个人资料
+│       │   │       ├── security.tsx     -- 安全（2FA 管理）
+│       │   │       ├── notifications.tsx -- 通知偏好
+│       │   │       └── storage.tsx      -- 存储桶查看
+│       ├── components/
+│       ├── hooks/
+│       ├── services/             -- 引用 packages/shared/src/services/
+│       └── app.json
+├── packages/
+│   └── shared/
+│       └── src/
+│           ├── constants/        ← 已有，直接复用
+│           ├── types/            ← 新增，从 Web 迁移
+│           └── services/         ← 新增，平台无关 API 层
+```
+
+### 3.3 核心功能范围（对齐 Web 端）
+
+#### 3.3.1 文件浏览与管理
+
+```
+文件列表：
+  - 列表/网格切换（AsyncStorage 记忆偏好）
+  - 文件夹导航（面包屑路径）
+  - 长按多选 + 批量操作（移动、删除、下载）
+  - 下拉刷新
+
+文件操作（长按菜单 / 右滑）：
+  - 重命名、移动、删除（进回收站）
+  - 收藏/取消收藏
+  - 复制分享链接
+  - 查看详情（大小、时间、Hash）
+
+搜索：
+  - 全局搜索（FTS5 + 语义搜索，复用 /api/search）
+  - 搜索历史（AsyncStorage 本地缓存）
+```
+
+#### 3.3.2 上传
+
+```
+上传入口（FAB 展开）：
+  - 从系统相册选取（expo-image-picker）
+  - 从文件 App 选取（expo-document-picker）
+  - 拍照直传（expo-camera）
+
+上传实现：
+  - 小文件（< 100MB）：直接 FormData POST
+  - 大文件（≥ 100MB）：复用现有分片上传 API，进度展示
+  - 后台上传：expo-background-fetch + expo-task-manager，切后台继续上传
+
+自动备份（可选，手动开启）：
+  - 监听相册新增（expo-media-library）
+  - 仅 Wi-Fi / 仅充电时 上传配置
+```
+
+#### 3.3.3 下载与预览
+
+```
+预览（App 内）：
+  - 图片：react-native-fast-image（手势缩放）
+  - 视频/音频：expo-av（音频支持后台播放）
+  - PDF：react-native-pdf
+  - 文本/代码：ScrollView + 等宽字体
+  - 其他格式：expo-sharing 调系统 App
+
+下载：
+  - expo-file-system 下载 + 进度条
+  - 图片/视频保存到系统相册（expo-media-library.saveToLibraryAsync）
+  - 文档保存到文件 App（expo-sharing）
+  - 后台下载（expo-background-fetch）
+```
+
+#### 3.3.4 分享
+
+```
+- 查看/创建/撤销分享链接
+- 设置密码、过期时间、下载次数
+- 复制链接（Clipboard）
+- 通过系统分享菜单分享（expo-sharing）
+```
+
+#### 3.3.5 Push 通知
+
+```
+- 接入 Expo Push Notification Service（EPNS）
+- App 启动时注册 Token → POST /api/push/register
+- 退出登录时注销 Token → DELETE /api/push/unregister
+- 点击通知深链到对应页面（Expo Router 深链）
+
+支持的推送事件：
+  - 被 @提及
+  - 收到文件分享
+  - 存储配额告警
+  - 安全告警（密码/邮箱变更、2FA 状态变更）
+```
+
+#### 3.3.6 安全功能
+
+```
+- 生物识别解锁（expo-local-authentication，FaceID / 指纹）
+  → App 切回前台时触发
+- 2FA 设置（调用相同 API，原生 UI）
+- 修改密码、更换邮箱入口
+- 已信任设备列表（可从手机端撤销）
+```
+
+### 3.4 后端补充（为 App 新增的 API）
+
+```sql
+-- migration: 0019_push_tokens.sql
+CREATE TABLE IF NOT EXISTS push_tokens (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token       TEXT NOT NULL UNIQUE,   -- Expo Push Token
+  platform    TEXT NOT NULL,          -- ios | android
+  device_name TEXT,
+  last_used   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_push_tokens_user ON push_tokens(user_id);
+```
+
+```
+POST   /api/push/register   { token, platform, deviceName }
+DELETE /api/push/unregister { token }
+```
+
+```typescript
+// lib/pushNotifier.ts
+export async function sendPushNotification(
+  env: Env,
+  userId: string,
+  title: string,
+  body: string,
+  data?: object
+): Promise<void> {
+  const tokens = await db.select()...where(eq(pushTokens.userId, userId));
+  if (!tokens.length) return;
+
+  await fetch('https://exp.host/--/api/v2/push/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(
+      tokens.map((t) => ({ to: t.token, title, body, data, sound: 'default' }))
+    ),
+  });
+}
+```
+
+`createNotification()` 扩展后同时触发三条通道：
+
+```typescript
+ctx.waitUntil(
+  Promise.all([
+    // 站内通知（已有）
+    // sendEmail(...)       ← Phase 1 新增
+    // sendPushNotification(...)  ← Phase 3 新增
+  ])
+);
+```
+
+### 3.5 共享代码策略
+
+```typescript
+// packages/shared/src/services/apiClient.ts
+// 平台无关的 fetch 封装：
+// - Web：从 cookie 读 JWT
+// - RN：从 AsyncStorage 读 JWT
+// 通过依赖注入 getToken() 函数区分，不引入平台判断代码
+
+export function createApiClient(config: { baseUrl: string; getToken: () => Promise<string | null> }) {
+  return {
+    get:    (path, params?) => ...,
+    post:   (path, body?)  => ...,
+    put:    (path, body?)  => ...,
+    delete: (path)         => ...,
+  };
+}
+```
+
+### 3.6 前端界面结构
+
+```
+Tab 导航（底部 4 Tab）：
+  📁 文件     -- 主文件浏览器（默认 Tab）
+  🔍 搜索     -- 全局搜索
+  ⭐ 收藏     -- 收藏夹
+  👤 我的     -- 个人设置、安全、通知偏好、退出
+
+文件操作 FAB（右下角浮动按钮）：
+  展开 → 相册 / 文件 App / 拍照 / 新建文件夹
+
+文件预览：
+  全屏模态页（Expo Router modal）
+  顶部：文件名 + 关闭
+  底部操作栏：下载 / 分享 / 收藏 / 更多
+```
+
+---
+
+## 4. 综合执行大纲
+
+### Phase 1：邮件通知（v4.1.0）
+
+**目标：账户核心操作全部有邮件闭环**
 
 ```
 Week 1:
-  ✅ 修复版本控制：
-     - 实现 versionManager.ts（createVersionSnapshot + pruneExcessVersions）
-     - 在文件更新路由中接入自动版本触发
-     - 实现 cleanExpiredVersions cron job
-     - 修复孤儿 r2Key 清理（ref_count=0 → 加入删除队列）
+  ✅ 基础邮件服务：
+     - 数据库迁移：0017_email.sql（email_tokens、users 新字段）
+     - lib/emailService.ts（Resend 封装 + 5 个邮件模板）
+     - KV 存储 Resend 配置（支持管理面板热更新）
+     - 管理面板：EmailConfig.tsx（配置 + 测试发送 + 群发）
 
 Week 2:
-  ✅ 备忘录基础建设：
-     - 数据库迁移：0010_notes.sql
-     - 后端路由 notes.ts（CRUD + history + pin）
-     - 前端 NotePanel + NoteEditor + NoteCard 组件
+  ✅ 注册邮件验证：
+     - 注册路由修改（发验证邮件，email_verified=0）
+     - GET /api/auth/verify-email 端点
+     - POST /api/auth/resend-verification 端点（KV 1分钟限流）
+     - 前端：VerifyEmail.tsx + EmailVerificationBanner.tsx
 
 Week 3:
-  ✅ API Key 机制：
-     - 数据库迁移：0011_api_keys.sql
-     - apiKeyMiddleware 接入认证层
-     - /api/keys CRUD 路由
-     - KV 速率限制中间件
-  ✅ 文件编辑功能：
-     - 文件编辑 API（PUT /api/files/:id/content）
-     - 前端文件编辑器组件（CodeEditor、TextEditor、FileEditor）
-     - 新建文件增强（模板选择）
+  ✅ 忘记密码 + 更换密码/邮箱：
+     - POST /api/auth/forgot-password
+     - POST /api/auth/reset-password
+     - POST /api/auth/change-email + GET /api/auth/confirm-change-email
+     - POST /api/auth/change-password（含安全通知邮件）
+     - users.password_changed_at → JWT 失效机制
+     - 前端：ForgotPassword.tsx + ResetPassword.tsx + EmailPreferences.tsx
 ```
 
-### Phase 2：权限与 API 开放（已完成 ✅）
+### Phase 2：双因素认证（v4.2.0）
 
-**版本：3.6.0**
+**目标：账户安全第二道门**
 
 ```
 Week 4:
-  ✅ 权限系统 v2：
-     - 数据库迁移：0012_permission_v2.sql
-     - user_groups / group_members 表及路由
-     - permissionResolver.ts（递归 CTE 方案）
-     - KV 权限缓存层
+  ✅ TOTP 核心实现：
+     - 数据库迁移：0018_2fa.sql（users 字段、trusted_devices 表）
+     - lib/crypto.ts 扩展（TOTP secret AES-GCM 加密/解密）
+     - routes/auth2fa.ts（setup/enable/disable/verify/backup-codes/trusted-devices）
+     - otpauth 集成 + KV 防重放
 
 Week 5:
-  ✅ 权限 UI 重构：
-     - GroupManager 组件
-     - PermissionPanel 重构（支持组、过期时间）
-     - InheritedPermBadge 继承来源提示
-
-Week 6:
-  ✅ RESTful v1 API + 文档：
-     - /api/v1/* 路由用 @hono/zod-openapi 重写
-     - OpenAPI JSON 生成
-     - Swagger UI 挂载
-     - Webhook 基础实现
+  ✅ 前端 2FA 流程：
+     - TwoFactorSetup.tsx（3步向导：扫码 → 验证 → 备用码）
+     - TwoFactorVerify.tsx（登录第二步 TOTP 输入）
+     - TwoFactorDisable.tsx + BackupCodesDisplay.tsx
+     - TrustedDevicesList.tsx（设置 → 安全 Tab）
+     - Login.tsx 扩展：检测 requireTotp → 跳转验证步骤
+     - 联动 Phase 1：开启/关闭 2FA 发安全通知邮件
 ```
 
-### Phase 3：AI 智能化（已完成 ✅）
+### Phase 3：React Native App（v4.3.0 - v4.5.0）
 
-**版本：3.7.0**
-
-**实际完成情况与计划偏差：**
-- 迁移文件编号：0013 → 0014（中间插入了 0013_fix_user_id_nullable.sql）
-- 向量模型升级：bge-base-en-v1.5 (768维) → bge-m3 (1024维，多语言支持更好)
-- 搜索阈值调整：0.7 → 0.5（bge-m3 cosine 分数偏低）
+**目标：核心功能对齐 Web 端，原生体验**
 
 ```
-Week 7:
-  ✅ Workers AI 接入：
-     - Env 类型定义 AI 和 Vectorize 绑定（可选，未配置时功能降级）
-     - 文件向量化 pipeline（上传后 autoProcessFile 自动触发）
-     - 语义搜索接口 + 移动端集成
+Week 6-7（基础架构 + 认证）:
+  ✅ 项目初始化：
+     - Expo managed workflow 初始化（apps/mobile/）
+     - pnpm workspace 接入
+     - packages/shared/src/services/ 抽离 API 层（Web + RN 共用）
+     - Expo Router 路由结构搭建
+     - createApiClient（AsyncStorage JWT 方案）
+  ✅ 认证流程：
+     - 登录、注册（含邮件验证提示）
+     - 忘记密码（原生表单，复用 Phase 1 API）
+     - 2FA 验证（TwoFactorVerify RN 版，复用 Phase 2 API）
+     - 生物识别解锁（expo-local-authentication）
 
-Week 8:
-  ✅ AI 功能扩展：
-     - /api/ai/summarize/:fileId（文本文件摘要）
-     - /api/ai/tags/:fileId（图片自动标签 + 描述）
-     - /api/ai/rename-suggest/:fileId（智能重命名建议）
-     - /api/ai/index/*（向量索引管理，含一键全量索引）
-     - 前端 AISummaryCard + ImageTagsDisplay + SmartRenameDialog + AISettings
+Week 8-9（文件核心功能）:
+  ✅ 文件浏览：
+     - 文件列表（FlatList，列表/网格切换）
+     - 文件夹导航 + 面包屑
+     - 长按多选 + 批量操作 Bottom Sheet
+     - 下拉刷新
+  ✅ 文件预览：
+     - 图片（react-native-fast-image + 手势缩放）
+     - 视频/音频（expo-av）
+     - PDF（react-native-pdf）
+     - 文本/代码（ScrollView）
+     - 其他：expo-sharing 调系统 App
 
-额外完成（计划外）：
-  ✅ 移动端页面排版优化：
-     - MobileFilesToolbar（底部操作栏、视图切换、FAB）
-     - MobileSearchPanel（语义搜索开关、高级搜索）
-     - MobileBottomNav（底部导航优化）
-  ✅ 预览组件拆分重构：
-     - 12 个独立预览组件（Image/Video/Audio/Pdf/Markdown/Code/Office/Csv/Zip/Font/Epub）
-     - previewUtils 工具函数
-```
+Week 10-11（上传 + 下载 + 分享）:
+  ✅ 上传：
+     - expo-image-picker + expo-document-picker + expo-camera
+     - 分片上传（大文件）+ 进度展示
+     - 后台上传（expo-background-fetch + expo-task-manager）
+     - 相册自动备份（可选，手动开启）
+  ✅ 下载：
+     - expo-file-system 下载 + 进度条
+     - 保存到相册 / 文件 App
+  ✅ 分享：
+     - 查看/创建/撤销分享链接
+     - 系统分享菜单（expo-sharing）
 
-### Phase 4：体验完善（已完成 ✅）
-
-**版本：3.8.0**
-
-```
-Week 9:
-  ✅ 收藏夹功能：
-     - files.is_starred 字段已存在，无需迁移
-     - GET /api/files?starred=true 筛选收藏文件
-     - POST /api/files/:id/star 添加收藏
-     - DELETE /api/files/:id/star 取消收藏
-     - 前端 Starred.tsx 页面 + StarredFiles.tsx 组件 + 侧边栏入口
-  ✅ 存储分析 Dashboard：
-     - GET /api/analytics/storage-breakdown（按类型分布统计）
-     - GET /api/analytics/activity-heatmap（活跃度热力图）
-     - GET /api/analytics/large-files（大文件 Top 20）
-     - GET /api/analytics/storage-trend（存储趋势）
-     - GET /api/analytics/bucket-stats（存储桶统计）
-     - 前端 Analytics.tsx 页面 + StorageDashboard.tsx + 图表组件
-
-Week 10:
-  ✅ 通知系统：
-     - 数据库迁移：0015_notifications.sql
-     - notifications 表（share_received | mention | permission_granted | ai_complete | system）
-     - 后端 API：GET /api/notifications, PUT /api/notifications/:id/read, DELETE /api/notifications/:id
-     - 前端 NotificationBell（铃铛按钮）+ NotificationList（通知列表弹窗）
-     - PC端：侧边栏底部显示，向上展开弹窗
-     - 移动端：顶部栏右侧显示，向下展开弹窗
-     - 注意：通知触发逻辑需在业务代码中调用 createNotification 函数
-  ✅ FTS5 全文搜索升级：
-     - 数据库迁移：0016_fts5.sql
-     - files_fts 虚拟表 + 同步触发器
-     - 支持 unicode61 中文分词
-     - 后端：通过 fts=true 参数启用 FTS5 搜索
-     - 前端：搜索栏 FTS5 开关按钮（桌面端 + 移动端）
-
-Week 11（可选 - 未实现）:
-  📋 2FA 双因素认证：
-     - 数据库迁移：0017_2fa.sql
-     - TOTP 生成与验证
-     - 前端 TwoFactorSetup + TwoFactorVerify
-  📋 文件夹快照：
-     - 数据库迁移：0018_folder_snapshots.sql
-     - 轻量快照（仅记录子树清单，不存储实际内容）
+Week 12（Push 通知 + 设置 + 上架）:
+  ✅ Push 通知：
+     - 数据库迁移：0019_push_tokens.sql
+     - lib/pushNotifier.ts（Expo Push API）
+     - POST /api/push/register + DELETE /api/push/unregister
+     - App 启动注册 Token，退出时注销
+     - 深链跳转（点通知进对应页面）
+  ✅ 设置页完善：
+     - 个人资料编辑
+     - 安全（2FA 管理、信任设备、修改密码、更换邮箱）
+     - 通知偏好（Push + 邮件开关）
+     - 存储桶查看（新增/删除引导到 Web 端）
+  ✅ 上架准备：
+     - app.json 配置（图标、启动屏、权限说明）
+     - iOS TestFlight + Android Internal Testing
 ```
 
 ---
 
 ### 数据库迁移总览
 
-| 编号 | 文件名              | 涉及功能                                              | 状态      |
-| ---- | ------------------- | ----------------------------------------------------- | --------- |
-| 0010 | `notes.sql`         | file_notes, file_note_history, note_mentions          | ✅ 已完成 |
-| 0011 | `api_keys.sql`      | api_keys                                              | ✅ 已完成 |
-| 0012 | `permission_v2.sql` | user_groups, group_members, file_permissions 扩展字段 | ✅ 已完成 |
-| 0013 | `fix_user_id_nullable.sql` | 修复 user_id 可空问题 | ✅ 已完成 |
-| 0014 | `ai_features.sql`   | files.ai_summary, files.ai_tags, files.vector_indexed_at, files.is_starred | ✅ 已完成 |
-| 0015 | `notifications.sql` | notifications table                                   | ✅ 已完成 |
-| 0016 | `fts5.sql`          | files_fts virtual table + sync triggers               | ✅ 已完成 |
-| 0017 | `2fa.sql`           | users.totp_secret, users.totp_enabled                 | 📋 计划中 |
-| 0018 | `folder_snapshots.sql` | folder_snapshots table                             | 📋 计划中 |
+| 编号 | 文件名 | 涉及功能 | Phase |
+| --- | --- | --- | --- |
+| 0017 | `email.sql` | email_tokens、users.email_verified、users.email_preferences | Phase 1 |
+| 0018 | `2fa.sql` | users.totp_*、trusted_devices | Phase 2 |
+| 0019 | `push_tokens.sql` | push_tokens | Phase 3 |
 
 ---
 
 ### 新增目录结构
 
 ```
+apps/
+├── mobile/                        ← 新增（Phase 3）
+│   ├── app/
+│   │   ├── (auth)/login.tsx
+│   │   ├── (auth)/forgot-password.tsx
+│   │   └── (app)/
+│   │       ├── files/
+│   │       ├── search.tsx
+│   │       ├── starred.tsx
+│   │       └── settings/
+│   ├── components/
+│   ├── hooks/
+│   └── app.json
+
 apps/api/src/
 ├── lib/
-│   ├── versionManager.ts     ← ✅ 已实现: 版本自动触发、清理
-│   ├── permissionResolver.ts ← ✅ 已实现: RBAC + 继承链解析
-│   ├── vectorIndex.ts        ← ✅ 已实现: Vectorize 向量管理（bge-m3, 1024维）
-│   ├── aiFeatures.ts         ← ✅ 已实现: AI 功能封装（摘要、标签、重命名）
-│   ├── rateLimit.ts          ← ✅ 已实现: KV 滑动窗口限流
-│   └── webhook.ts            ← ✅ 已实现: Webhook 分发
-├── routes/
-│   ├── notes.ts              ← ✅ 已实现
-│   ├── groups.ts             ← ✅ 已实现
-│   ├── apiKeys.ts            ← ✅ 已实现
-│   ├── webhooks.ts           ← ✅ 已实现
-│   ├── ai.ts                 ← ✅ 已实现: AI 功能 API
-│   ├── analytics.ts          ← ✅ 已实现: 存储分析 API
-│   ├── notifications.ts      ← ✅ 已实现: 通知 API
-│   ├── snapshots.ts          ← 📋 计划中: 文件夹快照 API
-│   └── v1/                   ← ✅ 已实现: 开放 API v1
-│       ├── files.ts
-│       ├── folders.ts
-│       ├── shares.ts
-│       └── search.ts
+│   ├── emailService.ts            ← Phase 1
+│   └── pushNotifier.ts            ← Phase 3
+└── routes/
+    ├── auth2fa.ts                 ← Phase 2
+    └── push.ts                    ← Phase 3
 
-apps/web/src/components/
-├── notes/                    ← ✅ 已实现
-│   ├── NotePanel.tsx
-│   ├── NoteEditor.tsx
-│   ├── NoteCard.tsx
-│   └── NoteHistoryDialog.tsx
-├── permissions/              ← ✅ 已实现
-│   ├── PermissionPanel.tsx
-│   ├── GroupManager.tsx
-│   └── PermissionGrantDialog.tsx
-├── groups/                   ← ✅ 已实现
-│   ├── GroupList.tsx
-│   ├── GroupCreateDialog.tsx
-│   └── GroupMemberDialog.tsx
-├── webhooks/                 ← ✅ 已实现
-│   ├── WebhookList.tsx
-│   └── WebhookCreateDialog.tsx
-├── editor/                   ← ✅ 已实现
-│   ├── FileEditor.tsx
-│   ├── CodeEditor.tsx
-│   └── TextEditor.tsx
-├── ai/                       ← ✅ 已实现
-│   ├── AISummaryCard.tsx
-│   ├── ImageTagsDisplay.tsx
-│   ├── SmartRenameDialog.tsx
-│   ├── AISettings.tsx
-│   └── AIIndexButton.tsx
-├── mobile/                   ← ✅ 已实现（计划外）
-│   ├── MobileFilesToolbar.tsx
-│   ├── MobileSearchPanel.tsx
-│   └── MobileBottomNav.tsx
-├── filepreview/              ← ✅ 已实现（计划外）
-│   ├── ImagePreview.tsx
-│   ├── VideoPreview.tsx
-│   ├── AudioPreview.tsx
-│   ├── PdfPreview.tsx
-│   ├── MarkdownPreview.tsx
-│   ├── CodePreview.tsx
-│   ├── OfficePreview.tsx
-│   ├── CsvPreview.tsx
-│   ├── ZipPreview.tsx
-│   ├── FontPreview.tsx
-│   ├── EpubPreview.tsx
-│   └── previewUtils.ts
-├── analytics/                ← ✅ 已实现
-│   ├── StorageDashboard.tsx
-│   ├── StorageBreakdownChart.tsx
-│   ├── ActivityHeatmap.tsx
-│   └── LargeFilesList.tsx
-└── notifications/            ← ✅ 已实现
-    ├── NotificationBell.tsx
-    ├── NotificationList.tsx
-    └── NotificationItem.tsx
+apps/web/src/
+├── pages/
+│   ├── VerifyEmail.tsx            ← Phase 1
+│   ├── ForgotPassword.tsx         ← Phase 1
+│   └── ResetPassword.tsx          ← Phase 1
+└── components/
+    ├── auth/
+    │   ├── EmailVerificationBanner.tsx  ← Phase 1
+    │   ├── TwoFactorSetup.tsx           ← Phase 2
+    │   ├── TwoFactorVerify.tsx          ← Phase 2
+    │   └── TrustedDevicesList.tsx       ← Phase 2
+    ├── settings/
+    │   └── EmailPreferences.tsx         ← Phase 1
+    └── admin/
+        └── EmailConfig.tsx              ← Phase 1
+
+packages/shared/src/
+├── types/                         ← Phase 3（从 Web 迁移）
+│   ├── file.ts
+│   ├── share.ts
+│   └── user.ts
+└── services/                      ← Phase 3（平台无关 API 层）
+    ├── apiClient.ts
+    ├── filesService.ts
+    ├── searchService.ts
+    └── authService.ts
 ```
 
 ---
 
 > **当前版本：v3.8.0**
 >
-> **已完成**：Phase 1-4（版本控制修复 + 备忘录基础 + API Key + 文件编辑 + 权限系统 v2 + RESTful v1 API + OpenAPI 文档 + Webhook + AI 智能化 + 移动端优化 + 预览组件拆分 + 收藏夹 + 存储分析 Dashboard + 通知系统 + FTS5 全文搜索）
+> **v4 目标**：邮件通知（注册验证 + 忘记密码 + 安全通知）→ 2FA 双因素认证（TOTP + 信任设备）→ React Native App（文件浏览 + 上传下载 + Push 通知）
 >
-> **下一步**：Phase 5（2FA 双因素认证 + 文件夹快照）
+> **预计版本序列**：v4.1.0（邮件）→ v4.2.0（2FA）→ v4.3.0（App 基础架构 + 认证）→ v4.4.0（App 文件核心）→ v4.5.0（App Push + 上架）
+>
+> **未规划进 v4 的方向**（留给 v5 评估）：Office 在线编辑、自动化规则引擎、多租户工作区、客户端加密

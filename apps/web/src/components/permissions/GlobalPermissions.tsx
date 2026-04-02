@@ -12,7 +12,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { permissionsApi, groupsApi, searchApi, type SearchableUser, type UserGroup } from '@/services/api';
+import { permissionsApi, groupsApi, searchApi, type SearchableUser } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/useToast';
@@ -30,7 +30,6 @@ import {
   Trash2,
   Folder,
   FileText,
-  Search,
   Calendar,
   ArrowUpRight,
 } from 'lucide-react';

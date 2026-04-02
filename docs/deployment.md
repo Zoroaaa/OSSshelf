@@ -2,7 +2,7 @@
 
 本文档基于项目实际配置文件，提供完整的部署指南，确保您能够一次性成功部署 OSSshelf。
 
-**当前版本**: v3.7.0
+**当前版本**: v4.0.0
 
 ---
 
@@ -15,6 +15,7 @@
 - [GitHub Secrets 配置](#github-secrets-配置)
 - [Cloudflare Pages 前端部署](#cloudflare-pages-前端部署)
 - [GitHub Actions 后端部署](#github-actions-后端部署)
+- [邮件服务配置](#邮件服务配置)
 - [存储提供商配置](#存储提供商配置)
 - [自定义域名](#自定义域名)
 - [性能优化](#性能优化)
@@ -72,32 +73,78 @@
 
 详细的版本更新日志请参阅 [CHANGELOG.md](../CHANGELOG.md)。
 
-### v3.7.0 (2026-04-01)
+### v4.0.0 (2026-04-02)
 
 本次更新包含以下重要变更：
 
-**新功能**
+**新功能 - 邮件通知系统**
 
-1. **AI 功能集成**
-   - 文件摘要生成（Llama 3.1 8B）
-   - 图片智能描述和标签（LLaVA 1.5 7B + ResNet-50）
-   - 智能重命名建议
-   - 语义搜索（BGE-M3 模型）
+1. **注册邮箱验证**
+   - 新用户注册后自动发送验证邮件
+   - 邮箱验证链接有效期24小时
+   - 首个注册用户（管理员）自动验证
 
-2. **移动端优化**
-   - 新增移动端底部操作栏
-   - 新增移动端搜索面板
-   - 优化移动端交互体验
+2. **密码重置流程**
+   - 忘记密码邮件重置功能
+   - 重置链接有效期1小时
+   - 防邮箱枚举攻击
 
-3. **预览组件拆分**
-   - 将 FilePreview 拆分为 12 个独立预览组件
+3. **邮箱更换功能**
+   - 更换邮箱需要验证新邮箱
+   - 更换确认链接有效期1小时
+
+4. **邮件偏好设置**
+   - 用户可自定义邮件通知偏好
+   - 支持5种通知类型
+
+5. **管理面板邮件配置**
+   - Resend API 配置界面
+   - 发送测试邮件功能
+   - 群发系统公告
+
+**安全增强**
+
+1. **JWT失效机制**
+   - 密码修改后自动更新 `passwordChangedAt`
+   - 密码重置后自动更新 `passwordChangedAt`
+   - 登录时检查JWT是否失效
+
+2. **Token安全**
+   - Token使用SHA-256哈希存储
+   - Token一次性使用机制
+   - 重发验证邮件限流
 
 **数据库迁移**
 
-- files 表新增 ai_summary、ai_summary_at 字段
-- files 表新增 ai_tags、ai_tags_at 字段
-- files 表新增 vector_indexed_at 字段
-- files 表新增 is_starred 字段
+- 新增迁移文件 `0018_email.sql`
+  - 新增 `email_tokens` 表
+  - `users` 表新增 `email_verified` 字段
+  - `users` 表新增 `email_preferences` 字段
+  - `users` 表新增 `password_changed_at` 字段
+
+**环境变量**
+
+- 新增必需环境变量 `PUBLIC_URL`（用于生成邮件链接）
+
+**部署注意事项**
+
+1. **必须配置 PUBLIC_URL**
+   ```toml
+   # wrangler.toml
+   [vars]
+   PUBLIC_URL = "https://your-domain.com"
+   ```
+
+2. **执行数据库迁移**
+   ```bash
+   wrangler d1 execute ossshelf-db --file=./apps/api/migrations/0018_email.sql
+   ```
+
+3. **配置Resend邮件服务**
+   - 注册Resend账号并验证域名
+   - 在管理面板配置API Key和发件人信息
+
+### v3.8.0 (2026-04-02)
 - 迁移文件：`0014_ai_features.sql`
 
 **升级步骤**
@@ -310,7 +357,15 @@ pnpm db:migrate
 - `0005_dedup_and_upload_links.sql` - 文件去重和上传链接
 - `0006_upload_progress.sql` - 上传进度追踪
 - `0007_phase7.sql` - 第七阶段功能
-- `0008_file_versions.sql` - 文件版本控制 (v3.3.0)
+- `0008_direct_link.sql` - 文件直链功能
+- `0009_file_versions.sql` - 文件版本控制 (v3.3.0)
+- `0010_notes.sql` - 文件笔记 (v3.5.0)
+- `0011_api_keys.sql` - API Keys (v3.5.0)
+- `0012_permission_v2.sql` - 权限系统 v2 (v3.6.0)
+- `0014_ai_features.sql` - AI 功能 (v3.7.0)
+- `0015_notifications.sql` - 通知系统 (v3.8.0)
+- `0016_fts5.sql` - FTS5 全文搜索 (v3.8.0)
+- `0018_email.sql` - 邮件通知系统 (v4.0.0)
 
 ### Step 5: 设置加密密钥
 
@@ -368,6 +423,7 @@ curl https://your-api.workers.dev/api/auth/registration-config
 | `CLOUDFLARE_KV_NAMESPACE_ID` | ✅   | KV 命名空间绑定     |
 | `JWT_SECRET`                 | ✅   | JWT 签名密钥        |
 | `CORS_ORIGINS`               | ✅   | CORS 允许域名       |
+| `PUBLIC_URL`                 | ✅   | 应用公网地址，用于生成邮件链接 (v4.0.0+) |
 
 ### 可选 Secrets
 
@@ -524,6 +580,164 @@ jobs:
 2. 选择「Deploy API to Cloudflare Workers」工作流
 3. 点击「Run workflow」按钮
 4. 选择分支后点击绿色「Run workflow」按钮
+
+---
+
+## 邮件服务配置
+
+v4.0.0+ 版本集成了 Resend 邮件服务，用于邮箱验证、密码重置等功能。
+
+### 1. 注册 Resend 账号
+
+1. 访问 [https://resend.com](https://resend.com)
+2. 点击 "Start for free" 注册账号
+3. 验证您的邮箱
+
+### 2. 添加并验证域名
+
+1. 进入 Dashboard → [Domains](https://resend.com/domains)
+2. 点击 "Add Domain"
+3. 输入您的域名（例如：`yourdomain.com`）
+4. 添加DNS记录验证域名：
+   ```
+   类型: MX
+   名称: send
+   值: feedback-smtp.us-east-1.amazonses.com
+   ```
+5. 等待验证完成（通常几分钟到几小时）
+
+### 3. 获取 API Key
+
+1. 进入 [API Keys](https://resend.com/api-keys)
+2. 点击 "Create API Key"
+3. 输入名称（例如：OSSShelf Production）
+4. 选择权限：`Sending access`
+5. 复制生成的API Key（以 `re_` 开头）
+
+### 4. 在 OSSShelf 中配置
+
+#### 方式一：通过管理面板配置（推荐）
+
+1. 登录 OSSShelf 管理员账号
+2. 进入 **管理面板** → **邮件配置**
+3. 填写配置信息：
+   - **API Key**: 粘贴刚才复制的 Resend API Key
+   - **发件人地址**: `noreply@yourdomain.com`（必须是验证过的域名）
+   - **发件人名称**: `OSSShelf` 或您想要的名称
+4. 点击 **保存配置**
+5. 点击 **发送测试邮件** 验证配置
+
+#### 方式二：通过环境变量配置
+
+在 GitHub Secrets 中添加：
+
+```bash
+# 可选：如果需要通过环境变量配置
+RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+RESEND_FROM_ADDRESS=noreply@yourdomain.com
+RESEND_FROM_NAME=OSSShelf
+```
+
+### 5. 必需的环境变量
+
+**重要**: 必须配置 `PUBLIC_URL` 环境变量，否则邮件功能无法使用。
+
+```toml
+# wrangler.toml 或 GitHub Secrets
+[vars]
+PUBLIC_URL = "https://your-domain.com"
+```
+
+**要求**:
+- ✅ 必须是完整的URL（包含协议）
+- ✅ 不应包含尾部斜杠
+- ✅ 示例：`https://ossshelf.com` 或 `https://app.example.com`
+- ❌ 不要使用 `http://localhost:8787`（生产环境）
+
+### 6. 测试邮件功能
+
+配置完成后，测试以下功能：
+
+1. **注册验证邮件**
+   - 注册新用户
+   - 检查是否收到验证邮件
+   - 点击验证链接确认功能
+
+2. **忘记密码邮件**
+   - 在登录页点击"忘记密码"
+   - 输入邮箱地址
+   - 检查是否收到重置邮件
+
+3. **测试邮件**
+   - 在管理面板 → 邮件配置
+   - 点击"发送测试邮件"
+   - 检查收件箱
+
+### 7. 邮件偏好设置
+
+用户可以在 **设置** → **邮箱设置** 中自定义邮件通知偏好：
+
+| 偏好类型 | 默认值 | 说明 |
+|---------|--------|------|
+| @提及通知 | 开启 | 当有人在文件或评论中@您时发送邮件 |
+| 分享接收通知 | 开启 | 当他人分享文件给您时发送邮件 |
+| 配额警告 | 开启 | 存储空间即将用尽时发送警告邮件 |
+| AI处理完成 | 关闭 | AI摘要或标签处理完成时发送邮件 |
+| 系统通知 | 开启 | 重要的系统更新和安全提醒 |
+
+### 8. 群发系统公告
+
+管理员可以在 **管理面板** → **邮件配置** 中群发系统公告：
+
+1. 选择目标用户（所有用户/仅管理员/仅普通用户）
+2. 输入邮件主题和内容
+3. 点击发送
+4. 查看发送结果（成功数/失败数）
+
+### 9. 故障排查
+
+#### 问题：邮件发送失败
+
+**检查清单**:
+- ✅ Resend API Key 是否正确
+- ✅ 发件人域名是否已验证
+- ✅ `PUBLIC_URL` 是否已配置
+- ✅ 发件人地址是否使用验证过的域名
+
+**查看日志**:
+```bash
+# Cloudflare Workers 日志
+wrangler tail
+
+# 搜索错误信息
+# "PUBLIC_URL not configured"
+# "Email send failed"
+```
+
+#### 问题：邮件链接无法打开
+
+**原因**: `PUBLIC_URL` 配置错误或未配置
+
+**解决方案**:
+1. 检查 GitHub Secrets 中的 `PUBLIC_URL`
+2. 确保使用正确的生产环境域名
+3. 重新部署后端
+
+#### 问题：验证邮件进入垃圾箱
+
+**解决方案**:
+1. 在 Resend 中验证域名
+2. 配置 SPF、DKIM 记录
+3. 联系邮件服务商提升信誉度
+
+### 10. 邮件服务限制
+
+Resend 免费版限制：
+- 每月 3,000 封邮件
+- 每天 100 封邮件
+- 1 个域名
+
+如需更高配额，请升级到付费计划。
 
 ---
 

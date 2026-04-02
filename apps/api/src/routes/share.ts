@@ -447,6 +447,117 @@ app.get('/:id', async (c) => {
   });
 });
 
+/**
+ * 验证文件夹是否属于分享文件夹的子目录（递归验证）
+ * 返回从分享根目录到目标文件夹的路径信息
+ */
+async function validateSubfolder(
+  db: ReturnType<typeof getDb>,
+  shareRootId: string,
+  targetFolderId: string
+): Promise<{ valid: boolean; path: Array<{ id: string; name: string; isFolder: true }> }> {
+  if (targetFolderId === shareRootId) {
+    return { valid: true, path: [] };
+  }
+
+  const path: Array<{ id: string; name: string; isFolder: true }> = [];
+  let currentId: string | null = targetFolderId;
+  const visited = new Set<string>();
+
+  while (currentId && currentId !== shareRootId) {
+    if (visited.has(currentId)) {
+      return { valid: false, path: [] };
+    }
+    visited.add(currentId);
+
+    const folder = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.id, currentId), eq(files.isFolder, true), isNull(files.deletedAt)))
+      .get();
+
+    if (!folder) {
+      return { valid: false, path: [] };
+    }
+
+    path.unshift({ id: folder.id, name: folder.name, isFolder: true });
+    currentId = folder.parentId;
+  }
+
+  if (currentId !== shareRootId) {
+    return { valid: false, path: [] };
+  }
+
+  return { valid: true, path };
+}
+
+// ── Public: get subfolder contents（获取子文件夹内容）────────────────────────
+// GET /api/share/:id/folder/:folderId?password=...
+app.get('/:id/folder/:folderId', async (c) => {
+  const shareId = c.req.param('id');
+  const folderId = c.req.param('folderId');
+  const password = c.req.query('password');
+  const db = getDb(c.env.DB);
+
+  const resolved = await resolveDownloadShare(db, shareId, password);
+  if ('error' in resolved) {
+    return c.json({ success: false, error: resolved.error }, resolved.status);
+  }
+
+  const { share } = resolved;
+  const rootFolder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  if (!rootFolder?.isFolder) {
+    throwAppError('SHARE_FOLDER_NOT_FOUND', '分享文件夹不存在');
+  }
+
+  // 验证请求的文件夹是否属于分享文件夹的子目录
+  const validation = await validateSubfolder(db, rootFolder.id, folderId);
+  if (!validation.valid) {
+    throwAppError('FILE_NOT_FOUND', '文件夹不存在或不属于此分享');
+  }
+
+  // 获取目标文件夹信息
+  const targetFolder = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, folderId), eq(files.isFolder, true), isNull(files.deletedAt)))
+    .get();
+  if (!targetFolder) {
+    throwAppError('FILE_NOT_FOUND', '文件夹不存在');
+  }
+
+  // 获取子文件列表
+  const rows = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.parentId, folderId), isNull(files.deletedAt)))
+    .all();
+
+  const children = rows.map((f) => ({
+    id: f.id,
+    name: f.name,
+    size: f.size,
+    mimeType: f.mimeType,
+    isFolder: f.isFolder,
+    updatedAt: f.updatedAt,
+  }));
+
+  return c.json({
+    success: true,
+    data: {
+      folder: {
+        id: targetFolder.id,
+        name: targetFolder.name,
+        size: targetFolder.size,
+        mimeType: targetFolder.mimeType,
+        isFolder: true,
+      },
+      children,
+      path: validation.path,
+    },
+  });
+});
+
 const MAX_PREVIEW_SIZE = 10 * 1024 * 1024;
 
 // ── Public: preview（支持图片/视频/音频/PDF/文本）────────────────────────────

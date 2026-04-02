@@ -185,7 +185,6 @@ function TaskItem({
 export default function Downloads() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { isMobile } = useResponsive();
 
   const [mode, setMode] = useState<'single' | 'batch'>('single');
   const [showForm, setShowForm] = useState(false);

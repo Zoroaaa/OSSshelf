@@ -82,6 +82,11 @@ export default function Login() {
               required
             />
           </div>
+          <div className="flex items-center justify-end">
+            <Link to="/forgot-password" className="text-sm text-primary hover:underline">
+              忘记密码？
+            </Link>
+          </div>
         </CardContent>
         <CardFooter className="flex flex-col gap-4">
           <Button type="submit" className="w-full" disabled={loginMutation.isPending}>

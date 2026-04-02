@@ -137,15 +137,19 @@ app.get('/:id/preview', async (c) => {
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
+
+  const { hasAccess } = await checkFilePermission(db, fileId, userId!, 'read', c.env);
+  if (!hasAccess) throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
+
   const file = await db
     .select()
     .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId!), isNull(files.deletedAt)))
+    .where(and(eq(files.id, fileId), isNull(files.deletedAt)))
     .get();
   if (!file) throwAppError('FILE_NOT_FOUND');
   if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '无法预览文件夹');
   if (!isPreviewableMimeType(file.mimeType, file.name)) throwAppError('FILE_PREVIEW_NOT_SUPPORTED');
-  const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
+  const bucketConfig = await resolveBucketConfig(db, file.userId, encKey, file.bucketId, file.parentId);
   const pvHeaders = {
     'Content-Type': file.mimeType || 'application/octet-stream',
     'Content-Length': file.size.toString(),

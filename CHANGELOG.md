@@ -2,6 +2,150 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v4.0.0] - 2026-04-02
+
+### Added - 邮件通知系统
+
+#### 核心功能
+- **注册邮箱验证**
+  - 新用户注册后自动发送验证邮件
+  - 邮箱验证链接有效期24小时
+  - 首个注册用户（管理员）自动验证
+  - 未验证用户显示提示横幅
+  - API: GET /api/auth/verify-email, POST /api/auth/resend-verification
+
+- **密码重置流程**
+  - 忘记密码邮件重置功能
+  - 重置链接有效期1小时
+  - 防邮箱枚举攻击（无论邮箱是否存在都返回200）
+  - API: POST /api/auth/forgot-password, POST /api/auth/reset-password
+
+- **邮箱更换功能**
+  - 更换邮箱需要验证新邮箱
+  - 更换确认链接有效期1小时
+  - 旧邮箱收到更换成功通知
+  - API: POST /api/auth/change-email, GET /api/auth/confirm-change-email
+
+- **邮件偏好设置**
+  - 用户可自定义邮件通知偏好
+  - 支持5种通知类型：@提及、分享接收、配额警告、AI完成、系统通知
+  - 所有邮件发送都检查用户偏好
+  - API: GET /api/auth/email-preferences, PUT /api/auth/email-preferences
+
+- **管理面板邮件配置**
+  - Resend API 配置界面
+  - 发件人地址和名称设置
+  - 发送测试邮件功能
+  - 群发系统公告（支持按角色筛选）
+  - API: GET/PUT /api/admin/email/config, POST /api/admin/email/test, POST /api/admin/email/broadcast
+
+#### 安全增强
+- **JWT失效机制**
+  - 密码修改后自动更新 `passwordChangedAt`
+  - 密码重置后自动更新 `passwordChangedAt`
+  - 登录时检查JWT是否失效
+  - 失效后自动清除会话并要求重新登录
+
+- **Token安全**
+  - Token使用SHA-256哈希存储
+  - Token一次性使用机制
+  - Token过期时间控制
+  - 重发验证邮件限流（1分钟1次）
+
+- **环境变量检查**
+  - 所有邮件链接生成前检查 `PUBLIC_URL`
+  - 未配置时抛出明确错误提示
+  - 防止生产环境使用localhost
+
+#### 数据库变更
+- 新增迁移文件 `0018_email.sql`
+  - 新增 `email_tokens` 表（存储验证Token）
+  - `users` 表新增 `email_verified` 字段
+  - `users` 表新增 `email_preferences` 字段
+  - `users` 表新增 `password_changed_at` 字段
+
+#### 前端页面
+- 新增页面
+  - `VerifyEmail.tsx` - 邮箱验证落地页
+  - `ForgotPassword.tsx` - 忘记密码页面
+  - `ResetPassword.tsx` - 重置密码页面
+  - `EmailConfig.tsx` - 管理面板邮件配置页面
+
+- 新增组件
+  - `EmailVerificationBanner.tsx` - 未验证用户提示横幅
+  - `EmailPreferencesForm` - 邮件偏好设置表单
+  - `EmailChangeForm` - 更换邮箱表单
+
+- 功能集成
+  - 登录页面添加"忘记密码"链接
+  - 设置页面新增"邮箱设置"选项卡
+  - 管理面板新增"邮件配置"选项卡
+  - MainLayout 集成验证提示横幅
+
+#### 邮件模板
+- 5个邮件模板
+  - 验证邮箱模板
+  - 重置密码模板
+  - 更换邮箱确认模板
+  - 密码变更通知模板
+  - 系统通知模板
+
+#### GitHub Actions
+- 新增 `PUBLIC_URL` 环境变量配置
+- 部署时自动注入环境变量
+
+### Changed
+
+- **邮件通知控制**
+  - 所有邮件发送都检查用户偏好设置
+  - 密码修改通知映射到 `system` 偏好
+  - 重置密码成功通知映射到 `system` 偏好
+  - 邮箱更换成功通知映射到 `system` 偏好
+
+- **审计日志**
+  - 新增审计类型：`admin.email_config_update`
+  - 新增审计类型：`admin.email_test`
+  - 新增审计类型：`admin.email_broadcast`
+
+### Improved
+
+- **用户体验**
+  - 邮箱验证状态清晰展示
+  - 邮件发送结果实时反馈
+  - 密码强度实时指示
+  - 验证链接过期友好提示
+
+- **安全性**
+  - 所有安全相关邮件不受偏好设置影响
+  - 密码变更后强制重新登录
+  - 防止邮箱枚举攻击
+
+### Fixed
+
+- 修复密码修改后未更新 `passwordChangedAt` 的问题
+- 修复邮件链接使用localhost的问题
+- 修复重置密码成功通知未检查邮件偏好的问题
+- 修复邮箱更换成功通知未检查邮件偏好的问题
+
+### Technical Details
+
+- **技术栈**
+  - Resend API（邮件服务）
+  - Cloudflare KV（配置存储）
+  - Cloudflare D1（Token存储）
+  - SHA-256（Token哈希）
+
+- **性能优化**
+  - 邮件配置KV缓存
+  - Token哈希索引优化
+  - 邮件模板预编译
+
+- **代码质量**
+  - TypeScript严格模式
+  - 完整的类型定义
+  - 错误处理完善
+  - 代码注释清晰
+
 ## [v3.8.0] - 2026-04-02
 
 ### Added

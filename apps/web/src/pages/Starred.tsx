@@ -21,7 +21,6 @@ export default function Starred() {
   const {
     data: files = [],
     isLoading,
-    refetch,
   } = useQuery<FileItem[]>({
     queryKey: ['files', 'starred'],
     queryFn: () => filesApi.list({ starred: 'true' }).then((r) => r.data.data ?? []),

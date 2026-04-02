@@ -21,6 +21,7 @@ import { Hono } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files, storageBuckets, telegramFileRefs } from '../db';
 import { authMiddleware } from '../middleware/auth';
+import { checkFilePermission } from './permissions';
 import {
   ERROR_CODES,
   CODE_HIGHLIGHT_EXTENSIONS,
@@ -170,10 +171,13 @@ app.get('/:id/info', async (c) => {
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
 
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
+  if (!hasAccess) throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
+
   const file = await db
     .select()
     .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+    .where(and(eq(files.id, fileId), isNull(files.deletedAt)))
     .get();
 
   if (!file) throwAppError('FILE_NOT_FOUND');
@@ -206,10 +210,13 @@ app.get('/:id/raw', async (c) => {
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
+  if (!hasAccess) throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
+
   const file = await db
     .select()
     .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+    .where(and(eq(files.id, fileId), isNull(files.deletedAt)))
     .get();
 
   if (!file) throwAppError('FILE_NOT_FOUND');
@@ -312,10 +319,13 @@ app.get('/:id/stream', async (c) => {
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
+  if (!hasAccess) throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
+
   const file = await db
     .select()
     .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+    .where(and(eq(files.id, fileId), isNull(files.deletedAt)))
     .get();
 
   if (!file) throwAppError('FILE_NOT_FOUND');
@@ -386,10 +396,13 @@ app.get('/:id/thumbnail', async (c) => {
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
+  if (!hasAccess) throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
+
   const file = await db
     .select()
     .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+    .where(and(eq(files.id, fileId), isNull(files.deletedAt)))
     .get();
 
   if (!file) throwAppError('FILE_NOT_FOUND');
@@ -459,10 +472,13 @@ app.get('/:id/office', async (c) => {
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
+  if (!hasAccess) throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
+
   const file = await db
     .select()
     .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+    .where(and(eq(files.id, fileId), isNull(files.deletedAt)))
     .get();
 
   if (!file) throwAppError('FILE_NOT_FOUND');

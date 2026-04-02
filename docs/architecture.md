@@ -2,7 +2,7 @@
 
 本文档基于项目实际代码，详细描述 OSSshelf 的系统架构、数据库设计和核心功能实现。
 
-**当前版本**: v3.8.0
+**当前版本**: v4.0.0
 
 ---
 
@@ -17,6 +17,7 @@
 - [API 路由](#api-路由)
 - [核心功能架构](#核心功能架构)
 - [认证机制](#认证机制)
+- [邮件通知系统](#邮件通知系统)
 - [定时任务](#定时任务)
 - [安全措施](#安全措施)
 
@@ -30,12 +31,64 @@ OSSshelf 是一个基于 Cloudflare 部署的多厂商 OSS 文件管理系统，
 - **后端**: Hono 框架运行在 Cloudflare Workers 上
 - **数据库**: Cloudflare D1 (SQLite) + Drizzle ORM
 - **存储**: S3 兼容协议 + Telegram Bot API
+- **邮件**: Resend API（v4.0.0+）
 
 ---
 
 ## 版本更新
 
 详细的版本更新日志请参阅 [CHANGELOG.md](../CHANGELOG.md)。
+
+### v4.0.0 (2026-04-02)
+
+**核心功能 - 邮件通知系统**
+
+1. **注册邮箱验证**
+   - 新用户注册后自动发送验证邮件
+   - 邮箱验证链接有效期24小时
+   - 首个注册用户（管理员）自动验证
+   - 未验证用户显示提示横幅
+
+2. **密码重置流程**
+   - 忘记密码邮件重置功能
+   - 重置链接有效期1小时
+   - 防邮箱枚举攻击
+
+3. **邮箱更换功能**
+   - 更换邮箱需要验证新邮箱
+   - 更换确认链接有效期1小时
+   - 旧邮箱收到更换成功通知
+
+4. **邮件偏好设置**
+   - 用户可自定义邮件通知偏好
+   - 支持5种通知类型：@提及、分享接收、配额警告、AI完成、系统通知
+
+5. **管理面板邮件配置**
+   - Resend API 配置界面
+   - 发件人地址和名称设置
+   - 发送测试邮件功能
+   - 群发系统公告
+
+**安全增强**
+
+1. **JWT失效机制**
+   - 密码修改后自动更新 `passwordChangedAt`
+   - 密码重置后自动更新 `passwordChangedAt`
+   - 登录时检查JWT是否失效
+
+2. **Token安全**
+   - Token使用SHA-256哈希存储
+   - Token一次性使用机制
+   - Token过期时间控制
+   - 重发验证邮件限流
+
+**数据库变更**
+
+- 新增迁移文件 0018_email.sql
+  - 新增 `email_tokens` 表
+  - `users` 表新增 `email_verified` 字段
+  - `users` 表新增 `email_preferences` 字段
+  - `users` 表新增 `password_changed_at` 字段
 
 ### v3.8.0 (2026-04-02)
 
@@ -307,13 +360,15 @@ ossshelf/
 │   │   │   ├── 0005_dedup_and_upload_links.sql
 │   │   │   ├── 0006_upload_progress.sql
 │   │   │   ├── 0007_phase7.sql
-│   │   │   ├── 0008_file_versions.sql
+│   │   │   ├── 0008_direct_link.sql
+│   │   │   ├── 0009_file_versions.sql  # 文件版本控制 (v3.3.0)
 │   │   │   ├── 0010_notes.sql       # 文件笔记 (v3.5.0)
 │   │   │   ├── 0011_api_keys.sql    # API Keys (v3.5.0)
 │   │   │   ├── 0012_permission_v2.sql # 权限系统 v2 (v3.6.0)
 │   │   │   ├── 0014_ai_features.sql # AI 功能 (v3.7.0)
 │   │   │   ├── 0015_notifications.sql # 通知系统 (v3.8.0)
-│   │   │   └── 0016_fts5.sql        # FTS5 全文搜索 (v3.8.0)
+│   │   │   ├── 0016_fts5.sql        # FTS5 全文搜索 (v3.8.0)
+│   │   │   └── 0018_email.sql       # 邮件通知系统 (v4.0.0)
 │   │   ├── drizzle.config.ts
 │   │   ├── wrangler.toml.example
 │   │   └── package.json
@@ -376,10 +431,28 @@ ossshelf/
 | `role`         | TEXT    | 'user'      | 角色 (user/admin) |
 | `storageQuota` | INTEGER | 10737418240 | 存储配额 (10GB)   |
 | `storageUsed`  | INTEGER | 0           | 已用空间          |
+| `emailVerified`| BOOLEAN | false       | 邮箱验证状态 (v4.0.0) |
+| `emailPreferences` | TEXT | '{}'      | 邮件偏好设置 (JSON) (v4.0.0) |
+| `passwordChangedAt` | TEXT | -        | 密码变更时间 (v4.0.0) |
 | `createdAt`    | TEXT    | -           | 创建时间          |
 | `updatedAt`    | TEXT    | -           | 更新时间          |
 
 **索引**: `idx_users_role`, `idx_users_created`
+
+#### email_tokens (邮件Token表) - v4.0.0
+
+| 字段        | 类型    | 默认值 | 说明                         |
+| ----------- | ------- | ------ | ---------------------------- |
+| `id`        | TEXT    | -      | 主键                         |
+| `userId`    | TEXT    | -      | 用户ID (外键 → users)        |
+| `email`     | TEXT    | -      | 关联邮箱                     |
+| `type`      | TEXT    | -      | Token类型 (verify_email/reset_password/change_email) |
+| `tokenHash` | TEXT    | -      | Token哈希 (SHA-256)          |
+| `expiresAt` | TEXT    | -      | 过期时间                     |
+| `usedAt`    | TEXT    | -      | 使用时间 (可空)              |
+| `createdAt` | TEXT    | -      | 创建时间                     |
+
+**索引**: `idx_email_tokens_hash`, `idx_email_tokens_user`
 
 #### files (文件表)
 
@@ -741,7 +814,7 @@ ossshelf/
 
 | 路由前缀           | 模块           | 说明              |
 | ------------------ | -------------- | ----------------- |
-| `/api/auth`        | auth.ts        | 用户认证          |
+| `/api/auth`        | auth.ts        | 用户认证、邮箱验证、密码重置 (v4.0.0增强) |
 | `/api/files`       | files.ts       | 文件管理          |
 | `/api/buckets`     | buckets.ts     | 存储桶管理        |
 | `/api/share`       | share.ts       | 文件分享          |
@@ -762,7 +835,7 @@ ossshelf/
 | `/api/analytics`   | analytics.ts   | 存储分析 (v3.8.0) |
 | `/api/notifications` | notifications.ts | 通知系统 (v3.8.0) |
 | `/api/v1`          | v1/index.ts    | RESTful v1 (v3.6.0) |
-| `/api/admin`       | admin.ts       | 管理员接口        |
+| `/api/admin`       | admin.ts       | 管理员接口、邮件配置 (v4.0.0增强) |
 | `/api/migrate`     | migrate.ts     | 存储桶迁移        |
 | `/api/telegram`    | telegram.ts    | Telegram 存储     |
 | `/cron`            | cron.ts        | 定时任务          |
@@ -1068,6 +1141,255 @@ ossshelf/
 - 连续 5 次登录失败后锁定账户
 - 锁定时长 15 分钟
 - 记录所有登录尝试
+
+---
+
+## 邮件通知系统
+
+### 系统架构
+
+v4.0.0 新增的邮件通知系统基于 Resend API 实现，支持多种邮件场景。
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      邮件通知系统架构                          │
+├─────────────────────────────────────────────────────────────┤
+│                                                               │
+│  ┌──────────────┐      ┌──────────────┐      ┌────────────┐ │
+│  │  触发场景     │─────→│  偏好检查     │─────→│  发送邮件   │ │
+│  └──────────────┘      └──────────────┘      └────────────┘ │
+│         │                      │                     │       │
+│         ▼                      ▼                     ▼       │
+│  ┌──────────────┐      ┌──────────────┐      ┌────────────┐ │
+│  │ 注册验证      │      │ 用户偏好设置  │      │ Resend API │ │
+│  │ 密码重置      │      │ mention      │      │            │ │
+│  │ 邮箱更换      │      │ share_received│     │ KV配置存储 │ │
+│  │ 系统通知      │      │ quota_warning│      │            │ │
+│  │ @提及        │      │ ai_complete  │      │ 模板渲染    │ │
+│  │ 分享接收      │      │ system       │      │            │ │
+│  └──────────────┘      └──────────────┘      └────────────┘ │
+│                                                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 核心组件
+
+#### 1. 邮件服务层 (`emailService.ts`)
+
+```typescript
+// 主要功能
+- getResendConfig(env)     // 从KV获取Resend配置
+- saveResendConfig(env, config)  // 保存配置到KV
+- sendEmail(env, to, subject, html)  // 发送邮件
+- emailTemplates           // 邮件模板集合
+- parseEmailPreferences(json)  // 解析邮件偏好
+- shouldSendEmail(type, preferences)  // 判断是否发送
+```
+
+#### 2. Token管理 (`email_tokens` 表)
+
+| Token类型 | 有效期 | 用途 |
+|----------|-------|------|
+| `verify_email` | 24小时 | 注册邮箱验证 |
+| `reset_password` | 1小时 | 密码重置 |
+| `change_email` | 1小时 | 邮箱更换确认 |
+
+**安全措施**：
+- Token使用SHA-256哈希存储
+- Token一次性使用
+- 使用后标记 `usedAt`
+
+#### 3. 邮件模板
+
+| 模板名称 | 用途 | 包含内容 |
+|---------|------|---------|
+| `verifyEmail` | 注册验证 | 验证链接、有效期 |
+| `resetPassword` | 密码重置 | 重置链接、有效期 |
+| `changeEmail` | 邮箱更换 | 确认链接、新邮箱 |
+| `passwordChanged` | 密码变更通知 | 变更时间、IP地址 |
+| `systemNotify` | 系统通知 | 标题、内容、可选链接 |
+
+### 邮件发送流程
+
+#### 必须发送的邮件（不检查偏好）
+
+```
+用户注册
+    ↓
+生成验证Token (SHA-256哈希)
+    ↓
+存储到 email_tokens 表
+    ↓
+生成验证链接 (PUBLIC_URL + token)
+    ↓
+发送验证邮件 (Resend API)
+    ↓
+用户点击链接
+    ↓
+验证Token有效性
+    ↓
+更新 users.email_verified = true
+    ↓
+标记Token已使用
+```
+
+#### 受偏好控制的邮件
+
+```
+触发邮件通知
+    ↓
+读取用户 email_preferences
+    ↓
+解析偏好设置
+    ↓
+判断通知类型映射
+  - password_changed → system
+  - mention → mention
+  - share_received → share_received
+    ↓
+检查对应偏好是否开启
+    ↓
+如果开启 → 发送邮件
+如果关闭 → 跳过发送
+```
+
+### 管理员功能
+
+#### 邮件配置管理
+
+```typescript
+// API端点
+GET  /api/admin/email/config     // 获取配置（API Key脱敏）
+PUT  /api/admin/email/config     // 保存配置
+POST /api/admin/email/test       // 发送测试邮件
+POST /api/admin/email/broadcast  // 群发系统公告
+```
+
+#### 群发系统公告
+
+```typescript
+// 请求参数
+{
+  subject: "系统公告标题",
+  body: "公告内容",
+  userFilter: {
+    role: "admin" | "user"  // 可选：按角色筛选
+  }
+}
+
+// 响应
+{
+  success: true,
+  data: {
+    total: 100,        // 总发送数
+    successCount: 98,  // 成功数
+    failCount: 2       // 失败数
+  }
+}
+```
+
+### 数据库设计
+
+#### email_tokens 表
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | TEXT | 主键 |
+| `userId` | TEXT | 用户ID (外键) |
+| `email` | TEXT | 关联邮箱 |
+| `type` | TEXT | Token类型 |
+| `tokenHash` | TEXT | Token哈希 (SHA-256) |
+| `expiresAt` | TEXT | 过期时间 |
+| `usedAt` | TEXT | 使用时间 (可空) |
+| `createdAt` | TEXT | 创建时间 |
+
+**索引**: `idx_email_tokens_hash`, `idx_email_tokens_user`
+
+#### users 表扩展字段
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `email_verified` | BOOLEAN | false | 邮箱验证状态 |
+| `email_preferences` | TEXT | '{}' | 邮件偏好 (JSON) |
+| `password_changed_at` | TEXT | null | 密码变更时间 |
+
+### 环境变量
+
+| 变量名 | 必填 | 说明 |
+|--------|------|------|
+| `PUBLIC_URL` | ✅ | 应用公网地址，用于生成邮件链接 |
+
+**注意**: `PUBLIC_URL` 必须配置，否则邮件功能无法使用。
+
+### 前端集成
+
+#### 页面组件
+
+| 组件 | 路由 | 功能 |
+|------|------|------|
+| `VerifyEmail` | `/verify-email` | 邮箱验证落地页 |
+| `ForgotPassword` | `/forgot-password` | 忘记密码页面 |
+| `ResetPassword` | `/reset-password` | 重置密码页面 |
+| `EmailConfig` | `/admin` (邮件配置选项卡) | 管理员邮件配置 |
+| `EmailVerificationBanner` | - | 未验证用户提示横幅 |
+
+#### 设置页面集成
+
+- **邮箱设置选项卡**
+  - 显示当前邮箱和验证状态
+  - 重发验证邮件
+  - 更换邮箱功能
+  - 邮件偏好设置
+
+### 安全机制
+
+#### JWT失效机制
+
+```typescript
+// 密码修改/重置后更新
+await db.update(users).set({
+  passwordHash: newPasswordHash,
+  passwordChangedAt: now  // 记录变更时间
+});
+
+// 登录时检查
+if (user.passwordChangedAt && decoded.iat) {
+  const passwordChangedAt = new Date(user.passwordChangedAt).getTime() / 1000;
+  if (passwordChangedAt > decoded.iat) {
+    // JWT已失效，要求重新登录
+    return c.json({ error: '密码已更改，请重新登录' }, 401);
+  }
+}
+```
+
+#### 防邮箱枚举攻击
+
+```typescript
+// 忘记密码无论邮箱是否存在都返回200
+app.post('/forgot-password', async (c) => {
+  const user = await db.select().from(users).where(eq(users.email, email)).get();
+  
+  if (!user) {
+    // 不透露邮箱是否存在
+    return c.json({ success: true, message: '如果邮箱存在，您将收到重置邮件' });
+  }
+  
+  // 发送重置邮件...
+  return c.json({ success: true, message: '如果邮箱存在，您将收到重置邮件' });
+});
+```
+
+#### 限流机制
+
+```typescript
+// 重发验证邮件限流
+const rateKey = `rate:resend:${email}`;
+const exists = await c.env.KV.get(rateKey);
+if (exists) {
+  throwAppError('RATE_LIMIT_EXCEEDED', '请等待1分钟后重试');
+}
+await c.env.KV.put(rateKey, '1', { expirationTtl: 60 });
+```
 
 ---
 

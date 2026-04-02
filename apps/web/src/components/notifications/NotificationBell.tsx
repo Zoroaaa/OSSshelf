@@ -117,11 +117,7 @@ export function NotificationBell({ className, align = 'right', direction = 'down
       {isOpen && (
         <div
           ref={popoverRef}
-          className={cn(
-            'absolute w-80 sm:w-96 z-50 animate-in fade-in-0 zoom-in-95',
-            alignClass,
-            directionClass
-          )}
+          className={cn('absolute w-80 sm:w-96 z-50 animate-in fade-in-0 zoom-in-95', alignClass, directionClass)}
         >
           <NotificationList
             onClose={() => setIsOpen(false)}

@@ -37,7 +37,6 @@ import { useQuery } from '@tanstack/react-query';
 import { filesApi } from '@/services/api';
 import { useState, useEffect } from 'react';
 import { StorageBar } from '@/components/files/StorageBar';
-import { formatBytes } from '@/utils';
 
 const NAV_ITEMS = [
   { path: '/', label: '概览', icon: LayoutDashboard, exact: true },

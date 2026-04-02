@@ -23,22 +23,9 @@ INSERT INTO files_fts(rowid, id, name, description, ai_summary)
 SELECT rowid, id, name, description, ai_summary FROM files WHERE deleted_at IS NULL;
 
 -- 重建触发器
-CREATE TRIGGER IF NOT EXISTS files_fts_insert AFTER INSERT ON files
-BEGIN
-  INSERT INTO files_fts(rowid, id, name, description, ai_summary)
-  VALUES (NEW.rowid, NEW.id, NEW.name, NEW.description, NEW.ai_summary);
-END;
+CREATE TRIGGER IF NOT EXISTS files_fts_insert AFTER INSERT ON files BEGIN INSERT INTO files_fts(rowid,id,name,description,ai_summary) VALUES (NEW.rowid,NEW.id,NEW.name,NEW.description,NEW.ai_summary); END;
 
-CREATE TRIGGER IF NOT EXISTS files_fts_update AFTER UPDATE ON files
-BEGIN
-  UPDATE files_fts SET
-    name = NEW.name,
-    description = NEW.description,
-    ai_summary = NEW.ai_summary
-  WHERE rowid = NEW.rowid;
-END;
+CREATE TRIGGER IF NOT EXISTS files_fts_update AFTER UPDATE ON files BEGIN UPDATE files_fts SET name=NEW.name,description=NEW.description,ai_summary=NEW.ai_summary WHERE rowid=NEW.rowid; END;
 
-CREATE TRIGGER IF NOT EXISTS files_fts_delete AFTER DELETE ON files
-BEGIN
-  DELETE FROM files_fts WHERE rowid = OLD.rowid;
-END;
+CREATE TRIGGER IF NOT EXISTS files_fts_delete AFTER DELETE ON files BEGIN DELETE FROM files_fts WHERE rowid=OLD.rowid; END;
+

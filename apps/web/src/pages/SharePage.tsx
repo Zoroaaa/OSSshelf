@@ -31,6 +31,8 @@ import {
   Loader2,
   File,
   Eye,
+  ChevronRight,
+  Home,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -109,6 +111,8 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
     size: number;
     mimeType: string | null;
   } | null>(null);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [currentPath, setCurrentPath] = useState<Array<{ id: string; name: string }>>([]);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['share-public', shareId, enteredPw],
@@ -117,6 +121,14 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
     retry: false,
   });
 
+  const { data: folderData, isLoading: folderLoading } = useQuery({
+    queryKey: ['share-folder', shareId, currentFolderId, enteredPw],
+    queryFn: () => shareApi.getFolder(shareId, currentFolderId!, enteredPw).then((r) => r.data),
+    enabled: !!currentFolderId && !!data?.data?.file?.isFolder,
+    retry: false,
+  });
+
+  const folderInfo = folderData?.data;
   const share = data?.data;
   const errCode = (error as any)?.response?.data?.error?.code;
   const isExpired = errCode === 'SHARE_EXPIRED';
@@ -125,7 +137,9 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
   const wrongPw = !isExpired && !isExhausted && !share && !isLoading && enteredPw !== undefined;
 
   const isFolder = share?.file?.isFolder ?? false;
-  const children: ShareChildFile[] = share?.children ?? [];
+  const rootFile = share?.file;
+
+  const children: ShareChildFile[] = currentFolderId ? (folderInfo?.children ?? []) : (share?.children ?? []);
   const fileChildren = children.filter((c) => !c.isFolder);
   const allSelected = fileChildren.length > 0 && fileChildren.every((c) => selectedIds.has(c.id));
 
@@ -151,6 +165,30 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
     s.has(id) ? s.delete(id) : s.add(id);
     setSelectedIds(s);
   };
+
+  const navigateToFolder = (folderId: string, folderName: string) => {
+    setCurrentPath((prev) => [...prev, { id: folderId, name: folderName }]);
+    setCurrentFolderId(folderId);
+    setSelectedIds(new Set());
+  };
+
+  const navigateToPathIndex = (index: number) => {
+    if (index === -1) {
+      setCurrentFolderId(null);
+      setCurrentPath([]);
+    } else {
+      const targetFolder = currentPath[index];
+      if (targetFolder) {
+        setCurrentPath((prev) => prev.slice(0, index));
+        setCurrentFolderId(targetFolder.id);
+      }
+    }
+    setSelectedIds(new Set());
+  };
+
+  const currentFolderName = currentFolderId
+    ? (folderInfo?.folder?.name ?? currentPath[currentPath.length - 1]?.name ?? '文件夹')
+    : (rootFile?.name ?? '文件夹');
 
   return (
     <Shell title="文件分享">
@@ -251,7 +289,7 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
                 <FolderOpen className="h-5 w-5 text-amber-500" />
               </div>
               <div className="flex-1 min-w-0">
-                <h1 className="font-semibold text-base break-all">{decodeFileName(share.file?.name)}</h1>
+                <h1 className="font-semibold text-base break-all">{decodeFileName(currentFolderName)}</h1>
                 <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground flex-wrap">
                   <span>{children.length} 个项目</span>
                   <ShareMeta share={share} inline />
@@ -259,6 +297,34 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
               </div>
             </div>
           </div>
+
+          {/* Breadcrumb */}
+          {(currentPath.length > 0 || currentFolderId) && (
+            <div className="px-5 py-2 border-b bg-muted/10 flex items-center gap-1 text-sm overflow-x-auto">
+              <button
+                onClick={() => navigateToPathIndex(-1)}
+                className="flex items-center gap-1 text-muted-foreground hover:text-primary transition-colors flex-shrink-0"
+              >
+                <Home className="h-3.5 w-3.5" />
+                <span>{decodeFileName(rootFile?.name ?? '')}</span>
+              </button>
+              {currentPath.map((item, index) => (
+                <div key={item.id} className="flex items-center gap-1 flex-shrink-0">
+                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                  {index === currentPath.length - 1 ? (
+                    <span className="text-foreground font-medium">{decodeFileName(item.name)}</span>
+                  ) : (
+                    <button
+                      onClick={() => navigateToPathIndex(index)}
+                      className="text-muted-foreground hover:text-primary transition-colors"
+                    >
+                      {decodeFileName(item.name)}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Toolbar */}
           {fileChildren.length > 0 && (
@@ -282,7 +348,7 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
                     variant="outline"
                     className="h-7 text-xs gap-1"
                     onClick={() =>
-                      trigger(shareApi.zipUrl(shareId, enteredPw, [...selectedIds]), `${share.file!.name}.zip`)
+                      trigger(shareApi.zipUrl(shareId, enteredPw, [...selectedIds]), `${currentFolderName}.zip`)
                     }
                   >
                     <Archive className="h-3 w-3" /> 下载所选 ({selectedIds.size})
@@ -291,7 +357,7 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
                 <Button
                   size="sm"
                   className="h-7 text-xs gap-1"
-                  onClick={() => trigger(shareApi.zipUrl(shareId, enteredPw), `${share.file!.name}.zip`)}
+                  onClick={() => trigger(shareApi.zipUrl(shareId, enteredPw), `${currentFolderName}.zip`)}
                 >
                   <Archive className="h-3.5 w-3.5" /> 全部 ZIP
                 </Button>
@@ -300,18 +366,31 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
           )}
 
           {/* List */}
-          {children.length === 0 ? (
+          {folderLoading ? (
+            <div className="py-10 text-center text-muted-foreground text-sm">
+              <Loader2 className="h-5 w-5 animate-spin mx-auto mb-2" />
+              加载中...
+            </div>
+          ) : children.length === 0 ? (
             <div className="py-10 text-center text-muted-foreground text-sm">文件夹为空</div>
           ) : (
             <div className="divide-y max-h-[480px] overflow-y-auto">
               {children.map((child) => (
                 <div
                   key={child.id}
-                  className="flex items-center gap-3 px-5 py-3 hover:bg-accent/30 transition-colors group"
+                  className="flex items-center gap-3 px-5 py-3 hover:bg-accent/30 transition-colors group cursor-pointer"
+                  onClick={() => {
+                    if (child.isFolder) {
+                      navigateToFolder(child.id, child.name);
+                    }
+                  }}
                 >
                   {!child.isFolder ? (
                     <button
-                      onClick={() => toggleOne(child.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleOne(child.id);
+                      }}
                       className="flex-shrink-0 text-muted-foreground hover:text-primary"
                     >
                       {selectedIds.has(child.id) ? (
@@ -335,18 +414,23 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
                     </p>
                   </div>
 
-                  {!child.isFolder && (
+                  {child.isFolder ? (
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity touch-visible">
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  ) : (
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity touch-visible">
                       {canPreviewFile(child.mimeType) && (
                         <button
-                          onClick={() =>
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setPreviewFile({
                               id: child.id,
                               name: child.name,
                               size: child.size,
                               mimeType: child.mimeType,
-                            })
-                          }
+                            });
+                          }}
                           className="flex-shrink-0 p-1.5 rounded hover:bg-accent"
                           title="预览"
                         >
@@ -354,7 +438,10 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
                         </button>
                       )}
                       <button
-                        onClick={() => trigger(shareApi.childDownloadUrl(shareId, child.id, enteredPw), child.name)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          trigger(shareApi.childDownloadUrl(shareId, child.id, enteredPw), child.name);
+                        }}
                         className="flex-shrink-0 p-1.5 rounded hover:bg-accent"
                         title="下载"
                       >

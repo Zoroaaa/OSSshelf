@@ -2,7 +2,7 @@
 
 本文档基于项目实际路由代码，详细描述 OSSshelf 的所有 API 接口。
 
-**当前版本**: v3.8.0
+**当前版本**: v4.0.0
 
 ---
 
@@ -339,6 +339,198 @@ Authorization: Bearer <token>
 ```http
 GET /api/auth/stats
 Authorization: Bearer <token>
+```
+
+### 邮箱验证 - v4.0.0
+
+```http
+GET /api/auth/verify-email?token=<token>
+```
+
+**说明**: 验证用户邮箱，token从验证邮件中获取。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "邮箱验证成功"
+  }
+}
+```
+
+### 重发验证邮件 - v4.0.0
+
+```http
+POST /api/auth/resend-verification
+Content-Type: application/json
+
+{
+  "email": "user@example.com"
+}
+```
+
+**说明**: 重新发送邮箱验证邮件，限流1分钟1次。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "如果邮箱存在，您将收到验证邮件"
+  }
+}
+```
+
+### 忘记密码 - v4.0.0
+
+```http
+POST /api/auth/forgot-password
+Content-Type: application/json
+
+{
+  "email": "user@example.com"
+}
+```
+
+**说明**: 发送密码重置邮件，无论邮箱是否存在都返回200（防邮箱枚举攻击）。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "如果邮箱存在，您将收到重置邮件"
+  }
+}
+```
+
+### 重置密码 - v4.0.0
+
+```http
+POST /api/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "reset-token-from-email",
+  "newPassword": "newPassword123"
+}
+```
+
+**说明**: 通过邮件token重置密码，token有效期1小时。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "密码重置成功"
+  }
+}
+```
+
+### 更换邮箱 - v4.0.0
+
+```http
+POST /api/auth/change-email
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "newEmail": "new@example.com",
+  "password": "currentPassword123"
+}
+```
+
+**说明**: 申请更换邮箱，会发送确认邮件到新邮箱。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "确认邮件已发送到新邮箱"
+  }
+}
+```
+
+### 确认更换邮箱 - v4.0.0
+
+```http
+GET /api/auth/confirm-change-email?token=<token>
+```
+
+**说明**: 确认更换邮箱，token从确认邮件中获取。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "邮箱更换成功"
+  }
+}
+```
+
+### 获取邮件偏好设置 - v4.0.0
+
+```http
+GET /api/auth/email-preferences
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "mention": true,
+    "share_received": true,
+    "quota_warning": true,
+    "ai_complete": false,
+    "system": true
+  }
+}
+```
+
+### 更新邮件偏好设置 - v4.0.0
+
+```http
+PUT /api/auth/email-preferences
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "mention": true,
+  "share_received": false,
+  "quota_warning": true,
+  "ai_complete": false,
+  "system": true
+}
+```
+
+**说明**: 更新邮件通知偏好，只需传递需要修改的字段。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "mention": true,
+    "share_received": false,
+    "quota_warning": true,
+    "ai_complete": false,
+    "system": true
+  }
+}
 ```
 
 ---
@@ -2498,6 +2690,121 @@ Authorization: Bearer <token>
 ```http
 GET /api/admin/audit-logs?page=1&limit=50&userId=user-id&action=user.login
 Authorization: Bearer <token>
+```
+
+### 获取邮件配置 - v4.0.0
+
+```http
+GET /api/admin/email/config
+Authorization: Bearer <token>
+```
+
+**说明**: 获取Resend邮件服务配置，API Key会被脱敏处理。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "apiKey": "re_****...****xxxx",
+    "fromAddress": "noreply@example.com",
+    "fromName": "OSSShelf",
+    "configured": true
+  }
+}
+```
+
+### 保存邮件配置 - v4.0.0
+
+```http
+PUT /api/admin/email/config
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "apiKey": "re_xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "fromAddress": "noreply@yourdomain.com",
+  "fromName": "OSSShelf"
+}
+```
+
+**说明**: 保存Resend邮件服务配置。fromAddress必须是已在Resend验证过的域名邮箱。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "配置已保存"
+  }
+}
+```
+
+### 发送测试邮件 - v4.0.0
+
+```http
+POST /api/admin/email/test
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "to": "test@example.com"
+}
+```
+
+**说明**: 发送测试邮件验证配置是否正确。如果未提供`to`参数，则发送到当前管理员邮箱。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "测试邮件已发送"
+  }
+}
+```
+
+### 群发系统公告 - v4.0.0
+
+```http
+POST /api/admin/email/broadcast
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "subject": "系统维护通知",
+  "body": "系统将于今晚22:00进行维护...",
+  "userFilter": {
+    "role": "user"
+  }
+}
+```
+
+**说明**: 向所有用户或特定角色用户群发系统公告邮件。
+
+**请求参数**:
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `subject` | string | 是 | 邮件主题 |
+| `body` | string | 是 | 邮件正文 |
+| `userFilter.role` | string | 否 | 筛选用户角色：`admin` 或 `user` |
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "群发完成",
+    "total": 100,
+    "successCount": 98,
+    "failCount": 2
+  }
+}
 ```
 
 ---
