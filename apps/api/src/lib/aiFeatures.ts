@@ -135,7 +135,8 @@ export async function generateImageTags(env: Env, fileId: string, imageBuffer?: 
     const [captionResult, tagResult] = await Promise.allSettled([
       (env.AI as any).run(IMAGE_CAPTION_MODEL, {
         image: Array.from(uint8Array),
-        prompt: 'Describe this image in detail. If there is any text in the image, please transcribe it accurately. Respond in the same language as the text in the image, or in Chinese if no text is present.',
+        prompt:
+          'Describe this image in detail. If there is any text in the image, please transcribe it accurately. Respond in the same language as the text in the image, or in Chinese if no text is present.',
         max_tokens: 300,
       }),
       (env.AI as any).run(IMAGE_TAG_MODEL, {

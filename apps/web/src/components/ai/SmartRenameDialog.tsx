@@ -68,7 +68,7 @@ export function SmartRenameDialog({ open, onClose, fileId, currentName, onRename
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-black/50" onClick={onClose} />
       <div className="relative bg-background border rounded-lg shadow-lg w-full max-w-md mx-4 p-6 space-y-4">
         <div className="flex items-center gap-2">

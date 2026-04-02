@@ -674,11 +674,12 @@ export default function Buckets() {
 
   return (
     <div className="space-y-6 max-w-3xl">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">存储桶管理</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">管理多厂商、多存储桶的连接配置</p>
-        </div>
+      <div>
+        <h1 className="text-xl lg:text-2xl font-bold">存储桶管理</h1>
+        <p className="text-muted-foreground text-sm mt-0.5">管理多厂商、多存储桶的连接配置</p>
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap justify-end">
         <Button
           onClick={() => {
             setShowForm(true);

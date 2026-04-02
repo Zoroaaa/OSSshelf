@@ -112,6 +112,8 @@ export async function tgUploadFile(
   const msgId: number = msg.message_id;
 
   // 从响应中提取 file_id
+  // Telegram Message 可能包含的媒体类型（按优先级检查）：
+  // document, audio, video, animation, sticker, photo, video_note, voice, paid_media
   let tgFileId: string | null = null;
   let tgFileSize = 0;
 
@@ -124,6 +126,34 @@ export async function tgUploadFile(
   } else if (msg.video) {
     tgFileId = msg.video.file_id;
     tgFileSize = msg.video.file_size || fileBuffer.byteLength;
+  } else if (msg.animation) {
+    // 动画 GIF 或 webp 动图
+    tgFileId = msg.animation.file_id;
+    tgFileSize = msg.animation.file_size || fileBuffer.byteLength;
+  } else if (msg.sticker) {
+    // webp 静态贴纸
+    tgFileId = msg.sticker.file_id;
+    tgFileSize = msg.sticker.file_size || fileBuffer.byteLength;
+  } else if (msg.video_note) {
+    // 圆形视频消息
+    tgFileId = msg.video_note.file_id;
+    tgFileSize = msg.video_note.file_size || fileBuffer.byteLength;
+  } else if (msg.voice) {
+    // 语音消息
+    tgFileId = msg.voice.file_id;
+    tgFileSize = msg.voice.file_size || fileBuffer.byteLength;
+  } else if (msg.paid_media) {
+    // 付费媒体 - 取第一个媒体项
+    const paidMedia = msg.paid_media.paid_media?.[0];
+    if (paidMedia?.type === 'photo' && paidMedia.photo) {
+      const photos = paidMedia.photo as any[];
+      const largest = photos.sort((a: any, b: any) => (b.file_size || 0) - (a.file_size || 0))[0];
+      tgFileId = largest.file_id;
+      tgFileSize = largest.file_size || fileBuffer.byteLength;
+    } else if (paidMedia?.type === 'video' && paidMedia.video) {
+      tgFileId = paidMedia.video.file_id;
+      tgFileSize = paidMedia.video.file_size || fileBuffer.byteLength;
+    }
   } else if (msg.photo) {
     // photo 数组，取最大尺寸
     const photos = msg.photo as any[];
@@ -133,6 +163,7 @@ export async function tgUploadFile(
   }
 
   if (!tgFileId) {
+    console.error('[TelegramClient] Response missing file_id:', JSON.stringify(msg).slice(0, 500));
     throw new Error('Telegram 响应中未找到 file_id，上传可能失败');
   }
 
@@ -190,6 +221,7 @@ export async function tgUploadStream(
     try {
       await writer.write(preambleBytes);
       const reader = stream.getReader();
+      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -209,7 +241,7 @@ export async function tgUploadStream(
       'Content-Length': String(totalLength),
     },
     body: readable,
-    // @ts-ignore — Cloudflare Workers 支持 duplex fetch
+    // @ts-expect-error — Cloudflare Workers 支持 duplex fetch
     duplex: 'half',
   });
 
@@ -236,13 +268,39 @@ export async function tgUploadStream(
   } else if (msg.video) {
     tgFileId = msg.video.file_id;
     tgFileSize = msg.video.file_size || fileSize;
+  } else if (msg.animation) {
+    tgFileId = msg.animation.file_id;
+    tgFileSize = msg.animation.file_size || fileSize;
+  } else if (msg.sticker) {
+    tgFileId = msg.sticker.file_id;
+    tgFileSize = msg.sticker.file_size || fileSize;
+  } else if (msg.video_note) {
+    tgFileId = msg.video_note.file_id;
+    tgFileSize = msg.video_note.file_size || fileSize;
+  } else if (msg.voice) {
+    tgFileId = msg.voice.file_id;
+    tgFileSize = msg.voice.file_size || fileSize;
+  } else if (msg.paid_media) {
+    const paidMedia = msg.paid_media.paid_media?.[0];
+    if (paidMedia?.type === 'photo' && paidMedia.photo) {
+      const photos = paidMedia.photo as any[];
+      const largest = photos.sort((a: any, b: any) => (b.file_size || 0) - (a.file_size || 0))[0];
+      tgFileId = largest.file_id;
+      tgFileSize = largest.file_size || fileSize;
+    } else if (paidMedia?.type === 'video' && paidMedia.video) {
+      tgFileId = paidMedia.video.file_id;
+      tgFileSize = paidMedia.video.file_size || fileSize;
+    }
   } else if (msg.photo) {
     const largest = (msg.photo as any[]).sort((a: any, b: any) => (b.file_size || 0) - (a.file_size || 0))[0];
     tgFileId = largest.file_id;
     tgFileSize = largest.file_size || fileSize;
   }
 
-  if (!tgFileId) throw new Error('Telegram 响应中未找到 file_id');
+  if (!tgFileId) {
+    console.error('[TelegramClient] Stream response missing file_id:', JSON.stringify(msg).slice(0, 500));
+    throw new Error('Telegram 响应中未找到 file_id');
+  }
 
   return { fileId: tgFileId, messageId: msg.message_id, fileSize: tgFileSize, mimeType: mimeType || undefined };
 }

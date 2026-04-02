@@ -26,6 +26,7 @@ import { z } from 'zod';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getRegConfig } from '../lib/utils';
 import { AppError, throwAppError } from '../middleware/error';
+import { createNotification, sendNotification } from '../lib/notificationUtils';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -471,6 +472,18 @@ app.patch('/me', authMiddleware, async (c) => {
     ipAddress: getClientIp(c),
     userAgent: getUserAgent(c),
   });
+
+  if (newPassword) {
+    sendNotification(c, {
+      userId,
+      type: 'password_changed',
+      title: '密码已更改',
+      body: '您的账户密码已成功更改，如非本人操作请立即修改密码',
+      data: {
+        changedAt: now,
+      },
+    });
+  }
 
   const updated = await db.select().from(users).where(eq(users.id, userId)).get();
 

@@ -22,10 +22,11 @@ import {
   FolderPlus,
   FilePlus,
   X,
-  SlidersHorizontal,
   Search,
+  SlidersHorizontal,
   Tag,
   Sparkles,
+  FolderInput,
 } from 'lucide-react';
 import { cn } from '@/utils';
 import type { ViewMode, SortField } from '@/stores/files';
@@ -43,6 +44,7 @@ interface MobileFilesToolbarProps {
   onNewFile: () => void;
   onNewFolder: () => void;
   onUpload: () => void;
+  onUploadFolder?: () => void;
 }
 
 const viewModes: { mode: ViewMode; icon: typeof List; label: string }[] = [
@@ -63,6 +65,7 @@ export function MobileFilesToolbar({
   onNewFile,
   onNewFolder,
   onUpload,
+  onUploadFolder,
 }: MobileFilesToolbarProps) {
   const [showFabMenu, setShowFabMenu] = useState(false);
 
@@ -100,6 +103,14 @@ export function MobileFilesToolbar({
           )}
         </div>
 
+        <button
+          className="flex items-center justify-center w-12 h-10 rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95"
+          onClick={() => setShowFabMenu(!showFabMenu)}
+          title="新建/上传"
+        >
+          {showFabMenu ? <X className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+        </button>
+
         <div className="flex items-center gap-1">
           <button
             className={cn(
@@ -126,16 +137,16 @@ export function MobileFilesToolbar({
         </div>
       </div>
 
-      <button className="mobile-fab lg:hidden" onClick={() => setShowFabMenu(!showFabMenu)} title="新建/上传">
-        {showFabMenu ? <X className="h-6 w-6" /> : <Plus className="h-6 w-6" />}
-      </button>
-
       {showFabMenu && (
         <>
           <div className="fixed inset-0 z-30 bg-black/30 lg:hidden" onClick={() => setShowFabMenu(false)} />
-          <div className="fixed bottom-36 right-4 z-30 flex flex-col gap-2 lg:hidden animate-scale-in">
+          <div
+            className="fixed bottom-36 left-1/2 z-30 flex flex-col gap-2 lg:hidden"
+            style={{ transform: 'translateX(-50%)' }}
+          >
             <button
-              className="flex items-center gap-2 px-4 py-2.5 bg-card rounded-full shadow-lg border text-sm active:scale-95 transition-transform"
+              className="flex items-center gap-2 px-4 py-2.5 bg-card rounded-full shadow-lg border text-sm active:scale-95 transition-transform animate-fade-in"
+              style={{ animationDelay: '0ms' }}
               onClick={() => {
                 setShowFabMenu(false);
                 onNewFile();
@@ -145,7 +156,8 @@ export function MobileFilesToolbar({
               新建文件
             </button>
             <button
-              className="flex items-center gap-2 px-4 py-2.5 bg-card rounded-full shadow-lg border text-sm active:scale-95 transition-transform"
+              className="flex items-center gap-2 px-4 py-2.5 bg-card rounded-full shadow-lg border text-sm active:scale-95 transition-transform animate-fade-in"
+              style={{ animationDelay: '50ms' }}
               onClick={() => {
                 setShowFabMenu(false);
                 onNewFolder();
@@ -154,8 +166,22 @@ export function MobileFilesToolbar({
               <FolderPlus className="h-4 w-4" />
               新建文件夹
             </button>
+            {onUploadFolder && (
+              <button
+                className="flex items-center gap-2 px-4 py-2.5 bg-card rounded-full shadow-lg border text-sm active:scale-95 transition-transform animate-fade-in"
+                style={{ animationDelay: '100ms' }}
+                onClick={() => {
+                  setShowFabMenu(false);
+                  onUploadFolder();
+                }}
+              >
+                <FolderInput className="h-4 w-4" />
+                上传文件夹
+              </button>
+            )}
             <button
-              className="flex items-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-full shadow-lg text-sm active:scale-95 transition-transform"
+              className="flex items-center gap-2 px-4 py-2.5 bg-primary text-primary-foreground rounded-full shadow-lg text-sm active:scale-95 transition-transform animate-fade-in"
+              style={{ animationDelay: '150ms' }}
               onClick={() => {
                 setShowFabMenu(false);
                 onUpload();
@@ -183,6 +209,7 @@ interface MobileSearchPanelProps {
   searchHistoryData: Array<{ id: string; query: string }>;
   aiConfigured: boolean;
   semanticSearch: boolean;
+  ftsSearch: boolean;
   onSearchInputChange: (value: string) => void;
   onClearSearch: () => void;
   onToggleAdvancedSearch: () => void;
@@ -193,6 +220,7 @@ interface MobileSearchPanelProps {
   onUpdateCondition: (idx: number, key: 'field' | 'operator' | 'value', value: string) => void;
   onClearConditions: () => void;
   onToggleSemanticSearch: () => void;
+  onToggleFtsSearch: () => void;
   onClearTagSearch: () => void;
   onClearHistory: () => void;
   onDeleteHistoryItem: (id: string) => void;
@@ -212,6 +240,7 @@ export function MobileSearchPanel({
   searchHistoryData,
   aiConfigured,
   semanticSearch,
+  ftsSearch,
   onSearchInputChange,
   onClearSearch,
   onToggleAdvancedSearch,
@@ -222,6 +251,7 @@ export function MobileSearchPanel({
   onUpdateCondition,
   onClearConditions,
   onToggleSemanticSearch,
+  onToggleFtsSearch,
   onClearTagSearch,
   onClearHistory,
   onDeleteHistoryItem,
@@ -293,7 +323,7 @@ export function MobileSearchPanel({
                   {item.query}
                 </button>
                 <button
-                  className="px-3 py-3 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                  className="px-3 py-3 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all touch-visible"
                   onMouseDown={(e) => {
                     e.stopPropagation();
                     onDeleteHistoryItem(item.id);
@@ -318,6 +348,11 @@ export function MobileSearchPanel({
           {semanticSearch ? '语义搜索已开启' : '开启语义搜索'}
         </Button>
       )}
+
+      <Button variant={ftsSearch ? 'default' : 'outline'} size="sm" onClick={onToggleFtsSearch} className="w-full">
+        <Search className="h-3.5 w-3.5 mr-1.5" />
+        {ftsSearch ? 'FTS5全文搜索已开启' : '开启FTS5全文搜索'}
+      </Button>
 
       {tagSearchQuery && (
         <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border border-primary/20 rounded-xl text-sm">

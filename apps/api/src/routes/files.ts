@@ -28,6 +28,7 @@ import { throwAppError } from '../middleware/error';
 import { ERROR_CODES, MAX_FILE_SIZE, isPreviewableMimeType, inferMimeType } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
+import { createNotification, sendNotification } from '../lib/notificationUtils';
 import { s3Put, s3Get, s3Delete, decryptSecret } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats, updateUserStorage, checkBucketQuota } from '../lib/bucketResolver';
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
@@ -244,11 +245,39 @@ app.get('/:id/download', async (c) => {
 
   if (bucketConfig) {
     const s3Res = await s3Get(bucketConfig, file.r2Key);
+
+    sendNotification(c, {
+      userId,
+      type: 'file_downloaded',
+      title: '文件下载成功',
+      body: `文件「${file.name}」已成功下载`,
+      data: {
+        fileId,
+        fileName: file.name,
+        size: file.size,
+        mimeType: file.mimeType,
+      },
+    });
+
     return new Response(s3Res.body, { headers: dlHeaders });
   }
   if (c.env.FILES) {
     const obj = await c.env.FILES.get(file.r2Key);
     if (!obj) throwAppError('FILE_CONTENT_NOT_FOUND');
+
+    sendNotification(c, {
+      userId,
+      type: 'file_downloaded',
+      title: '文件下载成功',
+      body: `文件「${file.name}」已成功下载`,
+      data: {
+        fileId,
+        fileName: file.name,
+        size: file.size,
+        mimeType: file.mimeType,
+      },
+    });
+
     return new Response(obj.body, { headers: dlHeaders });
   }
   throwAppError('NO_STORAGE_CONFIGURED', '存储桶未配置');
@@ -461,6 +490,21 @@ app.post('/upload', async (c) => {
     await updateBucketStats(db, bucketConfig.id, physicalSizeDelta, 1);
   }
 
+  sendNotification(c, {
+    userId,
+    type: 'file_uploaded',
+    title: '文件上传成功',
+    body: `文件「${uploadFile.name}」已成功上传`,
+    data: {
+      fileId,
+      fileName: uploadFile.name,
+      size: uploadFile.size,
+      mimeType: fileMime,
+      bucketId: finalBucketId,
+      deduped: dedupResult.isDuplicate,
+    },
+  });
+
   return c.json({
     success: true,
     data: {
@@ -483,6 +527,7 @@ app.get('/', async (c) => {
   const search = c.req.query('search') || '';
   const sortBy = (c.req.query('sortBy') || 'createdAt') as keyof typeof files.$inferSelect;
   const sortOrder = c.req.query('sortOrder') || 'desc';
+  const starred = c.req.query('starred') === 'true';
 
   const db = getDb(c.env.DB);
 
@@ -497,12 +542,17 @@ app.get('/', async (c) => {
   // 构建查询条件
   const conditions: any[] = [isNull(files.deletedAt)];
 
+  // 收藏文件筛选
+  if (starred) {
+    conditions.push(eq(files.isStarred, true));
+  }
+
   if (parentId) {
     // 如果指定了 parentId，查询该目录下的文件
     // 用户需要有权限访问该目录（已在上面检查）
     conditions.push(eq(files.parentId, parentId));
-  } else {
-    // 未指定 parentId，返回：
+  } else if (!starred) {
+    // 未指定 parentId 且未指定收藏筛选，返回：
     // 1. 用户自己的根目录文件
     // 2. 被授权访问的文件（无论在哪个目录）
 
@@ -544,6 +594,9 @@ app.get('/', async (c) => {
       permittedIds.size > 0 ? inArray(files.id, Array.from(permittedIds)) : undefined
     );
     conditions.push(ownershipCondition);
+  } else {
+    // 收藏筛选时，只返回用户自己的收藏文件
+    conditions.push(eq(files.userId, userId));
   }
 
   if (search) conditions.push(like(files.name, `%${search}%`));
@@ -1426,6 +1479,19 @@ app.delete('/:id', async (c) => {
   const now = new Date().toISOString();
   if (file.isFolder) await softDeleteFolder(db, fileId, now);
   await db.update(files).set({ deletedAt: now, updatedAt: now }).where(eq(files.id, fileId));
+
+  sendNotification(c, {
+    userId,
+    type: file.isFolder ? 'folder_deleted' : 'file_deleted',
+    title: file.isFolder ? '文件夹已删除' : '文件已删除',
+    body: `${file.isFolder ? '文件夹' : '文件'}「${file.name}」已移入回收站`,
+    data: {
+      fileId,
+      fileName: file.name,
+      isFolder: file.isFolder,
+    },
+  });
+
   return c.json({ success: true, data: { message: '已移入回收站' } });
 });
 
@@ -1513,5 +1579,68 @@ async function deleteFileFromStorage(
   // 删除所有版本记录
   await db.delete(fileVersions).where(eq(fileVersions.fileId, file.id));
 }
+
+// ── Star/Unstar file ───────────────────────────────────────────────────────
+app.post('/:id/star', async (c) => {
+  const userId = c.get('userId')!;
+  const fileId = c.req.param('id');
+  const db = getDb(c.env.DB);
+
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
+  if (!hasAccess) {
+    throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
+  }
+
+  const file = await db.select().from(files).where(eq(files.id, fileId)).get();
+  if (!file) throwAppError('FILE_NOT_FOUND');
+
+  const now = new Date().toISOString();
+  await db.update(files).set({ isStarred: true, updatedAt: now }).where(eq(files.id, fileId));
+
+  sendNotification(c, {
+    userId,
+    type: 'file_starred',
+    title: '文件已收藏',
+    body: `您已收藏${file.isFolder ? '文件夹' : '文件'}「${file.name}」`,
+    data: {
+      fileId,
+      fileName: file.name,
+      isFolder: file.isFolder,
+    },
+  });
+
+  return c.json({ success: true, data: { message: '已收藏', isStarred: true } });
+});
+
+app.delete('/:id/star', async (c) => {
+  const userId = c.get('userId')!;
+  const fileId = c.req.param('id');
+  const db = getDb(c.env.DB);
+
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
+  if (!hasAccess) {
+    throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
+  }
+
+  const file = await db.select().from(files).where(eq(files.id, fileId)).get();
+  if (!file) throwAppError('FILE_NOT_FOUND');
+
+  const now = new Date().toISOString();
+  await db.update(files).set({ isStarred: false, updatedAt: now }).where(eq(files.id, fileId));
+
+  sendNotification(c, {
+    userId,
+    type: 'file_unstarred',
+    title: '已取消收藏',
+    body: `您已取消收藏${file.isFolder ? '文件夹' : '文件'}「${file.name}」`,
+    data: {
+      fileId,
+      fileName: file.name,
+      isFolder: file.isFolder,
+    },
+  });
+
+  return c.json({ success: true, data: { message: '已取消收藏', isStarred: false } });
+});
 
 export default app;

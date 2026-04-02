@@ -2,7 +2,7 @@
 
 本文档基于项目实际路由代码，详细描述 OSSshelf 的所有 API 接口。
 
-**当前版本**: v3.7.0
+**当前版本**: v3.8.0
 
 ---
 
@@ -24,6 +24,8 @@
 - [用户组接口](#用户组接口) - v3.6.0
 - [Webhook 接口](#webhook-接口) - v3.6.0
 - [AI 功能接口](#ai-功能接口) - v3.7.0
+- [存储分析接口](#存储分析接口) - v3.8.0
+- [通知系统接口](#通知系统接口) - v3.8.0
 - [上传任务接口](#上传任务接口)
 - [离线下载接口](#离线下载接口)
 - [预览接口](#预览接口)
@@ -456,6 +458,39 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/files/<fileId>/preview?token=<jwt-token>
+```
+
+### 收藏文件 (v3.8.0)
+
+```http
+POST /api/files/<fileId>/star
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "file-id",
+    "isStarred": true
+  }
+}
+```
+
+### 取消收藏 (v3.8.0)
+
+```http
+DELETE /api/files/<fileId>/star
+Authorization: Bearer <token>
+```
+
+### 获取收藏文件列表 (v3.8.0)
+
+```http
+GET /api/files?starred=true
+Authorization: Bearer <token>
 ```
 
 ---
@@ -1174,7 +1209,7 @@ Content-Type: application/json
 ### 搜索文件
 
 ```http
-GET /api/search?query=keyword&parentId=folderId&tags=tag1,tag2&mimeType=image/*&minSize=0&maxSize=10485760&createdAfter=2024-01-01T00:00:00Z&createdBefore=2024-12-31T23:59:59Z&isFolder=false&bucketId=bucket-id&sortBy=createdAt&sortOrder=desc&page=1&limit=50
+GET /api/search?query=keyword&parentId=folderId&tags=tag1,tag2&mimeType=image/*&minSize=0&maxSize=10485760&createdAfter=2024-01-01T00:00:00Z&createdBefore=2024-12-31T23:59:59Z&isFolder=false&bucketId=bucket-id&sortBy=createdAt&sortOrder=desc&page=1&limit=50&fts=true
 Authorization: Bearer <token>
 ```
 
@@ -1194,6 +1229,16 @@ Authorization: Bearer <token>
 | `sortBy`                         | 排序字段（`name`, `size`, `createdAt`, `updatedAt`） |
 | `sortOrder`                      | 排序方向（`asc`, `desc`）                            |
 | `page` / `limit`                 | 分页                                                 |
+| `fts`                            | **v3.8.0** 启用 FTS5 全文搜索（默认 false）          |
+| `semantic`                       | **v3.7.0** 启用语义搜索（需配置 Vectorize）          |
+| `hybrid`                         | **v3.7.0** 混合搜索（语义 + 关键词）                 |
+
+**FTS5 全文搜索说明** (v3.8.0):
+
+- 基于 SQLite FTS5 虚拟表实现
+- 支持 unicode61 中文分词
+- 搜索字段：文件名、描述、AI 摘要
+- 性能优于普通 LIKE 查询
 
 ### 高级搜索
 
@@ -1342,6 +1387,265 @@ Content-Type: application/json
 {
   "fileIds": ["id1", "id2"]
 }
+```
+
+---
+
+## 存储分析接口
+
+路由文件: `apps/api/src/routes/analytics.ts`
+
+存储分析功能提供存储空间使用统计、活跃度分析和文件排行等功能。
+
+### 获取存储空间分布
+
+```http
+GET /api/analytics/storage-breakdown
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "totalSize": 10737418240,
+    "totalFiles": 1500,
+    "byType": [
+      { "type": "image", "count": 800, "size": 5368709120, "percentage": 50 },
+      { "type": "video", "count": 50, "size": 3221225472, "percentage": 30 },
+      { "type": "document", "count": 400, "size": 2147483648, "percentage": 20 }
+    ],
+    "byMimeType": [
+      { "mimeType": "image/jpeg", "count": 500, "size": 2684354560 },
+      { "mimeType": "video/mp4", "count": 30, "size": 2147483648 }
+    ]
+  }
+}
+```
+
+### 获取活跃度热力图
+
+```http
+GET /api/analytics/activity-heatmap?days=30
+Authorization: Bearer <token>
+```
+
+**查询参数**:
+
+| 参数  | 类型   | 说明                     |
+| ----- | ------ | ------------------------ |
+| `days` | number | 统计天数，默认 30，最大 90 |
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "activities": [
+      { "date": "2026-04-01", "uploads": 15, "downloads": 8, "deletes": 2 },
+      { "date": "2026-03-31", "uploads": 20, "downloads": 12, "deletes": 0 }
+    ],
+    "summary": {
+      "totalUploads": 450,
+      "totalDownloads": 280,
+      "totalDeletes": 25,
+      "avgDailyUploads": 15,
+      "avgDailyDownloads": 9.3
+    }
+  }
+}
+```
+
+### 获取大文件排行
+
+```http
+GET /api/analytics/large-files?limit=20
+Authorization: Bearer <token>
+```
+
+**查询参数**:
+
+| 参数     | 类型   | 说明                  |
+| -------- | ------ | --------------------- |
+| `limit`  | number | 返回数量，默认 20，最大 100 |
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "files": [
+      {
+        "id": "file-id",
+        "name": "large-video.mp4",
+        "size": 1073741824,
+        "mimeType": "video/mp4",
+        "createdAt": "2026-04-01T10:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+### 获取存储趋势
+
+```http
+GET /api/analytics/storage-trend?days=30
+Authorization: Bearer <token>
+```
+
+**查询参数**:
+
+| 参数  | 类型   | 说明                     |
+| ----- | ------ | ------------------------ |
+| `days` | number | 统计天数，默认 30，最大 90 |
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "trend": [
+      { "date": "2026-04-01", "uploadedBytes": 104857600, "deletedBytes": 1048576, "netChange": 103808824 },
+      { "date": "2026-03-31", "uploadedBytes": 209715200, "deletedBytes": 0, "netChange": 209715200 }
+    ]
+  }
+}
+```
+
+### 获取存储桶统计
+
+```http
+GET /api/analytics/bucket-stats
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "buckets": [
+      {
+        "id": "bucket-id",
+        "name": "我的 S3 存储桶",
+        "provider": "s3",
+        "fileCount": 1500,
+        "storageUsed": 10737418240,
+        "storageQuota": 107374182400,
+        "usagePercentage": 10
+      }
+    ]
+  }
+}
+```
+
+---
+
+## 通知系统接口
+
+路由文件: `apps/api/src/routes/notifications.ts`
+
+通知系统提供实时通知功能，支持多种通知类型。
+
+### 通知类型
+
+| 类型                | 说明               |
+| ------------------- | ------------------ |
+| `share_received`    | 收到文件分享       |
+| `mention`           | 在笔记中被 @提及   |
+| `permission_granted`| 被授予文件权限     |
+| `ai_complete`       | AI 处理完成        |
+| `system`            | 系统通知           |
+
+### 获取通知列表
+
+```http
+GET /api/notifications?unreadOnly=false&page=1&limit=20
+Authorization: Bearer <token>
+```
+
+**查询参数**:
+
+| 参数         | 类型    | 说明                     |
+| ------------ | ------- | ------------------------ |
+| `unreadOnly` | boolean | 仅未读，默认 false       |
+| `page`       | number  | 页码，默认 1             |
+| `limit`      | number  | 每页数量，默认 20，最大 100 |
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": "notification-id",
+        "type": "share_received",
+        "title": "收到文件分享",
+        "message": "用户 A 与您分享了文件「项目计划书.pdf」",
+        "data": {
+          "fileId": "file-id",
+          "fileName": "项目计划书.pdf",
+          "sharerId": "user-id",
+          "sharerName": "用户 A"
+        },
+        "isRead": false,
+        "createdAt": "2026-04-02T10:00:00Z"
+      }
+    ],
+    "total": 10,
+    "unreadCount": 3,
+    "page": 1,
+    "limit": 20
+  }
+}
+```
+
+### 获取未读通知数量
+
+```http
+GET /api/notifications/unread-count
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "count": 3
+  }
+}
+```
+
+### 标记通知为已读
+
+```http
+PUT /api/notifications/:id/read
+Authorization: Bearer <token>
+```
+
+### 标记所有通知为已读
+
+```http
+PUT /api/notifications/read-all
+Authorization: Bearer <token>
+```
+
+### 删除通知
+
+```http
+DELETE /api/notifications/:id
+Authorization: Bearer <token>
 ```
 
 ---

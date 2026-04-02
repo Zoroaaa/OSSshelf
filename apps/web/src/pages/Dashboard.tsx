@@ -98,8 +98,8 @@ export default function Dashboard() {
         </div>
       ) : (
         <>
-          {/* ── Stat cards - 移动端横向滚动 ── */}
-          <div className="mobile-scroll-x md:grid md:grid-cols-4">
+          {/* ── Stat cards - 移动端2x2布局， PC端4列 ── */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 lg:gap-4">
             <StatCard
               label="文件总数"
               value={stats?.fileCount ?? 0}

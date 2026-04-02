@@ -530,6 +530,26 @@ export const webhooks = sqliteTable(
   })
 );
 
+export const notifications = sqliteTable(
+  'notifications',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(),
+    title: text('title').notNull(),
+    body: text('body'),
+    data: text('data'),
+    isRead: integer('is_read', { mode: 'boolean' }).notNull().default(false),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    userIdx: index('idx_notifications_user').on(table.userId, table.isRead, table.createdAt),
+    typeIdx: index('idx_notifications_type').on(table.type),
+  })
+);
+
 export type File = typeof files.$inferSelect;
 export type FileVersion = typeof fileVersions.$inferSelect;
 export type FileNote = typeof fileNotes.$inferSelect;
@@ -537,3 +557,4 @@ export type ApiKey = typeof apiKeys.$inferSelect;
 export type UserGroup = typeof userGroups.$inferSelect;
 export type GroupMember = typeof groupMembers.$inferSelect;
 export type FilePermission = typeof filePermissions.$inferSelect;
+export type Notification = typeof notifications.$inferSelect;

@@ -732,32 +732,84 @@ Week 6:
      - Webhook 基础实现
 ```
 
-### Phase 3：AI 智能化（计划中）
+### Phase 3：AI 智能化（已完成 ✅）
+
+**版本：3.7.0**
+
+**实际完成情况与计划偏差：**
+- 迁移文件编号：0013 → 0014（中间插入了 0013_fix_user_id_nullable.sql）
+- 向量模型升级：bge-base-en-v1.5 (768维) → bge-m3 (1024维，多语言支持更好)
+- 搜索阈值调整：0.7 → 0.5（bge-m3 cosine 分数偏低）
 
 ```
 Week 7:
-  📋 Workers AI 接入：
-     - wrangler.toml 配置 AI binding + Vectorize index
-     - 文件向量化 pipeline（上传后 waitUntil）
-     - 语义搜索接口 + 前端集成
+  ✅ Workers AI 接入：
+     - Env 类型定义 AI 和 Vectorize 绑定（可选，未配置时功能降级）
+     - 文件向量化 pipeline（上传后 autoProcessFile 自动触发）
+     - 语义搜索接口 + 移动端集成
 
 Week 8:
-  📋 AI 功能扩展：
-     - /api/ai/summarize/:fileId（文本 + 图片）
-     - 图片自动标签
-     - 智能重命名建议 UI
+  ✅ AI 功能扩展：
+     - /api/ai/summarize/:fileId（文本文件摘要）
+     - /api/ai/tags/:fileId（图片自动标签 + 描述）
+     - /api/ai/rename-suggest/:fileId（智能重命名建议）
+     - /api/ai/index/*（向量索引管理，含一键全量索引）
+     - 前端 AISummaryCard + ImageTagsDisplay + SmartRenameDialog + AISettings
+
+额外完成（计划外）：
+  ✅ 移动端页面排版优化：
+     - MobileFilesToolbar（底部操作栏、视图切换、FAB）
+     - MobileSearchPanel（语义搜索开关、高级搜索）
+     - MobileBottomNav（底部导航优化）
+  ✅ 预览组件拆分重构：
+     - 12 个独立预览组件（Image/Video/Audio/Pdf/Markdown/Code/Office/Csv/Zip/Font/Epub）
+     - previewUtils 工具函数
 ```
 
-### Phase 4：体验完善（计划中）
+### Phase 4：体验完善（已完成 ✅）
+
+**版本：3.8.0**
 
 ```
-📋 全文搜索 FTS5 升级
-📋 通知系统 + 未读角标
-📋 收藏夹功能
-📋 存储分析 Dashboard
-📋 2FA 双因素认证
-📋 文本文件 diff 预览
-📋 文件夹快照功能
+Week 9:
+  ✅ 收藏夹功能：
+     - files.is_starred 字段已存在，无需迁移
+     - GET /api/files?starred=true 筛选收藏文件
+     - POST /api/files/:id/star 添加收藏
+     - DELETE /api/files/:id/star 取消收藏
+     - 前端 Starred.tsx 页面 + StarredFiles.tsx 组件 + 侧边栏入口
+  ✅ 存储分析 Dashboard：
+     - GET /api/analytics/storage-breakdown（按类型分布统计）
+     - GET /api/analytics/activity-heatmap（活跃度热力图）
+     - GET /api/analytics/large-files（大文件 Top 20）
+     - GET /api/analytics/storage-trend（存储趋势）
+     - GET /api/analytics/bucket-stats（存储桶统计）
+     - 前端 Analytics.tsx 页面 + StorageDashboard.tsx + 图表组件
+
+Week 10:
+  ✅ 通知系统：
+     - 数据库迁移：0015_notifications.sql
+     - notifications 表（share_received | mention | permission_granted | ai_complete | system）
+     - 后端 API：GET /api/notifications, PUT /api/notifications/:id/read, DELETE /api/notifications/:id
+     - 前端 NotificationBell（铃铛按钮）+ NotificationList（通知列表弹窗）
+     - PC端：侧边栏底部显示，向上展开弹窗
+     - 移动端：顶部栏右侧显示，向下展开弹窗
+     - 注意：通知触发逻辑需在业务代码中调用 createNotification 函数
+  ✅ FTS5 全文搜索升级：
+     - 数据库迁移：0016_fts5.sql
+     - files_fts 虚拟表 + 同步触发器
+     - 支持 unicode61 中文分词
+     - 后端：通过 fts=true 参数启用 FTS5 搜索
+     - 前端：搜索栏 FTS5 开关按钮（桌面端 + 移动端）
+
+Week 11（可选 - 未实现）:
+  📋 2FA 双因素认证：
+     - 数据库迁移：0017_2fa.sql
+     - TOTP 生成与验证
+     - 前端 TwoFactorSetup + TwoFactorVerify
+  📋 文件夹快照：
+     - 数据库迁移：0018_folder_snapshots.sql
+     - 轻量快照（仅记录子树清单，不存储实际内容）
 ```
 
 ---
@@ -769,9 +821,12 @@ Week 8:
 | 0010 | `notes.sql`         | file_notes, file_note_history, note_mentions          | ✅ 已完成 |
 | 0011 | `api_keys.sql`      | api_keys                                              | ✅ 已完成 |
 | 0012 | `permission_v2.sql` | user_groups, group_members, file_permissions 扩展字段 | ✅ 已完成 |
-| 0013 | `ai_features.sql`   | files.description, files.ai_summary, files.is_starred | 📋 计划中 |
-| 0014 | `fts5.sql`          | files_fts virtual table + sync triggers               | 📋 计划中 |
-| 0015 | `notifications.sql` | notifications table                                   | 📋 计划中 |
+| 0013 | `fix_user_id_nullable.sql` | 修复 user_id 可空问题 | ✅ 已完成 |
+| 0014 | `ai_features.sql`   | files.ai_summary, files.ai_tags, files.vector_indexed_at, files.is_starred | ✅ 已完成 |
+| 0015 | `notifications.sql` | notifications table                                   | ✅ 已完成 |
+| 0016 | `fts5.sql`          | files_fts virtual table + sync triggers               | ✅ 已完成 |
+| 0017 | `2fa.sql`           | users.totp_secret, users.totp_enabled                 | 📋 计划中 |
+| 0018 | `folder_snapshots.sql` | folder_snapshots table                             | 📋 计划中 |
 
 ---
 
@@ -782,8 +837,8 @@ apps/api/src/
 ├── lib/
 │   ├── versionManager.ts     ← ✅ 已实现: 版本自动触发、清理
 │   ├── permissionResolver.ts ← ✅ 已实现: RBAC + 继承链解析
-│   ├── vectorIndex.ts        ← 📋 计划中: Vectorize 向量管理
-│   ├── aiFeatures.ts         ← 📋 计划中: AI 功能封装
+│   ├── vectorIndex.ts        ← ✅ 已实现: Vectorize 向量管理（bge-m3, 1024维）
+│   ├── aiFeatures.ts         ← ✅ 已实现: AI 功能封装（摘要、标签、重命名）
 │   ├── rateLimit.ts          ← ✅ 已实现: KV 滑动窗口限流
 │   └── webhook.ts            ← ✅ 已实现: Webhook 分发
 ├── routes/
@@ -791,8 +846,10 @@ apps/api/src/
 │   ├── groups.ts             ← ✅ 已实现
 │   ├── apiKeys.ts            ← ✅ 已实现
 │   ├── webhooks.ts           ← ✅ 已实现
-│   ├── ai.ts                 ← 📋 计划中
-│   ├── analytics.ts          ← 📋 计划中
+│   ├── ai.ts                 ← ✅ 已实现: AI 功能 API
+│   ├── analytics.ts          ← ✅ 已实现: 存储分析 API
+│   ├── notifications.ts      ← ✅ 已实现: 通知 API
+│   ├── snapshots.ts          ← 📋 计划中: 文件夹快照 API
 │   └── v1/                   ← ✅ 已实现: 开放 API v1
 │       ├── files.ts
 │       ├── folders.ts
@@ -820,16 +877,44 @@ apps/web/src/components/
 │   ├── FileEditor.tsx
 │   ├── CodeEditor.tsx
 │   └── TextEditor.tsx
-└── ai/                       ← 📋 计划中
-    ├── AISummaryCard.tsx
-    ├── SmartRenameDialog.tsx
-    └── SemanticSearchBar.tsx
+├── ai/                       ← ✅ 已实现
+│   ├── AISummaryCard.tsx
+│   ├── ImageTagsDisplay.tsx
+│   ├── SmartRenameDialog.tsx
+│   ├── AISettings.tsx
+│   └── AIIndexButton.tsx
+├── mobile/                   ← ✅ 已实现（计划外）
+│   ├── MobileFilesToolbar.tsx
+│   ├── MobileSearchPanel.tsx
+│   └── MobileBottomNav.tsx
+├── filepreview/              ← ✅ 已实现（计划外）
+│   ├── ImagePreview.tsx
+│   ├── VideoPreview.tsx
+│   ├── AudioPreview.tsx
+│   ├── PdfPreview.tsx
+│   ├── MarkdownPreview.tsx
+│   ├── CodePreview.tsx
+│   ├── OfficePreview.tsx
+│   ├── CsvPreview.tsx
+│   ├── ZipPreview.tsx
+│   ├── FontPreview.tsx
+│   ├── EpubPreview.tsx
+│   └── previewUtils.ts
+├── analytics/                ← ✅ 已实现
+│   ├── StorageDashboard.tsx
+│   ├── StorageBreakdownChart.tsx
+│   ├── ActivityHeatmap.tsx
+│   └── LargeFilesList.tsx
+└── notifications/            ← ✅ 已实现
+    ├── NotificationBell.tsx
+    ├── NotificationList.tsx
+    └── NotificationItem.tsx
 ```
 
 ---
 
-> **当前版本：3.6.0**
+> **当前版本：v3.8.0**
 >
-> **已完成**：Phase 1（版本控制修复 + 备忘录基础 + API Key + 文件编辑）和 Phase 2（权限系统 v2 + RESTful v1 API + OpenAPI 文档 + Webhook）
+> **已完成**：Phase 1-4（版本控制修复 + 备忘录基础 + API Key + 文件编辑 + 权限系统 v2 + RESTful v1 API + OpenAPI 文档 + Webhook + AI 智能化 + 移动端优化 + 预览组件拆分 + 收藏夹 + 存储分析 Dashboard + 通知系统 + FTS5 全文搜索）
 >
-> **下一步**：Phase 3（AI 智能化）是最具差异化的功能，可作为下一阶段的核心亮点。AI 语义搜索将大幅提升用户体验。
+> **下一步**：Phase 5（2FA 双因素认证 + 文件夹快照）

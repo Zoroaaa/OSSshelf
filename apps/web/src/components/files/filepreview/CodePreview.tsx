@@ -39,10 +39,7 @@ export function CodePreview({
 
   return (
     <div className="relative w-full h-full">
-      <div
-        className="w-full h-full overflow-auto bg-gray-50 dark:bg-gray-900"
-        style={{ fontSize: `${zoomLevel}%` }}
-      >
+      <div className="w-full h-full overflow-auto bg-gray-50 dark:bg-gray-900" style={{ fontSize: `${zoomLevel}%` }}>
         {textContent !== null ? (
           <pre className="p-4 m-0 leading-relaxed">
             <code

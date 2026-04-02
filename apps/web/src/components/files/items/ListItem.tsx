@@ -14,7 +14,7 @@ import { FileIcon } from '@/components/files/FileIcon';
 import { FileTagsDisplay } from '@/components/files/tags';
 import { ActionBtn } from '../ActionBtn';
 import { formatBytes, formatDate, decodeFileName } from '@/utils';
-import { isPreviewable } from '@/utils/fileTypes';
+import { isPreviewable, formatAllowedMimeTypes } from '@/utils/fileTypes';
 import { cn } from '@/utils';
 import {
   CheckSquare,
@@ -32,6 +32,7 @@ import {
   Link,
   History as HistoryIcon,
   MoreVertical,
+  Filter,
 } from 'lucide-react';
 import type { ItemProps } from '@/types/files';
 import { useState, useRef } from 'react';
@@ -58,6 +59,7 @@ export function ListItem({
   const { isMobile } = useResponsive();
   const [showActions, setShowActions] = useState(false);
   const actionBtnRef = useRef<HTMLDivElement>(null);
+  const allowedTypes = file.isFolder ? formatAllowedMimeTypes((file as any).allowedMimeTypes) : null;
 
   if (isMobile) {
     return (
@@ -160,6 +162,13 @@ export function ListItem({
           )}
           {file.isFolder ? '文件夹' : formatBytes(file.size)} · {formatDate(file.updatedAt)}
           {file.mimeType && !file.isFolder && <span className="opacity-40 hidden sm:inline">{file.mimeType}</span>}
+          {allowedTypes && (
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+              <Filter className="h-2.5 w-2.5" />
+              {allowedTypes.join('、')}
+              {allowedTypes.length < JSON.parse((file as any).allowedMimeTypes).length && '…'}
+            </span>
+          )}
           {(file as any).bucket && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-muted border">
               <Database className="h-2.5 w-2.5" />
@@ -192,7 +201,7 @@ export function ListItem({
         </p>
       </div>
       <div
-        className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity"
+        className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity touch-visible"
         onClick={(e) => e.stopPropagation()}
       >
         {canPreview && (

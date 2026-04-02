@@ -153,6 +153,9 @@ export const filesApi = {
   restoreTrash: (id: string) => api.post<ApiResponse<{ message: string }>>(`/api/files/trash/${id}/restore`),
   deleteTrash: (id: string) => api.delete<ApiResponse<{ message: string }>>(`/api/files/trash/${id}`),
   emptyTrash: () => api.delete<ApiResponse<{ message: string }>>('/api/files/trash'),
+
+  star: (id: string) => api.post<ApiResponse<{ message: string; isStarred: boolean }>>(`/api/files/${id}/star`),
+  unstar: (id: string) => api.delete<ApiResponse<{ message: string; isStarred: boolean }>>(`/api/files/${id}/star`),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -686,6 +689,7 @@ export const searchApi = {
     limit?: number;
     semantic?: boolean;
     hybrid?: boolean;
+    fts?: boolean;
   }) => api.get<ApiResponse<FileSearchResult>>('/api/search', { params }),
   advanced: (data: {
     conditions: Array<{
@@ -1111,6 +1115,119 @@ export const aiApi = {
   cancelIndexTask: () => api.delete<ApiResponse<{ message: string; task: AIIndexTask }>>('/api/ai/index/task'),
 
   deleteIndex: (fileId: string) => api.delete<ApiResponse<{ message: string }>>(`/api/ai/index/${fileId}`),
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Analytics (存储分析)
+// ─────────────────────────────────────────────────────────────────────────────
+export interface StorageBreakdown {
+  totalSize: number;
+  totalFiles: number;
+  totalFolders: number;
+  quota: number;
+  used: number;
+  byType: Array<{ type: string; count: number; size: number }>;
+  byMimeType: Array<{ mimeType: string; count: number; size: number }>;
+}
+
+export interface ActivityHeatmapItem {
+  date: string;
+  uploads: number;
+  downloads: number;
+  deletes: number;
+  others: number;
+}
+
+export interface ActivityHeatmap {
+  days: number;
+  heatmap: ActivityHeatmapItem[];
+  summary: {
+    totalUploads: number;
+    totalDownloads: number;
+    totalDeletes: number;
+  };
+}
+
+export interface LargeFileItem {
+  id: string;
+  name: string;
+  size: number;
+  mimeType: string | null;
+  path: string | null;
+  createdAt: string;
+  updatedAt: string;
+  bucketId: string | null;
+  bucket: { id: string; name: string; provider: string } | null;
+}
+
+export interface StorageTrendItem {
+  date: string;
+  uploadedSize: number;
+  uploadedCount: number;
+}
+
+export interface StorageTrend {
+  days: number;
+  trend: StorageTrendItem[];
+}
+
+export interface BucketStatItem {
+  id: string;
+  name: string;
+  provider: string;
+  isActive: boolean;
+  isDefault: boolean;
+  storageUsed: number;
+  fileCount: number;
+  actualFileCount: number;
+  actualStorageUsed: number;
+}
+
+export const analyticsApi = {
+  getStorageBreakdown: () => api.get<ApiResponse<StorageBreakdown>>('/api/analytics/storage-breakdown'),
+
+  getActivityHeatmap: (days = 30) =>
+    api.get<ApiResponse<ActivityHeatmap>>('/api/analytics/activity-heatmap', { params: { days } }),
+
+  getLargeFiles: (limit = 20) =>
+    api.get<ApiResponse<LargeFileItem[]>>('/api/analytics/large-files', { params: { limit } }),
+
+  getStorageTrend: (days = 30) =>
+    api.get<ApiResponse<StorageTrend>>('/api/analytics/storage-trend', { params: { days } }),
+
+  getBucketStats: () => api.get<ApiResponse<BucketStatItem[]>>('/api/analytics/bucket-stats'),
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Notifications (通知系统)
+// ─────────────────────────────────────────────────────────────────────────────
+export interface Notification {
+  id: string;
+  userId: string;
+  type: string;
+  title: string;
+  body: string | null;
+  data: string | null;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export const notificationsApi = {
+  list: (params?: { page?: number; limit?: number; unreadOnly?: boolean }) =>
+    api.get<ApiResponse<{ items: Notification[]; total: number; page: number; limit: number; totalPages: number }>>(
+      '/api/notifications',
+      { params }
+    ),
+
+  getUnreadCount: () => api.get<ApiResponse<{ count: number }>>('/api/notifications/unread-count'),
+
+  markRead: (id: string) => api.put<ApiResponse<{ message: string }>>(`/api/notifications/${id}/read`),
+
+  markAllRead: () => api.put<ApiResponse<{ message: string }>>('/api/notifications/read-all'),
+
+  delete: (id: string) => api.delete<ApiResponse<{ message: string }>>(`/api/notifications/${id}`),
+
+  clearRead: () => api.delete<ApiResponse<{ message: string }>>('/api/notifications/read'),
 };
 
 export default api;

@@ -105,7 +105,7 @@ export function MoveFolderPicker({ excludeIds, onConfirm, onCancel, isPending }:
   const [selected, setSelected] = useState<string | null | undefined>(undefined);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-card border rounded-xl shadow-2xl w-full max-w-sm flex flex-col max-h-[70vh]">
         <div className="px-5 py-4 border-b flex-shrink-0">
           <h2 className="text-base font-semibold">移动到…</h2>

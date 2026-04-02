@@ -2,7 +2,7 @@
 
 本文档基于项目实际代码，详细描述 OSSshelf 的系统架构、数据库设计和核心功能实现。
 
-**当前版本**: v3.7.0
+**当前版本**: v3.8.0
 
 ---
 
@@ -36,6 +36,43 @@ OSSshelf 是一个基于 Cloudflare 部署的多厂商 OSS 文件管理系统，
 ## 版本更新
 
 详细的版本更新日志请参阅 [CHANGELOG.md](../CHANGELOG.md)。
+
+### v3.8.0 (2026-04-02)
+
+**新功能**
+
+1. **收藏夹功能**
+   - 快速收藏/取消收藏文件和文件夹
+   - 侧边栏「收藏」入口，快捷访问收藏文件
+   - 文件列表支持收藏图标显示
+   - API: POST/DELETE /api/files/:id/star
+
+2. **存储分析 Dashboard**
+   - 存储空间分布统计（按文件类型、MIME 类型）
+   - 活跃度热力图（上传/下载/删除活动统计）
+   - 大文件排行 Top 20
+   - 存储趋势分析（按天统计上传量）
+   - 存储桶统计
+   - API: GET /api/analytics/*
+
+3. **通知系统**
+   - 实时通知铃铛（PC端侧边栏底部、移动端顶部栏）
+   - 通知列表弹窗（向上/向下展开自适应）
+   - 支持已读/未读状态管理
+   - 支持全部标记已读、删除通知
+   - 通知类型：share_received、mention、permission_granted、ai_complete、system
+   - API: GET /api/notifications, PUT /api/notifications/:id/read, DELETE /api/notifications/:id
+
+4. **FTS5 全文搜索**
+   - 基于 SQLite FTS5 的全文搜索引擎
+   - 支持 unicode61 中文分词
+   - 搜索文件名、描述、AI 摘要
+   - 前端搜索栏 FTS5 开关（桌面端 + 移动端）
+
+**数据库变更**
+
+- 新增迁移文件 0015_notifications.sql（notifications 表）
+- 新增迁移文件 0016_fts5.sql（files_fts 虚拟表）
 
 ### v3.7.0 (2026-04-01)
 
@@ -248,13 +285,15 @@ ossshelf/
 │   │   │   │   ├── permissions.ts  # 权限管理
 │   │   │   │   ├── presign.ts      # 预签名 URL
 │   │   │   │   ├── preview.ts      # 文件预览
-│   │   │   │   ├── search.ts       # 文件搜索
+│   │   │   │   ├── search.ts       # 文件搜索（支持 FTS5）
 │   │   │   │   ├── share.ts        # 文件分享
 │   │   │   │   ├── tasks.ts        # 上传任务
 │   │   │   │   ├── telegram.ts     # Telegram 存储
 │   │   │   │   ├── versions.ts     # 版本控制 (v3.3.0)
 │   │   │   │   ├── webhooks.ts  # Webhook 管理 (v3.6.0)
 │   │   │   │   ├── ai.ts        # AI 功能 (v3.7.0)
+│   │   │   │   ├── analytics.ts # 存储分析 (v3.8.0)
+│   │   │   │   ├── notifications.ts # 通知系统 (v3.8.0)
 │   │   │   │   └── webdav.ts    # WebDAV 协议
 │   │   │   ├── types/
 │   │   │   │   ├── env.ts          # 环境变量类型
@@ -272,7 +311,9 @@ ossshelf/
 │   │   │   ├── 0010_notes.sql       # 文件笔记 (v3.5.0)
 │   │   │   ├── 0011_api_keys.sql    # API Keys (v3.5.0)
 │   │   │   ├── 0012_permission_v2.sql # 权限系统 v2 (v3.6.0)
-│   │   │   └── 0014_ai_features.sql # AI 功能 (v3.7.0)
+│   │   │   ├── 0014_ai_features.sql # AI 功能 (v3.7.0)
+│   │   │   ├── 0015_notifications.sql # 通知系统 (v3.8.0)
+│   │   │   └── 0016_fts5.sql        # FTS5 全文搜索 (v3.8.0)
 │   │   ├── drizzle.config.ts
 │   │   ├── wrangler.toml.example
 │   │   └── package.json
@@ -285,6 +326,8 @@ ossshelf/
 │       │   │   ├── groups/         # 用户组 (v3.6.0)
 │       │   │   ├── webhooks/       # Webhook (v3.6.0)
 │       │   │   ├── permissions/    # 权限管理 (v3.6.0)
+│       │   │   ├── analytics/      # 存储分析 (v3.8.0)
+│       │   │   ├── notifications/  # 通知系统 (v3.8.0)
 │       │   │   ├── files/          # 文件组件
 │       │   │   │   ├── filepreview/ # 预览组件 (v3.7.0 拆分)
 │       │   │   └── settings/       # 设置组件
@@ -716,6 +759,8 @@ ossshelf/
 | `/api/groups`      | groups.ts      | 用户组管理 (v3.6.0) |
 | `/api/webhooks`    | webhooks.ts    | Webhook 管理 (v3.6.0) |
 | `/api/ai`          | ai.ts          | AI 功能 (v3.7.0)  |
+| `/api/analytics`   | analytics.ts   | 存储分析 (v3.8.0) |
+| `/api/notifications` | notifications.ts | 通知系统 (v3.8.0) |
 | `/api/v1`          | v1/index.ts    | RESTful v1 (v3.6.0) |
 | `/api/admin`       | admin.ts       | 管理员接口        |
 | `/api/migrate`     | migrate.ts     | 存储桶迁移        |

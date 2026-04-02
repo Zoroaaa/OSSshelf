@@ -26,6 +26,8 @@ import Admin from './pages/Admin';
 import Tasks from './pages/Tasks';
 import Downloads from './pages/Downloads';
 import Permissions from './pages/Permissions';
+import Analytics from './pages/Analytics';
+import Starred from './pages/Starred';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isInitialized } = useAuthStore();
@@ -79,6 +81,8 @@ function App() {
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/downloads" element={<Downloads />} />
         <Route path="/permissions" element={<Permissions />} />
+        <Route path="/analytics" element={<Analytics />} />
+        <Route path="/starred" element={<Starred />} />
         <Route path="/admin" element={<Admin />} />
       </Route>
 

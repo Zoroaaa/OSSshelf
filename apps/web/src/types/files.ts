@@ -62,6 +62,8 @@ export interface FileContextMenuCallbacks {
   onCopy: (file: FileItem) => void;
   onCut: (file: FileItem) => void;
   onDelete: (file: FileItem) => void;
+  /** 收藏/取消收藏 */
+  onStar?: (file: FileItem) => void;
   /** 仅文件夹可用：创建上传链接 */
   onUploadLink?: (file: FileItem) => void;
   /** 仅文件可用：直链管理 */

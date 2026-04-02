@@ -107,7 +107,7 @@ const GroupMemberDialog: React.FC<GroupMemberDialogProps> = ({ groupId, onClose 
 
   if (isLoading) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
         <div className="bg-card rounded-lg shadow-lg p-8">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
@@ -116,7 +116,7 @@ const GroupMemberDialog: React.FC<GroupMemberDialogProps> = ({ groupId, onClose 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-card rounded-lg shadow-lg w-full max-w-lg mx-4 max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between p-4 border-b flex-shrink-0">
           <div>

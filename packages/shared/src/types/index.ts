@@ -262,6 +262,7 @@ export interface FileListParams extends PaginationParams {
   maxSize?: number;
   createdAfter?: string;
   createdBefore?: string;
+  starred?: boolean | string;
 }
 
 export interface ShareCreateParams {

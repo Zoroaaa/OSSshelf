@@ -69,7 +69,7 @@ export function MigrateBucketDialog({ defaultSourceId, fileIds, onClose }: Props
   const pct = migStatus ? Math.round(((migStatus.done + migStatus.failed) / Math.max(1, migStatus.total)) * 100) : 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-card border rounded-xl p-6 w-full max-w-md shadow-2xl space-y-4">
         {/* Header */}
         <div className="flex items-center justify-between">

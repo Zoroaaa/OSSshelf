@@ -15,7 +15,7 @@ import { FileTagsDisplay } from '@/components/files/tags';
 import { ActionBtn } from '../ActionBtn';
 import { filesApi } from '@/services/api';
 import { formatBytes, decodeFileName } from '@/utils';
-import { getFileCategory, getCategoryBg, isPreviewable } from '@/utils/fileTypes';
+import { getFileCategory, getCategoryBg, isPreviewable, formatAllowedMimeTypes } from '@/utils/fileTypes';
 import { cn } from '@/utils';
 import {
   CheckSquare,
@@ -32,6 +32,7 @@ import {
   Link,
   History as HistoryIcon,
   MoreVertical,
+  Filter,
 } from 'lucide-react';
 import type { ItemProps } from '@/types/files';
 import { useState } from 'react';
@@ -60,6 +61,7 @@ export function GridItem({
   const isImage = file.mimeType?.startsWith('image/');
   const { isMobile } = useResponsive();
   const [showActions, setShowActions] = useState(false);
+  const allowedTypes = file.isFolder ? formatAllowedMimeTypes((file as any).allowedMimeTypes) : null;
 
   if (isMobile) {
     return (
@@ -220,6 +222,13 @@ export function GridItem({
         <p className={cn('text-xs font-medium', isMobile ? 'line-clamp-2' : 'truncate')}>{decodeFileName(file.name)}</p>
         <div className="flex items-center gap-1 mt-0.5 flex-wrap">
           <p className="text-xs text-muted-foreground">{file.isFolder ? '文件夹' : formatBytes(file.size)}</p>
+          {allowedTypes && (
+            <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+              <Filter className="h-2 w-2" />
+              {allowedTypes.join('、')}
+              {allowedTypes.length < JSON.parse((file as any).allowedMimeTypes).length && '…'}
+            </span>
+          )}
           {(file as any).bucket && (
             <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium bg-muted border">
               <Database className="h-2 w-2" />

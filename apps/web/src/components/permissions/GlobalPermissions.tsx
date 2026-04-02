@@ -541,79 +541,83 @@ const GlobalPermissions: React.FC = () => {
                     <div
                       key={perm.id}
                       className={cn(
-                        'flex items-center gap-3 p-3 hover:bg-muted/30 transition-colors',
+                        'flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 p-3 hover:bg-muted/30 transition-colors',
                         isExpired && 'opacity-50'
                       )}
                     >
-                      <div className="w-8 h-8 rounded flex items-center justify-center bg-muted">
-                        {perm.isFolder ? (
-                          <Folder className="h-4 w-4 text-amber-500" />
-                        ) : (
-                          <FileText className="h-4 w-4 text-blue-500" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium truncate">{perm.fileName}</p>
-                          {perm.filePath && perm.filePath !== '/' && (
-                            <span className="text-xs text-muted-foreground flex items-center gap-0.5">
-                              <ArrowUpRight className="h-3 w-3" />
-                              {perm.filePath}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                          <span>授权于 {new Date(perm.createdAt).toLocaleDateString('zh-CN')}</span>
-                          {perm.expiresAt && (
-                            <span className={cn(isExpired && 'text-destructive')}>
-                              {isExpired ? '已过期' : `过期: ${new Date(perm.expiresAt).toLocaleDateString('zh-CN')}`}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div
-                        className={cn(
-                          'flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium',
-                          config.bg,
-                          config.color
-                        )}
-                      >
-                        <Icon className="h-3 w-3" />
-                        {config.label}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <select
-                          value={perm.permission}
-                          onChange={(e) =>
-                            updateMutation.mutate({
-                              permissionId: perm.id,
-                              permission: e.target.value as any,
-                            })
-                          }
-                          className="px-2 py-1 text-xs border rounded bg-background"
-                          disabled={updateMutation.isPending}
-                        >
-                          <option value="read">只读</option>
-                          <option value="write">读写</option>
-                          <option value="admin">管理</option>
-                        </select>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                          onClick={() => {
-                            if (confirm('确定要撤销此权限吗？')) {
-                              revokeMutation.mutate({ permissionId: perm.id });
-                            }
-                          }}
-                          disabled={revokeMutation.isPending}
-                        >
-                          {revokeMutation.isPending ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <div className="w-8 h-8 rounded flex-shrink-0 flex items-center justify-center bg-muted">
+                          {perm.isFolder ? (
+                            <Folder className="h-4 w-4 text-amber-500" />
                           ) : (
-                            <Trash2 className="h-3.5 w-3.5" />
+                            <FileText className="h-4 w-4 text-blue-500" />
                           )}
-                        </Button>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-medium truncate">{perm.fileName}</p>
+                            {perm.filePath && perm.filePath !== '/' && (
+                              <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+                                <ArrowUpRight className="h-3 w-3" />
+                                <span className="truncate max-w-[120px]">{perm.filePath}</span>
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5 flex-wrap">
+                            <span>授权于 {new Date(perm.createdAt).toLocaleDateString('zh-CN')}</span>
+                            {perm.expiresAt && (
+                              <span className={cn(isExpired && 'text-destructive')}>
+                                {isExpired ? '已过期' : `过期: ${new Date(perm.expiresAt).toLocaleDateString('zh-CN')}`}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 justify-between sm:justify-end">
+                        <div
+                          className={cn(
+                            'flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium',
+                            config.bg,
+                            config.color
+                          )}
+                        >
+                          <Icon className="h-3 w-3" />
+                          {config.label}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <select
+                            value={perm.permission}
+                            onChange={(e) =>
+                              updateMutation.mutate({
+                                permissionId: perm.id,
+                                permission: e.target.value as any,
+                              })
+                            }
+                            className="px-2 py-1 text-xs border rounded bg-background"
+                            disabled={updateMutation.isPending}
+                          >
+                            <option value="read">只读</option>
+                            <option value="write">读写</option>
+                            <option value="admin">管理</option>
+                          </select>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            onClick={() => {
+                              if (confirm('确定要撤销此权限吗？')) {
+                                revokeMutation.mutate({ permissionId: perm.id });
+                              }
+                            }}
+                            disabled={revokeMutation.isPending}
+                          >
+                            {revokeMutation.isPending ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   );

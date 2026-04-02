@@ -126,6 +126,13 @@
     min-height: 36px;
   }
 
+  /* On touch devices (no hover), show action buttons that are normally hover-only */
+  @media (hover: none) {
+    .touch-visible {
+      opacity: 1 !important;
+    }
+  }
+
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }

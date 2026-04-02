@@ -165,7 +165,7 @@ const NoteCard: React.FC<NoteCardProps> = ({
                               onDeleteReply(reply.id);
                             }
                           }}
-                          className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity touch-visible"
                           title="删除回复"
                         >
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">

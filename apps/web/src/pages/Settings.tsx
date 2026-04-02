@@ -219,7 +219,7 @@ export default function Settings() {
               )}
             >
               <Icon className="h-4 w-4" />
-              <span className="hidden xs:inline">{tab.label}</span>
+              <span>{tab.label}</span>
             </button>
           );
         })}

@@ -2,6 +2,50 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v3.8.0] - 2026-04-02
+
+### Added
+
+- 收藏夹功能
+  - 快速收藏/取消收藏文件和文件夹
+  - 侧边栏「收藏」入口，快捷访问收藏文件
+  - 文件列表支持收藏图标显示
+  - API: POST/DELETE /api/files/:id/star
+- 存储分析 Dashboard
+  - 存储空间分布统计（按文件类型、MIME 类型）
+  - 活跃度热力图（上传/下载/删除活动统计）
+  - 大文件排行 Top 20
+  - 存储趋势分析（按天统计上传量）
+  - 存储桶统计
+  - API: GET /api/analytics/*
+- 通知系统
+  - 实时通知铃铛（PC端侧边栏底部、移动端顶部栏）
+  - 通知列表弹窗（向上/向下展开自适应）
+  - 支持已读/未读状态管理
+  - 支持全部标记已读、删除通知
+  - 通知类型：share_received、mention、permission_granted、ai_complete、system
+  - API: GET /api/notifications, PUT /api/notifications/:id/read, DELETE /api/notifications/:id
+- FTS5 全文搜索
+  - 基于 SQLite FTS5 的全文搜索引擎
+  - 支持 unicode61 中文分词
+  - 搜索文件名、描述、AI 摘要
+  - 前端搜索栏 FTS5 开关（桌面端 + 移动端）
+  - 数据库迁移：0016_fts5.sql（虚拟表 + 同步触发器）
+
+### Changed
+
+- 数据库结构扩展
+  - 新增迁移文件 0015_notifications.sql（notifications 表）
+  - 新增迁移文件 0016_fts5.sql（files_fts 虚拟表）
+- 前端组件优化
+  - NotificationBell 支持 align 和 direction 属性
+  - NotificationList API 调用已启用
+
+### Improved
+
+- 搜索性能提升：FTS5 全文搜索替代 LIKE 查询
+- 用户体验：通知铃铛位置优化（PC端侧边栏、移动端顶部栏）
+
 ## [v3.7.0] - 2026-04-01
 
 ### Added

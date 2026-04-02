@@ -100,7 +100,7 @@ const WebhookCreateDialog: React.FC<WebhookCreateDialogProps> = ({ events, onClo
 
   if (createdSecret) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
         <div className="bg-card rounded-lg shadow-lg w-full max-w-md mx-4">
           <div className="flex items-center justify-between p-4 border-b">
             <h2 className="text-lg font-semibold">Webhook 已创建</h2>
@@ -142,7 +142,7 @@ const WebhookCreateDialog: React.FC<WebhookCreateDialogProps> = ({ events, onClo
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-card rounded-lg shadow-lg w-full max-w-md mx-4">
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold">创建 Webhook</h2>

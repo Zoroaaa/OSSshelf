@@ -160,7 +160,7 @@ export function VersionHistory({ fileId, fileName, mimeType, onClose, onVersionR
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-card border rounded-lg w-full max-w-2xl max-h-[80vh] shadow-xl flex flex-col">
         <div className="flex items-center justify-between p-4 border-b">
           <div className="flex items-center gap-3">

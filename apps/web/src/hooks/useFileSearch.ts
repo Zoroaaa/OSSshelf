@@ -32,6 +32,7 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
   const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [semanticSearch, setSemanticSearch] = useState(false);
+  const [ftsSearch, setFtsSearch] = useState(false);
   const [aiConfigured, setAiConfigured] = useState(false);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -55,7 +56,7 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
   }, []);
 
   const { data: searchResults } = useQuery<FileItem[]>({
-    queryKey: ['search', folderId, searchQuery, semanticSearch],
+    queryKey: ['search', folderId, searchQuery, semanticSearch, ftsSearch],
     queryFn: async () => {
       if (!searchQuery) return [];
       const res = await searchApi.query({
@@ -63,6 +64,7 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
         parentId: folderId || undefined,
         semantic: semanticSearch,
         hybrid: semanticSearch,
+        fts: ftsSearch,
       });
       return res.data.data?.items ?? [];
     },
@@ -173,6 +175,8 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
     clearSearch,
     semanticSearch,
     setSemanticSearch,
+    ftsSearch,
+    setFtsSearch,
     aiConfigured,
   };
 }

@@ -35,11 +35,12 @@
 
 详细的版本更新日志请参阅 [CHANGELOG.md](CHANGELOG.md)。
 
-### 最新版本 v3.7.0
+### 最新版本 v3.8.0
 
-- **AI 功能集成**：文件摘要生成、图片智能描述、图片标签生成、智能重命名建议、语义搜索
-- **移动端优化**：底部操作栏、搜索面板、响应式布局优化
-- **预览组件拆分**：独立预览组件，提升代码可维护性
+- **收藏夹功能**：快速收藏文件/文件夹，侧边栏快捷访问
+- **存储分析 Dashboard**：存储空间分布、活跃度热力图、大文件排行、存储趋势
+- **通知系统**：实时通知铃铛、通知列表、已读/未读管理
+- **FTS5 全文搜索**：支持中文分词的全文搜索，搜索性能大幅提升
 
 ---
 
@@ -73,7 +74,39 @@
 - 🔔 **Webhook**: 文件事件订阅，支持第三方系统集成
 - 💬 **文件笔记**: 为文件添加评论和笔记，支持 @提及和回复
 - 🏷️ **标签系统**: 为文件添加自定义标签
-- 🔍 **高级搜索**: 按名称、类型、大小、时间等条件搜索
+- 🔍 **高级搜索**: 按名称、类型、大小、时间等条件搜索，支持 FTS5 全文搜索
+- ⭐ **收藏夹**: 快速收藏文件/文件夹，侧边栏快捷访问
+- 📊 **存储分析**: 存储空间分布、活跃度热力图、大文件排行
+- 🔔 **通知系统**: 实时通知、已读未读管理
+
+<details>
+<summary>📋 通知触发场景</summary>
+
+| 场景 | 通知类型 | 触发条件 |
+|------|----------|----------|
+| **文件分享** | `share_received` | 分享链接被下载时通知文件所有者 |
+| | `upload_link_received` | 上传链接收到新文件时通知链接创建者 |
+| **笔记互动** | `mention` | 笔记中 @提及其他用户（需输入完整邮箱） |
+| | `reply` | 笔记被回复时通知原笔记作者 |
+| **权限授予** | `permission_granted` | 被授予文件/文件夹权限时通知被授予者 |
+| | `permission_granted_to` | 权限授予成功时通知授予者 |
+| **AI 处理** | `ai_complete` | AI 摘要/标签生成完成时通知 |
+| **文件操作** | `file_uploaded` | 文件上传成功 |
+| | `file_downloaded` | 文件下载成功 |
+| | `file_deleted` / `folder_deleted` | 文件/文件夹移入回收站 |
+| | `file_starred` / `file_unstarred` | 收藏/取消收藏 |
+| **存储桶管理** | `bucket_created` | 存储桶创建成功 |
+| | `bucket_updated` | 存储桶配置更新 |
+| | `bucket_deleted` | 存储桶删除 |
+| **Webhook** | `webhook_created` / `deleted` | Webhook 创建/删除 |
+| **API Key** | `apikey_created` / `deleted` | API Key 创建/删除 |
+| **账户安全** | `password_changed` | 密码更改成功（安全提醒） |
+| **系统管理** | `invite_code_created` | 邀请码生成 |
+| | `registration_opened` / `closed` | 注册开放/关闭 |
+| | `invite_registration_opened` / `closed` | 邀请码注册开放/关闭 |
+
+</details>
+
 - 🤖 **AI 功能**: 文件摘要、图片描述、智能标签、语义搜索、智能重命名
 - 📥 **离线下载**: 支持 URL 离线下载到云存储
 - 📡 **WebDAV**: 完整的 WebDAV 协议支持（优化 Windows 资源管理器兼容性）
@@ -396,7 +429,7 @@ ossshelf/
 │   │   │   │   ├── directLink.ts # 文件直链
 │   │   │   │   ├── tasks.ts     # 上传任务
 │   │   │   │   ├── presign.ts   # 预签名
-│   │   │   │   ├── search.ts    # 搜索
+│   │   │   │   ├── search.ts    # 搜索（支持 FTS5）
 │   │   │   │   ├── permissions.ts # 权限与标签
 │   │   │   │   ├── batch.ts     # 批量操作
 │   │   │   │   ├── downloads.ts # 离线下载
@@ -407,6 +440,8 @@ ossshelf/
 │   │   │   │   ├── groups.ts    # 用户组管理 (v3.6.0)
 │   │   │   │   ├── webhooks.ts  # Webhook 管理 (v3.6.0)
 │   │   │   │   ├── ai.ts        # AI 功能 (v3.7.0)
+│   │   │   │   ├── analytics.ts # 存储分析 (v3.8.0)
+│   │   │   │   ├── notifications.ts # 通知系统 (v3.8.0)
 │   │   │   │   ├── v1/          # RESTful v1 API (v3.6.0)
 │   │   │   │   │   ├── index.ts
 │   │   │   │   │   ├── files.ts
@@ -442,6 +477,8 @@ ossshelf/
 │       │   │   ├── groups/     # 用户组组件 (v3.6.0)
 │       │   │   ├── webhooks/   # Webhook 组件 (v3.6.0)
 │       │   │   ├── permissions/ # 权限组件 (v3.6.0)
+│       │   │   ├── analytics/  # 存储分析组件 (v3.8.0)
+│       │   │   ├── notifications/ # 通知组件 (v3.8.0)
 │       │   │   ├── files/      # 文件组件
 │       │   │   │   ├── filepreview/ # 预览组件 (v3.7.0 拆分)
 │       │   │   └── settings/   # 设置组件
@@ -490,6 +527,8 @@ ossshelf/
 | `/api/groups`      | 用户组管理 (v3.6.0)     |
 | `/api/webhooks`    | Webhook 管理 (v3.6.0)   |
 | `/api/ai`          | AI 功能 (v3.7.0)        |
+| `/api/analytics`   | 存储分析 (v3.8.0)       |
+| `/api/notifications` | 通知系统 (v3.8.0)     |
 | `/api/v1`          | RESTful v1 API (v3.6.0) |
 | `/api/v1/docs`     | OpenAPI 文档 (v3.6.0)   |
 | `/api/admin`       | 管理员接口              |

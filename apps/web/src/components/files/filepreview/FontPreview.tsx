@@ -69,15 +69,13 @@ export function FontPreview({ resolvedUrl, fileName, zoomLevel, onLoadError }: F
               <p className="text-2xl mb-2">abcdefghijklmnopqrstuvwxyz</p>
               <p className="text-2xl mb-2">ABCDEFGHIJKLMNOPQRSTUVWXYZ</p>
               <p className="text-2xl mb-2">0123456789</p>
-              <p className="text-xl mt-6">
-                敏捷的棕色狐狸跳过懒狗。The quick brown fox jumps over the lazy dog.
-              </p>
+              <p className="text-xl mt-6">敏捷的棕色狐狸跳过懒狗。The quick brown fox jumps over the lazy dog.</p>
             </div>
             <div className="border-t pt-6">
               <p className="text-lg leading-relaxed">
-                这是一段预览文本，用于展示字体的效果。字体预览可以帮助您了解字体在不同大小和样式下的表现。 This
-                is a preview text to demonstrate the font effect. Font preview helps you understand how the font
-                looks at different sizes and styles.
+                这是一段预览文本，用于展示字体的效果。字体预览可以帮助您了解字体在不同大小和样式下的表现。 This is a
+                preview text to demonstrate the font effect. Font preview helps you understand how the font looks at
+                different sizes and styles.
               </p>
             </div>
           </div>
