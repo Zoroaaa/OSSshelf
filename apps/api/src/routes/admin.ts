@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { hashPassword } from '../lib/crypto';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getRegConfig, type RegConfig } from '../lib/utils';
+import { createNotification, sendNotification } from '../lib/notificationUtils';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -232,6 +233,28 @@ app.put('/registration', async (c) => {
     userAgent: getUserAgent(c),
   });
 
+  const adminId = c.get('userId')!;
+
+  if (current.open !== updated.open) {
+    sendNotification(c, {
+      userId: adminId,
+      type: updated.open ? 'registration_opened' : 'registration_closed',
+      title: updated.open ? '注册已开放' : '注册已关闭',
+      body: updated.open ? '系统已开放新用户注册' : '系统已关闭新用户注册',
+      data: { changedBy: adminId },
+    });
+  }
+
+  if (current.requireInviteCode !== updated.requireInviteCode) {
+    sendNotification(c, {
+      userId: adminId,
+      type: updated.requireInviteCode ? 'invite_registration_opened' : 'invite_registration_closed',
+      title: updated.requireInviteCode ? '邀请码注册已开放' : '邀请码注册已关闭',
+      body: updated.requireInviteCode ? '系统已开放邀请码注册' : '系统已关闭邀请码注册',
+      data: { changedBy: adminId },
+    });
+  }
+
   return c.json({ success: true, data: updated });
 });
 
@@ -254,12 +277,20 @@ app.post('/registration/codes', async (c) => {
 
   await createAuditLog({
     env: c.env,
-    userId: c.get('userId'),
-    action: 'admin.invite_code_generate',
-    resourceType: 'invite_code',
-    details: { count, codes },
+    userId: c.get('userId')!,
+    action: 'admin.invite_code_create',
+    resourceType: 'system',
+    details: { count },
     ipAddress: getClientIp(c),
     userAgent: getUserAgent(c),
+  });
+
+  sendNotification(c, {
+    userId: c.get('userId')!,
+    type: 'invite_code_created',
+    title: '邀请码已生成',
+    body: `已生成 ${count} 个邀请码`,
+    data: { count, codes },
   });
 
   return c.json({ success: true, data: { codes, createdAt: now } });
@@ -392,5 +423,257 @@ function generateInviteCode(): string {
   const segment = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
   return `${segment()}-${segment()}-${segment()}`;
 }
+
+// ── Email Configuration ───────────────────────────────────────────────────
+
+const emailConfigSchema = z.object({
+  apiKey: z.string().min(1, 'API Key不能为空'),
+  fromAddress: z.string().email('发件人地址格式不正确'),
+  fromName: z.string().min(1, '发件人名称不能为空'),
+});
+
+const emailTestSchema = z.object({
+  to: z.string().email('收件人地址格式不正确').optional(),
+});
+
+const emailBroadcastSchema = z.object({
+  subject: z.string().min(1, '邮件主题不能为空'),
+  body: z.string().min(1, '邮件内容不能为空'),
+  userFilter: z
+    .object({
+      role: z.enum(['admin', 'user']).optional(),
+      active: z.boolean().optional(),
+    })
+    .optional(),
+});
+
+app.get('/email/config', async (c) => {
+  const configStr = await c.env.KV.get('config:resend');
+  if (!configStr) {
+    return c.json({ success: true, data: null });
+  }
+
+  const config = JSON.parse(configStr) as { apiKey: string; fromAddress: string; fromName: string };
+  const maskedApiKey = `${config.apiKey.substring(0, 8)}...${config.apiKey.substring(config.apiKey.length - 4)}`;
+
+  return c.json({
+    success: true,
+    data: {
+      apiKey: maskedApiKey,
+      fromAddress: config.fromAddress,
+      fromName: config.fromName,
+      configured: true,
+    },
+  });
+});
+
+app.put('/email/config', async (c) => {
+  const body = await c.req.json();
+  const result = emailConfigSchema.safeParse(body);
+
+  if (!result.success) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
+  }
+
+  const { apiKey, fromAddress, fromName } = result.data;
+
+  await c.env.KV.put('config:resend', JSON.stringify({ apiKey, fromAddress, fromName }));
+
+  await createAuditLog({
+    env: c.env,
+    userId: c.get('userId')!,
+    action: 'admin.email_config_update',
+    resourceType: 'system',
+    ipAddress: getClientIp(c),
+    userAgent: getUserAgent(c),
+  });
+
+  return c.json({ success: true, data: { message: '邮件配置已保存' } });
+});
+
+app.post('/email/test', async (c) => {
+  const body = await c.req.json();
+  const result = emailTestSchema.safeParse(body);
+
+  if (!result.success) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
+  }
+
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+  const user = await db.select().from(users).where(eq(users.id, userId)).get();
+
+  if (!user) {
+    throwAppError('USER_NOT_FOUND');
+  }
+
+  const to = result.data.to || user.email;
+
+  const configStr = await c.env.KV.get('config:resend');
+  if (!configStr) {
+    return c.json({ success: false, error: { code: 'EMAIL_NOT_CONFIGURED', message: '邮件服务未配置' } }, 500);
+  }
+
+  const config = JSON.parse(configStr) as { apiKey: string; fromAddress: string; fromName: string };
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: `${config.fromName} <${config.fromAddress}>`,
+        to,
+        subject: 'OSSShelf 测试邮件',
+        html: `
+          <div style="padding: 20px; font-family: sans-serif;">
+            <h2>测试邮件</h2>
+            <p>这是一封来自 OSSShelf 的测试邮件。</p>
+            <p>如果您收到此邮件，说明邮件服务配置成功！</p>
+          </div>
+        `,
+      }),
+    });
+
+    if (!res.ok) {
+      const error = await res.text();
+      console.error('Resend API error:', error);
+      return c.json(
+        { success: false, error: { code: 'EMAIL_SEND_FAILED', message: `邮件发送失败: ${res.status}` } },
+        500
+      );
+    }
+
+    await createAuditLog({
+      env: c.env,
+      userId,
+      action: 'admin.email_test',
+      resourceType: 'system',
+      details: { to },
+      ipAddress: getClientIp(c),
+      userAgent: getUserAgent(c),
+    });
+
+    return c.json({ success: true, data: { message: `测试邮件已发送到 ${to}` } });
+  } catch (error) {
+    console.error('Email test error:', error);
+    return c.json({ success: false, error: { code: 'EMAIL_SEND_FAILED', message: '邮件发送失败' } }, 500);
+  }
+});
+
+app.post('/email/broadcast', async (c) => {
+  const body = await c.req.json();
+  const result = emailBroadcastSchema.safeParse(body);
+
+  if (!result.success) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
+  }
+
+  const { subject, body: emailBody, userFilter } = result.data;
+
+  const configStr = await c.env.KV.get('config:resend');
+  if (!configStr) {
+    return c.json({ success: false, error: { code: 'EMAIL_NOT_CONFIGURED', message: '邮件服务未配置' } }, 500);
+  }
+
+  const config = JSON.parse(configStr) as { apiKey: string; fromAddress: string; fromName: string };
+  const db = getDb(c.env.DB);
+
+  const conditions = [];
+  if (userFilter?.role) {
+    conditions.push(eq(users.role, userFilter.role));
+  }
+  if (userFilter?.active !== undefined) {
+    conditions.push(eq(users.role, 'user'));
+  }
+
+  const allUsers =
+    conditions.length > 0
+      ? await db
+          .select()
+          .from(users)
+          .where(and(...conditions))
+          .all()
+      : await db.select().from(users).all();
+
+  const batchSize = 100;
+  const batches = [];
+  for (let i = 0; i < allUsers.length; i += batchSize) {
+    batches.push(allUsers.slice(i, i + batchSize));
+  }
+
+  let successCount = 0;
+  let failCount = 0;
+
+  for (const batch of batches) {
+    const promises = batch.map(async (user) => {
+      try {
+        const res = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${config.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            from: `${config.fromName} <${config.fromAddress}>`,
+            to: user.email,
+            subject,
+            html: `
+              <div style="padding: 20px; font-family: sans-serif;">
+                <p>您好，${user.name || user.email}！</p>
+                <div style="margin: 20px 0;">${emailBody}</div>
+              </div>
+            `,
+          }),
+        });
+
+        if (res.ok) {
+          successCount++;
+        } else {
+          failCount++;
+        }
+      } catch {
+        failCount++;
+      }
+    });
+
+    await Promise.all(promises);
+
+    if (batches.indexOf(batch) < batches.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+
+  await createAuditLog({
+    env: c.env,
+    userId: c.get('userId')!,
+    action: 'admin.email_broadcast',
+    resourceType: 'system',
+    details: { subject, total: allUsers.length, successCount, failCount },
+    ipAddress: getClientIp(c),
+    userAgent: getUserAgent(c),
+  });
+
+  return c.json({
+    success: true,
+    data: {
+      message: `群发完成：成功 ${successCount} 封，失败 ${failCount} 封`,
+      total: allUsers.length,
+      successCount,
+      failCount,
+    },
+  });
+});
 
 export default app;

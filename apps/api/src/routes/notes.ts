@@ -17,6 +17,7 @@ import { throwAppError } from '../middleware/error';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
+import { createNotification, getUserInfo } from '../lib/notificationUtils';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -183,7 +184,7 @@ app.post('/:fileId', async (c) => {
   const mentions = extractMentions(content);
   if (mentions.length > 0) {
     const mentionedUsers = await db
-      .select({ id: users.id })
+      .select({ id: users.id, email: users.email })
       .from(users)
       .where(sql`${users.email} IN ${mentions}`)
       .all();
@@ -196,6 +197,67 @@ app.post('/:fileId', async (c) => {
         isRead: false,
         createdAt: now,
       });
+    }
+
+    c.executionCtx.waitUntil(
+      (async () => {
+        try {
+          const authorInfo = await getUserInfo(c.env, userId);
+          for (const u of mentionedUsers) {
+            if (u.id !== userId) {
+              await createNotification(c.env, {
+                userId: u.id,
+                type: 'mention',
+                title: '您在笔记中被提及',
+                body: `${authorInfo?.name || authorInfo?.email || '用户'} 在文件「${file.name}」的笔记中@了您`,
+                data: {
+                  fileId,
+                  fileName: file.name,
+                  noteId,
+                  mentionerId: userId,
+                  mentionerName: authorInfo?.name || authorInfo?.email,
+                },
+              });
+            }
+          }
+        } catch (e) {
+          console.error('Failed to send mention notification:', e);
+        }
+      })()
+    );
+  }
+
+  if (parentId) {
+    const parentNote = await db
+      .select({ id: fileNotes.id, userId: fileNotes.userId })
+      .from(fileNotes)
+      .where(eq(fileNotes.id, parentId))
+      .get();
+
+    if (parentNote && parentNote.userId !== userId) {
+      c.executionCtx.waitUntil(
+        (async () => {
+          try {
+            const authorInfo = await getUserInfo(c.env, userId);
+            await createNotification(c.env, {
+              userId: parentNote.userId,
+              type: 'reply',
+              title: '您的笔记收到了回复',
+              body: `${authorInfo?.name || authorInfo?.email || '用户'} 回复了您在文件「${file.name}」中的笔记`,
+              data: {
+                fileId,
+                fileName: file.name,
+                noteId,
+                parentId,
+                replierId: userId,
+                replierName: authorInfo?.name || authorInfo?.email,
+              },
+            });
+          } catch (e) {
+            console.error('Failed to send reply notification:', e);
+          }
+        })()
+      );
     }
   }
 

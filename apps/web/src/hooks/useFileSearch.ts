@@ -12,7 +12,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { searchApi } from '@/services/api';
+import { searchApi, aiApi } from '@/services/api';
 import type { FileItem } from '@osshelf/shared';
 import type { AdvancedSearchCondition, AdvancedSearchLogic } from '@/types/files';
 
@@ -31,6 +31,9 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
   const [advancedLogic, setAdvancedLogic] = useState<AdvancedSearchLogic>('and');
   const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [semanticSearch, setSemanticSearch] = useState(false);
+  const [ftsSearch, setFtsSearch] = useState(false);
+  const [aiConfigured, setAiConfigured] = useState(false);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -41,13 +44,27 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
     };
   }, []);
 
+  useEffect(() => {
+    aiApi
+      .getStatus()
+      .then((res) => {
+        setAiConfigured(res.data.data?.configured ?? false);
+      })
+      .catch(() => {
+        setAiConfigured(false);
+      });
+  }, []);
+
   const { data: searchResults } = useQuery<FileItem[]>({
-    queryKey: ['search', folderId, searchQuery],
+    queryKey: ['search', folderId, searchQuery, semanticSearch, ftsSearch],
     queryFn: async () => {
       if (!searchQuery) return [];
       const res = await searchApi.query({
         query: searchQuery,
         parentId: folderId || undefined,
+        semantic: semanticSearch,
+        hybrid: semanticSearch,
+        fts: ftsSearch,
       });
       return res.data.data?.items ?? [];
     },
@@ -156,5 +173,10 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
     handleTagClick,
     clearTagSearch,
     clearSearch,
+    semanticSearch,
+    setSemanticSearch,
+    ftsSearch,
+    setFtsSearch,
+    aiConfigured,
   };
 }

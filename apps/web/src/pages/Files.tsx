@@ -12,9 +12,10 @@
  */
 
 import { useCallback, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useFileStore, type ViewMode } from '@/stores/files';
+import type { AdvancedSearchCondition } from '@/types/files';
 import { useAuthStore } from '@/stores/auth';
 import { filesApi, bucketsApi, permissionsApi, shareApi, searchApi, type StorageBucket } from '@/services/api';
 import { getPresignedDownloadUrl, presignUpload } from '@/services/presignUpload';
@@ -50,11 +51,14 @@ import {
   Search,
   History,
   Trash2 as TrashIcon,
+  Sparkles,
+  Star,
 } from 'lucide-react';
 import type { FileItem } from '@osshelf/shared';
 import { cn, decodeFileName } from '@/utils';
 
 import { NewFolderDialog, NewFileDialog, FILE_TEMPLATES, ShareDialog, FileListContainer } from '@/components/files';
+import { MobileFilesToolbar, MobileSearchPanel } from '@/components/files/MobileFilesToolbar';
 import { UploadLinkDialog } from '@/components/files/dialogs';
 import { DirectLinkDialog } from '@/components/files/dialogs';
 import { VersionHistory } from '@/components/files/VersionHistory';
@@ -69,6 +73,8 @@ import { useFilesPageState } from '@/hooks/useFilesPageState';
 export default function Files() {
   const { folderId } = useParams<{ folderId: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const showStarred = searchParams.get('starred') === 'true';
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { token } = useAuthStore();
@@ -174,6 +180,11 @@ export default function Files() {
     handleSuggestionClick,
     handleTagClick,
     clearTagSearch,
+    semanticSearch,
+    setSemanticSearch,
+    ftsSearch,
+    setFtsSearch,
+    aiConfigured,
   } = fileSearch;
 
   const { data: breadcrumbs = [] } = useQuery<BreadcrumbItem[]>({
@@ -211,8 +222,11 @@ export default function Files() {
     isLoading,
     refetch,
   } = useQuery<FileItem[]>({
-    queryKey: ['files', folderId],
-    queryFn: () => filesApi.list({ parentId: folderId || null }).then((r) => r.data.data ?? []),
+    queryKey: ['files', folderId, showStarred],
+    queryFn: () =>
+      filesApi
+        .list({ parentId: folderId || null, starred: showStarred ? 'true' : undefined })
+        .then((r) => r.data.data ?? []),
   });
 
   const fileIds = files.map((f) => f.id);
@@ -477,6 +491,20 @@ export default function Files() {
         deleteMutation.mutate(file.id);
       }
     },
+    onStar: async (file: FileItem) => {
+      try {
+        if ((file as any).isStarred) {
+          await filesApi.unstar(file.id);
+          toast({ title: '已取消收藏' });
+        } else {
+          await filesApi.star(file.id);
+          toast({ title: '已收藏' });
+        }
+        refetch();
+      } catch (error) {
+        toast({ title: '操作失败', variant: 'destructive' });
+      }
+    },
   };
 
   const backgroundContextMenuCallbacks = {
@@ -559,7 +587,7 @@ export default function Files() {
   );
 
   return (
-    <div className="space-y-5" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+    <div className="space-y-6" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
       <ContextMenuComponent />
 
       {isDragActive && (
@@ -571,131 +599,121 @@ export default function Files() {
         </div>
       )}
 
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="space-y-1">
+      <div className="space-y-4">
+        <div>
           <h1 className="text-xl lg:text-2xl font-bold">文件管理</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">管理您的文件与文件夹</p>
+        </div>
+        <div className="text-muted-foreground text-sm">
           <BreadcrumbNav items={breadcrumbs} />
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap md:hidden">
-          <div className="relative w-full order-first">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <input
-              className="pl-8 pr-8 h-9 w-full rounded-md border bg-background text-sm outline-none focus:ring-2 focus:ring-ring"
-              placeholder={tagSearchQuery ? `标签: ${tagSearchQuery}` : '搜索文件...'}
-              value={searchInput}
-              onChange={(e) => handleSearchInput(e.target.value)}
-            />
-            {(searchInput || tagSearchQuery) && (
-              <button
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                onClick={() => {
-                  setSearchInput('');
-                  setSearchQuery('');
-                  setTagSearchQuery(null);
-                }}
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-          <div className="flex border rounded-md overflow-hidden">
-            {viewModes.map(({ mode, icon: Icon, label }) => (
-              <Button
-                key={mode}
-                variant="ghost"
-                size="icon"
-                className={cn('rounded-none h-8 w-8', viewMode === mode && !galleryMode && 'bg-accent')}
-                onClick={() => {
-                  setViewMode(mode);
-                  setGalleryMode(false);
-                }}
-                title={label}
-              >
-                <Icon className="h-4 w-4" />
-              </Button>
-            ))}
-            {hasImages && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn('rounded-none h-8 w-8 border-l', galleryMode && 'bg-accent')}
-                onClick={() => setGalleryMode(true)}
-                title="图库"
-              >
-                <ImageIcon className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
-          <Button variant="outline" size="sm" onClick={() => setShowNewFileDialog(true)}>
-            <FilePlus className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setShowNewFolderDialog(true)}>
-            <FolderPlus className="h-4 w-4" />
-          </Button>
-          <label className="inline-flex">
-            <Button variant="outline" size="sm" asChild>
-              <span>
-                <Upload className="h-4 w-4" />
-              </span>
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="hidden"
-              multiple
-              onChange={(e) => {
-                Array.from(e.target.files || []).forEach((file) => {
-                  const key = `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-                  handleUpload(file, key);
-                });
-                e.target.value = '';
-              }}
-            />
-          </label>
-          <label className="inline-flex">
-            <Button
-              variant="outline"
-              size="sm"
-              asChild
-              disabled={!currentFolderInfo?.permissions?.some((p) => p.permission === 'write')}
-            >
-              <span>
-                <FolderInput className="h-4 w-4" />
-              </span>
-            </Button>
-            <input
-              ref={folderInputRef}
-              type="file"
-              className="hidden"
-              webkitdirectory=""
-              directory=""
-              multiple
-              onChange={(e) => {
-                const files = e.target.files;
-                if (!files || files.length === 0) return;
-                const rootFolderName = (files[0] as any).webkitRelativePath?.split('/')[0] || '文件夹';
-                toast({
-                  title: `开始上传文件夹 "${rootFolderName}"`,
-                  description: `${files.length} 个文件`,
-                });
-                uploadFilesWithRelativePath(files);
-                e.target.value = '';
-              }}
-            />
-          </label>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => selectAll(displayFiles)}
-            disabled={displayFiles.length === 0}
-          >
-            <CheckSquare className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-        </div>
+        <MobileSearchPanel
+          searchInput={searchInput}
+          tagSearchQuery={tagSearchQuery}
+          showAdvancedSearch={showAdvancedSearch}
+          advancedLogic={advancedLogic}
+          advancedConditions={advancedConditions}
+          searchSuggestions={searchSuggestions}
+          showSuggestions={showSuggestions}
+          showSearchHistory={showSearchHistory}
+          searchHistoryData={searchHistoryData ?? []}
+          aiConfigured={aiConfigured}
+          semanticSearch={semanticSearch}
+          onSearchInputChange={handleSearchInput}
+          onClearSearch={() => {
+            setSearchInput('');
+            setSearchQuery('');
+            setTagSearchQuery(null);
+            setShowSuggestions(false);
+            setShowSearchHistory(false);
+          }}
+          onToggleAdvancedSearch={() => setShowAdvancedSearch(!showAdvancedSearch)}
+          onSuggestionClick={(suggestion) => {
+            setSearchInput(suggestion);
+            setSearchQuery(suggestion);
+            setShowSuggestions(false);
+            setShowSearchHistory(false);
+          }}
+          onAdvancedLogicChange={(logic) => setAdvancedLogic(logic)}
+          onAddCondition={() => {
+            setAdvancedConditions([...advancedConditions, { field: 'name', operator: 'contains', value: '' }]);
+          }}
+          onRemoveCondition={(idx) => {
+            setAdvancedConditions(advancedConditions.filter((_, i) => i !== idx));
+          }}
+          onUpdateCondition={(idx, key, value) => {
+            const newConditions = [...advancedConditions];
+            const current = newConditions[idx];
+            if (!current) return;
+            if (key === 'field') {
+              newConditions[idx] = {
+                field: value as AdvancedSearchCondition['field'],
+                operator: current.operator,
+                value: current.value,
+              };
+            } else if (key === 'operator') {
+              newConditions[idx] = {
+                field: current.field,
+                operator: value as AdvancedSearchCondition['operator'],
+                value: current.value,
+              };
+            } else {
+              newConditions[idx] = {
+                field: current.field,
+                operator: current.operator,
+                value,
+              };
+            }
+            setAdvancedConditions(newConditions);
+          }}
+          onClearConditions={() => setAdvancedConditions([])}
+          onToggleSemanticSearch={() => setSemanticSearch(!semanticSearch)}
+          ftsSearch={ftsSearch}
+          onToggleFtsSearch={() => setFtsSearch(!ftsSearch)}
+          onClearTagSearch={clearTagSearch}
+          onClearHistory={async () => {
+            await searchApi.clearHistory();
+            refetchHistory();
+            setShowSearchHistory(false);
+          }}
+          onDeleteHistoryItem={async (id) => {
+            await searchApi.deleteHistory(id);
+            refetchHistory();
+          }}
+          onFocus={() => {
+            if (searchInput.length >= 2 && searchSuggestions.length > 0) {
+              setShowSuggestions(true);
+            } else if (searchInput.length === 0) {
+              refetchHistory();
+              setShowSearchHistory(true);
+            }
+          }}
+          onBlur={() => {
+            setTimeout(() => {
+              setShowSuggestions(false);
+              setShowSearchHistory(false);
+            }, 200);
+          }}
+        />
+
+        <MobileFilesToolbar
+          viewMode={viewMode}
+          galleryMode={galleryMode}
+          hasImages={hasImages}
+          sortBy={sortBy}
+          sortOrder={sortOrder}
+          onViewModeChange={(mode) => {
+            setViewMode(mode);
+            setGalleryMode(false);
+          }}
+          onGalleryModeChange={setGalleryMode}
+          onSort={handleSort}
+          onNewFile={() => setShowNewFileDialog(true)}
+          onNewFolder={() => setShowNewFolderDialog(true)}
+          onUpload={() => fileInputRef.current?.click()}
+          onUploadFolder={() => folderInputRef.current?.click()}
+        />
 
         <div className="hidden md:flex items-center gap-2 flex-wrap">
           <div className="relative">
@@ -796,7 +814,7 @@ export default function Files() {
                         {item.query}
                       </button>
                       <button
-                        className="px-2 py-2 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                        className="px-2 py-2 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all touch-visible"
                         onMouseDown={async (e) => {
                           e.stopPropagation();
                           await searchApi.deleteHistory(item.id);
@@ -810,6 +828,28 @@ export default function Files() {
                 </div>
               )}
           </div>
+
+          {aiConfigured && (
+            <Button
+              variant={semanticSearch ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setSemanticSearch(!semanticSearch)}
+              title={semanticSearch ? '语义搜索已开启' : '开启语义搜索'}
+            >
+              <Sparkles className="h-3.5 w-3.5 mr-1" />
+              {semanticSearch ? '语义' : '关键词'}
+            </Button>
+          )}
+
+          <Button
+            variant={ftsSearch ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setFtsSearch(!ftsSearch)}
+            title={ftsSearch ? 'FTS5全文搜索已开启' : '开启FTS5全文搜索'}
+          >
+            <Search className="h-3.5 w-3.5 mr-1" />
+            {ftsSearch ? 'FTS5' : '普通'}
+          </Button>
 
           {showAdvancedSearch && (
             <div className="flex items-center gap-2 p-2 bg-muted/30 border rounded-md">
@@ -963,6 +1003,23 @@ export default function Files() {
             <RefreshCw className="h-4 w-4" />
           </Button>
 
+          <Button
+            variant={showStarred ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => {
+              if (showStarred) {
+                searchParams.delete('starred');
+              } else {
+                searchParams.set('starred', 'true');
+              }
+              setSearchParams(searchParams);
+            }}
+            title={showStarred ? '显示全部文件' : '只显示收藏文件'}
+          >
+            <Star className={cn('h-4 w-4', showStarred && 'fill-current')} />
+            {showStarred ? '全部' : '收藏'}
+          </Button>
+
           <Button variant="outline" size="sm" onClick={() => setShowNewFileDialog(true)} className="hidden sm:flex">
             <FilePlus className="h-4 w-4 mr-1.5" />
             新建文件
@@ -1061,7 +1118,7 @@ export default function Files() {
           {activeUploads.map(([key, progress]) => (
             <div key={key} className="bg-card border rounded-lg px-4 py-3">
               <div className="flex items-center justify-between mb-1.5">
-                <span className="text-sm font-medium truncate max-w-[200px]">
+                <span className="text-sm font-medium truncate flex-1 min-w-0">
                   {decodeFileName(key.split('-').slice(0, -2).join('-'))}
                 </span>
                 <span className="text-sm text-muted-foreground ml-2">{progress}%</span>
@@ -1074,30 +1131,29 @@ export default function Files() {
         </div>
       )}
 
-      {showNewFolderDialog && (
-        <NewFolderDialog
-          isRoot={!folderId}
-          name={newFolderName}
-          bucketId={newFolderBucketId}
-          onNameChange={setNewFolderName}
-          onBucketChange={setNewFolderBucketId}
-          onConfirm={() => {
-            if (!newFolderName.trim()) return;
-            createFolderMutation.mutate(
-              {
-                name: newFolderName.trim(),
-                parentId: folderId || null,
-                bucketId: newFolderBucketId,
-              },
-              {
-                onSuccess: () => resetNewFolderDialog(),
-              }
-            );
-          }}
-          onCancel={resetNewFolderDialog}
-          loading={createFolderMutation.isPending}
-        />
-      )}
+      <NewFolderDialog
+        open={showNewFolderDialog}
+        isRoot={!folderId}
+        name={newFolderName}
+        bucketId={newFolderBucketId}
+        onNameChange={setNewFolderName}
+        onBucketChange={setNewFolderBucketId}
+        onConfirm={() => {
+          if (!newFolderName.trim()) return;
+          createFolderMutation.mutate(
+            {
+              name: newFolderName.trim(),
+              parentId: folderId || null,
+              bucketId: newFolderBucketId,
+            },
+            {
+              onSuccess: () => resetNewFolderDialog(),
+            }
+          );
+        }}
+        onCancel={resetNewFolderDialog}
+        loading={createFolderMutation.isPending}
+      />
 
       {showNewFileDialog && (
         <NewFileDialog
@@ -1193,16 +1249,15 @@ export default function Files() {
         />
       )}
 
-      {renameFile && (
-        <RenameDialog
-          currentName={renameFile.name}
-          isPending={renameMutation.isPending}
-          onConfirm={(name) =>
-            renameMutation.mutate({ id: renameFile.id, name }, { onSuccess: () => setRenameFile(null) })
-          }
-          onCancel={() => setRenameFile(null)}
-        />
-      )}
+      <RenameDialog
+        open={!!renameFile}
+        currentName={renameFile?.name || ''}
+        isPending={renameMutation.isPending}
+        onConfirm={(name) =>
+          renameMutation.mutate({ id: renameFile!.id, name }, { onSuccess: () => setRenameFile(null) })
+        }
+        onCancel={() => setRenameFile(null)}
+      />
 
       {moveFile && (
         <MoveFolderPicker
@@ -1236,7 +1291,7 @@ export default function Files() {
       )}
 
       {tagsFile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-card border rounded-xl p-6 w-full max-w-md shadow-2xl">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">标签管理</h2>
@@ -1256,7 +1311,7 @@ export default function Files() {
       )}
 
       {permissionFile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-card border rounded-xl p-6 w-full max-w-md shadow-2xl">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">权限管理</h2>
@@ -1276,7 +1331,7 @@ export default function Files() {
       )}
 
       {folderSettingsFile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-card border rounded-xl p-6 w-full max-w-md shadow-2xl">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold">文件夹设置</h2>

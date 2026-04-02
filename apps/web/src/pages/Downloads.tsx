@@ -135,7 +135,7 @@ function TaskItem({
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
           <Link className="h-3 w-3 flex-shrink-0" />
-          <span className="truncate max-w-[320px]">{task.url}</span>
+          <span className="truncate">{task.url}</span>
         </div>
         <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
           {task.fileSize ? <span>{formatBytes(task.fileSize)}</span> : null}
@@ -185,7 +185,6 @@ function TaskItem({
 export default function Downloads() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { isMobile } = useResponsive();
 
   const [mode, setMode] = useState<'single' | 'batch'>('single');
   const [showForm, setShowForm] = useState(false);
@@ -308,49 +307,42 @@ export default function Downloads() {
   return (
     <div className="space-y-6">
       {/* 标题栏 */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold">离线下载</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">创建和管理离线下载任务</p>
-        </div>
-        <div className={cn('flex items-center gap-2', isMobile && 'flex-col w-full')}>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refetch()}
-            className={cn(isMobile && 'w-full justify-center')}
-          >
-            <RefreshCw className="h-4 w-4 mr-1.5" />
-            刷新
-          </Button>
-          {!showForm && (
-            <>
-              <Button
-                size="sm"
-                onClick={() => {
-                  setMode('single');
-                  setShowForm(true);
-                }}
-                className={cn(isMobile && 'w-full justify-center')}
-              >
-                <Plus className="h-4 w-4 mr-1.5" />
-                新建下载
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setMode('batch');
-                  setShowForm(true);
-                }}
-                className={cn(isMobile && 'w-full justify-center')}
-              >
-                <ListPlus className="h-4 w-4 mr-1.5" />
-                批量导入
-              </Button>
-            </>
-          )}
-        </div>
+      <div>
+        <h1 className="text-xl lg:text-2xl font-bold">离线下载</h1>
+        <p className="text-muted-foreground text-sm mt-0.5">创建和管理离线下载任务</p>
+      </div>
+
+      {/* 按钮区域 */}
+      <div className="flex items-center gap-2 flex-wrap justify-end">
+        <Button variant="outline" size="sm" onClick={() => refetch()}>
+          <RefreshCw className="h-4 w-4 mr-1.5" />
+          刷新
+        </Button>
+        {!showForm && (
+          <>
+            <Button
+              size="sm"
+              onClick={() => {
+                setMode('single');
+                setShowForm(true);
+              }}
+            >
+              <Plus className="h-4 w-4 mr-1.5" />
+              新建下载
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setMode('batch');
+                setShowForm(true);
+              }}
+            >
+              <ListPlus className="h-4 w-4 mr-1.5" />
+              批量导入
+            </Button>
+          </>
+        )}
       </div>
 
       {/* 创建/导入表单 */}

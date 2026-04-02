@@ -53,6 +53,24 @@ async function handleJwtAuth(c: any, next: () => Promise<void>, token: string) {
       );
     }
 
+    const db = getDb(c.env.DB);
+    const user = await db.select().from(users).where(eq(users.id, decoded.userId)).get();
+
+    if (!user) {
+      return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '用户不存在' } }, 401);
+    }
+
+    if (user.passwordChangedAt && decoded.iat) {
+      const passwordChangedAt = new Date(user.passwordChangedAt).getTime() / 1000;
+      if (passwordChangedAt > decoded.iat) {
+        await c.env.KV.delete(`session:${token}`);
+        return c.json(
+          { success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '密码已更改，请重新登录' } },
+          401
+        );
+      }
+    }
+
     c.set('userId', decoded.userId);
     c.set('user', { id: decoded.userId, email: decoded.email, role: decoded.role });
     c.set('authType', 'jwt');
@@ -142,6 +160,34 @@ export function requireScope(scopes: string | string[]): MiddlewareHandler<AppEn
         {
           success: false,
           error: { code: ERROR_CODES.FORBIDDEN, message: `需要以下权限之一: ${requiredScopes.join(', ')}` },
+        },
+        403
+      );
+    }
+
+    await next();
+  };
+}
+
+export function requireEmailVerification(): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const userId = c.get('userId');
+    if (!userId) {
+      return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '未认证' } }, 401);
+    }
+
+    const db = getDb(c.env.DB);
+    const user = await db.select().from(users).where(eq(users.id, userId)).get();
+
+    if (!user) {
+      return c.json({ success: false, error: { code: ERROR_CODES.USER_NOT_FOUND, message: '用户不存在' } }, 404);
+    }
+
+    if (!user.emailVerified) {
+      return c.json(
+        {
+          success: false,
+          error: { code: 'EMAIL_NOT_VERIFIED', message: '请先验证邮箱后再使用此功能' },
         },
         403
       );

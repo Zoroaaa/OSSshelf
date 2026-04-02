@@ -1,6 +1,6 @@
 {
   "name": "ossshelf",
-  "version": "3.6.0",
+  "version": "3.7.0",
   "private": true,
   "description": "基于 Cloudflare 部署的多厂商 OSS 文件管理系统，支持 WebDAV 协议",
   "scripts": {

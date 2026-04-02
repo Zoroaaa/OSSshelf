@@ -20,6 +20,9 @@ export const users = sqliteTable(
     role: text('role').default('user').notNull(),
     storageQuota: integer('storage_quota').default(10737418240).notNull(),
     storageUsed: integer('storage_used').default(0).notNull(),
+    emailVerified: integer('email_verified', { mode: 'boolean' }).notNull().default(false),
+    emailPreferences: text('email_preferences').notNull().default('{}'),
+    passwordChangedAt: text('password_changed_at'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
@@ -212,8 +215,7 @@ export const filePermissions = sqliteTable(
     fileId: text('file_id')
       .notNull()
       .references(() => files.id, { onDelete: 'cascade' }),
-    userId: text('user_id')
-      .references(() => users.id, { onDelete: 'cascade' }),
+    userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
     permission: text('permission').notNull().default('read'),
     grantedBy: text('granted_by')
       .notNull()
@@ -531,6 +533,46 @@ export const webhooks = sqliteTable(
   })
 );
 
+export const notifications = sqliteTable(
+  'notifications',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(),
+    title: text('title').notNull(),
+    body: text('body'),
+    data: text('data'),
+    isRead: integer('is_read', { mode: 'boolean' }).notNull().default(false),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    userIdx: index('idx_notifications_user').on(table.userId, table.isRead, table.createdAt),
+    typeIdx: index('idx_notifications_type').on(table.type),
+  })
+);
+
+export const emailTokens = sqliteTable(
+  'email_tokens',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    email: text('email').notNull(),
+    type: text('type').notNull(),
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: text('expires_at').notNull(),
+    usedAt: text('used_at'),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    userIdx: index('idx_email_tokens_user').on(table.userId, table.type),
+    expiresIdx: index('idx_email_tokens_expires').on(table.expiresAt),
+  })
+);
+
 export type File = typeof files.$inferSelect;
 export type FileVersion = typeof fileVersions.$inferSelect;
 export type FileNote = typeof fileNotes.$inferSelect;
@@ -538,3 +580,5 @@ export type ApiKey = typeof apiKeys.$inferSelect;
 export type UserGroup = typeof userGroups.$inferSelect;
 export type GroupMember = typeof groupMembers.$inferSelect;
 export type FilePermission = typeof filePermissions.$inferSelect;
+export type Notification = typeof notifications.$inferSelect;
+export type EmailToken = typeof emailTokens.$inferSelect;

@@ -5,14 +5,13 @@
 
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { webhooksApi, type Webhook as WebhookType, type WebhookEvent } from '@/services/api';
-import { Button } from '@/components/ui/Button';
+import { webhooksApi } from '@/services/api';
 import { useToast } from '@/components/ui/useToast';
+import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils';
 import {
   Webhook,
   Plus,
-  X,
   Trash2,
   Play,
   Power,
@@ -56,8 +55,7 @@ const WebhookList: React.FC = () => {
   });
 
   const toggleMutation = useMutation({
-    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
-      webhooksApi.update(id, { isActive }),
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => webhooksApi.update(id, { isActive }),
     onSuccess: () => {
       toast({ title: '状态已更新' });
       queryClient.invalidateQueries({ queryKey: ['webhooks'] });
@@ -121,9 +119,7 @@ const WebhookList: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold">Webhooks</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            配置 Webhook 以接收文件系统事件通知
-          </p>
+          <p className="text-sm text-muted-foreground mt-1">配置 Webhook 以接收文件系统事件通知</p>
         </div>
         <Button onClick={() => setIsCreateOpen(true)}>
           <Plus className="h-4 w-4 mr-1" />
@@ -146,10 +142,7 @@ const WebhookList: React.FC = () => {
           {webhooks.map((hook) => (
             <div
               key={hook.id}
-              className={cn(
-                'bg-card rounded-lg border p-4 transition-colors',
-                !hook.isActive && 'opacity-60'
-              )}
+              className={cn('bg-card rounded-lg border p-4 transition-colors', !hook.isActive && 'opacity-60')}
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1">
@@ -164,17 +157,12 @@ const WebhookList: React.FC = () => {
                       <ExternalLink className="h-3.5 w-3.5" />
                     </a>
                     {!hook.isActive && (
-                      <span className="px-2 py-0.5 text-xs bg-muted text-muted-foreground rounded">
-                        已禁用
-                      </span>
+                      <span className="px-2 py-0.5 text-xs bg-muted text-muted-foreground rounded">已禁用</span>
                     )}
                   </div>
                   <div className="flex flex-wrap gap-1 mt-2">
                     {hook.events.map((event) => (
-                      <span
-                        key={event}
-                        className="px-2 py-0.5 text-xs bg-primary/10 text-primary rounded"
-                      >
+                      <span key={event} className="px-2 py-0.5 text-xs bg-primary/10 text-primary rounded">
                         {getEventLabel(event)}
                       </span>
                     ))}

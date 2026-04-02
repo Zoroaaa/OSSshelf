@@ -18,6 +18,8 @@ import { StorageBar } from '@/components/files/StorageBar';
 import { Toaster } from '@/components/ui/Toaster';
 import { MobileBottomNav } from '@/components/layouts/MobileBottomNav';
 import { PWAPrompt } from '@/components/ui/PWAInstallPrompt';
+import { NotificationBell } from '@/components/notifications';
+import { EmailVerificationBanner } from '@/components/auth/EmailVerificationBanner';
 import { useQuery } from '@tanstack/react-query';
 import { filesApi } from '@/services/api';
 import {
@@ -32,13 +34,14 @@ import {
   Shield,
   ShieldCheck,
   ChevronLeft,
-  ChevronRight,
   Keyboard,
   Upload,
   Download,
   Sun,
   Moon,
   Monitor,
+  BarChart3,
+  Star,
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { cn } from '@/utils';
@@ -47,9 +50,11 @@ import { KeyboardShortcutsDialog } from '@/components/ui/KeyboardShortcutsDialog
 const baseNavItems = [
   { path: '/', label: '概览', icon: LayoutDashboard, exact: true },
   { path: '/files', label: '文件', icon: FolderOpen, exact: false },
+  { path: '/starred', label: '收藏', icon: Star, exact: false },
   { path: '/shares', label: '分享', icon: Share2, exact: false },
   { path: '/tasks', label: '上传任务', icon: Upload, exact: false },
   { path: '/downloads', label: '离线下载', icon: Download, exact: false },
+  { path: '/analytics', label: '存储分析', icon: BarChart3, exact: false },
   { path: '/trash', label: '回收站', icon: Trash2, exact: false },
   { path: '/buckets', label: '存储桶', icon: Database, exact: false },
   { path: '/permissions', label: '权限管理', icon: ShieldCheck, exact: false },
@@ -101,7 +106,7 @@ export default function MainLayout() {
   });
   const trashCount = (trashItems as any[]).length;
 
-  const { canGoBack, canGoForward, goBack, goForward } = useFileStore();
+  const { canGoBack, goBack, goForward } = useFileStore();
 
   const isActive = (item: (typeof navItems)[0]) =>
     item.exact ? location.pathname === item.path : location.pathname.startsWith(item.path);
@@ -148,57 +153,42 @@ export default function MainLayout() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* 移动端顶部栏 - 仅显示标题和导航按钮 */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur border-b px-4 py-3 flex items-center justify-between safe-top">
+      <EmailVerificationBanner />
+      {/* 移动端顶部栏 - 精简版 */}
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur border-b px-3 py-2.5 flex items-center justify-between safe-top">
         <div className="flex items-center gap-2">
+          {location.pathname.startsWith('/files') && canGoBack() && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 -ml-1"
+              onClick={() => {
+                const targetFolderId = goBack();
+                if (targetFolderId !== null) {
+                  navigate(targetFolderId ? `/files/${targetFolderId}` : '/files');
+                }
+              }}
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </Button>
+          )}
           <div className="w-6 h-6 rounded bg-primary flex items-center justify-center">
             <HardDrive className="h-3.5 w-3.5 text-primary-foreground" />
           </div>
           <span className="font-bold text-sm">OSSshelf</span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
+          <NotificationBell />
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-9 w-9 touch-target-sm"
             onClick={cycleTheme}
             title={`当前主题: ${theme === 'light' ? '浅色' : theme === 'dark' ? '深色' : '跟随系统'}`}
           >
-            <ThemeIcon className="h-4 w-4" />
+            <ThemeIcon className="h-4.5 w-4.5" />
           </Button>
-          {location.pathname.startsWith('/files') && (
-            <>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                disabled={!canGoBack()}
-                onClick={() => {
-                  const targetFolderId = goBack();
-                  if (targetFolderId !== null) {
-                    navigate(targetFolderId ? `/files/${targetFolderId}` : '/files');
-                  }
-                }}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                disabled={!canGoForward()}
-                onClick={() => {
-                  const targetFolderId = goForward();
-                  if (targetFolderId !== null) {
-                    navigate(targetFolderId ? `/files/${targetFolderId}` : '/files');
-                  }
-                }}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </>
-          )}
         </div>
       </div>
 
@@ -284,6 +274,13 @@ export default function MainLayout() {
                 <p className="text-xs font-medium truncate leading-none">{user?.name || user?.email}</p>
                 <p className="text-xs text-muted-foreground truncate mt-0.5">{user?.email}</p>
               </div>
+              <NotificationBell align="left" direction="up" className="flex-shrink-0" />
+            </div>
+          )}
+
+          {isCollapsed && !isHovering && (
+            <div className="flex justify-center">
+              <NotificationBell align="left" direction="up" />
             </div>
           )}
 
@@ -344,7 +341,7 @@ export default function MainLayout() {
         className={cn(
           'transition-all duration-200',
           isCollapsed ? 'lg:pl-16' : 'lg:pl-64',
-          'pt-16 lg:pt-0 pb-20 lg:pb-0'
+          'pt-16 lg:pt-0 pb-20 lg:pb-0 min-h-[calc(100vh-4rem)]'
         )}
       >
         <div className="p-4 lg:p-6 max-w-[1400px] mx-auto">

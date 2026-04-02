@@ -73,6 +73,12 @@ export const ERROR_CODES: Record<string, ErrorInfo> = {
   EMAIL_ALREADY_REGISTERED: { code: 'A400', httpStatus: 409, message: '该邮箱已被注册' },
   EMAIL_NOT_REGISTERED: { code: 'A401', httpStatus: 404, message: '该邮箱未注册' },
   WRONG_PASSWORD: { code: 'A402', httpStatus: 401, message: '密码错误' },
+  EMAIL_NOT_VERIFIED: { code: 'A403', httpStatus: 403, message: '邮箱未验证' },
+  EMAIL_TOKEN_EXPIRED: { code: 'A404', httpStatus: 400, message: '验证链接已过期' },
+  EMAIL_TOKEN_INVALID: { code: 'A405', httpStatus: 400, message: '验证链接无效' },
+  EMAIL_TOKEN_USED: { code: 'A406', httpStatus: 400, message: '验证链接已使用' },
+  EMAIL_SEND_FAILED: { code: 'A407', httpStatus: 500, message: '邮件发送失败' },
+  EMAIL_NOT_CONFIGURED: { code: 'A408', httpStatus: 500, message: '邮件服务未配置' },
 
   // ═══════════════════════════════════════════════════════════════
   // 文件模块 F0xx-F5xx

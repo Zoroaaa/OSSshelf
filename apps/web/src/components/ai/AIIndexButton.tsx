@@ -47,11 +47,7 @@ export function AIIndexButton({
       disabled={isIndexing}
       title={isIndexed ? '重新索引' : '建立索引'}
     >
-      {isIndexing ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
-      ) : (
-        <Database className="h-4 w-4" />
-      )}
+      {isIndexing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
     </Button>
   );
 }

@@ -30,9 +30,7 @@ const GroupList: React.FC<GroupListProps> = ({ className }) => {
     queryFn: () => groupsApi.list().then((r) => r.data.data),
   });
 
-  const allGroups = groupsData
-    ? [...(groupsData.owned || []), ...(groupsData.memberOf || [])]
-    : [];
+  const allGroups = groupsData ? [...(groupsData.owned || []), ...(groupsData.memberOf || [])] : [];
 
   const deleteMutation = useMutation({
     mutationFn: (groupId: string) => groupsApi.delete(groupId),
@@ -72,9 +70,7 @@ const GroupList: React.FC<GroupListProps> = ({ className }) => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold">用户组</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            创建用户组以便批量授权给多个用户
-          </p>
+          <p className="text-sm text-muted-foreground mt-1">创建用户组以便批量授权给多个用户</p>
         </div>
         <Button onClick={() => setIsCreateOpen(true)}>
           <Plus className="h-4 w-4 mr-1" />
@@ -95,10 +91,7 @@ const GroupList: React.FC<GroupListProps> = ({ className }) => {
       ) : (
         <div className="space-y-3">
           {allGroups.map((group) => (
-            <div
-              key={group.id}
-              className="bg-card rounded-lg border p-4 hover:border-primary/50 transition-colors"
-            >
+            <div key={group.id} className="bg-card rounded-lg border p-4 hover:border-primary/50 transition-colors">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
@@ -107,9 +100,7 @@ const GroupList: React.FC<GroupListProps> = ({ className }) => {
                       <span className="px-2 py-0.5 text-xs bg-primary/10 text-primary rounded">所有者</span>
                     )}
                   </div>
-                  {group.description && (
-                    <p className="text-sm text-muted-foreground mt-1">{group.description}</p>
-                  )}
+                  {group.description && <p className="text-sm text-muted-foreground mt-1">{group.description}</p>}
                   <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <Users className="h-3 w-3" />
@@ -119,11 +110,7 @@ const GroupList: React.FC<GroupListProps> = ({ className }) => {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleManageMembers(group.id)}
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => handleManageMembers(group.id)}>
                     <UserPlus className="h-4 w-4 mr-1" />
                     管理成员
                   </Button>

@@ -153,3 +153,83 @@ export function getCategoryBg(category: FileCategory): string {
   };
   return bgs[category];
 }
+
+const MIME_TYPE_LABELS: Record<string, string> = {
+  'image/*': '图片',
+  'video/*': '视频',
+  'audio/*': '音频',
+  'application/pdf': 'PDF',
+  'application/msword': 'Word',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'Word',
+  'application/vnd.oasis.opendocument.text': 'ODT',
+  'application/rtf': 'RTF',
+  'application/vnd.ms-excel': 'Excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'Excel',
+  'application/vnd.oasis.opendocument.spreadsheet': 'ODS',
+  'application/vnd.ms-powerpoint': 'PPT',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PPT',
+  'application/vnd.oasis.opendocument.presentation': 'ODP',
+  'application/zip': 'ZIP',
+  'application/x-rar-compressed': 'RAR',
+  'application/x-7z-compressed': '7z',
+  'application/x-tar': 'TAR',
+  'application/gzip': 'GZIP',
+  'application/x-bzip2': 'BZ2',
+  'application/x-xz': 'XZ',
+  'text/*': '文本',
+  'application/json': 'JSON',
+  'application/xml': 'XML',
+  'application/javascript': 'JS',
+  'application/typescript': 'TS',
+  'application/x-sh': 'Shell',
+  'application/x-python': 'Python',
+  'application/sql': 'SQL',
+  'application/toml': 'TOML',
+  'application/epub+zip': 'EPUB',
+  'application/epub': 'EPUB',
+  'application/x-epub+zip': 'EPUB',
+  'font/ttf': 'TTF',
+  'font/otf': 'OTF',
+  'font/woff': 'WOFF',
+  'font/woff2': 'WOFF2',
+  'application/vnd.ms-fontobject': 'EOT',
+};
+
+export function formatMimeTypeLabel(mimeType: string): string {
+  if (MIME_TYPE_LABELS[mimeType]) {
+    return MIME_TYPE_LABELS[mimeType];
+  }
+  if (mimeType.endsWith('/*')) {
+    const category = mimeType.slice(0, -2);
+    return category.charAt(0).toUpperCase() + category.slice(1);
+  }
+  const parts = mimeType.split('/');
+  if (parts.length === 2 && parts[1]) {
+    return parts[1].toUpperCase();
+  }
+  return mimeType;
+}
+
+export function formatAllowedMimeTypes(allowedMimeTypes: string | null | undefined): string[] | null {
+  if (!allowedMimeTypes) return null;
+
+  try {
+    const types: string[] = JSON.parse(allowedMimeTypes);
+    if (!Array.isArray(types) || types.length === 0) return null;
+
+    const labels: string[] = [];
+    const seen = new Set<string>();
+
+    for (const type of types) {
+      const label = formatMimeTypeLabel(type);
+      if (!seen.has(label)) {
+        seen.add(label);
+        labels.push(label);
+      }
+    }
+
+    return labels.slice(0, 5);
+  } catch {
+    return null;
+  }
+}

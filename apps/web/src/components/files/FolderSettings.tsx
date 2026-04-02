@@ -26,6 +26,8 @@ import {
   FileCode,
   File,
   Plus,
+  BookOpen,
+  Type,
 } from 'lucide-react';
 
 interface FolderSettingsProps {
@@ -41,39 +43,53 @@ const PRESET_TYPES = [
   { id: 'audio/*', label: '音频', icon: FileAudio, color: 'text-purple-500', bg: 'bg-purple-500/10' },
   { id: 'application/pdf', label: 'PDF', icon: FileText, color: 'text-red-600', bg: 'bg-red-600/10' },
   {
-    id: 'application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    id: 'application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.oasis.opendocument.text,application/rtf',
     label: 'Word',
     icon: FileText,
     color: 'text-blue-600',
     bg: 'bg-blue-600/10',
   },
   {
-    id: 'application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    id: 'application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.oasis.opendocument.spreadsheet',
     label: 'Excel',
     icon: FileText,
     color: 'text-green-600',
     bg: 'bg-green-600/10',
   },
   {
-    id: 'application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    id: 'application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.oasis.opendocument.presentation',
     label: 'PPT',
     icon: FileText,
     color: 'text-orange-600',
     bg: 'bg-orange-600/10',
   },
   {
-    id: 'application/zip,application/x-rar-compressed,application/x-7z-compressed,application/x-tar,application/gzip',
+    id: 'application/zip,application/x-rar-compressed,application/x-7z-compressed,application/x-tar,application/gzip,application/x-bzip2,application/x-xz',
     label: '压缩包',
     icon: Archive,
     color: 'text-amber-500',
     bg: 'bg-amber-500/10',
   },
   {
-    id: 'text/*,application/json,application/xml',
+    id: 'text/*,application/json,application/xml,application/javascript,application/typescript,application/x-sh,application/x-python,application/sql,application/toml',
     label: '文本/代码',
     icon: FileCode,
     color: 'text-cyan-500',
     bg: 'bg-cyan-500/10',
+  },
+  {
+    id: 'application/epub+zip,application/epub,application/x-epub+zip',
+    label: '电子书',
+    icon: BookOpen,
+    color: 'text-teal-500',
+    bg: 'bg-teal-500/10',
+  },
+  {
+    id: 'font/ttf,font/otf,font/woff,font/woff2,application/vnd.ms-fontobject',
+    label: '字体',
+    icon: Type,
+    color: 'text-rose-500',
+    bg: 'bg-rose-500/10',
   },
 ];
 

@@ -38,6 +38,7 @@ import { encodeFilename } from '../lib/utils';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
+import { createNotification, sendNotification, getUserInfo } from '../lib/notificationUtils';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -446,6 +447,117 @@ app.get('/:id', async (c) => {
   });
 });
 
+/**
+ * 验证文件夹是否属于分享文件夹的子目录（递归验证）
+ * 返回从分享根目录到目标文件夹的路径信息
+ */
+async function validateSubfolder(
+  db: ReturnType<typeof getDb>,
+  shareRootId: string,
+  targetFolderId: string
+): Promise<{ valid: boolean; path: Array<{ id: string; name: string; isFolder: true }> }> {
+  if (targetFolderId === shareRootId) {
+    return { valid: true, path: [] };
+  }
+
+  const path: Array<{ id: string; name: string; isFolder: true }> = [];
+  let currentId: string | null = targetFolderId;
+  const visited = new Set<string>();
+
+  while (currentId && currentId !== shareRootId) {
+    if (visited.has(currentId)) {
+      return { valid: false, path: [] };
+    }
+    visited.add(currentId);
+
+    const folder = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.id, currentId), eq(files.isFolder, true), isNull(files.deletedAt)))
+      .get();
+
+    if (!folder) {
+      return { valid: false, path: [] };
+    }
+
+    path.unshift({ id: folder.id, name: folder.name, isFolder: true });
+    currentId = folder.parentId;
+  }
+
+  if (currentId !== shareRootId) {
+    return { valid: false, path: [] };
+  }
+
+  return { valid: true, path };
+}
+
+// ── Public: get subfolder contents（获取子文件夹内容）────────────────────────
+// GET /api/share/:id/folder/:folderId?password=...
+app.get('/:id/folder/:folderId', async (c) => {
+  const shareId = c.req.param('id');
+  const folderId = c.req.param('folderId');
+  const password = c.req.query('password');
+  const db = getDb(c.env.DB);
+
+  const resolved = await resolveDownloadShare(db, shareId, password);
+  if ('error' in resolved) {
+    return c.json({ success: false, error: resolved.error }, resolved.status);
+  }
+
+  const { share } = resolved;
+  const rootFolder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  if (!rootFolder?.isFolder) {
+    throwAppError('SHARE_FOLDER_NOT_FOUND', '分享文件夹不存在');
+  }
+
+  // 验证请求的文件夹是否属于分享文件夹的子目录
+  const validation = await validateSubfolder(db, rootFolder.id, folderId);
+  if (!validation.valid) {
+    throwAppError('FILE_NOT_FOUND', '文件夹不存在或不属于此分享');
+  }
+
+  // 获取目标文件夹信息
+  const targetFolder = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, folderId), eq(files.isFolder, true), isNull(files.deletedAt)))
+    .get();
+  if (!targetFolder) {
+    throwAppError('FILE_NOT_FOUND', '文件夹不存在');
+  }
+
+  // 获取子文件列表
+  const rows = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.parentId, folderId), isNull(files.deletedAt)))
+    .all();
+
+  const children = rows.map((f) => ({
+    id: f.id,
+    name: f.name,
+    size: f.size,
+    mimeType: f.mimeType,
+    isFolder: f.isFolder,
+    updatedAt: f.updatedAt,
+  }));
+
+  return c.json({
+    success: true,
+    data: {
+      folder: {
+        id: targetFolder.id,
+        name: targetFolder.name,
+        size: targetFolder.size,
+        mimeType: targetFolder.mimeType,
+        isFolder: true,
+      },
+      children,
+      path: validation.path,
+    },
+  });
+});
+
 const MAX_PREVIEW_SIZE = 10 * 1024 * 1024;
 
 // ── Public: preview（支持图片/视频/音频/PDF/文本）────────────────────────────
@@ -670,6 +782,28 @@ app.get('/:id/download', async (c) => {
   const encKey = getEncryptionKey(c.env);
   try {
     const buf = await fetchFileContent(c.env, db, encKey, file);
+
+    c.executionCtx.waitUntil(
+      (async () => {
+        try {
+          await createNotification(c.env, {
+            userId: share.userId,
+            type: 'share_received',
+            title: '您的分享文件被下载',
+            body: `文件「${file.name}」已被下载（第 ${share.downloadCount + 1} 次）`,
+            data: {
+              shareId,
+              fileId: file.id,
+              fileName: file.name,
+              downloadCount: share.downloadCount + 1,
+            },
+          });
+        } catch (e) {
+          console.error('Failed to send notification:', e);
+        }
+      })()
+    );
+
     return new Response(buf, {
       headers: {
         'Content-Type': file.mimeType || 'application/octet-stream',
@@ -1271,6 +1405,29 @@ app.post('/upload/:token', async (c) => {
     .update(shares)
     .set({ uploadCount: share.uploadCount + 1 })
     .where(eq(shares.id, share.id));
+
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        await createNotification(c.env, {
+          userId: share.userId,
+          type: 'upload_link_received',
+          title: '您的上传链接收到新文件',
+          body: `文件「${uploadFile.name}」已通过上传链接上传到文件夹「${folder.name}」`,
+          data: {
+            shareId: share.id,
+            fileId,
+            fileName: uploadFile.name,
+            folderId: share.fileId,
+            folderName: folder.name,
+            uploadCount: share.uploadCount + 1,
+          },
+        });
+      } catch (e) {
+        console.error('Failed to send notification:', e);
+      }
+    })()
+  );
 
   return c.json({
     success: true,

@@ -2,7 +2,7 @@
 
 本文档基于项目实际路由代码，详细描述 OSSshelf 的所有 API 接口。
 
-**当前版本**: v3.6.0
+**当前版本**: v4.0.0
 
 ---
 
@@ -23,6 +23,9 @@
 - [权限与标签接口](#权限与标签接口)
 - [用户组接口](#用户组接口) - v3.6.0
 - [Webhook 接口](#webhook-接口) - v3.6.0
+- [AI 功能接口](#ai-功能接口) - v3.7.0
+- [存储分析接口](#存储分析接口) - v3.8.0
+- [通知系统接口](#通知系统接口) - v3.8.0
 - [上传任务接口](#上传任务接口)
 - [离线下载接口](#离线下载接口)
 - [预览接口](#预览接口)
@@ -75,6 +78,7 @@ Authorization: ApiKey osk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 **API Key 格式**：`osk_live_` 前缀 + 64 位十六进制字符
 
 **API Key 特点**：
+
 - 仅在创建时显示一次，请妥善保存
 - 支持 Scope 权限控制
 - 支持过期时间设置
@@ -337,6 +341,198 @@ GET /api/auth/stats
 Authorization: Bearer <token>
 ```
 
+### 邮箱验证 - v4.0.0
+
+```http
+GET /api/auth/verify-email?token=<token>
+```
+
+**说明**: 验证用户邮箱，token从验证邮件中获取。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "邮箱验证成功"
+  }
+}
+```
+
+### 重发验证邮件 - v4.0.0
+
+```http
+POST /api/auth/resend-verification
+Content-Type: application/json
+
+{
+  "email": "user@example.com"
+}
+```
+
+**说明**: 重新发送邮箱验证邮件，限流1分钟1次。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "如果邮箱存在，您将收到验证邮件"
+  }
+}
+```
+
+### 忘记密码 - v4.0.0
+
+```http
+POST /api/auth/forgot-password
+Content-Type: application/json
+
+{
+  "email": "user@example.com"
+}
+```
+
+**说明**: 发送密码重置邮件，无论邮箱是否存在都返回200（防邮箱枚举攻击）。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "如果邮箱存在，您将收到重置邮件"
+  }
+}
+```
+
+### 重置密码 - v4.0.0
+
+```http
+POST /api/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "reset-token-from-email",
+  "newPassword": "newPassword123"
+}
+```
+
+**说明**: 通过邮件token重置密码，token有效期1小时。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "密码重置成功"
+  }
+}
+```
+
+### 更换邮箱 - v4.0.0
+
+```http
+POST /api/auth/change-email
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "newEmail": "new@example.com",
+  "password": "currentPassword123"
+}
+```
+
+**说明**: 申请更换邮箱，会发送确认邮件到新邮箱。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "确认邮件已发送到新邮箱"
+  }
+}
+```
+
+### 确认更换邮箱 - v4.0.0
+
+```http
+GET /api/auth/confirm-change-email?token=<token>
+```
+
+**说明**: 确认更换邮箱，token从确认邮件中获取。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "邮箱更换成功"
+  }
+}
+```
+
+### 获取邮件偏好设置 - v4.0.0
+
+```http
+GET /api/auth/email-preferences
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "mention": true,
+    "share_received": true,
+    "quota_warning": true,
+    "ai_complete": false,
+    "system": true
+  }
+}
+```
+
+### 更新邮件偏好设置 - v4.0.0
+
+```http
+PUT /api/auth/email-preferences
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "mention": true,
+  "share_received": false,
+  "quota_warning": true,
+  "ai_complete": false,
+  "system": true
+}
+```
+
+**说明**: 更新邮件通知偏好，只需传递需要修改的字段。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "mention": true,
+    "share_received": false,
+    "quota_warning": true,
+    "ai_complete": false,
+    "system": true
+  }
+}
+```
+
 ---
 
 ## 文件接口
@@ -454,6 +650,39 @@ Authorization: Bearer <token>
 
 ```http
 GET /api/files/<fileId>/preview?token=<jwt-token>
+```
+
+### 收藏文件 (v3.8.0)
+
+```http
+POST /api/files/<fileId>/star
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "file-id",
+    "isStarred": true
+  }
+}
+```
+
+### 取消收藏 (v3.8.0)
+
+```http
+DELETE /api/files/<fileId>/star
+Authorization: Bearer <token>
+```
+
+### 获取收藏文件列表 (v3.8.0)
+
+```http
+GET /api/files?starred=true
+Authorization: Bearer <token>
 ```
 
 ---
@@ -1172,7 +1401,7 @@ Content-Type: application/json
 ### 搜索文件
 
 ```http
-GET /api/search?query=keyword&parentId=folderId&tags=tag1,tag2&mimeType=image/*&minSize=0&maxSize=10485760&createdAfter=2024-01-01T00:00:00Z&createdBefore=2024-12-31T23:59:59Z&isFolder=false&bucketId=bucket-id&sortBy=createdAt&sortOrder=desc&page=1&limit=50
+GET /api/search?query=keyword&parentId=folderId&tags=tag1,tag2&mimeType=image/*&minSize=0&maxSize=10485760&createdAfter=2024-01-01T00:00:00Z&createdBefore=2024-12-31T23:59:59Z&isFolder=false&bucketId=bucket-id&sortBy=createdAt&sortOrder=desc&page=1&limit=50&fts=true
 Authorization: Bearer <token>
 ```
 
@@ -1192,6 +1421,16 @@ Authorization: Bearer <token>
 | `sortBy`                         | 排序字段（`name`, `size`, `createdAt`, `updatedAt`） |
 | `sortOrder`                      | 排序方向（`asc`, `desc`）                            |
 | `page` / `limit`                 | 分页                                                 |
+| `fts`                            | **v3.8.0** 启用 FTS5 全文搜索（默认 false）          |
+| `semantic`                       | **v3.7.0** 启用语义搜索（需配置 Vectorize）          |
+| `hybrid`                         | **v3.7.0** 混合搜索（语义 + 关键词）                 |
+
+**FTS5 全文搜索说明** (v3.8.0):
+
+- 基于 SQLite FTS5 虚拟表实现
+- 支持 unicode61 中文分词
+- 搜索字段：文件名、描述、AI 摘要
+- 性能优于普通 LIKE 查询
 
 ### 高级搜索
 
@@ -1340,6 +1579,265 @@ Content-Type: application/json
 {
   "fileIds": ["id1", "id2"]
 }
+```
+
+---
+
+## 存储分析接口
+
+路由文件: `apps/api/src/routes/analytics.ts`
+
+存储分析功能提供存储空间使用统计、活跃度分析和文件排行等功能。
+
+### 获取存储空间分布
+
+```http
+GET /api/analytics/storage-breakdown
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "totalSize": 10737418240,
+    "totalFiles": 1500,
+    "byType": [
+      { "type": "image", "count": 800, "size": 5368709120, "percentage": 50 },
+      { "type": "video", "count": 50, "size": 3221225472, "percentage": 30 },
+      { "type": "document", "count": 400, "size": 2147483648, "percentage": 20 }
+    ],
+    "byMimeType": [
+      { "mimeType": "image/jpeg", "count": 500, "size": 2684354560 },
+      { "mimeType": "video/mp4", "count": 30, "size": 2147483648 }
+    ]
+  }
+}
+```
+
+### 获取活跃度热力图
+
+```http
+GET /api/analytics/activity-heatmap?days=30
+Authorization: Bearer <token>
+```
+
+**查询参数**:
+
+| 参数  | 类型   | 说明                     |
+| ----- | ------ | ------------------------ |
+| `days` | number | 统计天数，默认 30，最大 90 |
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "activities": [
+      { "date": "2026-04-01", "uploads": 15, "downloads": 8, "deletes": 2 },
+      { "date": "2026-03-31", "uploads": 20, "downloads": 12, "deletes": 0 }
+    ],
+    "summary": {
+      "totalUploads": 450,
+      "totalDownloads": 280,
+      "totalDeletes": 25,
+      "avgDailyUploads": 15,
+      "avgDailyDownloads": 9.3
+    }
+  }
+}
+```
+
+### 获取大文件排行
+
+```http
+GET /api/analytics/large-files?limit=20
+Authorization: Bearer <token>
+```
+
+**查询参数**:
+
+| 参数     | 类型   | 说明                  |
+| -------- | ------ | --------------------- |
+| `limit`  | number | 返回数量，默认 20，最大 100 |
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "files": [
+      {
+        "id": "file-id",
+        "name": "large-video.mp4",
+        "size": 1073741824,
+        "mimeType": "video/mp4",
+        "createdAt": "2026-04-01T10:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+### 获取存储趋势
+
+```http
+GET /api/analytics/storage-trend?days=30
+Authorization: Bearer <token>
+```
+
+**查询参数**:
+
+| 参数  | 类型   | 说明                     |
+| ----- | ------ | ------------------------ |
+| `days` | number | 统计天数，默认 30，最大 90 |
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "trend": [
+      { "date": "2026-04-01", "uploadedBytes": 104857600, "deletedBytes": 1048576, "netChange": 103808824 },
+      { "date": "2026-03-31", "uploadedBytes": 209715200, "deletedBytes": 0, "netChange": 209715200 }
+    ]
+  }
+}
+```
+
+### 获取存储桶统计
+
+```http
+GET /api/analytics/bucket-stats
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "buckets": [
+      {
+        "id": "bucket-id",
+        "name": "我的 S3 存储桶",
+        "provider": "s3",
+        "fileCount": 1500,
+        "storageUsed": 10737418240,
+        "storageQuota": 107374182400,
+        "usagePercentage": 10
+      }
+    ]
+  }
+}
+```
+
+---
+
+## 通知系统接口
+
+路由文件: `apps/api/src/routes/notifications.ts`
+
+通知系统提供实时通知功能，支持多种通知类型。
+
+### 通知类型
+
+| 类型                | 说明               |
+| ------------------- | ------------------ |
+| `share_received`    | 收到文件分享       |
+| `mention`           | 在笔记中被 @提及   |
+| `permission_granted`| 被授予文件权限     |
+| `ai_complete`       | AI 处理完成        |
+| `system`            | 系统通知           |
+
+### 获取通知列表
+
+```http
+GET /api/notifications?unreadOnly=false&page=1&limit=20
+Authorization: Bearer <token>
+```
+
+**查询参数**:
+
+| 参数         | 类型    | 说明                     |
+| ------------ | ------- | ------------------------ |
+| `unreadOnly` | boolean | 仅未读，默认 false       |
+| `page`       | number  | 页码，默认 1             |
+| `limit`      | number  | 每页数量，默认 20，最大 100 |
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": "notification-id",
+        "type": "share_received",
+        "title": "收到文件分享",
+        "message": "用户 A 与您分享了文件「项目计划书.pdf」",
+        "data": {
+          "fileId": "file-id",
+          "fileName": "项目计划书.pdf",
+          "sharerId": "user-id",
+          "sharerName": "用户 A"
+        },
+        "isRead": false,
+        "createdAt": "2026-04-02T10:00:00Z"
+      }
+    ],
+    "total": 10,
+    "unreadCount": 3,
+    "page": 1,
+    "limit": 20
+  }
+}
+```
+
+### 获取未读通知数量
+
+```http
+GET /api/notifications/unread-count
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "count": 3
+  }
+}
+```
+
+### 标记通知为已读
+
+```http
+PUT /api/notifications/:id/read
+Authorization: Bearer <token>
+```
+
+### 标记所有通知为已读
+
+```http
+PUT /api/notifications/read-all
+Authorization: Bearer <token>
+```
+
+### 删除通知
+
+```http
+DELETE /api/notifications/:id
+Authorization: Bearer <token>
 ```
 
 ---
@@ -1607,21 +2105,21 @@ Authorization: Bearer <token>
 
 ### 支持的预览类型
 
-| 类型 | MIME 类型 / 扩展名 | 预览方式 |
-|------|-------------------|----------|
-| 图片 | image/* | 浏览器原生 `<img>` |
-| 视频 | video/* | 浏览器原生 `<video>` |
-| 音频 | audio/* | 浏览器原生 `<audio>` |
-| PDF | application/pdf | pdf.js 分页渲染 |
-| Markdown | text/markdown, .md | react-markdown + GFM + 数学公式 |
-| 代码 | text/*, .js/.ts/.py 等 | highlight.js 语法高亮 |
-| Word | application/msword, .docx | docx-preview 本地渲染 |
-| Excel | application/vnd.ms-excel, .xlsx | xlsx 库 + 样式保留 |
-| PowerPoint | application/vnd.ms-powerpoint, .pptx | pptx-preview 本地渲染 |
-| EPUB | application/epub+zip, .epub | epub.js 电子书阅读器 |
-| 字体 | font/ttf, font/otf, font/woff, font/woff2 | FontFace API 字符预览 |
-| ZIP | application/zip | JSZip 文件列表预览 |
-| CSV | text/csv, .csv | PapaParse 表格视图 |
+| 类型       | MIME 类型 / 扩展名                        | 预览方式                        |
+| ---------- | ----------------------------------------- | ------------------------------- |
+| 图片       | image/\*                                  | 浏览器原生 `<img>`              |
+| 视频       | video/\*                                  | 浏览器原生 `<video>`            |
+| 音频       | audio/\*                                  | 浏览器原生 `<audio>`            |
+| PDF        | application/pdf                           | pdf.js 分页渲染                 |
+| Markdown   | text/markdown, .md                        | react-markdown + GFM + 数学公式 |
+| 代码       | text/\*, .js/.ts/.py 等                   | highlight.js 语法高亮           |
+| Word       | application/msword, .docx                 | docx-preview 本地渲染           |
+| Excel      | application/vnd.ms-excel, .xlsx           | xlsx 库 + 样式保留              |
+| PowerPoint | application/vnd.ms-powerpoint, .pptx      | pptx-preview 本地渲染           |
+| EPUB       | application/epub+zip, .epub               | epub.js 电子书阅读器            |
+| 字体       | font/ttf, font/otf, font/woff, font/woff2 | FontFace API 字符预览           |
+| ZIP        | application/zip                           | JSZip 文件列表预览              |
+| CSV        | text/csv, .csv                            | PapaParse 表格视图              |
 
 ### 预览大小限制
 
@@ -1905,10 +2403,10 @@ Authorization: Bearer <token>
 
 **查询参数**:
 
-| 参数     | 说明                     |
-| -------- | ------------------------ |
-| `page`   | 页码，默认 1             |
-| `limit`  | 每页数量，默认 20        |
+| 参数    | 说明              |
+| ------- | ----------------- |
+| `page`  | 页码，默认 1      |
+| `limit` | 每页数量，默认 20 |
 
 **响应**:
 
@@ -1967,6 +2465,7 @@ Content-Type: application/json
 ```
 
 **说明**:
+
 - `content` 中使用 `@邮箱` 格式可以提及其他用户
 - `parentId` 为 null 时是顶级笔记，否则是回复
 
@@ -2055,14 +2554,14 @@ Content-Type: application/json
 
 **可用 Scopes**:
 
-| Scope           | 说明               |
-| --------------- | ------------------ |
-| `files:read`    | 读取文件列表和内容 |
+| Scope           | 说明                 |
+| --------------- | -------------------- |
+| `files:read`    | 读取文件列表和内容   |
 | `files:write`   | 上传、修改、删除文件 |
-| `shares:read`   | 查看分享信息       |
-| `shares:write`  | 创建和管理分享     |
-| `buckets:read`  | 查看存储桶配置     |
-| `api_keys:read` | 查看 API Keys 列表 |
+| `shares:read`   | 查看分享信息         |
+| `shares:write`  | 创建和管理分享       |
+| `buckets:read`  | 查看存储桶配置       |
+| `api_keys:read` | 查看 API Keys 列表   |
 
 **响应**:
 
@@ -2191,6 +2690,121 @@ Authorization: Bearer <token>
 ```http
 GET /api/admin/audit-logs?page=1&limit=50&userId=user-id&action=user.login
 Authorization: Bearer <token>
+```
+
+### 获取邮件配置 - v4.0.0
+
+```http
+GET /api/admin/email/config
+Authorization: Bearer <token>
+```
+
+**说明**: 获取Resend邮件服务配置，API Key会被脱敏处理。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "apiKey": "re_****...****xxxx",
+    "fromAddress": "noreply@example.com",
+    "fromName": "OSSShelf",
+    "configured": true
+  }
+}
+```
+
+### 保存邮件配置 - v4.0.0
+
+```http
+PUT /api/admin/email/config
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "apiKey": "re_xxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "fromAddress": "noreply@yourdomain.com",
+  "fromName": "OSSShelf"
+}
+```
+
+**说明**: 保存Resend邮件服务配置。fromAddress必须是已在Resend验证过的域名邮箱。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "配置已保存"
+  }
+}
+```
+
+### 发送测试邮件 - v4.0.0
+
+```http
+POST /api/admin/email/test
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "to": "test@example.com"
+}
+```
+
+**说明**: 发送测试邮件验证配置是否正确。如果未提供`to`参数，则发送到当前管理员邮箱。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "测试邮件已发送"
+  }
+}
+```
+
+### 群发系统公告 - v4.0.0
+
+```http
+POST /api/admin/email/broadcast
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "subject": "系统维护通知",
+  "body": "系统将于今晚22:00进行维护...",
+  "userFilter": {
+    "role": "user"
+  }
+}
+```
+
+**说明**: 向所有用户或特定角色用户群发系统公告邮件。
+
+**请求参数**:
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `subject` | string | 是 | 邮件主题 |
+| `body` | string | 是 | 邮件正文 |
+| `userFilter.role` | string | 否 | 筛选用户角色：`admin` 或 `user` |
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "群发完成",
+    "total": 100,
+    "successCount": 98,
+    "failCount": 2
+  }
+}
 ```
 
 ---
@@ -2482,15 +3096,15 @@ Content-Type: application/json
 
 **支持的事件**:
 
-| 事件 | 说明 |
-|------|------|
-| `file.uploaded` | 文件上传完成 |
-| `file.deleted` | 文件删除 |
-| `file.updated` | 文件更新 |
-| `share.created` | 分享创建 |
-| `share.deleted` | 分享删除 |
-| `permission.granted` | 权限授予 |
-| `permission.revoked` | 权限撤销 |
+| 事件                 | 说明         |
+| -------------------- | ------------ |
+| `file.uploaded`      | 文件上传完成 |
+| `file.deleted`       | 文件删除     |
+| `file.updated`       | 文件更新     |
+| `share.created`      | 分享创建     |
+| `share.deleted`      | 分享删除     |
+| `permission.granted` | 权限授予     |
+| `permission.revoked` | 权限撤销     |
 
 **响应**:
 
@@ -2546,6 +3160,304 @@ if (signature === expectedSignature) {
   }
 }
 ```
+
+---
+
+## AI 功能接口
+
+路由文件: `apps/api/src/routes/ai.ts`
+
+AI 功能基于 Cloudflare AI 和 Vectorize 实现，提供文件摘要、图片标签、智能重命名和语义搜索等功能。
+
+### 获取 AI 功能状态
+
+```http
+GET /api/ai/status
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "configured": true,
+    "features": {
+      "semanticSearch": true,
+      "summary": true,
+      "imageTags": true,
+      "renameSuggest": true
+    }
+  }
+}
+```
+
+### 语义搜索
+
+```http
+POST /api/ai/search
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "query": "查找关于项目计划的文档",
+  "limit": 20,
+  "threshold": 0.7,
+  "mimeType": "application/pdf"
+}
+```
+
+**参数说明**:
+
+| 参数        | 类型   | 必填 | 说明                              |
+| ----------- | ------ | ---- | --------------------------------- |
+| `query`     | string | 是   | 搜索查询文本                      |
+| `limit`     | number | 否   | 返回结果数量，默认 20，最大 50    |
+| `threshold` | number | 否   | 相似度阈值，默认 0.7，范围 0-1    |
+| `mimeType`  | string | 否   | MIME 类型过滤                     |
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "file-id",
+      "name": "项目计划书.pdf",
+      "size": 1048576,
+      "mimeType": "application/pdf",
+      "score": 0.85,
+      "aiSummary": "这是一份关于2026年项目开发的计划书...",
+      "createdAt": "2026-04-01T10:00:00Z"
+    }
+  ]
+}
+```
+
+### 生成文件摘要
+
+```http
+POST /api/ai/summarize/:fileId
+Authorization: Bearer <token>
+```
+
+为文本文件生成内容摘要，使用 Llama 3.1 8B 模型。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "summary": "这是一份项目开发文档，主要包含技术架构设计和开发计划...",
+    "cached": false
+  }
+}
+```
+
+### 生成图片标签
+
+```http
+POST /api/ai/tags/:fileId
+Authorization: Bearer <token>
+```
+
+为图片文件生成智能标签和描述，使用 LLaVA 1.5 7B 和 ResNet-50 模型。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "tags": ["风景", "山脉", "自然", "户外", "天空"],
+    "caption": "一张展示壮丽山脉风景的照片，天空中有白云..."
+  }
+}
+```
+
+### 智能重命名建议
+
+```http
+POST /api/ai/rename-suggest/:fileId
+Authorization: Bearer <token>
+```
+
+根据文件内容智能推荐文件名。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "suggestions": [
+      "项目开发计划书.pdf",
+      "2026年项目规划文档.pdf",
+      "技术架构设计方案.pdf"
+    ]
+  }
+}
+```
+
+### 获取文件 AI 信息
+
+```http
+GET /api/ai/file/:fileId
+Authorization: Bearer <token>
+```
+
+获取文件的 AI 处理信息，包括摘要、标签和向量索引状态。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "hasSummary": true,
+    "summary": "文件摘要内容...",
+    "summaryAt": "2026-04-01T10:00:00Z",
+    "hasTags": true,
+    "tags": ["标签1", "标签2"],
+    "tagsAt": "2026-04-01T10:00:00Z",
+    "vectorIndexed": true,
+    "vectorIndexedAt": "2026-04-01T10:00:00Z"
+  }
+}
+```
+
+### 向量索引单个文件
+
+```http
+POST /api/ai/index/:fileId
+Authorization: Bearer <token>
+```
+
+为单个文件创建向量索引，用于语义搜索。
+
+### 批量向量索引
+
+```http
+POST /api/ai/index/batch
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "fileIds": ["file-id-1", "file-id-2", "file-id-3"]
+}
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": [
+    { "fileId": "file-id-1", "status": "success" },
+    { "fileId": "file-id-2", "status": "success" },
+    { "fileId": "file-id-3", "status": "failed", "error": "Empty text content" }
+  ]
+}
+```
+
+### 索引所有文件
+
+```http
+POST /api/ai/index/all
+Authorization: Bearer <token>
+```
+
+启动后台任务，为所有未索引的文件创建向量索引。
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "索引任务已启动，将在后台运行",
+    "task": {
+      "id": "task-uuid",
+      "status": "running",
+      "total": 0,
+      "processed": 0,
+      "failed": 0,
+      "startedAt": "2026-04-01T10:00:00Z"
+    }
+  }
+}
+```
+
+### 获取索引任务状态
+
+```http
+GET /api/ai/index/status
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "task-uuid",
+    "status": "running",
+    "total": 100,
+    "processed": 45,
+    "failed": 2,
+    "startedAt": "2026-04-01T10:00:00Z",
+    "updatedAt": "2026-04-01T10:05:00Z"
+  }
+}
+```
+
+### 取消索引任务
+
+```http
+DELETE /api/ai/index/task
+Authorization: Bearer <token>
+```
+
+### 删除文件向量索引
+
+```http
+DELETE /api/ai/index/:fileId
+Authorization: Bearer <token>
+```
+
+### AI 功能说明
+
+1. **文件摘要生成**
+   - 仅支持文本文件（代码、配置、Markdown 等）
+   - 使用 Llama 3.1 8B 模型
+   - 自动缓存结果，避免重复生成
+   - 文件上传后自动触发
+
+2. **图片智能描述和标签**
+   - 使用 LLaVA 1.5 7B 生成描述
+   - 使用 ResNet-50 生成标签
+   - 支持中英文输出
+   - 图片上传后自动触发
+
+3. **智能重命名**
+   - 根据文件内容或 AI 描述生成建议
+   - 提供 3 个候选名称
+   - 保留原文件扩展名
+
+4. **语义搜索**
+   - 使用 BGE-M3 多语言模型（1024 维向量）
+   - 支持中文和多语言搜索
+   - 需要先创建 Vectorize 索引
+   - 需要先为文件创建向量索引
+
+5. **Vectorize 配置要求**
+   - 索引维度：1024
+   - 距离度量：cosine
+   - 创建命令：`wrangler vectorize create ossshelf-vectors --dimensions=1024 --metric=cosine`
 
 ---
 

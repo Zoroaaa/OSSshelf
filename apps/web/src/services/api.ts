@@ -79,7 +79,27 @@ export const authApi = {
   devices: () => api.get<ApiResponse<UserDevice[]>>('/api/auth/devices'),
   deleteDevice: (deviceId: string) =>
     api.delete<ApiResponse<{ message: string }>>(`/api/auth/devices/${encodeURIComponent(deviceId)}`),
+  verifyEmail: (token: string) => api.get<ApiResponse<{ message: string }>>(`/api/auth/verify-email?token=${token}`),
+  resendVerification: (params: { email: string }) =>
+    api.post<ApiResponse<{ message: string }>>('/api/auth/resend-verification', params),
+  forgotPassword: (params: { email: string }) =>
+    api.post<ApiResponse<{ message: string }>>('/api/auth/forgot-password', params),
+  resetPassword: (params: { token: string; newPassword: string }) =>
+    api.post<ApiResponse<{ message: string }>>('/api/auth/reset-password', params),
+  changeEmail: (params: { newEmail: string; password: string }) =>
+    api.post<ApiResponse<{ message: string }>>('/api/auth/change-email', params),
+  getEmailPreferences: () => api.get<ApiResponse<EmailPreferences>>('/api/auth/email-preferences'),
+  setEmailPreferences: (data: Partial<EmailPreferences>) =>
+    api.put<ApiResponse<EmailPreferences>>('/api/auth/email-preferences', data),
 };
+
+export interface EmailPreferences {
+  mention: boolean;
+  share_received: boolean;
+  quota_warning: boolean;
+  ai_complete: boolean;
+  system: boolean;
+}
 
 export interface BucketStats {
   id: string;
@@ -153,6 +173,9 @@ export const filesApi = {
   restoreTrash: (id: string) => api.post<ApiResponse<{ message: string }>>(`/api/files/trash/${id}/restore`),
   deleteTrash: (id: string) => api.delete<ApiResponse<{ message: string }>>(`/api/files/trash/${id}`),
   emptyTrash: () => api.delete<ApiResponse<{ message: string }>>('/api/files/trash'),
+
+  star: (id: string) => api.post<ApiResponse<{ message: string; isStarred: boolean }>>(`/api/files/${id}/star`),
+  unstar: (id: string) => api.delete<ApiResponse<{ message: string; isStarred: boolean }>>(`/api/files/${id}/star`),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -185,6 +208,19 @@ export interface ShareInfo {
   hasPassword: boolean;
 }
 
+export interface ShareFolderInfo {
+  folder: {
+    id: string;
+    name: string;
+    size: number;
+    mimeType: string | null;
+    isFolder: true;
+  };
+  children: ShareChildFile[];
+  /** 从分享根目录到当前文件夹的路径 */
+  path: Array<{ id: string; name: string; isFolder: true }>;
+}
+
 export interface UploadLinkInfo {
   token: string;
   folderName: string;
@@ -213,6 +249,10 @@ export const shareApi = {
 
   // ── 公开分享信息（含文件夹子文件列表）─────────────────────────────────
   get: (id: string, password?: string) => api.get<ApiResponse<ShareInfo>>(`/api/share/${id}`, { params: { password } }),
+
+  // ── 获取子文件夹内容 ───────────────────────────────────────────────────
+  getFolder: (shareId: string, folderId: string, password?: string) =>
+    api.get<ApiResponse<ShareFolderInfo>>(`/api/share/${shareId}/folder/${folderId}`, { params: { password } }),
 
   // ── 单文件下载（文件分享直接下载 / 文件夹内单文件下载）──────────────
   download: (id: string, password?: string) =>
@@ -572,6 +612,18 @@ export const adminApi = {
     api.get<ApiResponse<{ items: AuditLog[]; total: number; page: number; limit: number }>>('/api/admin/audit-logs', {
       params,
     }),
+  getEmailConfig: () =>
+    api.get<ApiResponse<{ apiKey?: string; fromAddress?: string; fromName?: string; configured?: boolean } | null>>(
+      '/api/admin/email/config'
+    ),
+  setEmailConfig: (data: { apiKey: string; fromAddress: string; fromName: string }) =>
+    api.put<ApiResponse<{ message: string }>>('/api/admin/email/config', data),
+  testEmail: (data?: { to?: string }) => api.post<ApiResponse<{ message: string }>>('/api/admin/email/test', data),
+  broadcastEmail: (data: { subject: string; body: string; userFilter?: { role?: string; active?: boolean } }) =>
+    api.post<ApiResponse<{ message: string; total: number; successCount: number; failCount: number }>>(
+      '/api/admin/email/broadcast',
+      data
+    ),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -684,6 +736,9 @@ export const searchApi = {
     sortOrder?: 'asc' | 'desc';
     page?: number;
     limit?: number;
+    semantic?: boolean;
+    hybrid?: boolean;
+    fts?: boolean;
   }) => api.get<ApiResponse<FileSearchResult>>('/api/search', { params }),
   advanced: (data: {
     conditions: Array<{
@@ -788,8 +843,7 @@ export const permissionsApi = {
   getUserTags: () => api.get<ApiResponse<FileTag[]>>('/api/permissions/tags/user'),
   getBatchFileTags: (fileIds: string[]) =>
     api.post<ApiResponse<Record<string, FileTag[]>>>('/api/permissions/tags/batch', { fileIds }),
-  getAllPermissions: () =>
-    api.get<ApiResponse<{ permissions: GlobalPermission[] }>>('/api/permissions/all'),
+  getAllPermissions: () => api.get<ApiResponse<{ permissions: GlobalPermission[] }>>('/api/permissions/all'),
   revokeById: (permissionId: string) =>
     api.delete<ApiResponse<{ message: string }>>(`/api/permissions/${permissionId}`),
   updatePermission: (permissionId: string, permission: 'read' | 'write' | 'admin', expiresAt?: string) =>
@@ -886,9 +940,12 @@ export const notesApi = {
   pin: (fileId: string, noteId: string) =>
     api.post<ApiResponse<{ isPinned: boolean; message: string }>>(`/api/notes/${fileId}/${noteId}/pin`),
   history: (fileId: string, noteId: string) =>
-    api.get<ApiResponse<{ current: { id: string; content: string; version: number }; history: Array<{ id: string; content: string; version: number; editedBy: string | null; createdAt: string }> }>>(
-      `/api/notes/${fileId}/${noteId}/history`
-    ),
+    api.get<
+      ApiResponse<{
+        current: { id: string; content: string; version: number };
+        history: Array<{ id: string; content: string; version: number; editedBy: string | null; createdAt: string }>;
+      }>
+    >(`/api/notes/${fileId}/${noteId}/history`),
   unreadMentions: () =>
     api.get<ApiResponse<Array<{ id: string; noteId: string; createdAt: string }>>>('/api/notes/mentions/unread'),
   markMentionRead: (mentionId: string) =>
@@ -958,10 +1015,8 @@ export interface GroupMember {
 }
 
 export const groupsApi = {
-  list: () =>
-    api.get<ApiResponse<{ owned: UserGroup[]; memberOf: UserGroup[] }>>('/api/groups'),
-  create: (data: { name: string; description?: string }) =>
-    api.post<ApiResponse<UserGroup>>('/api/groups', data),
+  list: () => api.get<ApiResponse<{ owned: UserGroup[]; memberOf: UserGroup[] }>>('/api/groups'),
+  create: (data: { name: string; description?: string }) => api.post<ApiResponse<UserGroup>>('/api/groups', data),
   get: (id: string) => api.get<ApiResponse<UserGroup>>(`/api/groups/${id}`),
   update: (id: string, data: { name?: string; description?: string }) =>
     api.put<ApiResponse<{ message: string }>>(`/api/groups/${id}`, data),
@@ -1024,8 +1079,7 @@ export interface GlobalPermission {
 }
 
 export const globalPermissionsApi = {
-  getAll: () =>
-    api.get<ApiResponse<{ permissions: GlobalPermission[] }>>('/api/permissions/all'),
+  getAll: () => api.get<ApiResponse<{ permissions: GlobalPermission[] }>>('/api/permissions/all'),
   revokeById: (permissionId: string) =>
     api.delete<ApiResponse<{ message: string }>>(`/api/permissions/${permissionId}`),
   update: (permissionId: string, data: { permission: 'read' | 'write' | 'admin'; expiresAt?: string }) =>
@@ -1072,7 +1126,7 @@ export interface AIRenameSuggestion {
 
 export interface AIIndexTask {
   id: string;
-  status: 'running' | 'completed' | 'failed' | 'idle';
+  status: 'running' | 'completed' | 'failed' | 'idle' | 'cancelled';
   total: number;
   processed: number;
   failed: number;
@@ -1099,13 +1153,130 @@ export const aiApi = {
   indexFile: (fileId: string) => api.post<ApiResponse<{ message: string }>>(`/api/ai/index/${fileId}`),
 
   indexBatch: (fileIds: string[]) =>
-    api.post<ApiResponse<Array<{ fileId: string; status: string; error?: string }>>>('/api/ai/index/batch', { fileIds }),
+    api.post<ApiResponse<Array<{ fileId: string; status: string; error?: string }>>>('/api/ai/index/batch', {
+      fileIds,
+    }),
 
   indexAll: () => api.post<ApiResponse<{ message: string; task: AIIndexTask }>>('/api/ai/index/all'),
 
   getIndexStatus: () => api.get<ApiResponse<AIIndexTask>>('/api/ai/index/status'),
 
+  cancelIndexTask: () => api.delete<ApiResponse<{ message: string; task: AIIndexTask }>>('/api/ai/index/task'),
+
   deleteIndex: (fileId: string) => api.delete<ApiResponse<{ message: string }>>(`/api/ai/index/${fileId}`),
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Analytics (存储分析)
+// ─────────────────────────────────────────────────────────────────────────────
+export interface StorageBreakdown {
+  totalSize: number;
+  totalFiles: number;
+  totalFolders: number;
+  quota: number;
+  used: number;
+  byType: Array<{ type: string; count: number; size: number }>;
+  byMimeType: Array<{ mimeType: string; count: number; size: number }>;
+}
+
+export interface ActivityHeatmapItem {
+  date: string;
+  uploads: number;
+  downloads: number;
+  deletes: number;
+  others: number;
+}
+
+export interface ActivityHeatmap {
+  days: number;
+  heatmap: ActivityHeatmapItem[];
+  summary: {
+    totalUploads: number;
+    totalDownloads: number;
+    totalDeletes: number;
+  };
+}
+
+export interface LargeFileItem {
+  id: string;
+  name: string;
+  size: number;
+  mimeType: string | null;
+  path: string | null;
+  createdAt: string;
+  updatedAt: string;
+  bucketId: string | null;
+  bucket: { id: string; name: string; provider: string } | null;
+}
+
+export interface StorageTrendItem {
+  date: string;
+  uploadedSize: number;
+  uploadedCount: number;
+}
+
+export interface StorageTrend {
+  days: number;
+  trend: StorageTrendItem[];
+}
+
+export interface BucketStatItem {
+  id: string;
+  name: string;
+  provider: string;
+  isActive: boolean;
+  isDefault: boolean;
+  storageUsed: number;
+  fileCount: number;
+  actualFileCount: number;
+  actualStorageUsed: number;
+}
+
+export const analyticsApi = {
+  getStorageBreakdown: () => api.get<ApiResponse<StorageBreakdown>>('/api/analytics/storage-breakdown'),
+
+  getActivityHeatmap: (days = 30) =>
+    api.get<ApiResponse<ActivityHeatmap>>('/api/analytics/activity-heatmap', { params: { days } }),
+
+  getLargeFiles: (limit = 20) =>
+    api.get<ApiResponse<LargeFileItem[]>>('/api/analytics/large-files', { params: { limit } }),
+
+  getStorageTrend: (days = 30) =>
+    api.get<ApiResponse<StorageTrend>>('/api/analytics/storage-trend', { params: { days } }),
+
+  getBucketStats: () => api.get<ApiResponse<BucketStatItem[]>>('/api/analytics/bucket-stats'),
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Notifications (通知系统)
+// ─────────────────────────────────────────────────────────────────────────────
+export interface Notification {
+  id: string;
+  userId: string;
+  type: string;
+  title: string;
+  body: string | null;
+  data: string | null;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export const notificationsApi = {
+  list: (params?: { page?: number; limit?: number; unreadOnly?: boolean }) =>
+    api.get<ApiResponse<{ items: Notification[]; total: number; page: number; limit: number; totalPages: number }>>(
+      '/api/notifications',
+      { params }
+    ),
+
+  getUnreadCount: () => api.get<ApiResponse<{ count: number }>>('/api/notifications/unread-count'),
+
+  markRead: (id: string) => api.put<ApiResponse<{ message: string }>>(`/api/notifications/${id}/read`),
+
+  markAllRead: () => api.put<ApiResponse<{ message: string }>>('/api/notifications/read-all'),
+
+  delete: (id: string) => api.delete<ApiResponse<{ message: string }>>(`/api/notifications/${id}`),
+
+  clearRead: () => api.delete<ApiResponse<{ message: string }>>('/api/notifications/read'),
 };
 
 export default api;

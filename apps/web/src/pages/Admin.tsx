@@ -20,6 +20,7 @@ import { useToast } from '@/components/ui/useToast';
 import { useResponsive } from '@/hooks/useResponsive';
 import { formatBytes, formatDate } from '@/utils';
 import { cn } from '@/utils';
+import { EmailConfig } from '@/components/admin/EmailConfig';
 import {
   Users,
   Shield,
@@ -43,7 +44,7 @@ import {
   Clock,
 } from 'lucide-react';
 
-type TabKey = 'users' | 'registration' | 'stats' | 'audit';
+type TabKey = 'users' | 'registration' | 'email' | 'stats' | 'audit';
 
 export default function Admin() {
   const { user: currentUser } = useAuthStore();
@@ -66,6 +67,7 @@ export default function Admin() {
   const tabs: { key: TabKey; label: string; icon: React.ElementType }[] = [
     { key: 'users', label: '用户管理', icon: Users },
     { key: 'registration', label: '注册控制', icon: Key },
+    { key: 'email', label: '邮件配置', icon: Mail },
     { key: 'audit', label: '审计日志', icon: FileText },
     { key: 'stats', label: '系统统计', icon: Server },
   ];
@@ -73,11 +75,11 @@ export default function Admin() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">管理员面板</h1>
+        <h1 className="text-xl lg:text-2xl font-bold">管理员面板</h1>
         <p className="text-muted-foreground text-sm mt-0.5">系统管理与配置</p>
       </div>
 
-      <div className="flex gap-1 p-1 bg-muted/50 rounded-lg w-fit">
+      <div className="flex gap-1 p-1 bg-muted/50 rounded-lg overflow-x-auto no-scrollbar w-full sm:w-fit">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           return (
@@ -85,7 +87,7 @@ export default function Admin() {
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
               className={cn(
-                'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors',
+                'flex items-center gap-2 px-3 sm:px-4 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0',
                 activeTab === tab.key
                   ? 'bg-background shadow-sm text-foreground'
                   : 'text-muted-foreground hover:text-foreground'
@@ -100,6 +102,7 @@ export default function Admin() {
 
       {activeTab === 'users' && <UsersTab />}
       {activeTab === 'registration' && <RegistrationTab />}
+      {activeTab === 'email' && <EmailConfig />}
       {activeTab === 'audit' && <AuditLogTab />}
       {activeTab === 'stats' && <StatsTab />}
     </div>

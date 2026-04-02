@@ -214,9 +214,7 @@ export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose }: F
                             }}
                             className={cn(
                               'w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left transition-colors',
-                              selectedUserId === user.id
-                                ? 'bg-primary text-primary-foreground'
-                                : 'hover:bg-muted'
+                              selectedUserId === user.id ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
                             )}
                           >
                             <User className="h-3.5 w-3.5" />
@@ -237,10 +235,7 @@ export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose }: F
                       <option value="write">读写</option>
                       <option value="admin">管理</option>
                     </select>
-                    <Button
-                      onClick={handleGrant}
-                      disabled={!selectedUserId || grantMutation.isPending}
-                    >
+                    <Button onClick={handleGrant} disabled={!selectedUserId || grantMutation.isPending}>
                       {grantMutation.isPending ? (
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
                       ) : (

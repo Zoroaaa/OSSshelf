@@ -111,19 +111,22 @@ app.openapi(createFolderRoute, async (c) => {
 
   await inheritParentPermissions(db, folderId, parentId || null);
 
-  return c.json({
-    success: true,
-    data: {
-      id: folderId,
-      name,
-      path: folderPath,
-      isFolder: true,
-      parentId: parentId || null,
-      bucketId: targetBucketId,
-      createdAt: now,
-      updatedAt: now,
+  return c.json(
+    {
+      success: true,
+      data: {
+        id: folderId,
+        name,
+        path: folderPath,
+        isFolder: true,
+        parentId: parentId || null,
+        bucketId: targetBucketId,
+        createdAt: now,
+        updatedAt: now,
+      },
     },
-  }, 201);
+    201
+  );
 });
 
 const listFoldersRoute = createRoute({

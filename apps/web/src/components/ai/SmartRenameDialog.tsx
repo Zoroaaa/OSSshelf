@@ -16,13 +16,7 @@ interface SmartRenameDialogProps {
   onRenamed?: (newName: string) => void;
 }
 
-export function SmartRenameDialog({
-  open,
-  onClose,
-  fileId,
-  currentName,
-  onRenamed,
-}: SmartRenameDialogProps) {
+export function SmartRenameDialog({ open, onClose, fileId, currentName, onRenamed }: SmartRenameDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -74,7 +68,7 @@ export function SmartRenameDialog({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-black/50" onClick={onClose} />
       <div className="relative bg-background border rounded-lg shadow-lg w-full max-w-md mx-4 p-6 space-y-4">
         <div className="flex items-center gap-2">
@@ -82,9 +76,7 @@ export function SmartRenameDialog({
           <h2 className="text-lg font-semibold">智能重命名</h2>
         </div>
 
-        <div className="text-sm text-muted-foreground">
-          当前名称：{currentName}
-        </div>
+        <div className="text-sm text-muted-foreground">当前名称：{currentName}</div>
 
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
@@ -101,16 +93,12 @@ export function SmartRenameDialog({
                   <div
                     key={name}
                     className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${
-                      selectedName === name
-                        ? 'border-primary bg-primary/5'
-                        : 'hover:bg-muted'
+                      selectedName === name ? 'border-primary bg-primary/5' : 'hover:bg-muted'
                     }`}
                     onClick={() => setSelectedName(name)}
                   >
                     <span className="text-sm">{name}</span>
-                    {selectedName === name && (
-                      <Check className="h-4 w-4 text-primary" />
-                    )}
+                    {selectedName === name && <Check className="h-4 w-4 text-primary" />}
                   </div>
                 ))}
               </div>
@@ -134,13 +122,8 @@ export function SmartRenameDialog({
           <Button variant="outline" onClick={onClose}>
             取消
           </Button>
-          <Button
-            onClick={handleRename}
-            disabled={!selectedName || isRenaming || isLoading}
-          >
-            {isRenaming ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            ) : null}
+          <Button onClick={handleRename} disabled={!selectedName || isRenaming || isLoading}>
+            {isRenaming ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
             确认重命名
           </Button>
         </div>

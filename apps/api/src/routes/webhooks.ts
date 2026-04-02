@@ -18,6 +18,7 @@ import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { dispatchWebhook, WEBHOOK_EVENTS, type WebhookEvent } from '../lib/webhook';
+import { createNotification, sendNotification } from '../lib/notificationUtils';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -83,7 +84,10 @@ app.post('/', async (c) => {
   const invalidEvents = events.filter((e) => e !== '*' && !VALID_EVENTS.includes(e as WebhookEvent));
   if (invalidEvents.length > 0) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: `无效的事件类型: ${invalidEvents.join(', ')}` } },
+      {
+        success: false,
+        error: { code: ERROR_CODES.VALIDATION_ERROR, message: `无效的事件类型: ${invalidEvents.join(', ')}` },
+      },
       400
     );
   }
@@ -114,6 +118,18 @@ app.post('/', async (c) => {
     details: { url, events },
     ipAddress: getClientIp(c),
     userAgent: getUserAgent(c),
+  });
+
+  sendNotification(c, {
+    userId,
+    type: 'webhook_created',
+    title: 'Webhook 创建成功',
+    body: `Webhook「${url}」已创建，监听事件: ${events.join(', ')}`,
+    data: {
+      webhookId,
+      url,
+      events,
+    },
   });
 
   return c.json({
@@ -174,19 +190,28 @@ app.put('/:id', async (c) => {
 
   if (body.url !== undefined) {
     if (!z.string().url().safeParse(body.url).success) {
-      return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请输入有效的 URL' } }, 400);
+      return c.json(
+        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请输入有效的 URL' } },
+        400
+      );
     }
     updateData.url = body.url;
   }
 
   if (body.events !== undefined) {
     if (!Array.isArray(body.events) || body.events.length === 0) {
-      return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '至少选择一个事件' } }, 400);
+      return c.json(
+        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '至少选择一个事件' } },
+        400
+      );
     }
     const invalidEvents = body.events.filter((e: string) => e !== '*' && !VALID_EVENTS.includes(e as WebhookEvent));
     if (invalidEvents.length > 0) {
       return c.json(
-        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: `无效的事件类型: ${invalidEvents.join(', ')}` } },
+        {
+          success: false,
+          error: { code: ERROR_CODES.VALIDATION_ERROR, message: `无效的事件类型: ${invalidEvents.join(', ')}` },
+        },
         400
       );
     }
@@ -244,6 +269,17 @@ app.delete('/:id', async (c) => {
   });
 
   await db.delete(webhooks).where(eq(webhooks.id, webhookId));
+
+  sendNotification(c, {
+    userId,
+    type: 'webhook_deleted',
+    title: 'Webhook 已删除',
+    body: `Webhook「${webhook.url}」已删除`,
+    data: {
+      webhookId,
+      url: webhook.url,
+    },
+  });
 
   return c.json({ success: true, data: { message: 'Webhook 已删除' } });
 });

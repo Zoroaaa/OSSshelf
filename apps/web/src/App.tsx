@@ -15,6 +15,9 @@ import MainLayout from './components/layouts/MainLayout';
 import AuthLayout from './components/layouts/AuthLayout';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import VerifyEmail from './pages/VerifyEmail';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import Files from './pages/Files';
 import Shares from './pages/Shares';
@@ -26,6 +29,8 @@ import Admin from './pages/Admin';
 import Tasks from './pages/Tasks';
 import Downloads from './pages/Downloads';
 import Permissions from './pages/Permissions';
+import Analytics from './pages/Analytics';
+import Starred from './pages/Starred';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isInitialized } = useAuthStore();
@@ -55,7 +60,12 @@ function App() {
       <Route element={<AuthLayout />}>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
       </Route>
+
+      {/* Email verification (public) */}
+      <Route path="/verify-email" element={<VerifyEmail />} />
 
       {/* Public share page & upload link */}
       <Route path="/share/:shareId" element={<SharePage />} />
@@ -79,6 +89,8 @@ function App() {
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/downloads" element={<Downloads />} />
         <Route path="/permissions" element={<Permissions />} />
+        <Route path="/analytics" element={<Analytics />} />
+        <Route path="/starred" element={<Starred />} />
         <Route path="/admin" element={<Admin />} />
       </Route>
 

@@ -11,7 +11,7 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, isNotNull } from 'drizzle-orm';
 import { getDb, files } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
@@ -24,11 +24,8 @@ import {
   isAIConfigured,
   searchAndFetchFiles,
 } from '../lib/vectorIndex';
-import {
-  generateFileSummary,
-  generateImageTags,
-  suggestFileName,
-} from '../lib/aiFeatures';
+import { generateFileSummary, generateImageTags, suggestFileName } from '../lib/aiFeatures';
+import { createNotification, sendNotification } from '../lib/notificationUtils';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
@@ -63,23 +60,14 @@ app.post('/index/batch', async (c) => {
   const { fileIds } = await c.req.json();
 
   if (!Array.isArray(fileIds) || fileIds.length === 0) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请提供文件ID列表' } },
-      400
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请提供文件ID列表' } }, 400);
   }
 
   const db = getDb(c.env.DB);
   const validFiles = await db
     .select({ id: files.id })
     .from(files)
-    .where(
-      and(
-        eq(files.userId, userId),
-        isNull(files.deletedAt),
-        eq(files.isFolder, false)
-      )
-    )
+    .where(and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false)))
     .all();
 
   const validIds = new Set(validFiles.map((f) => f.id));
@@ -162,6 +150,33 @@ app.get('/index/status', async (c) => {
   return c.json({ success: true, data: task });
 });
 
+app.delete('/index/task', async (c) => {
+  const userId = c.get('userId')!;
+  const taskKey = `ai:index:task:${userId}`;
+
+  const existingTask = await c.env.KV.get(taskKey, 'json');
+
+  if (!existingTask) {
+    return c.json({
+      success: true,
+      data: { message: '没有需要取消的任务' },
+    });
+  }
+
+  const task = existingTask as Record<string, unknown>;
+  task.status = 'cancelled';
+  task.completedAt = new Date().toISOString();
+  task.updatedAt = new Date().toISOString();
+  task.error = '用户手动取消';
+
+  await c.env.KV.put(taskKey, JSON.stringify(task), { expirationTtl: 86400 });
+
+  return c.json({
+    success: true,
+    data: { message: '索引任务已取消', task },
+  });
+});
+
 // :fileId 参数路由放在所有具体路径之后
 app.post('/index/:fileId', async (c) => {
   const userId = c.get('userId')!;
@@ -175,10 +190,7 @@ app.post('/index/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } },
-      404
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
   if (file.isFolder) {
@@ -206,18 +218,12 @@ app.delete('/index/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } },
-      404
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
   await deleteFileVector(c.env, fileId);
 
-  await db
-    .update(files)
-    .set({ vectorIndexedAt: null })
-    .where(eq(files.id, fileId));
+  await db.update(files).set({ vectorIndexedAt: null }).where(eq(files.id, fileId));
 
   return c.json({ success: true });
 });
@@ -258,15 +264,29 @@ app.post('/summarize/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } },
-      404
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
-  const result = await generateFileSummary(c.env, fileId);
+  try {
+    const result = await generateFileSummary(c.env, fileId);
 
-  return c.json({ success: true, data: result });
+    sendNotification(c, {
+      userId,
+      type: 'ai_complete',
+      title: 'AI 摘要生成完成',
+      body: `文件「${file.name}」的摘要已生成`,
+      data: {
+        fileId,
+        fileName: file.name,
+        feature: 'summary',
+      },
+    });
+
+    return c.json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '生成摘要失败';
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
+  }
 });
 
 app.post('/tags/:fileId', async (c) => {
@@ -281,22 +301,33 @@ app.post('/tags/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } },
-      404
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
   if (!file.mimeType?.startsWith('image/')) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '仅支持图片文件' } },
-      400
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '仅支持图片文件' } }, 400);
   }
 
-  const result = await generateImageTags(c.env, fileId);
+  try {
+    const result = await generateImageTags(c.env, fileId);
 
-  return c.json({ success: true, data: result });
+    sendNotification(c, {
+      userId,
+      type: 'ai_complete',
+      title: 'AI 标签生成完成',
+      body: `图片「${file.name}」的标签已生成`,
+      data: {
+        fileId,
+        fileName: file.name,
+        feature: 'tags',
+      },
+    });
+
+    return c.json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '生成标签失败';
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
+  }
 });
 
 app.post('/rename-suggest/:fileId', async (c) => {
@@ -311,15 +342,16 @@ app.post('/rename-suggest/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } },
-      404
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
-  const result = await suggestFileName(c.env, fileId);
-
-  return c.json({ success: true, data: result });
+  try {
+    const result = await suggestFileName(c.env, fileId);
+    return c.json({ success: true, data: result });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '生成重命名建议失败';
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
+  }
 });
 
 app.get('/file/:fileId', async (c) => {
@@ -334,10 +366,7 @@ app.get('/file/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } },
-      404
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
   return c.json({
@@ -355,17 +384,12 @@ app.get('/file/:fileId', async (c) => {
   });
 });
 
-async function runBatchIndexTask(
-  env: Env,
-  userId: string,
-  task: Record<string, unknown>
-): Promise<void> {
+async function runBatchIndexTask(env: Env, userId: string, task: Record<string, unknown>): Promise<void> {
   const db = getDb(env.DB);
   const taskKey = `ai:index:task:${userId}`;
-  const batchSize = 10;
+  const concurrency = 5;
 
   try {
-    // 一次性获取所有待索引文件 ID，total 固定为此快照数量，保证进度条准确
     const allUnindexed = await db
       .select({ id: files.id })
       .from(files)
@@ -374,7 +398,8 @@ async function runBatchIndexTask(
           eq(files.userId, userId),
           isNull(files.deletedAt),
           eq(files.isFolder, false),
-          isNull(files.vectorIndexedAt)
+          isNull(files.vectorIndexedAt),
+          isNotNull(files.aiSummary)
         )
       )
       .all();
@@ -384,22 +409,35 @@ async function runBatchIndexTask(
     (task as any).failed = 0;
     await env.KV.put(taskKey, JSON.stringify(task), { expirationTtl: 86400 });
 
-    // 按批次处理，避免单次 waitUntil 超时
-    for (let i = 0; i < allUnindexed.length; i += batchSize) {
-      const batch = allUnindexed.slice(i, i + batchSize);
+    const indexFile = async (fileId: string): Promise<{ success: boolean; error?: string }> => {
+      try {
+        const text = await buildFileTextForVector(env, fileId);
+        if (!text || text.trim().length === 0) {
+          return { success: false, error: 'Empty text content' };
+        }
+        await indexFileVector(env, fileId, text);
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    };
 
-      for (const file of batch) {
-        try {
-          const text = await buildFileTextForVector(env, file.id);
-          await indexFileVector(env, file.id, text);
-          (task as any).processed = ((task as any).processed || 0) + 1;
-        } catch (error) {
+    for (let i = 0; i < allUnindexed.length; i += concurrency) {
+      const batch = allUnindexed.slice(i, i + concurrency);
+      const results = await Promise.allSettled(batch.map((f) => indexFile(f.id)));
+
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          if (result.value.success) {
+            (task as any).processed = ((task as any).processed || 0) + 1;
+          } else {
+            (task as any).failed = ((task as any).failed || 0) + 1;
+          }
+        } else {
           (task as any).failed = ((task as any).failed || 0) + 1;
-          console.error(`Failed to index file ${file.id}:`, error);
         }
       }
 
-      // 每批结束后更新进度
       (task as any).updatedAt = new Date().toISOString();
       await env.KV.put(taskKey, JSON.stringify(task), { expirationTtl: 86400 });
     }

@@ -16,6 +16,7 @@ import { throwAppError } from '../middleware/error';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
+import { createNotification, sendNotification } from '../lib/notificationUtils';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -115,6 +116,19 @@ app.post('/', async (c) => {
     expiresAt: expiresAt || null,
     isActive: true,
     createdAt: now,
+  });
+
+  sendNotification(c, {
+    userId,
+    type: 'apikey_created',
+    title: 'API Key 创建成功',
+    body: `API Key「${name}」已创建，权限: ${scopes.join(', ')}`,
+    data: {
+      keyId,
+      name,
+      scopes,
+      expiresAt,
+    },
   });
 
   return c.json({
@@ -242,6 +256,17 @@ app.delete('/:id', async (c) => {
   }
 
   await db.delete(apiKeys).where(eq(apiKeys.id, keyId));
+
+  sendNotification(c, {
+    userId,
+    type: 'apikey_deleted',
+    title: 'API Key 已删除',
+    body: `API Key「${key.name}」已删除`,
+    data: {
+      keyId,
+      name: key.name,
+    },
+  });
 
   return c.json({
     success: true,

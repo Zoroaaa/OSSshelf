@@ -33,6 +33,7 @@ import {
   FilePlus,
   Link,
   History,
+  Star,
 } from 'lucide-react';
 
 export function useFileContextMenu() {
@@ -46,6 +47,12 @@ export function useFileContextMenu() {
           label: file.isFolder ? '打开文件夹' : '打开',
           icon: <Eye className="h-4 w-4" />,
           action: () => callbacks.onOpen(file),
+        },
+        {
+          id: 'star',
+          label: (file as any).isStarred ? '取消收藏' : '收藏',
+          icon: <Star className={`h-4 w-4 ${(file as any).isStarred ? 'fill-current' : ''}`} />,
+          action: () => callbacks.onStar?.(file),
         },
         { id: 'divider1', label: '', divider: true },
         {

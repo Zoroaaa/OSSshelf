@@ -19,8 +19,9 @@
 
 import { Hono } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
-import { getDb, files, users } from '../db';
+import { getDb, files, storageBuckets, telegramFileRefs } from '../db';
 import { authMiddleware } from '../middleware/auth';
+import { checkFilePermission } from './permissions';
 import {
   ERROR_CODES,
   CODE_HIGHLIGHT_EXTENSIONS,
@@ -34,6 +35,9 @@ import type { Env, Variables } from '../types/env';
 import { s3Get } from '../lib/s3client';
 import { resolveBucketConfig } from '../lib/bucketResolver';
 import { verifyJWT, getEncryptionKey } from '../lib/crypto';
+import { tgDownloadFile } from '../lib/telegramClient';
+import { isChunkedFileId, tgDownloadChunked } from '../lib/telegramChunked';
+import { decryptSecret } from '../lib/s3client';
 import type { Context, MiddlewareHandler } from 'hono';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -41,6 +45,21 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const MAX_PREVIEW_SIZE = 30 * 1024 * 1024;
 
 type AppEnv = { Bindings: Env; Variables: Variables };
+
+async function resolveTgBucketConfig(
+  db: ReturnType<typeof getDb>,
+  bucketId: string,
+  encKey: string
+): Promise<{ botToken: string; chatId: string; apiBase?: string } | null> {
+  const bucket = await db.select().from(storageBuckets).where(eq(storageBuckets.id, bucketId)).get();
+  if (!bucket || bucket.provider !== 'telegram') return null;
+  const botToken = await decryptSecret(bucket.accessKeyId, encKey);
+  return {
+    botToken,
+    chatId: bucket.bucketName,
+    apiBase: bucket.endpoint || undefined,
+  };
+}
 
 async function verifyTokenFromQuery(
   c: Context<AppEnv>
@@ -152,10 +171,13 @@ app.get('/:id/info', async (c) => {
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
 
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
+  if (!hasAccess) throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
+
   const file = await db
     .select()
     .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+    .where(and(eq(files.id, fileId), isNull(files.deletedAt)))
     .get();
 
   if (!file) throwAppError('FILE_NOT_FOUND');
@@ -188,10 +210,13 @@ app.get('/:id/raw', async (c) => {
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
+  if (!hasAccess) throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
+
   const file = await db
     .select()
     .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+    .where(and(eq(files.id, fileId), isNull(files.deletedAt)))
     .get();
 
   if (!file) throwAppError('FILE_NOT_FOUND');
@@ -202,6 +227,55 @@ app.get('/:id/raw', async (c) => {
       { success: false, error: { code: ERROR_CODES.FILE_TOO_LARGE, message: '文件过大，无法在线预览' } },
       400
     );
+  }
+
+  // ── Telegram 桶预览路径 ───────────────────────────────────────────────
+  if (file.bucketId) {
+    const bkt = await db.select().from(storageBuckets).where(eq(storageBuckets.id, file.bucketId)).get();
+    if (bkt?.provider === 'telegram') {
+      const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, fileId)).get();
+      if (!ref) {
+        return c.json(
+          { success: false, error: { code: 'TG_REF_NOT_FOUND', message: '未找到 Telegram 文件引用' } },
+          404
+        );
+      }
+      const tgConfig = await resolveTgBucketConfig(db, file.bucketId, encKey);
+      if (!tgConfig) {
+        throwAppError('TG_CONFIG_ERROR', '无法加载 Telegram 配置');
+      }
+      try {
+        const body = isChunkedFileId(ref.tgFileId)
+          ? await tgDownloadChunked(tgConfig, ref.tgFileId, db)
+          : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
+        const arrayBuffer = await new Response(body).arrayBuffer();
+        let content: string;
+        try {
+          content = new TextDecoder('utf-8', { fatal: false }).decode(arrayBuffer);
+          if (/[\ufffd]/.test(content)) {
+            try {
+              const gbkDecoder = new TextDecoder('gbk', { fatal: false });
+              content = gbkDecoder.decode(arrayBuffer);
+            } catch {
+              // GBK 解码失败，保持 UTF-8 结果
+            }
+          }
+        } catch {
+          content = new TextDecoder('utf-8').decode(arrayBuffer);
+        }
+        return c.json({
+          success: true,
+          data: {
+            content,
+            mimeType: file.mimeType,
+            name: file.name,
+            size: file.size,
+          },
+        });
+      } catch (e: any) {
+        throwAppError('TG_DOWNLOAD_FAILED', String(e?.message || 'Telegram 下载失败'));
+      }
+    }
   }
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
@@ -245,10 +319,13 @@ app.get('/:id/stream', async (c) => {
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
+  if (!hasAccess) throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
+
   const file = await db
     .select()
     .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+    .where(and(eq(files.id, fileId), isNull(files.deletedAt)))
     .get();
 
   if (!file) throwAppError('FILE_NOT_FOUND');
@@ -262,16 +339,6 @@ app.get('/:id/stream', async (c) => {
     );
   }
 
-  const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
-  if (!bucketConfig) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶未配置' } }, 500);
-  }
-
-  const range = c.req.header('Range');
-  const s3Res = await s3Get(bucketConfig, file.r2Key);
-
-  if (!s3Res.ok) throwAppError('FILE_CONTENT_NOT_FOUND');
-
   const headers: Record<string, string> = {
     'Content-Type': file.mimeType || 'application/octet-stream',
     'Content-Length': file.size.toString(),
@@ -281,6 +348,41 @@ app.get('/:id/stream', async (c) => {
   if (type === 'video' || type === 'audio') {
     headers['Content-Disposition'] = 'inline';
   }
+
+  // ── Telegram 桶预览路径 ───────────────────────────────────────────────
+  if (file.bucketId) {
+    const bkt = await db.select().from(storageBuckets).where(eq(storageBuckets.id, file.bucketId)).get();
+    if (bkt?.provider === 'telegram') {
+      const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, fileId)).get();
+      if (!ref) {
+        return c.json(
+          { success: false, error: { code: 'TG_REF_NOT_FOUND', message: '未找到 Telegram 文件引用' } },
+          404
+        );
+      }
+      const tgConfig = await resolveTgBucketConfig(db, file.bucketId, encKey);
+      if (!tgConfig) {
+        throwAppError('TG_CONFIG_ERROR', '无法加载 Telegram 配置');
+      }
+      try {
+        const body = isChunkedFileId(ref.tgFileId)
+          ? await tgDownloadChunked(tgConfig, ref.tgFileId, db)
+          : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
+        return new Response(body, { headers });
+      } catch (e: any) {
+        throwAppError('TG_DOWNLOAD_FAILED', String(e?.message || 'Telegram 下载失败'));
+      }
+    }
+  }
+
+  const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
+  if (!bucketConfig) {
+    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶未配置' } }, 500);
+  }
+
+  const s3Res = await s3Get(bucketConfig, file.r2Key);
+
+  if (!s3Res.ok) throwAppError('FILE_CONTENT_NOT_FOUND');
 
   return new Response(s3Res.body, { headers });
 });
@@ -294,10 +396,13 @@ app.get('/:id/thumbnail', async (c) => {
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
+  if (!hasAccess) throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
+
   const file = await db
     .select()
     .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+    .where(and(eq(files.id, fileId), isNull(files.deletedAt)))
     .get();
 
   if (!file) throwAppError('FILE_NOT_FOUND');
@@ -307,6 +412,39 @@ app.get('/:id/thumbnail', async (c) => {
       { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只支持图片文件生成缩略图' } },
       400
     );
+  }
+
+  // ── Telegram 桶预览路径 ───────────────────────────────────────────────
+  if (file.bucketId) {
+    const bkt = await db.select().from(storageBuckets).where(eq(storageBuckets.id, file.bucketId)).get();
+    if (bkt?.provider === 'telegram') {
+      const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, fileId)).get();
+      if (!ref) {
+        return c.json(
+          { success: false, error: { code: 'TG_REF_NOT_FOUND', message: '未找到 Telegram 文件引用' } },
+          404
+        );
+      }
+      const tgConfig = await resolveTgBucketConfig(db, file.bucketId, encKey);
+      if (!tgConfig) {
+        throwAppError('TG_CONFIG_ERROR', '无法加载 Telegram 配置');
+      }
+      try {
+        const body = isChunkedFileId(ref.tgFileId)
+          ? await tgDownloadChunked(tgConfig, ref.tgFileId, db)
+          : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
+        const imageBuffer = await new Response(body).arrayBuffer();
+        return new Response(imageBuffer, {
+          headers: {
+            'Content-Type': file.mimeType,
+            'Cache-Control': 'public, max-age=31536000',
+            'X-Thumbnail-Size': `${width}x${height}`,
+          },
+        });
+      } catch (e: any) {
+        throwAppError('TG_DOWNLOAD_FAILED', String(e?.message || 'Telegram 下载失败'));
+      }
+    }
   }
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
@@ -334,15 +472,54 @@ app.get('/:id/office', async (c) => {
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
+  if (!hasAccess) throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
+
   const file = await db
     .select()
     .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+    .where(and(eq(files.id, fileId), isNull(files.deletedAt)))
     .get();
 
   if (!file) throwAppError('FILE_NOT_FOUND');
   if (!ALL_OFFICE_MIME_TYPES.includes(file.mimeType as (typeof ALL_OFFICE_MIME_TYPES)[number])) {
     throwAppError('FILE_PREVIEW_NOT_SUPPORTED', '不支持该文件类型');
+  }
+
+  // ── Telegram 桶预览路径 ───────────────────────────────────────────────
+  if (file.bucketId) {
+    const bkt = await db.select().from(storageBuckets).where(eq(storageBuckets.id, file.bucketId)).get();
+    if (bkt?.provider === 'telegram') {
+      const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, fileId)).get();
+      if (!ref) {
+        return c.json(
+          { success: false, error: { code: 'TG_REF_NOT_FOUND', message: '未找到 Telegram 文件引用' } },
+          404
+        );
+      }
+      const tgConfig = await resolveTgBucketConfig(db, file.bucketId, encKey);
+      if (!tgConfig) {
+        throwAppError('TG_CONFIG_ERROR', '无法加载 Telegram 配置');
+      }
+      try {
+        const body = isChunkedFileId(ref.tgFileId)
+          ? await tgDownloadChunked(tgConfig, ref.tgFileId, db)
+          : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
+        const fileBuffer = await new Response(body).arrayBuffer();
+        const base64Content = btoa(String.fromCharCode(...new Uint8Array(fileBuffer)));
+        return c.json({
+          success: true,
+          data: {
+            fileName: file.name,
+            mimeType: file.mimeType,
+            base64Content,
+            size: file.size,
+          },
+        });
+      } catch (e: any) {
+        throwAppError('TG_DOWNLOAD_FAILED', String(e?.message || 'Telegram 下载失败'));
+      }
+    }
   }
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);

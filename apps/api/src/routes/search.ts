@@ -44,6 +44,7 @@ const searchSchema = z.object({
   limit: z.number().int().min(1).max(100).default(50).optional(),
   semantic: z.boolean().optional(),
   hybrid: z.boolean().optional(),
+  fts: z.boolean().optional(),
 });
 
 const advancedSearchSchema = z.object({
@@ -109,6 +110,7 @@ app.get('/', async (c) => {
     limit: query.limit ? parseInt(query.limit, 10) : 50,
     semantic: query.semantic === 'true',
     hybrid: query.hybrid === 'true',
+    fts: query.fts === 'true',
   };
 
   const result = searchSchema.safeParse(params);
@@ -132,8 +134,9 @@ app.get('/', async (c) => {
     }
   }
 
-  let semanticResults: Map<string, number> = new Map();
-  const useSemantic = (searchParams.semantic || searchParams.hybrid) && searchParams.query && (await isAIConfigured(c.env));
+  const semanticResults: Map<string, number> = new Map();
+  const useSemantic =
+    (searchParams.semantic || searchParams.hybrid) && searchParams.query && (await isAIConfigured(c.env));
 
   if (useSemantic && searchParams.query) {
     const results = await searchSimilarFiles(c.env, searchParams.query, userId, {
@@ -146,8 +149,36 @@ app.get('/', async (c) => {
     }
   }
 
-  if (searchParams.query && !searchParams.semantic) {
+  if (searchParams.query && !searchParams.semantic && !searchParams.fts) {
     conditions.push(like(files.name, `%${searchParams.query}%`));
+  } else if (searchParams.fts && searchParams.query) {
+    let ftsIds: string[] = [];
+    try {
+      const ftsResults = await db
+        .select({ id: sql<string>`files_fts.id` })
+        .from(sql`files_fts`)
+        .where(sql`files_fts MATCH ${searchParams.query}`)
+        .all();
+      ftsIds = ftsResults.map((r) => r.id);
+    } catch {
+      // FTS5 虚拟表不可用时降级为 LIKE 搜索
+      conditions.push(like(files.name, `%${searchParams.query}%`));
+    }
+    if (ftsIds.length > 0) {
+      conditions.push(inArray(files.id, ftsIds));
+    } else if (!searchParams.query) {
+      return c.json({
+        success: true,
+        data: {
+          items: [],
+          total: 0,
+          page: searchParams.page || 1,
+          limit: searchParams.limit || 50,
+          totalPages: 0,
+          aggregations: { types: {}, mimeTypes: {}, sizeRange: { min: 0, max: 0 } },
+        },
+      });
+    }
   } else if (searchParams.semantic && semanticResults.size > 0) {
     conditions.push(inArray(files.id, Array.from(semanticResults.keys())));
   } else if (searchParams.hybrid && searchParams.query) {

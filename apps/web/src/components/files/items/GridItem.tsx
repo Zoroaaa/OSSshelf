@@ -6,6 +6,7 @@
  * - 网格视图展示文件
  * - 图片缩略图预览
  * - 选择、预览、下载等操作
+ * - 移动端简化布局
  */
 
 import { useResponsive } from '@/hooks/useResponsive';
@@ -14,7 +15,7 @@ import { FileTagsDisplay } from '@/components/files/tags';
 import { ActionBtn } from '../ActionBtn';
 import { filesApi } from '@/services/api';
 import { formatBytes, decodeFileName } from '@/utils';
-import { getFileCategory, getCategoryBg, isPreviewable } from '@/utils/fileTypes';
+import { getFileCategory, getCategoryBg, isPreviewable, formatAllowedMimeTypes } from '@/utils/fileTypes';
 import { cn } from '@/utils';
 import {
   CheckSquare,
@@ -29,8 +30,12 @@ import {
   User,
   Upload,
   Link,
+  History as HistoryIcon,
+  MoreVertical,
+  Filter,
 } from 'lucide-react';
 import type { ItemProps } from '@/types/files';
+import { useState } from 'react';
 
 export function GridItem({
   file,
@@ -49,11 +54,76 @@ export function GridItem({
   onTagClick,
   onUploadLink,
   onDirectLink,
+  onVersionHistory,
 }: ItemProps) {
   const bg = getCategoryBg(getFileCategory(file.mimeType, file.isFolder));
   const canPreview = !file.isFolder && isPreviewable(file.mimeType);
   const isImage = file.mimeType?.startsWith('image/');
   const { isMobile } = useResponsive();
+  const [showActions, setShowActions] = useState(false);
+  const allowedTypes = file.isFolder ? formatAllowedMimeTypes((file as any).allowedMimeTypes) : null;
+
+  if (isMobile) {
+    return (
+      <div
+        className={cn(
+          'relative bg-card border rounded-xl overflow-hidden cursor-pointer active:scale-[0.98] transition-transform',
+          isSelected && 'ring-2 ring-primary'
+        )}
+        onClick={() => onClick(file)}
+        onContextMenu={(e) => onContextMenu(e, file)}
+      >
+        <div className={cn('flex items-center justify-center relative', isImage ? 'h-24' : 'h-20', !isImage && bg)}>
+          {isImage ? (
+            <img
+              src={filesApi.previewUrl(file.id, token)}
+              alt={decodeFileName(file.name)}
+              className="w-full h-full object-cover"
+              loading="lazy"
+              onError={(e) => {
+                (e.target as any).style.display = 'none';
+              }}
+            />
+          ) : (
+            <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="lg" />
+          )}
+          <button
+            className="absolute top-1.5 left-1.5 z-10"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleSelect(file.id, file);
+            }}
+          >
+            <div
+              className={cn(
+                'rounded-lg w-7 h-7 flex items-center justify-center backdrop-blur-sm',
+                isSelected ? 'bg-primary text-primary-foreground' : 'bg-black/40 text-white'
+              )}
+            >
+              {isSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+            </div>
+          </button>
+          <button
+            className="absolute top-1.5 right-1.5 z-10"
+            onClick={(e) => {
+              e.stopPropagation();
+              onContextMenu(e as any, file);
+            }}
+          >
+            <div className="rounded-lg w-7 h-7 flex items-center justify-center bg-black/40 text-white backdrop-blur-sm">
+              <MoreVertical className="h-4 w-4" />
+            </div>
+          </button>
+        </div>
+        <div className="px-2.5 py-2 border-t">
+          <p className="text-xs font-medium line-clamp-2 leading-tight">{decodeFileName(file.name)}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">
+            {file.isFolder ? '文件夹' : formatBytes(file.size)}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -122,6 +192,11 @@ export function GridItem({
               <Link className="h-3.5 w-3.5" />
             </ActionBtn>
           )}
+          {!file.isFolder && onVersionHistory && (
+            <ActionBtn title="版本历史" onClick={() => onVersionHistory(file)}>
+              <HistoryIcon className="h-3.5 w-3.5" />
+            </ActionBtn>
+          )}
           <ActionBtn title="重命名" onClick={() => onRename(file)}>
             <Pencil className="h-3.5 w-3.5" />
           </ActionBtn>
@@ -147,6 +222,13 @@ export function GridItem({
         <p className={cn('text-xs font-medium', isMobile ? 'line-clamp-2' : 'truncate')}>{decodeFileName(file.name)}</p>
         <div className="flex items-center gap-1 mt-0.5 flex-wrap">
           <p className="text-xs text-muted-foreground">{file.isFolder ? '文件夹' : formatBytes(file.size)}</p>
+          {allowedTypes && (
+            <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+              <Filter className="h-2 w-2" />
+              {allowedTypes.join('、')}
+              {allowedTypes.length < JSON.parse((file as any).allowedMimeTypes).length && '…'}
+            </span>
+          )}
           {(file as any).bucket && (
             <span className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium bg-muted border">
               <Database className="h-2 w-2" />

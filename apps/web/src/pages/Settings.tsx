@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import { useAuthStore } from '@/stores/auth';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { authApi } from '@/services/api';
+import { authApi, type EmailPreferences } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
@@ -43,10 +43,11 @@ import {
   MapPin,
   Loader2,
   Sparkles,
+  Mail,
 } from 'lucide-react';
 import { AISettings } from '@/components/ai';
 
-type SettingsTab = 'profile' | 'security' | 'ai';
+type SettingsTab = 'profile' | 'email' | 'security' | 'ai';
 
 function getDeviceIcon(userAgent: string): typeof Monitor {
   const ua = userAgent.toLowerCase();
@@ -77,6 +78,117 @@ function getOSName(userAgent: string): string {
   if (ua.includes('android')) return 'Android';
   if (ua.includes('iphone') || ua.includes('ipad')) return 'iOS';
   return '未知系统';
+}
+
+function EmailChangeForm() {
+  const { toast } = useToast();
+  const [newEmail, setNewEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  const changeEmailMutation = useMutation({
+    mutationFn: () => authApi.changeEmail({ newEmail, password }),
+    onSuccess: () => {
+      toast({ title: '确认邮件已发送', description: '请查收新邮箱并点击确认链接' });
+      setNewEmail('');
+      setPassword('');
+    },
+    onError: (e: any) => {
+      toast({
+        title: '发送失败',
+        description: e.response?.data?.error?.message || '请检查输入',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newEmail || !password) {
+      toast({ title: '请填写完整信息', variant: 'destructive' });
+      return;
+    }
+    changeEmailMutation.mutate();
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-3">
+      <Input type="email" placeholder="新邮箱地址" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+      <Input type="password" placeholder="当前密码" value={password} onChange={(e) => setPassword(e.target.value)} />
+      <Button type="submit" size="sm" disabled={changeEmailMutation.isPending}>
+        {changeEmailMutation.isPending ? '发送中...' : '发送确认邮件'}
+      </Button>
+    </form>
+  );
+}
+
+function EmailPreferencesForm() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: preferences, isLoading } = useQuery({
+    queryKey: ['email-preferences'],
+    queryFn: () => authApi.getEmailPreferences().then((r) => r.data.data),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (data: Partial<EmailPreferences>) => authApi.setEmailPreferences(data),
+    onSuccess: () => {
+      toast({ title: '偏好已保存' });
+      queryClient.invalidateQueries({ queryKey: ['email-preferences'] });
+    },
+    onError: (e: any) => {
+      toast({
+        title: '保存失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const handleToggle = (key: keyof EmailPreferences) => {
+    if (!preferences) return;
+    updateMutation.mutate({ [key]: !preferences[key] });
+  };
+
+  if (isLoading) {
+    return <div className="text-sm text-muted-foreground">加载中...</div>;
+  }
+
+  const preferenceItems = [
+    { key: 'mention' as const, label: '@提及通知', desc: '当有人在文件或评论中@您时发送邮件' },
+    { key: 'share_received' as const, label: '分享接收通知', desc: '当他人分享文件给您时发送邮件' },
+    { key: 'quota_warning' as const, label: '配额警告', desc: '存储空间即将用尽时发送警告邮件' },
+    { key: 'ai_complete' as const, label: 'AI处理完成', desc: 'AI摘要或标签处理完成时发送邮件' },
+    { key: 'system' as const, label: '系统通知', desc: '重要的系统更新和安全提醒' },
+  ];
+
+  return (
+    <div className="space-y-3">
+      {preferenceItems.map((item) => (
+        <div key={item.key} className="flex items-start justify-between gap-4 p-3 rounded-lg border">
+          <div className="flex-1">
+            <p className="text-sm font-medium">{item.label}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{item.desc}</p>
+          </div>
+          <button
+            onClick={() => handleToggle(item.key)}
+            disabled={updateMutation.isPending}
+            className={cn(
+              'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
+              preferences?.[item.key] ? 'bg-primary' : 'bg-muted'
+            )}
+          >
+            <span
+              className={cn(
+                'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                preferences?.[item.key] ? 'translate-x-6' : 'translate-x-1'
+              )}
+            />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default function Settings() {
@@ -193,6 +305,7 @@ export default function Settings() {
 
   const tabs: { id: SettingsTab; label: string; icon: typeof User }[] = [
     { id: 'profile', label: '个人信息', icon: User },
+    { id: 'email', label: '邮箱设置', icon: Mail },
     { id: 'security', label: '安全设置', icon: Shield },
     { id: 'ai', label: 'AI 功能', icon: Sparkles },
   ];
@@ -200,11 +313,11 @@ export default function Settings() {
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h1 className="text-2xl font-bold">设置</h1>
+        <h1 className="text-xl lg:text-2xl font-bold">设置</h1>
         <p className="text-muted-foreground text-sm mt-0.5">管理您的账户与偏好</p>
       </div>
 
-      <div className="flex gap-1 p-1 bg-muted/50 rounded-lg">
+      <div className="flex gap-1 p-1 bg-muted/50 rounded-lg overflow-x-auto no-scrollbar">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           return (
@@ -212,14 +325,14 @@ export default function Settings() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors',
+                'flex items-center gap-1.5 px-3 lg:px-4 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0',
                 activeTab === tab.id
                   ? 'bg-background text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground'
               )}
             >
               <Icon className="h-4 w-4" />
-              {tab.label}
+              <span>{tab.label}</span>
             </button>
           );
         })}
@@ -340,6 +453,89 @@ export default function Settings() {
               <p className="text-xs text-muted-foreground">
                 支持 macOS Finder、Windows 资源管理器、Cyberduck、Mountain Duck 等客户端
               </p>
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {activeTab === 'email' && (
+        <>
+          <Card>
+            <CardHeader className="pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                  <Mail className="h-4 w-4 text-emerald-600" />
+                </div>
+                <div>
+                  <CardTitle className="text-base">邮箱设置</CardTitle>
+                  <CardDescription>管理您的邮箱地址和通知偏好</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">当前邮箱</label>
+                <div className="flex items-center gap-2">
+                  <Input value={user?.email || ''} disabled className="flex-1" />
+                  {user?.emailVerified ? (
+                    <span className="text-xs text-emerald-600 flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" /> 已验证
+                    </span>
+                  ) : (
+                    <span className="text-xs text-amber-600 flex items-center gap-1">
+                      <AlertTriangle className="h-3 w-3" /> 未验证
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {!user?.emailVerified && (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                  <p className="text-sm text-amber-900">
+                    您的邮箱尚未验证，部分功能受限。
+                    <button
+                      onClick={() => {
+                        authApi
+                          .resendVerification({ email: user?.email || '' })
+                          .then(() => toast({ title: '验证邮件已发送' }))
+                          .catch((e) =>
+                            toast({
+                              title: '发送失败',
+                              description: e.response?.data?.error?.message,
+                              variant: 'destructive',
+                            })
+                          );
+                      }}
+                      className="text-primary hover:underline ml-1"
+                    >
+                      重发验证邮件
+                    </button>
+                  </p>
+                </div>
+              )}
+
+              <div className="pt-4 border-t">
+                <h4 className="text-sm font-medium mb-3">更换邮箱</h4>
+                <p className="text-xs text-muted-foreground mb-3">更换邮箱后需要重新验证，新邮箱将作为登录账号</p>
+                <EmailChangeForm />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                  <Mail className="h-4 w-4 text-blue-600" />
+                </div>
+                <div>
+                  <CardTitle className="text-base">邮件通知偏好</CardTitle>
+                  <CardDescription>选择您希望接收的邮件通知类型</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <EmailPreferencesForm />
             </CardContent>
           </Card>
         </>
@@ -490,9 +686,7 @@ export default function Settings() {
                             isCurrent ? 'bg-primary/10' : 'bg-muted'
                           )}
                         >
-                          <DeviceIcon
-                            className={cn('h-5 w-5', isCurrent ? 'text-primary' : 'text-muted-foreground')}
-                          />
+                          <DeviceIcon className={cn('h-5 w-5', isCurrent ? 'text-primary' : 'text-muted-foreground')} />
                         </div>
 
                         <div className="flex-1 min-w-0">

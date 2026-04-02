@@ -4,12 +4,13 @@
  */
 
 import { eq, and, isNull } from 'drizzle-orm';
-import { users, files, storageBuckets } from '../db/schema';
+import { users, files, storageBuckets, telegramFileRefs } from '../db/schema';
 import type { DrizzleDb } from '../db';
 import { getDb } from '../db';
 import type { Env } from '../types/env';
 import { makeBucketConfigAsync } from './s3client';
 import { s3Get } from './s3client';
+import { tgDownloadFile, type TelegramBotConfig } from './telegramClient';
 
 export function encodeFilename(name: string): string {
   return name.replace(/[^\w.\-\u4e00-\u9fa5]/g, '_');
@@ -106,25 +107,43 @@ export async function buildFolderPath(db: DrizzleDb, userId: string, parentId: s
   return result;
 }
 
-export async function getFileContent(
-  env: Env,
-  bucketId: string,
-  r2Key: string
-): Promise<ArrayBuffer | null> {
-  if (bucketId === 'r2' && env.FILES) {
+export async function getFileContent(env: Env, bucketId: string, r2Key: string): Promise<ArrayBuffer | null> {
+  const db = getDbFromEnv(env);
+  const bucket = await db.select().from(storageBuckets).where(eq(storageBuckets.id, bucketId)).get();
+
+  if (!bucket) {
+    if (bucketId === 'r2' && env.FILES) {
+      const object = await env.FILES.get(r2Key);
+      if (!object) return null;
+      return object.arrayBuffer();
+    }
+    return null;
+  }
+
+  if (bucket.provider === 'telegram') {
+    const tgRef = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.r2Key, r2Key)).get();
+    if (!tgRef) return null;
+
+    try {
+      const { decryptSecret } = await import('./s3client');
+      const botToken = await decryptSecret(bucket.accessKeyId, env.JWT_SECRET);
+      const tgConfig: TelegramBotConfig = {
+        botToken,
+        chatId: bucket.bucketName,
+        apiBase: bucket.endpoint || undefined,
+      };
+      const response = await tgDownloadFile(tgConfig, tgRef.tgFileId);
+      return response.arrayBuffer();
+    } catch {
+      return null;
+    }
+  }
+
+  if (bucket.provider === 'r2' && env.FILES) {
     const object = await env.FILES.get(r2Key);
     if (!object) return null;
     return object.arrayBuffer();
   }
-
-  const db = getDbFromEnv(env);
-  const bucket = await db
-    .select()
-    .from(storageBuckets)
-    .where(eq(storageBuckets.id, bucketId))
-    .get();
-
-  if (!bucket) return null;
 
   const bucketConfig = await makeBucketConfigAsync(bucket, env.JWT_SECRET);
   if (!bucketConfig) return null;

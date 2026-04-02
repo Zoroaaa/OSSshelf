@@ -141,7 +141,7 @@ export function FolderPickerDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-card border rounded-xl shadow-2xl w-full max-w-sm flex flex-col max-h-[70vh]">
         <div className="px-5 py-4 border-b flex-shrink-0 flex items-center gap-2">
           <Upload className="h-4 w-4 text-primary" />

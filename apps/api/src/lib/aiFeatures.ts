@@ -1,17 +1,22 @@
 /**
  * aiFeatures.ts
  * AI 功能模块
+ *
+ * 功能:
+ * - 文件摘要生成（自动触发）
+ * - 图片智能描述（自动触发）
+ * - 智能重命名建议
  */
 
 import type { Env } from '../types/env';
 import { getDb, files } from '../db';
 import { eq } from 'drizzle-orm';
 import { getFileContent } from './utils';
+import { isEditableFile } from '@osshelf/shared';
+import { indexFileVector, buildFileTextForVector } from './vectorIndex';
 
 const SUMMARY_MODEL = '@cf/meta/llama-3.1-8b-instruct' as const;
-// llava: 图片理解，返回字段为 description
 const IMAGE_CAPTION_MODEL = '@cf/llava-hf/llava-1.5-7b-hf' as const;
-// resnet-50: 快速分类标签（英文），作为 llava 的补充
 const IMAGE_TAG_MODEL = '@cf/microsoft/resnet-50' as const;
 
 export interface SummaryResult {
@@ -28,24 +33,19 @@ export interface RenameSuggestion {
   suggestions: string[];
 }
 
-const TEXT_MIME_PREFIXES = [
-  'text/',
-  'application/json',
-  'application/xml',
-  'application/javascript',
-  'application/typescript',
-];
-
-function isTextFile(mimeType: string | null): boolean {
-  if (!mimeType) return false;
-  return TEXT_MIME_PREFIXES.some((prefix) => mimeType.startsWith(prefix));
+export function canGenerateSummary(mimeType: string | null, fileName: string): boolean {
+  return isEditableFile(mimeType, fileName);
 }
 
-export async function generateFileSummary(
-  env: Env,
-  fileId: string,
-  content?: string
-): Promise<SummaryResult> {
+export function isImageFile(mimeType: string | null): boolean {
+  return mimeType?.startsWith('image/') ?? false;
+}
+
+export function isAIConfigured(env: Env): boolean {
+  return !!(env.AI && env.VECTORIZE);
+}
+
+export async function generateFileSummary(env: Env, fileId: string, content?: string): Promise<SummaryResult> {
   if (!env.AI) {
     throw new Error('AI service not configured');
   }
@@ -69,8 +69,12 @@ export async function generateFileSummary(
     textContent = await extractTextFromFile(env, file);
   }
 
-  if (!textContent || textContent.length < 50) {
-    return { summary: '', cached: false };
+  if (!textContent) {
+    throw new Error('无法获取文件内容，请检查文件存储配置');
+  }
+
+  if (textContent.length < 50) {
+    throw new Error('文件内容太短（少于50字符），无法生成摘要');
   }
 
   const truncatedContent = textContent.slice(0, 4096);
@@ -80,8 +84,7 @@ export async function generateFileSummary(
       messages: [
         {
           role: 'system',
-          content:
-            '你是文件助手。请用简洁的中文（不超过3句话）概括文件内容。如果内容是代码，请说明代码的主要功能。',
+          content: '你是文件助手。请用简洁的中文（不超过3句话）概括文件内容。如果内容是代码，请说明代码的主要功能。',
         },
         {
           role: 'user',
@@ -95,10 +98,7 @@ export async function generateFileSummary(
 
     await Promise.all([
       env.KV.put(cacheKey, summary, { expirationTtl: 86400 }),
-      db
-        .update(files)
-        .set({ aiSummary: summary, aiSummaryAt: new Date().toISOString() })
-        .where(eq(files.id, fileId)),
+      db.update(files).set({ aiSummary: summary, aiSummaryAt: new Date().toISOString() }).where(eq(files.id, fileId)),
     ]);
 
     return { summary, cached: false };
@@ -108,11 +108,7 @@ export async function generateFileSummary(
   }
 }
 
-export async function generateImageTags(
-  env: Env,
-  fileId: string,
-  imageBuffer?: ArrayBuffer
-): Promise<ImageTagResult> {
+export async function generateImageTags(env: Env, fileId: string, imageBuffer?: ArrayBuffer): Promise<ImageTagResult> {
   if (!env.AI) {
     throw new Error('AI service not configured');
   }
@@ -130,38 +126,33 @@ export async function generateImageTags(
   }
 
   if (!imageData) {
-    return { tags: [], caption: undefined };
+    throw new Error('无法获取图片数据，请检查文件存储配置');
   }
 
   const uint8Array = new Uint8Array(imageData);
 
   try {
-    // 并发调用 llava（中文描述）和 resnet-50（分类标签）
     const [captionResult, tagResult] = await Promise.allSettled([
       (env.AI as any).run(IMAGE_CAPTION_MODEL, {
         image: Array.from(uint8Array),
-        prompt: '用中文简要描述这张图片的主要内容，不超过20个字。',
-        max_tokens: 100,
+        prompt:
+          'Describe this image in detail. If there is any text in the image, please transcribe it accurately. Respond in the same language as the text in the image, or in Chinese if no text is present.',
+        max_tokens: 300,
       }),
       (env.AI as any).run(IMAGE_TAG_MODEL, {
         image: Array.from(uint8Array),
       }),
     ]);
 
-    // llava 返回字段是 description（不是 response）
     let caption = '';
     if (captionResult.status === 'fulfilled') {
       const r = captionResult.value as { description?: string };
       caption = r.description?.trim() || '';
-    } else {
-      console.warn('llava caption failed:', captionResult.reason);
     }
 
     let tags: string[] = [];
     if (tagResult.status === 'fulfilled') {
       tags = parseImageTags(tagResult.value);
-    } else {
-      console.warn('resnet-50 tagging failed:', tagResult.reason);
     }
 
     const now = new Date().toISOString();
@@ -182,11 +173,7 @@ export async function generateImageTags(
   }
 }
 
-export async function suggestFileName(
-  env: Env,
-  fileId: string,
-  content?: string
-): Promise<RenameSuggestion> {
+export async function suggestFileName(env: Env, fileId: string, content?: string): Promise<RenameSuggestion> {
   if (!env.AI) {
     throw new Error('AI service not configured');
   }
@@ -204,7 +191,7 @@ export async function suggestFileName(
   let contextForAI: string;
   let isContentBased = false;
 
-  if (isTextFile(file.mimeType)) {
+  if (canGenerateSummary(file.mimeType, file.name)) {
     let textContent = content;
     if (!textContent) {
       textContent = await extractTextFromFile(env, file);
@@ -267,11 +254,8 @@ export async function suggestFileName(
   }
 }
 
-async function extractTextFromFile(
-  env: Env,
-  file: typeof files.$inferSelect
-): Promise<string> {
-  if (!isTextFile(file.mimeType)) {
+async function extractTextFromFile(env: Env, file: typeof files.$inferSelect): Promise<string> {
+  if (!canGenerateSummary(file.mimeType, file.name)) {
     return '';
   }
 
@@ -286,18 +270,14 @@ async function extractTextFromFile(
   }
 }
 
-async function fetchFileContentAsBuffer(
-  env: Env,
-  file: typeof files.$inferSelect
-): Promise<ArrayBuffer | null> {
+async function fetchFileContentAsBuffer(env: Env, file: typeof files.$inferSelect): Promise<ArrayBuffer | null> {
   if (!file.bucketId || !file.r2Key) {
     return null;
   }
 
   try {
     return await getFileContent(env, file.bucketId, file.r2Key);
-  } catch (error) {
-    console.error('Failed to fetch file content:', error);
+  } catch {
     return null;
   }
 }
@@ -309,12 +289,7 @@ function parseImageTags(result: unknown): string[] {
 
   if (Array.isArray(result)) {
     for (const item of result) {
-      if (
-        item &&
-        typeof item === 'object' &&
-        'label' in item &&
-        typeof item.label === 'string'
-      ) {
+      if (item && typeof item === 'object' && 'label' in item && typeof item.label === 'string') {
         tags.push(item.label.trim());
       }
     }
@@ -326,4 +301,56 @@ function parseImageTags(result: unknown): string[] {
   }
 
   return [...new Set(tags)].slice(0, 5);
+}
+
+export async function autoProcessFile(env: Env, fileId: string): Promise<void> {
+  if (!env.AI) {
+    return;
+  }
+
+  const db = getDb(env.DB);
+  const file = await db.select().from(files).where(eq(files.id, fileId)).get();
+
+  if (!file || file.isFolder) {
+    return;
+  }
+
+  const tasks: Promise<void>[] = [];
+
+  if (isImageFile(file.mimeType)) {
+    tasks.push(
+      generateImageTags(env, fileId).then(
+        () => {},
+        (e) => {
+          console.error(`Failed to generate image tags for ${fileId}:`, e);
+        }
+      )
+    );
+  }
+
+  if (canGenerateSummary(file.mimeType, file.name)) {
+    tasks.push(
+      generateFileSummary(env, fileId).then(
+        () => {},
+        (e) => {
+          console.error(`Failed to generate summary for ${fileId}:`, e);
+        }
+      )
+    );
+  }
+
+  if (tasks.length > 0) {
+    await Promise.all(tasks);
+  }
+
+  if (env.VECTORIZE) {
+    try {
+      const text = await buildFileTextForVector(env, fileId);
+      if (text && text.trim().length > 0) {
+        await indexFileVector(env, fileId, text);
+      }
+    } catch (e) {
+      console.error(`Failed to auto index vector for ${fileId}:`, e);
+    }
+  }
 }

@@ -120,7 +120,11 @@ export default function Tasks() {
 
   const historyTaskGroups = useMemo(() => groupTasksByDate(historyTasks), [historyTasks]);
 
+  const isInitialized = useRef(false);
+
   useEffect(() => {
+    if (isInitialized.current) return;
+    isInitialized.current = true;
     const defaultExpanded = new Set<string>();
     historyTaskGroups.forEach((g: TaskGroup) => {
       if (g.defaultExpanded) {
@@ -347,183 +351,163 @@ export default function Tasks() {
   };
 
   return (
-    <div className="space-y-6">
+    <>
       <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => handleFileSelect(e)} />
-
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold">上传任务</h1>
+          <h1 className="text-xl lg:text-2xl font-bold">上传任务</h1>
           <p className="text-muted-foreground text-sm mt-0.5">管理文件上传任务</p>
         </div>
-        <div className={cn('flex items-center gap-2', isMobile ? 'flex-col w-full' : 'flex-row')}>
-          {isMobile && (
-            <>
-              {pendingOrUploadingTasks.length > 0 && (
-                <Button variant="outline" size="sm" onClick={() => pauseAllMutation.mutate()} className="w-full">
-                  <PauseCircle className="h-4 w-4 mr-1.5" />
-                  一键暂停 ({pendingOrUploadingTasks.length})
-                </Button>
-              )}
-              {pausedTasks.length > 0 && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => deleteAllPausedMutation.mutate()}
-                  className="w-full text-red-500 hover:text-red-600"
-                >
-                  <Trash2 className="h-4 w-4 mr-1.5" />
-                  删除暂停中 ({pausedTasks.length})
-                </Button>
-              )}
-            </>
-          )}
-          <div className={cn('flex items-center gap-2', isMobile && 'w-full')}>
-            {completedTasks.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => clearCompletedMutation.mutate()}
-                className={cn(isMobile && 'flex-1')}
-              >
-                <CheckCircle2 className="h-4 w-4 mr-1.5" />
-                {!isMobile && '清空已完成'}
-              </Button>
-            )}
-            {failedTasks.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => clearFailedMutation.mutate()}
-                className={cn(isMobile && 'flex-1')}
-              >
-                <XCircle className="h-4 w-4 mr-1.5" />
-                {!isMobile && '清空失败'}
-              </Button>
-            )}
-            <Button variant="outline" size="sm" onClick={() => refetch()} className={cn(isMobile && 'flex-1')}>
-              <RefreshCw className="h-4 w-4 mr-1.5" />
-              {!isMobile && '刷新'}
+
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          {isMobile && pendingOrUploadingTasks.length > 0 && (
+            <Button variant="outline" size="sm" onClick={() => pauseAllMutation.mutate()}>
+              <PauseCircle className="h-4 w-4 mr-1.5" />
+              一键暂停 ({pendingOrUploadingTasks.length})
             </Button>
+          )}
+          {isMobile && pausedTasks.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => deleteAllPausedMutation.mutate()}
+              className="text-red-500 hover:text-red-600"
+            >
+              <Trash2 className="h-4 w-4 mr-1.5" />
+              删除暂停中 ({pausedTasks.length})
+            </Button>
+          )}
+          {completedTasks.length > 0 && (
+            <Button variant="outline" size="sm" onClick={() => clearCompletedMutation.mutate()}>
+              <CheckCircle2 className="h-4 w-4 mr-1.5" />
+              {!isMobile && '清空已完成'}
+            </Button>
+          )}
+          {failedTasks.length > 0 && (
+            <Button variant="outline" size="sm" onClick={() => clearFailedMutation.mutate()}>
+              <XCircle className="h-4 w-4 mr-1.5" />
+              {!isMobile && '清空失败'}
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            <RefreshCw className="h-4 w-4 mr-1.5" />
+            {!isMobile && '刷新'}
+          </Button>
+          {!isMobile && pendingOrUploadingTasks.length > 0 && (
+            <Button variant="outline" size="sm" onClick={() => pauseAllMutation.mutate()}>
+              <PauseCircle className="h-4 w-4 mr-1.5" />
+              一键暂停 ({pendingOrUploadingTasks.length})
+            </Button>
+          )}
+          {!isMobile && pausedTasks.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => deleteAllPausedMutation.mutate()}
+              className="text-red-500 hover:text-red-600"
+            >
+              <Trash2 className="h-4 w-4 mr-1.5" />
+              删除暂停中 ({pausedTasks.length})
+            </Button>
+          )}
+        </div>
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
-          {!isMobile && (
-            <>
-              {pendingOrUploadingTasks.length > 0 && (
-                <Button variant="outline" size="sm" onClick={() => pauseAllMutation.mutate()}>
-                  <PauseCircle className="h-4 w-4 mr-1.5" />
-                  一键暂停 ({pendingOrUploadingTasks.length})
-                </Button>
-              )}
-              {pausedTasks.length > 0 && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => deleteAllPausedMutation.mutate()}
-                  className="text-red-500 hover:text-red-600"
-                >
-                  <Trash2 className="h-4 w-4 mr-1.5" />
-                  删除暂停中 ({pausedTasks.length})
-                </Button>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      ) : (
-        <>
-          {activeTasks.length > 0 && (
-            <Card>
-              <CardHeader className="pb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                    <Upload className="h-4 w-4 text-blue-500" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-base">进行中的任务</CardTitle>
-                    <CardDescription>{activeTasks.length} 个任务正在处理</CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {activeTasks.map((task) => (
-                    <TaskItem
-                      key={task.id}
-                      task={task}
-                      onAbort={() => abortMutation.mutate(task.id)}
-                      onDelete={() => deleteMutation.mutate(task.id)}
-                      onPause={() => pauseMutation.mutate(task.id)}
-                      onResume={() => resumeMutation.mutate(task.id)}
-                      onResumeUpload={() => handleResumeUpload(task)}
-                    />
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {historyTasks.length > 0 && (
-            <Card>
-              <CardHeader className="pb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center">
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-base">历史任务</CardTitle>
-                    <CardDescription>{historyTasks.length} 个已完成或失败的任务</CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {historyTaskGroups.map((group) => (
-                    <div key={group.label}>
-                      <button
-                        onClick={() => toggleGroup(group.label)}
-                        className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors mb-2"
-                      >
-                        {expandedGroups.has(group.label) ? (
-                          <ChevronDown className="h-4 w-4" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4" />
-                        )}
-                        {group.label}
-                        <span className="text-xs bg-muted px-1.5 py-0.5 rounded">{group.tasks.length}</span>
-                      </button>
-                      {expandedGroups.has(group.label) && (
-                        <div className="space-y-3">
-                          {group.tasks.map((task) => (
-                            <TaskItem
-                              key={task.id}
-                              task={task}
-                              onDelete={() => deleteMutation.mutate(task.id)}
-                              onRetry={task.status === 'failed' ? () => retryMutation.mutate(task.id) : undefined}
-                            />
-                          ))}
-                        </div>
-                      )}
+        ) : (
+          <>
+            {activeTasks.length > 0 && (
+              <Card>
+                <CardHeader className="pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                      <Upload className="h-4 w-4 text-blue-500" />
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                    <div>
+                      <CardTitle className="text-base">进行中的任务</CardTitle>
+                      <CardDescription>{activeTasks.length} 个任务正在处理</CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {activeTasks.map((task) => (
+                      <TaskItem
+                        key={task.id}
+                        task={task}
+                        onAbort={() => abortMutation.mutate(task.id)}
+                        onDelete={() => deleteMutation.mutate(task.id)}
+                        onPause={() => pauseMutation.mutate(task.id)}
+                        onResume={() => resumeMutation.mutate(task.id)}
+                        onResumeUpload={() => handleResumeUpload(task)}
+                      />
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
-          {tasks.length === 0 && (
-            <div className="text-center py-16 text-muted-foreground">
-              <Upload className="h-12 w-12 mx-auto mb-4 opacity-20" />
-              <p className="font-medium">暂无上传任务</p>
-              <p className="text-sm mt-1">上传文件时会自动创建任务</p>
-            </div>
-          )}
-        </>
-      )}
-    </div>
+            {historyTasks.length > 0 && (
+              <Card>
+                <CardHeader className="pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center">
+                      <FileText className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-base">历史任务</CardTitle>
+                      <CardDescription>{historyTasks.length} 个已完成或失败的任务</CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {historyTaskGroups.map((group) => (
+                      <div key={group.label}>
+                        <button
+                          onClick={() => toggleGroup(group.label)}
+                          className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors mb-2"
+                        >
+                          {expandedGroups.has(group.label) ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" />
+                          )}
+                          {group.label}
+                          <span className="text-xs bg-muted px-1.5 py-0.5 rounded">{group.tasks.length}</span>
+                        </button>
+                        {expandedGroups.has(group.label) && (
+                          <div className="space-y-3">
+                            {group.tasks.map((task) => (
+                              <TaskItem
+                                key={task.id}
+                                task={task}
+                                onDelete={() => deleteMutation.mutate(task.id)}
+                                onRetry={task.status === 'failed' ? () => retryMutation.mutate(task.id) : undefined}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {tasks.length === 0 && (
+              <div className="text-center py-16 text-muted-foreground">
+                <Upload className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                <p className="font-medium">暂无上传任务</p>
+                <p className="text-sm mt-1">上传文件时会自动创建任务</p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </>
   );
 }
 

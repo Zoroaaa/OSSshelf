@@ -215,13 +215,15 @@ async function findExplicitPermission(
           sql`(${filePermissions.expiresAt} IS NULL OR ${filePermissions.expiresAt} > ${now})`
         )
       )
-      .orderBy(sql`
+      .orderBy(
+        sql`
         CASE ${filePermissions.permission}
           WHEN 'admin' THEN 3
           WHEN 'write' THEN 2
           ELSE 1
         END DESC
-      `)
+      `
+      )
       .get();
 
     if (groupPermission) {
@@ -282,13 +284,15 @@ async function findInheritedPermission(
             sql`(${filePermissions.expiresAt} IS NULL OR ${filePermissions.expiresAt} > ${now})`
           )
         )
-        .orderBy(sql`
+        .orderBy(
+          sql`
           CASE ${filePermissions.permission}
             WHEN 'admin' THEN 3
             WHEN 'write' THEN 2
             ELSE 1
           END DESC
-        `)
+        `
+        )
         .get();
 
       if (groupPermission) {
@@ -300,14 +304,14 @@ async function findInheritedPermission(
   return null;
 }
 
-async function getAncestorFiles(db: DrizzleDb, fileId: string): Promise<typeof files.$inferSelect[]> {
+async function getAncestorFiles(db: DrizzleDb, fileId: string): Promise<(typeof files.$inferSelect)[]> {
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
 
   if (!file || !file.parentId) {
     return [];
   }
 
-  const ancestors: typeof files.$inferSelect[] = [];
+  const ancestors: (typeof files.$inferSelect)[] = [];
   let currentParentId: string | null = file.parentId;
   let depth = 0;
   const maxDepth = 20;
@@ -335,10 +339,7 @@ function checkPermissionLevel(actual: PermissionLevel, required: PermissionLevel
   return PERMISSION_LEVELS[actual] >= PERMISSION_LEVELS[required];
 }
 
-export async function getGroupInfo(
-  db: DrizzleDb,
-  groupId: string
-): Promise<{ id: string; name: string } | null> {
+export async function getGroupInfo(db: DrizzleDb, groupId: string): Promise<{ id: string; name: string } | null> {
   const group = await db.select().from(userGroups).where(eq(userGroups.id, groupId)).get();
 
   if (!group) {
