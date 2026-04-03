@@ -11,6 +11,7 @@ import { eq, asc } from 'drizzle-orm';
 import { telegramFileRefs, telegramFileChunks } from '../db/schema';
 import type { DrizzleDb } from '../db';
 import { tgUploadFile, tgGetFileInfo, tgGetDownloadUrl, type TelegramBotConfig } from './telegramClient';
+import { logger } from '@osshelf/shared';
 
 /** 分片阈值：50MB 以下不启用分片，直接上传 */
 export const TG_CHUNK_THRESHOLD = 50 * 1024 * 1024;
@@ -154,7 +155,7 @@ export async function tgDownloadChunked(
           const buf = await resp.arrayBuffer();
           await writer.write(new Uint8Array(buf));
         } catch (chunkErr) {
-          console.error(`tgDownloadChunked: chunk ${i + 1}/${chunks.length} failed for groupId ${groupId}:`, chunkErr);
+          logger.error('TELEGRAM', '分片下载失败', { groupId, chunk: i + 1, total: chunks.length }, chunkErr);
           throw new Error(
             `Chunk ${i + 1}/${chunks.length} download failed: ${chunkErr instanceof Error ? chunkErr.message : String(chunkErr)}`
           );
@@ -162,7 +163,7 @@ export async function tgDownloadChunked(
       }
       await writer.close();
     } catch (err) {
-      console.error(`tgDownloadChunked: aborting stream for groupId ${groupId}:`, err);
+      logger.error('TELEGRAM', '下载流中止', { groupId }, err);
       await writer.abort(err);
     }
   })();

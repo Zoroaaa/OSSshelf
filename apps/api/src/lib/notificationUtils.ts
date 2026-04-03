@@ -15,6 +15,7 @@ import { notifications } from '../db';
 import type { Env } from '../types/env';
 import type { Context } from 'hono';
 import { sendEmail, emailTemplates, parseEmailPreferences, shouldSendEmail } from './emailService';
+import { logger } from '@osshelf/shared';
 
 export type NotificationType =
   | 'share_received'
@@ -108,8 +109,8 @@ export function sendNotification(
   c: Context<any>,
   params: CreateNotificationParams
 ): void {
-  const task = createNotification(c.env, params).catch((e) => {
-    console.error('Failed to create notification:', e);
+  const task = createNotification(c.env, params).catch((error) => {
+    logger.error('NOTIFICATION', '创建通知失败', {}, error);
   });
 
   if (c.executionCtx && typeof c.executionCtx.waitUntil === 'function') {

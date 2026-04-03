@@ -2,6 +2,149 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v4.1.0] - 2026-04-03
+
+### Added - AI 系统全面升级 🤖
+
+**核心功能 - 多模型支持与 AI 对话系统**
+
+- **多模型架构（Model Gateway Pattern）**
+  - 支持 Cloudflare Workers AI 内置模型（9个模型可选）
+  - 支持 OpenAI 兼容 API 接入（GPT-4o、Claude、Gemini、Ollama 等）
+  - 适配器模式设计，可扩展更多 AI 提供商
+  - 零配置即用：未添加模型时自动使用 Workers AI 默认模型
+
+- **AI 对话系统**
+  - 全新 AI 对话页面 `/ai-chat`，现代化聊天 UI
+  - SSE 流式响应，实时打字效果
+  - 会话管理：创建、切换、删除会话
+  - RAG 引擎集成：基于文件内容进行智能问答
+  - Markdown 渲染、代码高亮、源文件引用
+
+- **AI 配置中心**
+  - 独立 AI 设置页面 `/ai-settings`
+  - 模型管理：添加、编辑、删除、激活模型
+  - Workers AI 模型快速启用（一键添加并激活）
+  - 模型测试功能：发送 "Hello" 测试连接可用性
+  - 功能级模型配置：
+    - 文件摘要专用模型
+    - 图片描述专用模型（需 vision 能力）
+    - 图片标签专用模型
+    - 智能重命名专用模型
+
+**Workers AI 可用模型**
+
+| 模型 | 参数量 | 类型 | 说明 |
+|------|--------|------|------|
+| DeepSeek R1 Distill Qwen 32B | 32B | chat | 推理能力强，数学/代码专家 |
+| Llama 3.3 70B (FP8) | 70B | chat | Meta 最新大模型 |
+| Qwen 1.5 14B Chat | 14B | chat | 中文能力优秀 |
+| Llama 3.1 8B Instruct | 8B | chat | 默认模型，通用问答 |
+| Mistral 7B Instruct v0.2 | 7B | chat | 响应速度快 |
+| Gemma 2B LoRA | 2B | chat | 轻量极速 |
+| LLaVA 1.5 7B Vision | 7B | vision | 图片理解 |
+| BGE-M3 Embedding | - | embedding | 向量化/语义搜索 |
+
+**批量操作优化**
+
+- 一键摘要任务优化
+  - 支持取消操作
+  - 单文件超时控制（30秒）
+  - 连续错误限制（10次终止）
+  - 并发数降低至 3
+- 一键标签+描述任务优化
+  - 同样支持取消和超时（60秒/图片）
+- 一键索引任务优化
+  - 同样支持取消和超时（60秒/文件）
+- 任务状态自动轮询（每 3 秒刷新）
+
+**前端改进**
+
+- 移动端完整支持
+  - 底部导航新增「AI 对话」入口
+  - 更多菜单新增「AI 配置」入口
+  - AIChat 页面移动端适配（抽屉式侧边栏）
+  - AISettings 页面响应式布局优化
+- ModelCard 组件增强
+  - 新增「测试连接」按钮
+  - 显示测试结果（成功/失败 + 响应时间 + AI 回复）
+
+**后端改进**
+
+- features.ts 重构
+  - 统一使用 ModelGateway 调用模型
+  - 三层回退机制：功能级模型 → 用户默认 → Workers AI 默认
+  - 所有 AI 功能传递 userId，支持个性化配置
+- modelGateway.ts 修复
+  - 修复 Drizzle ORM camelCase 字段映射问题
+  - 新增 getDefaultWorkersAiModel() 默认回退方法
+- aiConfigRoutes.ts 增强
+  - 新增 POST /api/ai-config/test 模型测试接口
+  - 新增 GET /api/ai-config/feature-config 功能配置接口
+  - 新增 PUT /api/ai-config/feature-config 功能配置保存接口
+  - URL 验证逻辑优化（Workers AI 不需要 URL）
+- aiChatRoutes.ts 增强
+  - GET /sessions 添加 try-catch 错误处理
+  - 完善会话列表错误容错
+- ai.ts 路由增强
+  - 新增 DELETE /api/ai/summarize/batch 取消摘要任务
+  - 新增 DELETE /api/ai/tags/batch 取消标签任务
+  - 所有功能路由传递 userId 参数
+
+**数据库变更**
+
+- 新增迁移文件 `0020_ai_models_config.sql`
+  - ai_models 表：用户自定义 AI 模型配置
+  - ai_chat_sessions 表：AI 对话会话
+  - ai_chat_messages 表：对话消息记录
+  - ai_usage_stats 表：AI 使用统计（预留）
+
+**路由注册**
+
+```
+app.route('/api/ai', aiRoutes)           # AI 文件处理功能
+app.route('/api/ai-config', aiConfigRoutes) # AI 配置管理
+app.route('/api/ai-chat', aiChatRoutes)     # AI 对话系统
+```
+
+**新文件**
+
+后端：
+- `apps/api/src/lib/ai/modelGateway.ts` - 模型网关
+- `apps/api/src/lib/ai/types.ts` - 类型定义
+- `apps/api/src/lib/ai/adapters/workersAiAdapter.ts` - Workers AI 适配器
+- `apps/api/src/lib/ai/adapters/openAiCompatibleAdapter.ts` - OpenAI 兼容适配器
+- `apps/api/src/lib/ai/ragEngine.ts` - RAG 引擎
+- `apps/api/src/routes/aiConfigRoutes.ts` - AI 配置路由
+- `apps/api/src/routes/aiChatRoutes.ts` - AI 对话路由
+
+前端：
+- `pages/AIChat.tsx` - AI 对话页面
+- `pages/AISettings.tsx` - AI 设置页面
+- `components/ai/chat/ChatMessageBubble.tsx` - 消息气泡组件
+- `components/ai/chat/ChatInputBox.tsx` - 输入框组件
+- `components/ai/chat/SuggestedQuestions.tsx` - 建议问题组件
+- `components/ai/settings/ModelCard.tsx` - 模型卡片组件
+- `components/ai/settings/TaskProgress.tsx` - 任务进度组件
+- `components/ai/settings/StatsCard.tsx` - 统计卡片组件
+
+### Fixed
+
+- 修复 AI sessions 500 错误（添加 try-catch 容错）
+- 修复 AISettings header sticky 问题（改为 flex 布局）
+- 修复点击会话跳转首页问题（添加 /ai-chat/:sessionId 路由）
+- 修复模型测试 "Invalid url" 错误（Workers AI 不需要 URL）
+- 修复 parseModelConfig 字段映射错误（camelCase vs snake_case）
+- 修复 Image 图标导入冲突（改为 ImageIcon）
+
+### Changed
+
+- AI 功能从 Settings.tsx 迁移到独立 AISettings.tsx 页面
+- aiFeatures.ts 重构为 lib/ai/features.ts（使用 ModelGateway）
+- 移除冗余的页脚导航链接
+
+---
+
 ## [v4.0.0] - 2026-04-02
 
 ### Added - 邮件通知系统

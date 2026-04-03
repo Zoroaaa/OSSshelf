@@ -11,6 +11,7 @@
 import { eq, and } from 'drizzle-orm';
 import { getDb, webhooks } from '../db';
 import type { Env } from '../types/env';
+import { logger } from '@osshelf/shared';
 
 export type WebhookEvent =
   | 'file.uploaded'
@@ -103,12 +104,11 @@ async function sendWebhookRequest(
     await db.update(webhooks).set({ lastStatus: response.status }).where(eq(webhooks.id, webhook.id));
 
     if (!response.ok) {
-      console.error(`Webhook ${webhook.id} failed with status ${response.status}`);
+      logger.error('WEBHOOK', 'Webhook调用失败', { webhookId: webhook.id, status: response.status });
     }
   } catch (error) {
     await db.update(webhooks).set({ lastStatus: 0 }).where(eq(webhooks.id, webhook.id));
-
-    console.error(`Webhook ${webhook.id} request failed:`, error);
+    logger.error('WEBHOOK', 'Webhook请求失败', { webhookId: webhook.id }, error);
   }
 }
 

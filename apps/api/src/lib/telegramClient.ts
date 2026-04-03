@@ -18,8 +18,10 @@
 export interface TelegramBotConfig {
   botToken: string; // Bot Token (来自 @BotFather)
   chatId: string; // 目标 Chat ID（频道/群组/私聊）
-  apiBase?: string; // 可选代理，默认 https://api.telegram.org
+  apiBase?: string; // 可选 Bot API 代理地址
 }
+
+import { logger } from '@osshelf/shared';
 
 export interface TgUploadResult {
   fileId: string; // Telegram file_id（永久引用）
@@ -163,7 +165,7 @@ export async function tgUploadFile(
   }
 
   if (!tgFileId) {
-    console.error('[TelegramClient] Response missing file_id:', JSON.stringify(msg).slice(0, 500));
+    logger.error('TELEGRAM', '响应缺少file_id', { response: JSON.stringify(msg).slice(0, 500) });
     throw new Error('Telegram 响应中未找到 file_id，上传可能失败');
   }
 
@@ -298,7 +300,7 @@ export async function tgUploadStream(
   }
 
   if (!tgFileId) {
-    console.error('[TelegramClient] Stream response missing file_id:', JSON.stringify(msg).slice(0, 500));
+    logger.error('TELEGRAM', '流响应缺少file_id', { response: JSON.stringify(msg).slice(0, 500) });
     throw new Error('Telegram 响应中未找到 file_id');
   }
 
@@ -367,10 +369,10 @@ export async function tgDeleteMessage(config: TelegramBotConfig, messageId: numb
     if (!resp.ok) return; // 静默失败
     const json = (await resp.json()) as any;
     if (!json.ok) {
-      console.warn(`[TelegramClient] deleteMessage failed: ${json.description}`);
+      logger.warn('TELEGRAM', '删除消息失败', { description: json.description });
     }
-  } catch (e) {
-    console.warn('[TelegramClient] deleteMessage exception:', e);
+  } catch (error) {
+    logger.warn('TELEGRAM', '删除消息异常', {}, error);
   }
 }
 

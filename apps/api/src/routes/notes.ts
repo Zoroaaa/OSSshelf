@@ -14,7 +14,7 @@ import { eq, and, desc, isNull, sql } from 'drizzle-orm';
 import { getDb, files, users, fileNotes, fileNoteHistory, noteMentions } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
-import { ERROR_CODES } from '@osshelf/shared';
+import { ERROR_CODES, logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createNotification, getUserInfo } from '../lib/notificationUtils';
@@ -231,8 +231,8 @@ app.post('/:fileId', async (c) => {
               });
             }
           }
-        } catch (e) {
-          console.error('Failed to send mention notification:', e);
+        } catch (error) {
+          logger.error('NOTES', '发送提及通知失败', {}, error);
         }
       })()
     );
@@ -264,8 +264,8 @@ app.post('/:fileId', async (c) => {
                 replierName: authorInfo?.name || authorInfo?.email,
               },
             });
-          } catch (e) {
-            console.error('Failed to send reply notification:', e);
+          } catch (error) {
+            logger.error('NOTES', '发送回复通知失败', {}, error);
           }
         })()
       );

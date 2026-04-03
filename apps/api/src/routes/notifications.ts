@@ -136,6 +136,53 @@ app.delete('/:id', async (c) => {
   return c.json({ success: true, data: { message: '已删除' } });
 });
 
+app.get('/stream', async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+
+  const send = (data: object) => {
+    writer.write(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+  };
+
+  const countResult = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(notifications)
+    .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)))
+    .get();
+  send({ unreadCount: countResult?.count ?? 0 });
+
+  const interval = setInterval(async () => {
+    try {
+      const r = await db
+        .select({ count: sql<number>`COUNT(*)` })
+        .from(notifications)
+        .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)))
+        .get();
+      send({ unreadCount: r?.count ?? 0 });
+    } catch {
+      clearInterval(interval);
+      writer.close();
+    }
+  }, 30000);
+
+  c.req.raw.signal.addEventListener('abort', () => {
+    clearInterval(interval);
+    writer.close();
+  });
+
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
+  });
+});
+
 export async function createNotification(
   db: ReturnType<typeof getDb>,
   env: Env,

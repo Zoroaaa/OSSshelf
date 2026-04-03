@@ -42,13 +42,11 @@ import {
   Clock,
   MapPin,
   Loader2,
-  Sparkles,
   Mail,
   RefreshCw,
 } from 'lucide-react';
-import { AISettings } from '@/components/ai';
 
-type SettingsTab = 'profile' | 'email' | 'security' | 'ai';
+type SettingsTab = 'profile' | 'email' | 'security';
 
 function getDeviceIcon(userAgent: string): typeof Monitor {
   const ua = userAgent.toLowerCase();
@@ -228,7 +226,9 @@ function EmailChangeForm() {
             {code.map((digit, index) => (
               <Input
                 key={index}
-                ref={(el) => { inputRefs.current[index] = el; }}
+                ref={(el) => {
+                  inputRefs.current[index] = el;
+                }}
                 type="text"
                 inputMode="numeric"
                 maxLength={1}
@@ -277,11 +277,7 @@ function EmailChangeForm() {
           </Button>
         </div>
 
-        <button
-          type="button"
-          onClick={handleReset}
-          className="text-xs text-muted-foreground hover:text-foreground"
-        >
+        <button type="button" onClick={handleReset} className="text-xs text-muted-foreground hover:text-foreground">
           返回修改
         </button>
       </div>
@@ -492,7 +488,6 @@ export default function Settings() {
     { id: 'profile', label: '个人信息', icon: User },
     { id: 'email', label: '邮箱设置', icon: Mail },
     { id: 'security', label: '安全设置', icon: Shield },
-    { id: 'ai', label: 'AI 功能', icon: Sparkles },
   ];
 
   return (
@@ -829,178 +824,7 @@ export default function Settings() {
               </Button>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader className="pb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                  <Shield className="h-4 w-4 text-amber-500" />
-                </div>
-                <div>
-                  <CardTitle className="text-base">登录设备</CardTitle>
-                  <CardDescription>管理已登录的设备</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {devicesLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : devices.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground text-sm">暂无已登录设备</div>
-              ) : (
-                <div className="space-y-3">
-                  {devices.map((device) => {
-                    const DeviceIcon = getDeviceIcon(device.userAgent || '');
-                    const browser = getBrowserName(device.userAgent || '');
-                    const os = getOSName(device.userAgent || '');
-                    const isCurrent = device.id === currentDeviceId;
-
-                    return (
-                      <div
-                        key={device.id}
-                        className={cn(
-                          'flex items-center gap-4 p-4 rounded-lg border transition-colors',
-                          isCurrent ? 'bg-primary/5 border-primary/20' : 'bg-muted/30'
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            'w-10 h-10 rounded-lg flex items-center justify-center',
-                            isCurrent ? 'bg-primary/10' : 'bg-muted'
-                          )}
-                        >
-                          <DeviceIcon className={cn('h-5 w-5', isCurrent ? 'text-primary' : 'text-muted-foreground')} />
-                        </div>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-sm">
-                              {browser} · {os}
-                            </span>
-                            {isCurrent && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/10 text-primary">
-                                当前设备
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
-                            {device.ipAddress && (
-                              <span className="flex items-center gap-1">
-                                <MapPin className="h-3 w-3" />
-                                {device.ipAddress}
-                              </span>
-                            )}
-                            <span className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              {formatDate(device.lastActive)}
-                            </span>
-                          </div>
-                        </div>
-
-                        {!isCurrent && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-red-500 hover:text-red-600 hover:bg-red-500/10"
-                            onClick={() => {
-                              if (confirm('确定要注销此设备吗？')) {
-                                deleteDeviceMutation.mutate(device.id);
-                              }
-                            }}
-                            disabled={deleteDeviceMutation.isPending}
-                          >
-                            <TrashIcon className="h-4 w-4 mr-1" />
-                            注销
-                          </Button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 mt-4">
-                <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" />
-                <p className="text-xs text-amber-600 dark:text-amber-400">
-                  如果发现陌生设备登录，请立即修改密码并注销该设备
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-red-500/30">
-            <CardHeader className="pb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-red-500/10 flex items-center justify-center">
-                  <AlertTriangle className="h-4 w-4 text-red-500" />
-                </div>
-                <div>
-                  <CardTitle className="text-base text-red-500">危险区域</CardTitle>
-                  <CardDescription>不可撤销的操作，请谨慎</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {!deleteConfirmOpen ? (
-                <div className="flex items-center justify-between p-4 border border-red-500/20 rounded-lg bg-red-500/5">
-                  <div>
-                    <p className="text-sm font-medium">注销账户</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">永久删除账户及所有文件，此操作不可撤销</p>
-                  </div>
-                  <Button variant="destructive" size="sm" onClick={() => setDeleteConfirmOpen(true)}>
-                    <Trash2 className="h-4 w-4 mr-1.5" />
-                    注销账户
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-3 p-4 border border-red-500/30 rounded-lg bg-red-500/5">
-                  <div className="flex items-start gap-2 text-sm text-red-600 dark:text-red-400">
-                    <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                    <p>此操作将永久删除您的账户、所有文件和分享链接，且不可恢复。请输入密码确认。</p>
-                  </div>
-                  <Input
-                    type="password"
-                    placeholder="输入密码确认注销"
-                    value={deletePw}
-                    onChange={(e) => setDeletePw(e.target.value)}
-                    className="border-red-500/50 focus-visible:ring-red-500"
-                    autoFocus
-                  />
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setDeleteConfirmOpen(false);
-                        setDeletePw('');
-                      }}
-                    >
-                      取消
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      disabled={!deletePw || deleteAccountMutation.isPending}
-                      onClick={() => deleteAccountMutation.mutate()}
-                    >
-                      {deleteAccountMutation.isPending ? '注销中…' : '确认永久注销'}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
         </>
-      )}
-
-      {activeTab === 'ai' && (
-        <Card>
-          <CardContent className="pt-6">
-            <AISettings />
-          </CardContent>
-        </Card>
       )}
     </div>
   );

@@ -17,6 +17,7 @@ import { eq } from 'drizzle-orm';
 import type { Env } from '../types/env';
 import type { storageBuckets } from '../db/schema';
 import { encryptCredential, decryptCredential, getEncryptionKey, isAesGcmFormat } from './crypto';
+import { logger } from '@osshelf/shared';
 
 export interface S3BucketConfig {
   id: string;
@@ -730,9 +731,9 @@ export async function makeBucketConfigAsync(
             updatedAt: new Date().toISOString(),
           })
           .where(eq(storageBuckets.id, row.id));
-        console.log(`[Migration] Bucket ${row.id} credentials upgraded to AES-GCM`);
+        logger.info('S3_MIGRATION', '凭证升级为AES-GCM', { bucketId: row.id });
       } catch (migrationError) {
-        console.error(`[Migration] Failed to upgrade bucket ${row.id}:`, migrationError);
+        logger.error('S3_MIGRATION', '凭证升级失败', { bucketId: row.id }, migrationError);
       }
     }
   }

@@ -10,6 +10,7 @@
  */
 
 import type { Env } from '../types/env';
+import { logger } from '@osshelf/shared';
 
 const RESEND_API_URL = 'https://api.resend.com/emails';
 const KV_CONFIG_KEY = 'config:resend';
@@ -71,13 +72,13 @@ export async function sendEmail(
 
     if (!res.ok) {
       const error = await res.text();
-      console.error('Resend API error:', error);
+      logger.error('EMAIL', 'Resend API错误', { status: res.status, error });
       return { success: false, error: `Failed to send email: ${res.status}` };
     }
 
     return { success: true };
   } catch (error) {
-    console.error('Email send error:', error);
+    logger.error('EMAIL', '邮件发送失败', {}, error);
     return { success: false, error: 'Network error while sending email' };
   }
 }

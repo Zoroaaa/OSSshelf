@@ -53,6 +53,7 @@ import {
   Trash2 as TrashIcon,
   Sparkles,
   Star,
+  Download,
 } from 'lucide-react';
 import type { FileItem } from '@osshelf/shared';
 import { cn, decodeFileName } from '@/utils';
@@ -270,6 +271,7 @@ export default function Files() {
     batchDeleteMutation,
     batchMoveMutation,
     batchCopyMutation,
+    batchZipMutation,
     checkTelegramLimit,
   } = fileMutations;
 
@@ -1105,6 +1107,15 @@ export default function Files() {
           <Button variant="outline" size="sm" onClick={clearSelection}>
             <X className="h-3.5 w-3.5 mr-1" />
             取消
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => batchZipMutation.mutate({ fileIds: selectedFiles })}
+            disabled={batchZipMutation.isPending}
+          >
+            <Download className="h-3.5 w-3.5 mr-1" />
+            批量下载
           </Button>
           <Button variant="destructive" size="sm" onClick={handleBatchDelete} disabled={batchDeleteMutation.isPending}>
             <Trash2 className="h-3.5 w-3.5 mr-1" />

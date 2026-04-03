@@ -18,8 +18,7 @@ export default function ResetPassword() {
   const location = useLocation();
   const { toast } = useToast();
 
-  const emailFromState = (location.state as { email?: string })?.email || '';
-  const [email, setEmail] = useState(emailFromState);
+  const email = (location.state as { email?: string })?.email || '';
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [newPassword, setNewPassword] = useState('');
@@ -345,7 +344,10 @@ export default function ResetPassword() {
               '重置密码'
             )}
           </Button>
-          <Link to="/forgot-password" className="text-sm text-muted-foreground hover:text-foreground text-center flex items-center gap-1">
+          <Link
+            to="/forgot-password"
+            className="text-sm text-muted-foreground hover:text-foreground text-center flex items-center gap-1"
+          >
             <ArrowLeft className="h-3 w-3" />
             返回忘记密码
           </Link>

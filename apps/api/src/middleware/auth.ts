@@ -13,12 +13,12 @@
  * 3. X-API-Key: osk_live_xxxx header
  */
 
-import type { MiddlewareHandler } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 import { eq, and } from 'drizzle-orm';
 import { verifyJWT } from '../lib/crypto';
 import { getDb, apiKeys, users } from '../db';
-import { ERROR_CODES } from '@osshelf/shared';
-import type { Env, Variables } from '../types/env';
+import { ERROR_CODES, logger } from '@osshelf/shared';
+import type { Env, Variables, AppContext } from '../types/env';
 
 type AppEnv = { Bindings: Env; Variables: Variables };
 
@@ -38,17 +38,17 @@ export const authMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
     return await handleApiKeyAuth(c, next, xApiKey);
   }
 
-  return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '未提供认证令牌' } }, 401);
+  return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED.code, message: '未提供认证令牌' } }, 401);
 };
 
-async function handleJwtAuth(c: any, next: () => Promise<void>, token: string) {
+async function handleJwtAuth(c: AppContext, next: () => Promise<void>, token: string) {
   try {
     const decoded = await verifyJWT(token, c.env.JWT_SECRET);
 
     const session = await c.env.KV.get(`session:${token}`);
     if (!session) {
       return c.json(
-        { success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '会话已过期，请重新登录' } },
+        { success: false, error: { code: ERROR_CODES.SESSION_EXPIRED.code, message: '会话已过期，请重新登录' } },
         401
       );
     }
@@ -57,7 +57,7 @@ async function handleJwtAuth(c: any, next: () => Promise<void>, token: string) {
     const user = await db.select().from(users).where(eq(users.id, decoded.userId)).get();
 
     if (!user) {
-      return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '用户不存在' } }, 401);
+      return c.json({ success: false, error: { code: ERROR_CODES.USER_NOT_FOUND.code, message: '用户不存在' } }, 401);
     }
 
     if (user.passwordChangedAt && decoded.iat) {
@@ -65,7 +65,7 @@ async function handleJwtAuth(c: any, next: () => Promise<void>, token: string) {
       if (passwordChangedAt > decoded.iat) {
         await c.env.KV.delete(`session:${token}`);
         return c.json(
-          { success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '密码已更改，请重新登录' } },
+          { success: false, error: { code: ERROR_CODES.TOKEN_EXPIRED.code, message: '密码已更改，请重新登录' } },
           401
         );
       }
@@ -77,13 +77,19 @@ async function handleJwtAuth(c: any, next: () => Promise<void>, token: string) {
 
     await next();
   } catch {
-    return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '令牌无效或已过期' } }, 401);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.TOKEN_INVALID.code, message: '令牌无效或已过期' } },
+      401
+    );
   }
 }
 
-async function handleApiKeyAuth(c: any, next: () => Promise<void>, apiKey: string) {
+async function handleApiKeyAuth(c: AppContext, next: () => Promise<void>, apiKey: string) {
   if (!apiKey.startsWith('osk_live_')) {
-    return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '无效的 API Key 格式' } }, 401);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.TOKEN_INVALID.code, message: '无效的 API Key 格式' } },
+      401
+    );
   }
 
   try {
@@ -104,7 +110,7 @@ async function handleApiKeyAuth(c: any, next: () => Promise<void>, apiKey: strin
 
     if (!keyRecord) {
       return c.json(
-        { success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: 'API Key 无效或已被撤销' } },
+        { success: false, error: { code: ERROR_CODES.TOKEN_INVALID.code, message: 'API Key 无效或已被撤销' } },
         401
       );
     }
@@ -112,13 +118,16 @@ async function handleApiKeyAuth(c: any, next: () => Promise<void>, apiKey: strin
     if (keyRecord.expiresAt) {
       const expiresAt = new Date(keyRecord.expiresAt);
       if (expiresAt < new Date()) {
-        return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: 'API Key 已过期' } }, 401);
+        return c.json(
+          { success: false, error: { code: ERROR_CODES.TOKEN_EXPIRED.code, message: 'API Key 已过期' } },
+          401
+        );
       }
     }
 
     const user = await db.select().from(users).where(eq(users.id, keyRecord.userId)).get();
     if (!user) {
-      return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '用户不存在' } }, 401);
+      return c.json({ success: false, error: { code: ERROR_CODES.USER_NOT_FOUND.code, message: '用户不存在' } }, 401);
     }
 
     const now = new Date().toISOString();
@@ -132,8 +141,11 @@ async function handleApiKeyAuth(c: any, next: () => Promise<void>, apiKey: strin
 
     await next();
   } catch (error) {
-    console.error('API Key auth error:', error);
-    return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: 'API Key 验证失败' } }, 401);
+    logger.error('AUTH', 'API Key验证失败', {}, error);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.TOKEN_INVALID.code, message: 'API Key 验证失败' } },
+      401
+    );
   }
 }
 
@@ -151,7 +163,7 @@ export function requireScope(scopes: string | string[]): MiddlewareHandler<AppEn
     const apiKeyScopes = c.get('apiKeyScopes') as string[] | undefined;
 
     if (!apiKeyScopes) {
-      return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '权限不足' } }, 403);
+      return c.json({ success: false, error: { code: ERROR_CODES.PERMISSION_DENIED.code, message: '权限不足' } }, 403);
     }
 
     const hasScope = requiredScopes.some((scope) => apiKeyScopes.includes(scope));
@@ -159,7 +171,10 @@ export function requireScope(scopes: string | string[]): MiddlewareHandler<AppEn
       return c.json(
         {
           success: false,
-          error: { code: ERROR_CODES.FORBIDDEN, message: `需要以下权限之一: ${requiredScopes.join(', ')}` },
+          error: {
+            code: ERROR_CODES.PERMISSION_DENIED.code,
+            message: `需要以下权限之一: ${requiredScopes.join(', ')}`,
+          },
         },
         403
       );
@@ -173,21 +188,21 @@ export function requireEmailVerification(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const userId = c.get('userId');
     if (!userId) {
-      return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED, message: '未认证' } }, 401);
+      return c.json({ success: false, error: { code: ERROR_CODES.UNAUTHORIZED.code, message: '未认证' } }, 401);
     }
 
     const db = getDb(c.env.DB);
     const user = await db.select().from(users).where(eq(users.id, userId)).get();
 
     if (!user) {
-      return c.json({ success: false, error: { code: ERROR_CODES.USER_NOT_FOUND, message: '用户不存在' } }, 404);
+      return c.json({ success: false, error: { code: ERROR_CODES.USER_NOT_FOUND.code, message: '用户不存在' } }, 404);
     }
 
     if (!user.emailVerified) {
       return c.json(
         {
           success: false,
-          error: { code: 'EMAIL_NOT_VERIFIED', message: '请先验证邮箱后再使用此功能' },
+          error: { code: ERROR_CODES.EMAIL_NOT_VERIFIED.code, message: '请先验证邮箱后再使用此功能' },
         },
         403
       );

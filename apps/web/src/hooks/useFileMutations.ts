@@ -148,6 +148,15 @@ export function useFileMutations() {
     onError: (e) => toast({ title: '批量复制失败', description: getErrorMessage(e), variant: 'destructive' }),
   });
 
+  const batchZipMutation = useMutation({
+    mutationFn: ({ fileIds, zipName }: { fileIds: string[]; zipName?: string }) => batchApi.zip(fileIds, zipName),
+    onSuccess: () => {
+      clearSelection();
+      toast({ title: '批量下载成功', description: 'ZIP文件已开始下载' });
+    },
+    onError: (e) => toast({ title: '批量下载失败', description: getErrorMessage(e), variant: 'destructive' }),
+  });
+
   /** 检查 Telegram 存储桶文件大小限制（500MB，分片上传）*/
   function checkTelegramLimit(file: File, bucket: StorageBucket | null): string | null {
     if (bucket?.provider === 'telegram' && file.size > TG_MAX_FILE_SIZE) {
@@ -166,6 +175,7 @@ export function useFileMutations() {
     batchDeleteMutation,
     batchMoveMutation,
     batchCopyMutation,
+    batchZipMutation,
     checkTelegramLimit,
   };
 }

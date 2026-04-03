@@ -15,7 +15,7 @@ import { Hono } from 'hono';
 import { eq, and, isNull, isNotNull, desc, sql, gte, lte } from 'drizzle-orm';
 import { getDb, users, files, storageBuckets, auditLogs } from '../db';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES } from '@osshelf/shared';
+import { ERROR_CODES, logger } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
@@ -545,7 +545,7 @@ app.post('/email/test', async (c) => {
 
     if (!res.ok) {
       const error = await res.text();
-      console.error('Resend API error:', error);
+      logger.error('ADMIN', 'Resend API错误', { status: res.status, error });
       return c.json(
         { success: false, error: { code: 'EMAIL_SEND_FAILED', message: `邮件发送失败: ${res.status}` } },
         500
@@ -564,7 +564,7 @@ app.post('/email/test', async (c) => {
 
     return c.json({ success: true, data: { message: `测试邮件已发送到 ${to}` } });
   } catch (error) {
-    console.error('Email test error:', error);
+    logger.error('ADMIN', '邮件测试失败', {}, error);
     return c.json({ success: false, error: { code: 'EMAIL_SEND_FAILED', message: '邮件发送失败' } }, 500);
   }
 });

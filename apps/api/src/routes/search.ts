@@ -16,7 +16,7 @@ import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
 import { getDb, files, fileTags, storageBuckets, searchHistory } from '../db';
 import type { DrizzleDb } from '../db';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES } from '@osshelf/shared';
+import { ERROR_CODES, logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { buildFolderPath, clearFilePathCache } from '../lib/utils';
@@ -366,7 +366,7 @@ app.get('/', async (c) => {
         });
       }
     } catch (error) {
-      console.error('Failed to save search history:', error);
+      logger.error('SEARCH', '保存搜索历史失败', {}, error);
     }
   }
 

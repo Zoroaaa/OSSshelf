@@ -2,19 +2,20 @@
 
 本文档基于项目实际代码，详细描述 OSSshelf 的系统架构、数据库设计和核心功能实现。
 
-**当前版本**: v4.0.0
+**当前版本**: v4.1.0
 
 ---
 
 ## 📋 目录
 
 - [系统概述](#系统概述)
-- [版本更新](#版本更新)
+- [版本历史](#版本历史)
 - [技术栈](#技术栈)
 - [项目结构](#项目结构)
 - [数据库设计](#数据库设计)
 - [系统常量](#系统常量)
 - [API 路由](#api-路由)
+- [AI 系统架构 (v4.1.0)](#ai-系统架构-v410)
 - [核心功能架构](#核心功能架构)
 - [认证机制](#认证机制)
 - [邮件通知系统](#邮件通知系统)
@@ -31,228 +32,32 @@ OSSshelf 是一个基于 Cloudflare 部署的多厂商 OSS 文件管理系统，
 - **后端**: Hono 框架运行在 Cloudflare Workers 上
 - **数据库**: Cloudflare D1 (SQLite) + Drizzle ORM
 - **存储**: S3 兼容协议 + Telegram Bot API
-- **邮件**: Resend API（v4.0.0+）
+- **AI 服务**: Cloudflare Workers AI + Vectorize + OpenAI Compatible API (v4.1.0)
+- **邮件**: Resend API (v4.0.0+)
 
 ---
 
-## 版本更新
+## 版本历史
 
 详细的版本更新日志请参阅 [CHANGELOG.md](../CHANGELOG.md)。
 
-### v4.0.0 (2026-04-02)
+### v4.1.0 (2026-04-03) - AI 系统全面升级
 
-**核心功能 - 邮件通知系统**
+**核心变更**：
+- 多模型架构：Model Gateway Pattern，支持 Workers AI + OpenAI 兼容 API
+- AI 对话系统：SSE 流式响应、会话管理、RAG 文件问答
+- AI 配置中心：模型管理、功能级配置、一键启用、连接测试
+- features.ts 重构：统一使用 ModelGateway，三层回退机制
+- 批量操作优化：取消/超时/错误限制
 
-1. **注册邮箱验证**
-   - 新用户注册后自动发送验证邮件
-   - 邮箱验证链接有效期24小时
-   - 首个注册用户（管理员）自动验证
-   - 未验证用户显示提示横幅
+**新增文件**：
+- 后端：`lib/ai/modelGateway.ts`, `lib/ai/types.ts`, `lib/ai/adapters/*`, `routes/aiConfigRoutes.ts`, `routes/aiChatRoutes.ts`
+- 前端：`pages/AIChat.tsx`, `pages/AISettings.tsx`, `components/ai/**`
 
-2. **密码重置流程**
-   - 忘记密码邮件重置功能
-   - 重置链接有效期1小时
-   - 防邮箱枚举攻击
+**新增数据库表**：
+- `ai_models`, `ai_chat_sessions`, `ai_chat_messages`, `ai_usage_stats`
 
-3. **邮箱更换功能**
-   - 更换邮箱需要验证新邮箱
-   - 更换确认链接有效期1小时
-   - 旧邮箱收到更换成功通知
-
-4. **邮件偏好设置**
-   - 用户可自定义邮件通知偏好
-   - 支持5种通知类型：@提及、分享接收、配额警告、AI完成、系统通知
-
-5. **管理面板邮件配置**
-   - Resend API 配置界面
-   - 发件人地址和名称设置
-   - 发送测试邮件功能
-   - 群发系统公告
-
-**安全增强**
-
-1. **JWT失效机制**
-   - 密码修改后自动更新 `passwordChangedAt`
-   - 密码重置后自动更新 `passwordChangedAt`
-   - 登录时检查JWT是否失效
-
-2. **Token安全**
-   - Token使用SHA-256哈希存储
-   - Token一次性使用机制
-   - Token过期时间控制
-   - 重发验证邮件限流
-
-**数据库变更**
-
-- 新增迁移文件 0018_email.sql
-  - 新增 `email_tokens` 表
-  - `users` 表新增 `email_verified` 字段
-  - `users` 表新增 `email_preferences` 字段
-  - `users` 表新增 `password_changed_at` 字段
-
-### v3.8.0 (2026-04-02)
-
-**新功能**
-
-1. **收藏夹功能**
-   - 快速收藏/取消收藏文件和文件夹
-   - 侧边栏「收藏」入口，快捷访问收藏文件
-   - 文件列表支持收藏图标显示
-   - API: POST/DELETE /api/files/:id/star
-
-2. **存储分析 Dashboard**
-   - 存储空间分布统计（按文件类型、MIME 类型）
-   - 活跃度热力图（上传/下载/删除活动统计）
-   - 大文件排行 Top 20
-   - 存储趋势分析（按天统计上传量）
-   - 存储桶统计
-   - API: GET /api/analytics/\*
-
-3. **通知系统**
-   - 实时通知铃铛（PC端侧边栏底部、移动端顶部栏）
-   - 通知列表弹窗（向上/向下展开自适应）
-   - 支持已读/未读状态管理
-   - 支持全部标记已读、删除通知
-   - 通知类型：share_received、mention、permission_granted、ai_complete、system
-   - API: GET /api/notifications, PUT /api/notifications/:id/read, DELETE /api/notifications/:id
-
-4. **FTS5 全文搜索**
-   - 基于 SQLite FTS5 的全文搜索引擎
-   - 支持 unicode61 中文分词
-   - 搜索文件名、描述、AI 摘要
-   - 前端搜索栏 FTS5 开关（桌面端 + 移动端）
-
-**数据库变更**
-
-- 新增迁移文件 0015_notifications.sql（notifications 表）
-- 新增迁移文件 0016_fts5.sql（files_fts 虚拟表）
-
-### v3.7.0 (2026-04-01)
-
-**新功能**
-
-1. **AI 功能集成（基于 Cloudflare AI）**
-   - 文件摘要生成：自动为文本文件生成内容摘要（Llama 3.1 8B）
-   - 图片智能描述：自动识别图片内容并生成描述（LLaVA 1.5 7B）
-   - 图片标签生成：使用 ResNet-50 模型自动生成图片标签
-   - 智能重命名建议：根据文件内容智能推荐文件名
-   - 语义搜索：基于 Vectorize 实现语义相似文件搜索（BGE-M3 模型）
-   - 向量索引管理：批量索引、增量索引、索引状态查询
-
-2. **移动端页面排版优化**
-   - 新增移动端底部操作栏（MobileFilesToolbar）
-   - 新增移动端搜索面板（MobileSearchPanel）
-   - 优化移动端底部导航（MobileBottomNav）
-   - 改进视图切换、排序、浮动操作按钮交互
-   - 增强移动端触摸体验和响应式布局
-
-3. **预览组件拆分重构**
-   - 将 FilePreview 拆分为独立预览组件
-   - 新增 filepreview 目录，包含 12 个独立预览组件
-   - ImagePreview、VideoPreview、AudioPreview
-   - PdfPreview、MarkdownPreview、CodePreview
-   - OfficePreview、CsvPreview、ZipPreview
-   - FontPreview、EpubPreview
-   - 新增 previewUtils 工具函数
-
-**数据库变更**
-
-- files 表新增 ai_summary、ai_summary_at 字段
-- files 表新增 ai_tags、ai_tags_at 字段
-- files 表新增 vector_indexed_at 字段
-- files 表新增 is_starred 字段
-- 新增迁移文件 0014_ai_features.sql
-
-### v3.6.0 (2026-03-31)
-
-**新功能**
-
-1. **权限系统 v2**
-   - 用户组管理：创建和管理用户组
-   - 组成员管理：添加/移除成员，设置管理员角色
-   - 权限继承：子文件自动继承父文件夹权限
-   - 时效性权限：支持设置权限过期时间
-   - 递归 CTE 权限解析：高效查询权限继承链
-   - KV 权限缓存：减少数据库查询
-
-2. **RESTful v1 API**
-   - 标准化 API 接口设计
-   - OpenAPI 3.1.0 文档自动生成
-   - Swagger UI 交互式文档
-   - API Key 认证支持
-
-3. **Webhook 通知**
-   - 文件事件订阅（上传、删除、更新等）
-   - HMAC-SHA256 签名验证
-   - Webhook 管理界面
-
-### v3.5.0 (2026-03-30)
-
-**新功能**
-
-1. **API Keys 管理**
-   - 支持创建、管理 API 密钥，实现程序化访问
-   - 支持 6 种权限范围：文件读取、文件写入、分享读取、分享管理、存储桶查看、API Keys 管理
-   - 支持设置密钥过期时间
-   - 完整的 API Key 使用文档
-
-2. **文件笔记面板**
-   - 为文件添加评论和笔记
-   - 支持 @提及其他用户
-   - 支持笔记回复（嵌套评论）
-   - 支持删除笔记和回复
-
-3. **文件编辑功能**
-   - 直接在系统内创建和编辑文本文件
-   - 支持多种文本格式（代码、配置文件、Markdown 等）
-   - 编辑时自动创建版本快照
-
-**功能变更**
-
-1. **文件版本控制重构**
-   - 仅支持可编辑的文本文件类型（代码、配置、Markdown 等）
-   - 图片、视频、音频等二进制文件不再支持版本控制
-   - 版本存储优化：每次编辑生成独立的存储路径，确保历史版本内容不被覆盖
-   - 版本恢复功能修复：正确恢复到指定版本内容
-
-### v3.4.0 (2026-03-27)
-
-**新功能**
-
-1. **预览功能大幅强化**
-   - 预览大小限制从 10MB 提升至 30MB
-   - 新增 EPUB 电子书预览（目录导航、翻页、键盘快捷键）
-   - 新增字体文件预览（TTF/OTF/WOFF/WOFF2）
-   - 新增 ZIP 压缩包内容列表预览
-   - CSV 表格增强预览（搜索、排序、分页）
-   - PowerPoint 幻灯片本地预览
-   - PDF 分页预览与缩放控制
-   - Excel 多工作表切换与样式保留
-
-2. **预览组件优化**
-   - 预览窗口大小控制（小/中/大/全屏）
-   - 统一预览类型配置（previewTypes.ts）
-
-### v3.3.0 (2026-03-24)
-
-**新功能**
-
-1. **错误码统一管理**
-   - 所有 API 错误响应采用统一错误码体系
-   - 错误码定义于 `packages/shared/src/constants/errorCodes.ts`
-   - 支持错误码国际化
-
-2. **预览功能增强**
-   - 增强 Markdown 文件预览
-   - 新增 Excel 文件预览
-
-3. **文件版本控制**
-   - 支持文件历史版本管理
-   - 支持版本回滚和对比
-   - 支持版本备注和标签
-   - 新增 `file_versions` 数据库表
-
----
+详细功能说明请参阅 [AI_FEATURES.md](./AI_FEATURES.md)，API 文档请参阅 [API_AI.md](./API_AI.md)。
 
 ## 技术栈
 
@@ -317,7 +122,16 @@ ossshelf/
 │   │   │   │   ├── permissionResolver.ts # 权限解析 (v3.6.0)
 │   │   │   │   ├── webhook.ts   # Webhook 分发 (v3.6.0)
 │   │   │   │   ├── aiFeatures.ts # AI 功能 (v3.7.0)
-│   │   │   │   ├── vectorIndex.ts # 向量索引 (v3.7.0)
+│   │   │   ├── vectorIndex.ts # 向量索引 (v3.7.0)
+│   │   │   ├── ai/                    # AI 模块 (v4.1.0)
+│   │   │   │   ├── index.ts          # 模块导出
+│   │   │   │   ├── types.ts          # 类型定义
+│   │   │   │   ├── modelGateway.ts   # 模型网关（核心）
+│   │   │   │   ├── ragEngine.ts      # RAG 引擎
+│   │   │   │   ├── features.ts       # 文件处理功能
+│   │   │   │   └── adapters/
+│   │   │   │       ├── workersAiAdapter.ts
+│   │   │   │       └── openAiCompatibleAdapter.ts
 │   │   │   │   └── zipStream.ts # ZIP 流式打包
 │   │   │   ├── middleware/
 │   │   │   │   ├── auth.ts         # 认证中间件
@@ -344,7 +158,9 @@ ossshelf/
 │   │   │   │   ├── telegram.ts     # Telegram 存储
 │   │   │   │   ├── versions.ts     # 版本控制 (v3.3.0)
 │   │   │   │   ├── webhooks.ts  # Webhook 管理 (v3.6.0)
-│   │   │   │   ├── ai.ts        # AI 功能 (v3.7.0)
+│   │   │   │   ├── ai.ts        # AI 功能 (v3.7.0, v4.1.0 增强)
+│   │   │   ├── aiConfigRoutes.ts # AI 配置管理 (v4.1.0 新增)
+│   │   │   └── aiChatRoutes.ts   # AI 对话系统 (v4.1.0 新增)
 │   │   │   │   ├── analytics.ts # 存储分析 (v3.8.0)
 │   │   │   │   ├── notifications.ts # 通知系统 (v3.8.0)
 │   │   │   │   └── webdav.ts    # WebDAV 协议
@@ -375,7 +191,15 @@ ossshelf/
 │   └── web/                        # 前端应用
 │       ├── src/
 │       │   ├── components/         # UI 组件
-│       │   │   ├── ai/             # AI 组件 (v3.7.0)
+│       │   │   ├── ai/             # AI 组件 (v3.7.0, v4.1.0 增强)
+│       │   │   │   ├── chat/      # 对话组件 (v4.1.0 新增)
+│       │   │   │   │   ├── ChatMessageBubble.tsx
+│       │   │   │   │   ├── ChatInputBox.tsx
+│       │   │   │   │   └── SuggestedQuestions.tsx
+│       │   │   │   └── settings/  # 设置组件 (v4.1.0 新增)
+│       │   │   │       ├── ModelCard.tsx
+│       │   │   │       ├── TaskProgress.tsx
+│       │   │   │       └── StatsCard.tsx
 │       │   │   ├── editor/         # 文件编辑器 (v3.5.0)
 │       │   │   ├── notes/          # 文件笔记 (v3.5.0)
 │       │   │   ├── groups/         # 用户组 (v3.6.0)
@@ -388,6 +212,8 @@ ossshelf/
 │       │   │   └── settings/       # 设置组件
 │       │   ├── hooks/              # 自定义 Hooks
 │       │   ├── pages/              # 页面组件
+│       │   │   ├── AIChat.tsx      # AI 对话页面 (v4.1.0 新增)
+│       │   │   ├── AISettings.tsx    # AI 设置页面 (v4.1.0 新增)
 │       │   ├── services/           # API 服务
 │       │   ├── stores/             # Zustand 状态
 │       │   └── main.tsx
@@ -409,6 +235,8 @@ ossshelf/
 │       └── package.json
 └── docs/
     ├── api.md
+    ├── API_AI.md                  # AI API 文档 (v4.1.0 新增)
+    ├── AI_FEATURES.md             # AI 功能说明 (v4.1.0 新增)
     ├── api-key-guide.md            # API Key 使用指南 (v3.5.0)
     ├── architecture.md
     └── deployment.md
@@ -753,6 +581,53 @@ ossshelf/
 
 **索引**: `idx_file_versions_file`, `idx_file_versions_user`, `idx_file_versions_number`
 
+#### ai_models (AI 模型配置表) - v4.1.0
+
+| 字段               | 类型    | 默认值 | 说明                    |
+| ------------------ | ------- | ------ | ----------------------- |
+| `id`               | TEXT    | -      | 主键                    |
+| `userId`           | TEXT    | -      | 用户 ID (外键 → users)  |
+| `name`             | TEXT    | -      | 模型显示名称            |
+| `provider`         | TEXT    | -      | providers (workers_ai/openai_compatible) |
+| `modelId`          | TEXT    | -      | 模型 ID                |
+| `apiEndpoint`      | TEXT    | -      | API 端点（可选）        |
+| `apiKeyEncrypted`   | TEXT    | -      | 加密的 API Key          |
+| `isActive`         | INTEGER | false  | 是否激活 (0/1)          |
+| `capabilities`     | TEXT    | '[]'   | 能力 JSON 数组          |
+| `maxTokens`        | INTEGER | 4096   | 最大 Token 数           |
+| `temperature`      | REAL    | 0.7    | 温度参数                |
+| `systemPrompt`     | TEXT    | -      | 系统提示词（可选）       |
+| `configJson`       | TEXT    | '{}'   | 扩展配置 JSON           |
+| `createdAt`        | TEXT    | -      | 创建时间                |
+| `updatedAt`        | TEXT    | -      | 更新时间                |
+
+**索引**: `idx_ai_models_user_active`
+
+#### ai_chat_sessions (AI 对话会话表) - v4.1.0
+
+| 字段        | 类型 | 说明                   |
+| ----------- | ---- | ---------------------- |
+| `id`        | TEXT | 主键                   |
+| `userId`    | TEXT | 用户 ID (外键 → users) |
+| `title`     | TEXT | 会话标题               |
+| `createdAt` | TEXT | 创建时间               |
+| `updatedAt` | TEXT | 更新时间               |
+
+**索引**: `idx_ai_chat_sessions_user`
+
+#### ai_chat_messages (AI 对话消息表) - v4.1.0
+
+| 字段        | 类型 | 说明                       |
+| ----------- | ---- | -------------------------- |
+| `id`        | TEXT | 主键                       |
+| `sessionId` | TEXT | 会话 ID (外键 → ai_chat_sessions) |
+| `role`      | TEXT | 角色: user/assistant/system |
+| `content`   | TEXT | 消息内容                   |
+| `sources`   | TEXT | 来源文件 JSON（可选）       |
+| `createdAt` | TEXT | 创建时间                   |
+
+**索引**: `idx_ai_chat_messages_session`
+
 ---
 
 ## 系统常量
@@ -831,7 +706,9 @@ ossshelf/
 | `/api/api-keys`      | apiKeys.ts       | API Keys (v3.5.0)                         |
 | `/api/groups`        | groups.ts        | 用户组管理 (v3.6.0)                       |
 | `/api/webhooks`      | webhooks.ts      | Webhook 管理 (v3.6.0)                     |
-| `/api/ai`            | ai.ts            | AI 功能 (v3.7.0)                          |
+| `/api/ai`            | ai.ts            | AI 文件处理功能 (v3.7.0, v4.1.0 增强) |
+| `/api/ai-config`     | aiConfigRoutes.ts | AI 配置管理 (v4.1.0 新增)               |
+| `/api/ai-chat`       | aiChatRoutes.ts   | AI 对话系统 (v4.1.0 新增)               |
 | `/api/analytics`     | analytics.ts     | 存储分析 (v3.8.0)                         |
 | `/api/notifications` | notifications.ts | 通知系统 (v3.8.0)                         |
 | `/api/v1`            | v1/index.ts      | RESTful v1 (v3.6.0)                       |
@@ -840,6 +717,189 @@ ossshelf/
 | `/api/telegram`      | telegram.ts      | Telegram 存储                             |
 | `/cron`              | cron.ts          | 定时任务                                  |
 | `/dav`               | webdav.ts        | WebDAV 协议                               |
+
+---
+
+## AI 系统架构 (v4.1.0)
+
+### 架构概览
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     AI 系统架构 (v4.1.0)                      │
+├─────────────────────────────────────────────────────────────┤
+│                                                               │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │                  Model Gateway (核心)                 │   │
+│  │                                                     │   │
+│  │  ┌─────────────┐    ┌──────────────┐               │   │
+│  │  │ getActiveModel│    │ getModelById │              │   │
+│  │  │ chatCompletion│    │ chatCompletionStream       │   │
+│  │  │ getAdapter   │    │ getDefaultWorkersAiModel    │   │
+│  │  └─────────────┘    └──────────────┘               │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                          │                                  │
+│          ┌───────────────┼───────────────┐                │
+│          ▼               ▼               ▼                │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐     │
+│  │ WorkersAI    │ │ OpenAI        │ │ Features     │     │
+│  │ Adapter      │ │ Compatible   │ │ (文件处理)   │     │
+│  │              │ │ Adapter      │ │              │     │
+│  │ - Llama 3.x  │ │ - GPT-4o     │ │ - 摘要生成   │     │
+│  │ - DeepSeek   │ │ - Claude     │ │ - 图片标签   │     │
+│  │ - Qwen       │ │ - Gemini     │ │ - 智能重命名 │     │
+│  │ - LLaVA      │ │ - Ollama     │ │ - 向量索引   │     │
+│  └──────────────┘ └──────────────┘ └──────────────┘     │
+│                                                               │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │                   RAG Engine                        │   │
+│  │                                                     │   │
+│  │  用户提问 → 向量搜索 → 组装上下文 → 发送给模型      │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                               │
+│  三层回退机制:                                              │
+│  功能级模型 → 用户默认活跃模型 → Workers AI 默认模型         │
+│                                                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 目录结构
+
+```
+apps/api/src/lib/ai/
+├── index.ts                    # 模块导出
+├── types.ts                    # 类型定义 (IModelAdapter, ModelConfig, etc.)
+├── modelGateway.ts             # 模型网关（核心）
+├── ragEngine.ts                # RAG 引擎
+├── features.ts                 # 文件处理功能（重构版）
+└── adapters/
+    ├── workersAiAdapter.ts     # Workers AI 适配器
+    └── openAiCompatibleAdapter.ts # OpenAI 兼容适配器
+
+apps/web/src/
+├── pages/
+│   ├── AIChat.tsx              # AI 对话页面
+│   └── AISettings.tsx           # AI 设置页面
+└── components/ai/
+    ├── chat/                   # 对话组件
+    │   ├── ChatMessageBubble.tsx
+    │   ├── ChatInputBox.tsx
+    │   └── SuggestedQuestions.tsx
+    └── settings/               # 设置组件
+        ├── ModelCard.tsx
+        ├── TaskProgress.tsx
+        └── StatsCard.tsx
+```
+
+### 核心类：ModelGateway
+
+```typescript
+class ModelGateway {
+  // 获取当前活跃模型
+  async getActiveModel(userId: string): Promise<ModelConfig | null>
+
+  // 根据 ID 获取模型
+  async getModelById(modelId: string, userId: string): Promise<ModelConfig | null>
+
+  // 聊天补全（非流式）
+  async chatCompletion(
+    userId: string,
+    request: ChatCompletionRequest,
+    modelId?: string
+  ): Promise<ChatCompletionResponse>
+
+  // 聊天补全（SSE 流式）
+  async chatCompletionStream(
+    userId: string,
+    request: ChatCompletionRequest,
+    onChunk: (chunk: StreamChunk) => void,
+    options?: { modelId?: string; signal?: AbortSignal }
+  ): Promise<void>
+
+  // 获取适配器实例
+  getAdapter(config: ModelConfig): IModelAdapter
+
+  // 获取默认 Workers AI 模型配置
+  private getDefaultWorkersAiModel(): ModelConfig
+}
+```
+
+### 适配器接口
+
+```typescript
+interface IModelAdapter {
+  readonly provider: ModelProvider;
+
+  // 非流式聊天补全
+  chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResponse>;
+
+  // SSE 流式聊天补全
+  chatCompletionStream(
+    request: ChatCompletionRequest,
+    onChunk: (chunk: StreamChunk) => void,
+    signal?: AbortSignal
+  ): Promise<void>;
+
+  // 验证配置有效性
+  validateConfig(config: ModelConfig): { valid: boolean; error?: string };
+}
+```
+
+### 功能级模型配置
+
+可以为每个 AI 功能单独指定使用的模型：
+
+| 功能 | 配置键 | 所需能力 | 默认模型 |
+|------|--------|---------|---------|
+| 文件摘要 | `summary` | `chat` | `@cf/meta/llama-3.1-8b-instruct` |
+| 图片描述 | `imageCaption` | `vision` | `@cf/llava-hf/llava-1.5-7b-hf` |
+| 图片标签 | `imageTag` | `classify` | `@cf/microsoft/resnet-50` |
+| 智能重命名 | `rename` | `chat` | `@cf/meta/llama-3.1-8b-instruct` |
+
+**配置存储**: KV (`ai:feature-model-config:{userId}`)，30天过期
+
+### 数据库表
+
+#### ai_models（模型配置表）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | text | 主键 UUID |
+| user_id | text | 用户 ID |
+| name | text | 模型显示名称 |
+| provider | text | providers: workers_ai / openai_compatible |
+| model_id | text | 模型 ID |
+| api_endpoint | text? | API 端点（OpenAI 兼容） |
+| api_key_encrypted | text? | 加密的 API Key |
+| is_active | integer | 是否激活 (0/1) |
+| capabilities | text | 能力 JSON 数组 |
+| max_tokens | integer | 最大 Token 数 |
+| temperature | real | 温度参数 |
+| system_prompt | text? | 系统提示词 |
+| config_json | text | 扩展配置 JSON |
+| created_at | text | 创建时间 |
+| updated_at | text | 更新时间 |
+
+#### ai_chat_sessions（对话会话表）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | text | 主键 UUID |
+| user_id | text | 用户 ID |
+| title | text | 会话标题 |
+| created_at | text | 创建时间 |
+| updated_at | text | 更新时间 |
+
+#### ai_chat_messages（对话消息表）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | text | 主键 UUID |
+| session_id | text | 会话 ID |
+| role | text | 角色: user / assistant / system |
+| content | text | 消息内容 |
+| sources | text? | 来源文件 JSON |
+| created_at | text | 创建时间 |
 
 ---
 
@@ -1314,8 +1374,8 @@ POST / api / admin / email / broadcast; // 群发系统公告
 
 ### 环境变量
 
-| 变量名       | 必填 | 说明                                     |
-| ------------ | ---- | ---------------------------------------- |
+| 变量名       | 必填 | 说明                                           |
+| ------------ | ---- | ---------------------------------------------- |
 | `PUBLIC_URL` | ⚪   | 应用公网地址，用于生成文件直接访问链接（可选） |
 
 **注意**: 邮件验证使用6位验证码方式，无需配置 `PUBLIC_URL`。
@@ -1324,9 +1384,9 @@ POST / api / admin / email / broadcast; // 群发系统公告
 
 #### 页面组件
 
-| 组件                      | 路由                      | 功能                     |
-| ------------------------- | ------------------------- | ------------------------ |
-| `VerifyEmail`             | `/verify-email`           | 邮箱验证码输入页         |
+| 组件                      | 路由                      | 功能               |
+| ------------------------- | ------------------------- | ------------------ |
+| `VerifyEmail`             | `/verify-email`           | 邮箱验证码输入页   |
 | `ForgotPassword`          | `/forgot-password`        | 忘记密码页面       |
 | `ResetPassword`           | `/reset-password`         | 重置密码页面       |
 | `EmailConfig`             | `/admin` (邮件配置选项卡) | 管理员邮件配置     |

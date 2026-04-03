@@ -13,6 +13,7 @@ import { eq, and, sql, inArray, isNull } from 'drizzle-orm';
 import { getDb, files, filePermissions, groupMembers, userGroups } from '../db';
 import type { DrizzleDb } from '../db';
 import type { Env } from '../types/env';
+import { logger } from '@osshelf/shared';
 
 export type PermissionLevel = 'read' | 'write' | 'admin';
 
@@ -151,7 +152,7 @@ export async function invalidatePermissionCache(env: Env, fileId: string): Promi
       await Promise.all(keys.map((key) => env.KV.delete(key)));
     }
   } catch (error) {
-    console.error('Failed to invalidate permission cache:', error);
+    logger.error('PERMISSION', '权限缓存失效失败', { fileId }, error);
   }
 }
 
@@ -164,7 +165,7 @@ export async function invalidatePermissionCacheForUser(env: Env, userId: string)
       await Promise.all(keys.map((key) => env.KV.delete(key)));
     }
   } catch (error) {
-    console.error('Failed to invalidate user permission cache:', error);
+    logger.error('PERMISSION', '用户权限缓存失效失败', { userId }, error);
   }
 }
 

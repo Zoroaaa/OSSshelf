@@ -414,15 +414,15 @@ curl https://your-api.workers.dev/api/auth/registration-config
 
 ### 必需 Secrets
 
-| Secret 名称                  | 必需 | 说明                                     |
-| ---------------------------- | ---- | ---------------------------------------- |
-| `CLOUDFLARE_API_TOKEN`       | ✅   | Workers 部署权限                         |
+| Secret 名称                  | 必需 | 说明                                           |
+| ---------------------------- | ---- | ---------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`       | ✅   | Workers 部署权限                               |
 | `CLOUDFLARE_ACCOUNT_ID`      | ✅   | Cloudflare 账户标识                            |
 | `CLOUDFLARE_D1_DATABASE_ID`  | ✅   | D1 数据库绑定                                  |
 | `CLOUDFLARE_KV_NAMESPACE_ID` | ✅   | KV 命名空间绑定                                |
 | `JWT_SECRET`                 | ✅   | JWT 签名密钥                                   |
 | `CORS_ORIGINS`               | ✅   | CORS 允许域名                                  |
-| `PUBLIC_URL`                 | ⚪   | 应用公网地址，用于生成文件直接访问链接（可选）  |
+| `PUBLIC_URL`                 | ⚪   | 应用公网地址，用于生成文件直接访问链接（可选） |
 
 ### 可选 Secrets
 
@@ -642,6 +642,7 @@ RESEND_FROM_NAME=OSSShelf
 **注意**: 邮件验证已升级为6位验证码方式，无需配置 `PUBLIC_URL` 环境变量。
 
 邮件功能只需在管理面板配置 Resend API Key 即可使用：
+
 - 注册邮箱验证（6位验证码）
 - 忘记密码重置（6位验证码）
 - 更换邮箱确认（6位验证码）

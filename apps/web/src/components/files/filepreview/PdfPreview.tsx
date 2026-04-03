@@ -1,6 +1,12 @@
 /**
  * PdfPreview.tsx
  * PDF预览组件
+ *
+ * 功能:
+ * - PDF文档预览
+ * - 分页导航
+ * - 缩放支持
+ * - 内存管理（组件卸载时清理资源）
  */
 
 import { useEffect, useState, useRef, useCallback } from 'react';
@@ -20,15 +26,18 @@ export function PdfPreview({ resolvedUrl, zoomLevel, onLoadError }: PdfPreviewPr
   const pdfContainerRef = useRef<HTMLDivElement>(null);
   const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
   const pdfLoadedRef = useRef(false);
+  const isMountedRef = useRef(true);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfCurrentPage, setPdfCurrentPage] = useState(1);
   const [pdfTotalPages, setPdfTotalPages] = useState(0);
 
   const renderPdfPage = useCallback(
     async (pageNum: number) => {
-      if (!pdfDocRef.current || !pdfContainerRef.current) return;
+      if (!pdfDocRef.current || !pdfContainerRef.current || !isMountedRef.current) return;
 
       const page = await pdfDocRef.current.getPage(pageNum);
+      if (!isMountedRef.current) return;
+
       const scale = zoomLevel / 100;
       const viewport = page.getViewport({ scale });
 
@@ -44,15 +53,19 @@ export function PdfPreview({ resolvedUrl, zoomLevel, onLoadError }: PdfPreviewPr
       await page.render({
         canvasContext: context,
         viewport,
-      } as any).promise;
-      setPdfCurrentPage(pageNum);
+        canvas,
+      }).promise;
+
+      if (isMountedRef.current) {
+        setPdfCurrentPage(pageNum);
+      }
     },
     [zoomLevel]
   );
 
   const loadPdfPreview = useCallback(async () => {
     const container = pdfContainerRef.current;
-    if (!container) return;
+    if (!container || !isMountedRef.current) return;
     if (pdfLoadedRef.current) return;
 
     pdfLoadedRef.current = true;
@@ -64,26 +77,45 @@ export function PdfPreview({ resolvedUrl, zoomLevel, onLoadError }: PdfPreviewPr
       }
       const arrayBuffer = await response.arrayBuffer();
 
+      if (!isMountedRef.current) return;
+
       const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       pdfDocRef.current = pdfDoc;
-      setPdfTotalPages(pdfDoc.numPages);
 
+      if (!isMountedRef.current) return;
+
+      setPdfTotalPages(pdfDoc.numPages);
       await renderPdfPage(1);
     } catch (err) {
       console.error('PDF preview error:', err);
-      onLoadError();
-      pdfLoadedRef.current = false;
+      if (isMountedRef.current) {
+        onLoadError();
+        pdfLoadedRef.current = false;
+      }
     } finally {
-      setPdfLoading(false);
+      if (isMountedRef.current) {
+        setPdfLoading(false);
+      }
     }
   }, [resolvedUrl, renderPdfPage, onLoadError]);
 
-  const pdfContainerCallbackRef = useCallback((node: HTMLDivElement | null) => {
-    (pdfContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+      if (pdfDocRef.current) {
+        pdfDocRef.current.destroy().catch((err) => {
+          console.warn('PDF document cleanup warning:', err);
+        });
+        pdfDocRef.current = null;
+      }
+      pdfLoadedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
-    if (pdfContainerRef.current && !pdfLoadedRef.current) {
+    if (pdfContainerRef.current && !pdfLoadedRef.current && isMountedRef.current) {
       loadPdfPreview();
     }
   }, [loadPdfPreview]);
@@ -101,7 +133,7 @@ export function PdfPreview({ resolvedUrl, zoomLevel, onLoadError }: PdfPreviewPr
   }, [pdfCurrentPage, pdfTotalPages, renderPdfPage]);
 
   useEffect(() => {
-    if (pdfDocRef.current) {
+    if (pdfDocRef.current && isMountedRef.current) {
       renderPdfPage(pdfCurrentPage);
     }
   }, [zoomLevel, pdfCurrentPage, renderPdfPage]);
@@ -139,7 +171,7 @@ export function PdfPreview({ resolvedUrl, zoomLevel, onLoadError }: PdfPreviewPr
             <div className="text-muted-foreground text-sm">正在加载 PDF...</div>
           </div>
         )}
-        <div ref={pdfContainerCallbackRef} className="flex flex-col items-center" />
+        <div ref={pdfContainerRef} className="flex flex-col items-center" />
       </div>
     </div>
   );

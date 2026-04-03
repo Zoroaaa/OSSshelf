@@ -21,6 +21,7 @@ import {
   MULTIPART_THRESHOLD,
   UPLOAD_CHUNK_SIZE,
   inferMimeType,
+  logger,
 } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import { getEncryptionKey } from '../lib/crypto';
@@ -515,7 +516,8 @@ app.post('/part-done', async (c) => {
   }
 
   // 存储 {partNumber, etag} 对象以支持断点续传时直接使用，无需再次调用 S3 ListParts
-  const uploadedParts: Array<{ partNumber: number; etag: string }> = JSON.parse(task.uploadedParts || '[]');
+  const uploadedParts: Array<{ partNumber: number; etag: string }> =
+    typeof task.uploadedParts === 'string' ? JSON.parse(task.uploadedParts || '[]') : [];
   const alreadyRecorded = uploadedParts.some((p) => p.partNumber === partNumber);
   if (!alreadyRecorded) {
     uploadedParts.push({ partNumber, etag });
@@ -579,7 +581,8 @@ app.post('/part-proxy', async (c) => {
   const chunkBuffer = await chunk.arrayBuffer();
   const etag = await s3UploadPart(bucketConfig, task.r2Key, task.uploadId, partNumber, chunkBuffer);
 
-  const uploadedParts: Array<{ partNumber: number; etag: string }> = JSON.parse(task.uploadedParts || '[]');
+  const uploadedParts: Array<{ partNumber: number; etag: string }> =
+    typeof task.uploadedParts === 'string' ? JSON.parse(task.uploadedParts || '[]') : [];
   const alreadyRecorded = uploadedParts.some((p) => p.partNumber === partNumber);
   if (!alreadyRecorded) {
     uploadedParts.push({ partNumber, etag });
@@ -742,7 +745,8 @@ app.post('/telegram-part', async (c) => {
       set: { tgFileId, chunkSize: chunkBuffer.byteLength, createdAt: now },
     });
 
-  const uploadedParts: Array<{ partNumber: number; etag: string }> = JSON.parse(task.uploadedParts || '[]');
+  const uploadedParts: Array<{ partNumber: number; etag: string }> =
+    typeof task.uploadedParts === 'string' ? JSON.parse(task.uploadedParts || '[]') : [];
   if (!uploadedParts.some((p) => p.partNumber === partNumber)) {
     uploadedParts.push({ partNumber, etag: tgFileId });
     const progress = task.totalParts > 0 ? Math.round((uploadedParts.length / task.totalParts) * 100) : 0;
@@ -1020,7 +1024,7 @@ app.post('/complete', async (c) => {
     if (isTelegramSmall) {
       const uploadedParts: Array<{ partNumber: number; etag: string }> = (() => {
         try {
-          return JSON.parse(task.uploadedParts || '[]');
+          return typeof task.uploadedParts === 'string' ? JSON.parse(task.uploadedParts || '[]') : [];
         } catch {
           return [];
         }
@@ -1120,7 +1124,7 @@ app.post('/complete', async (c) => {
       // ── 校验所有分片是否都已上传 ──────────────────────────────────────
       const uploadedParts: Array<{ partNumber: number; etag: string }> = (() => {
         try {
-          return JSON.parse(task.uploadedParts || '[]');
+          return typeof task.uploadedParts === 'string' ? JSON.parse(task.uploadedParts || '[]') : [];
         } catch {
           return [];
         }
@@ -1248,7 +1252,7 @@ app.post('/complete', async (c) => {
         );
       }
       if (parts.length !== task.totalParts) {
-        console.warn(`Parts count mismatch: expected ${task.totalParts}, got ${parts.length}`);
+        logger.warn('TASKS', '分片数量不匹配', { expected: task.totalParts, got: parts.length });
         return c.json(
           {
             success: false,
@@ -1264,7 +1268,7 @@ app.post('/complete', async (c) => {
       try {
         await s3CompleteMultipartUpload(bucketConfig, task.r2Key, task.uploadId, parts as MultipartPart[]);
       } catch (s3Error: any) {
-        console.error('S3 Complete Multipart Upload Error:', s3Error);
+        logger.error('TASKS', 'S3分片上传完成失败', { r2Key: task.r2Key }, s3Error);
         await db.update(uploadTasks).set({ status: 'failed', updatedAt: now }).where(eq(uploadTasks.id, taskId));
         return c.json(
           {
@@ -1292,8 +1296,8 @@ app.post('/complete', async (c) => {
         // 命中去重：删除刚上传的冗余对象，复用现有 r2Key
         try {
           await s3Delete(bucketConfig, task.r2Key);
-        } catch (e) {
-          console.warn('dedup: failed to delete redundant S3 object', e);
+        } catch (error) {
+          logger.warn('TASKS', '去重删除冗余S3对象失败', { r2Key: task.r2Key }, error);
         }
         finalR2Key = dedupResult.existingR2Key;
         // 去重命中时 ref_count 已在 checkAndClaimDedup 内递增，新记录从 1 开始
@@ -1346,7 +1350,7 @@ app.post('/complete', async (c) => {
       },
     });
   } catch (error: any) {
-    console.error('Complete upload task error:', error);
+    logger.error('TASKS', '完成上传任务失败', { taskId }, error);
     return c.json(
       {
         success: false,
@@ -1393,8 +1397,8 @@ app.post('/abort', async (c) => {
   if (bucketConfig) {
     try {
       await s3AbortMultipartUpload(bucketConfig, task.r2Key, task.uploadId);
-    } catch (e) {
-      console.error('Abort multipart upload error:', e);
+    } catch (error) {
+      logger.error('TASKS', '中止分片上传失败', { r2Key: task.r2Key }, error);
     }
   }
 
@@ -1423,7 +1427,14 @@ app.get('/:taskId', async (c) => {
   }
 
   if (task.status === 'completed') {
-    return c.json({ success: true, data: { ...task, uploadedParts: JSON.parse(task.uploadedParts || '[]') } });
+    return c.json({
+      success: true,
+      data: {
+        ...task,
+        uploadedParts:
+          typeof task.uploadedParts === 'string' ? JSON.parse(task.uploadedParts || '[]') : task.uploadedParts,
+      },
+    });
   }
 
   if (task.status === 'failed') {
@@ -1431,7 +1442,8 @@ app.get('/:taskId', async (c) => {
       success: true,
       data: {
         ...task,
-        uploadedParts: JSON.parse(task.uploadedParts || '[]'),
+        uploadedParts:
+          typeof task.uploadedParts === 'string' ? JSON.parse(task.uploadedParts || '[]') : task.uploadedParts,
         errorMessage: task.errorMessage,
       },
     });
@@ -1450,9 +1462,10 @@ app.get('/:taskId', async (c) => {
       success: true,
       data: {
         ...task,
-        uploadedParts: JSON.parse(task.uploadedParts || '[]').map((p: { partNumber: number; etag: string } | number) =>
-          typeof p === 'number' ? p : p.partNumber
-        ),
+        uploadedParts: (typeof task.uploadedParts === 'string'
+          ? JSON.parse(task.uploadedParts || '[]')
+          : task.uploadedParts
+        ).map((p: { partNumber: number; etag: string } | number) => (typeof p === 'number' ? p : p.partNumber)),
         progress: task.progress ?? 0,
       },
     });
@@ -1465,7 +1478,7 @@ app.get('/:taskId', async (c) => {
 
   let storedParts: Array<{ partNumber: number; etag: string }> = [];
   try {
-    storedParts = JSON.parse(task.uploadedParts || '[]');
+    storedParts = typeof task.uploadedParts === 'string' ? JSON.parse(task.uploadedParts || '[]') : [];
     if (storedParts.length > 0 && typeof storedParts[0] === 'number') {
       storedParts = (storedParts as unknown as number[]).map((n) => ({ partNumber: n, etag: '' }));
     }
@@ -1484,8 +1497,8 @@ app.get('/:taskId', async (c) => {
           .set({ uploadedParts: JSON.stringify(parts), status: 'uploading', updatedAt: new Date().toISOString() })
           .where(eq(uploadTasks.id, taskId));
       }
-    } catch (e) {
-      console.error('List parts error:', e);
+    } catch (error) {
+      logger.error('TASKS', '列出分片失败', {}, error);
     }
   }
 

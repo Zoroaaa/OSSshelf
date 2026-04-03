@@ -9,12 +9,23 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-green.svg)](https://nodejs.org)
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers-orange.svg)](https://workers.cloudflare.com)
+[![zread](https://img.shields.io/badge/Ask_Zread-_.svg?style=flat&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS4zMTM1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff)](https://zread.ai/Zoroaaa/OSSshelf)
 
 [功能特性](#-功能特性) • [快速开始](#-快速开始) • [部署指南](#-部署指南) • [API文档](#-api-文档)
 
 </div>
 
 ---
+
+## 🔗 快速访问
+
+<div align="center">
+
+| 资源类型    | 链接                                             | 备注                     |
+| ----------- | ------------------------------------------------ | ------------------------ |
+| 📖 项目文档 | 👉 [完整介绍](https://zread.ai/Zoroaaa/OSSshelf) | 详细的项目说明和使用指南 |
+
+</div>
 
 ## 📋 目录
 
@@ -35,7 +46,34 @@
 
 详细的版本更新日志请参阅 [CHANGELOG.md](CHANGELOG.md)。
 
-### 最新版本 v4.0.0 - 邮件通知系统
+### 最新版本 v4.1.0 - AI 系统全面升级 🤖
+
+**核心功能**：
+
+- 🤖 **多模型架构**：支持 Workers AI（9个模型）+ OpenAI 兼容 API
+- 💬 **AI 对话系统**：全新对话页面，SSE 流式响应，RAG 文件问答
+- ⚙️ **AI 配置中心**：模型管理、功能级配置、一键快速启用、连接测试
+- 📊 **批量操作优化**：摘要/标签/索引全部支持取消+超时+错误限制
+- 📱 **移动端完整支持**：AI 对话 + AI 配置入口
+
+**技术实现**：
+
+- Model Gateway Pattern（适配器模式）
+- 三层模型回退机制
+- 功能级模型可配置化
+- Drizzle ORM camelCase 字段修复
+
+**新增 API 路由**：
+
+```
+/api/ai-config      # AI 配置管理（11 个端点）
+/api/ai-chat        # AI 对话系统（8 个端点）
+/api/ai             # AI 文件处理功能（增强）
+```
+
+详细说明请参阅 [docs/AI_FEATURES.md](docs/AI_FEATURES.md) 和 [docs/API_AI.md](docs/API_AI.md)。
+
+### 历史版本 v4.0.0 - 邮件通知系统
 
 **核心功能**：
 
@@ -137,7 +175,16 @@
 
 </details>
 
-- 🤖 **AI 功能**: 文件摘要、图片描述、智能标签、语义搜索、智能重命名
+- 🤖 **AI 功能 v4.1.0 全面升级**:
+  - 多模型支持：Workers AI（9个模型）+ OpenAI 兼容 API
+  - AI 对话系统：SSE 流式响应、会话管理、RAG 文件问答
+  - AI 配置中心：模型管理、功能级配置、一键启用、连接测试
+  - 文件摘要生成（可配置专用模型）
+  - 图片智能描述 + 标签生成（需 vision 能力模型）
+  - 语义搜索（Vectorize 向量索引）
+  - 智能重命名建议
+  - 批量操作优化（取消+超时+错误限制）
+  - 详细说明: [docs/AI_FEATURES.md](docs/AI_FEATURES.md)
 - 📥 **离线下载**: 支持 URL 离线下载到云存储
 - 📡 **WebDAV**: 完整的 WebDAV 协议支持（优化 Windows 资源管理器兼容性）
 - 🔄 **存储桶迁移**: 支持在不同存储桶之间迁移文件（跨 provider）
@@ -169,7 +216,7 @@
 | 后端   | Hono 4 + Cloudflare Workers          |
 | 数据库 | Cloudflare D1 (SQLite) + Drizzle ORM |
 | 存储   | S3 兼容协议 + Telegram Bot API       |
-| AI     | Cloudflare AI + Vectorize            |
+| AI     | Cloudflare Workers AI + Vectorize + OpenAI Compatible |
 | 认证   | JWT + bcrypt                         |
 | 邮件   | Resend API (v4.0.0+)                 |
 
@@ -336,12 +383,12 @@ curl https://your-api.workers.dev/api/auth/registration-config
 
 ### 环境变量说明
 
-| 变量名           | 必填 | 说明                                            |
-| ---------------- | ---- | ----------------------------------------------- |
-| `JWT_SECRET`     | ✅   | JWT 签名密钥，建议 32+ 字符随机字符串           |
-| `ENCRYPTION_KEY` | ✅   | 存储桶凭证加密密钥，32 字节                     |
-| `PUBLIC_URL`     | ⚪   | 应用公网地址，用于生成文件直接访问链接（可选）  |
-| `CORS_ORIGINS`   | ✅   | CORS 允许域名，多个用逗号分隔                   |
+| 变量名           | 必填 | 说明                                           |
+| ---------------- | ---- | ---------------------------------------------- |
+| `JWT_SECRET`     | ✅   | JWT 签名密钥，建议 32+ 字符随机字符串          |
+| `ENCRYPTION_KEY` | ✅   | 存储桶凭证加密密钥，32 字节                    |
+| `PUBLIC_URL`     | ⚪   | 应用公网地址，用于生成文件直接访问链接（可选） |
+| `CORS_ORIGINS`   | ✅   | CORS 允许域名，多个用逗号分隔                  |
 
 ---
 
@@ -567,7 +614,9 @@ ossshelf/
 | `/api/api-keys`      | API Keys 管理 (v3.5.0)                    |
 | `/api/groups`        | 用户组管理 (v3.6.0)                       |
 | `/api/webhooks`      | Webhook 管理 (v3.6.0)                     |
-| `/api/ai`            | AI 功能 (v3.7.0)                          |
+| `/api/ai`            | AI 文件处理功能 (v3.7.0, v4.1.0 增强) |
+| `/api/ai-config`     | AI 配置管理 (v4.1.0 新增)               |
+| `/api/ai-chat`       | AI 对话系统 (v4.1.0 新增)               |
 | `/api/analytics`     | 存储分析 (v3.8.0)                         |
 | `/api/notifications` | 通知系统 (v3.8.0)                         |
 | `/api/v1`            | RESTful v1 API (v3.6.0)                   |

@@ -8,7 +8,7 @@
  * - 使用Drizzle ORM的SQLite适配器
  */
 
-import { sqliteTable, text, integer, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable(
   'users',
@@ -601,3 +601,71 @@ export type GroupMember = typeof groupMembers.$inferSelect;
 export type FilePermission = typeof filePermissions.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type EmailToken = typeof emailTokens.$inferSelect;
+
+export const aiModels = sqliteTable(
+  'ai_models',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    provider: text('provider').notNull().default('workers_ai'),
+    modelId: text('model_id').notNull(),
+    apiEndpoint: text('api_endpoint'),
+    apiKeyEncrypted: text('api_key_encrypted'),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    capabilities: text('capabilities').notNull().default('["chat","completion"]'),
+    maxTokens: integer('max_tokens').default(4096),
+    temperature: real('temperature').default(0.7),
+    systemPrompt: text('system_prompt'),
+    configJson: text('config_json').default('{}'),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+    updatedAt: text('updated_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    userActiveIdx: index('idx_ai_models_user_active').on(table.userId, table.isActive),
+    userProviderIdx: index('idx_ai_models_user_provider').on(table.userId, table.provider),
+  })
+);
+
+export const aiChatSessions = sqliteTable(
+  'ai_chat_sessions',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    title: text('title').notNull().default('新对话'),
+    modelId: text('model_id'),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+    updatedAt: text('updated_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    userUpdatedIdx: index('idx_chat_sessions_user_updated').on(table.userId, table.updatedAt),
+  })
+);
+
+export const aiChatMessages = sqliteTable(
+  'ai_chat_messages',
+  {
+    id: text('id').primaryKey(),
+    sessionId: text('session_id')
+      .notNull()
+      .references(() => aiChatSessions.id, { onDelete: 'cascade' }),
+    role: text('role').notNull(),
+    content: text('content').notNull(),
+    sources: text('sources'),
+    tokenCount: integer('token_count'),
+    modelUsed: text('model_used'),
+    latencyMs: integer('latency_ms'),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    sessionCreatedIdx: index('idx_chat_messages_session_created').on(table.sessionId, table.createdAt),
+  })
+);
+
+export type AiModel = typeof aiModels.$inferSelect;
+export type AiChatSession = typeof aiChatSessions.$inferSelect;
+export type AiChatMessage = typeof aiChatMessages.$inferSelect;

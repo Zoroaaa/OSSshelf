@@ -15,7 +15,7 @@ import { Hono } from 'hono';
 import { eq, and, isNull, isNotNull, inArray } from 'drizzle-orm';
 import { getDb, files, users, storageBuckets } from '../db';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES } from '@osshelf/shared';
+import { ERROR_CODES, logger } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
@@ -24,6 +24,7 @@ import { resolveBucketConfig, updateBucketStats, updateUserStorage, checkBucketQ
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getEncryptionKey } from '../lib/crypto';
 import { releaseFileRef } from '../lib/dedup';
+import { ZipBuilder } from '../lib/zipStream';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -603,8 +604,8 @@ app.post('/permanent-delete', async (c) => {
                 try {
                   await s3Delete(bucketConfig, child.r2Key);
                   await updateBucketStats(db, bucketConfig.id, -child.size, -1);
-                } catch (e) {
-                  console.error(`S3 delete failed for ${child.r2Key}:`, e);
+                } catch (error) {
+                  logger.error('BATCH', 'S3删除失败', { r2Key: child.r2Key }, error);
                 }
               } else if (c.env.FILES) {
                 await c.env.FILES.delete(child.r2Key);
@@ -622,8 +623,8 @@ app.post('/permanent-delete', async (c) => {
             try {
               await s3Delete(bucketConfig, file.r2Key);
               await updateBucketStats(db, bucketConfig.id, -file.size, -1);
-            } catch (e) {
-              console.error(`S3 delete failed for ${file.r2Key}:`, e);
+            } catch (error) {
+              logger.error('BATCH', 'S3删除失败', { r2Key: file.r2Key }, error);
             }
           } else if (c.env.FILES) {
             await c.env.FILES.delete(file.r2Key);
@@ -708,6 +709,87 @@ app.post('/restore', async (c) => {
   }
 
   return c.json({ success: true, data: batchResult });
+});
+
+const batchZipSchema = z.object({
+  fileIds: z.array(z.string().min(1)).min(1).max(100),
+  zipName: z.string().max(100).optional(),
+});
+
+app.post('/zip', async (c) => {
+  const userId = c.get('userId')!;
+  const body = await c.req.json();
+  const result = batchZipSchema.safeParse(body);
+  if (!result.success) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
+  }
+
+  const { fileIds, zipName = 'download' } = result.data;
+  const db = getDb(c.env.DB);
+  const encKey = getEncryptionKey(c.env);
+
+  const MAX_ZIP_BYTES = 500 * 1024 * 1024;
+
+  const fileRecords = await db
+    .select()
+    .from(files)
+    .where(
+      and(
+        eq(files.userId, userId),
+        isNull(files.deletedAt),
+        eq(files.isFolder, false),
+        inArray(files.id, fileIds)
+      )
+    )
+    .all();
+
+  const totalBytes = fileRecords.reduce((sum, f) => sum + f.size, 0);
+  if (totalBytes > MAX_ZIP_BYTES) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.VALIDATION_ERROR,
+          message: `ZIP 总大小不超过 500MB，当前 ${(totalBytes / 1024 / 1024).toFixed(1)}MB`,
+        },
+      },
+      400
+    );
+  }
+
+  const zip = new ZipBuilder();
+
+  for (const file of fileRecords) {
+    try {
+      const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
+      let buf: ArrayBuffer;
+      if (bucketConfig) {
+        const res = await s3Get(bucketConfig, file.r2Key);
+        buf = await res.arrayBuffer();
+      } else if (c.env.FILES) {
+        const obj = await c.env.FILES.get(file.r2Key);
+        if (!obj) continue;
+        buf = await obj.arrayBuffer();
+      } else {
+        continue;
+      }
+      zip.addFile(file.name, buf, new Date(file.updatedAt));
+    } catch {
+      continue;
+    }
+  }
+
+  const zipBytes = zip.finalize();
+  return new Response(zipBytes.buffer as ArrayBuffer, {
+    headers: {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(zipName)}.zip`,
+      'Content-Length': zipBytes.length.toString(),
+    },
+  });
 });
 
 export default app;

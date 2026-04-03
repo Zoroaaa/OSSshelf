@@ -31,6 +31,7 @@ import { s3Put, s3Get, s3Delete } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats, checkBucketQuota, updateUserStorage } from '../lib/bucketResolver';
 import { verifyPassword, getEncryptionKey } from '../lib/crypto';
 import type { Env, Variables } from '../types/env';
+import { ERROR_CODES, logger } from '@osshelf/shared';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
@@ -560,8 +561,8 @@ async function handlePut(c: AppContext, userId: string, path: string) {
     if (oldBucketCfg) {
       try {
         await s3Delete(oldBucketCfg, existingFile.r2Key);
-      } catch (e) {
-        console.error('webdav put: failed to delete old object:', e);
+      } catch (error) {
+        logger.error('WEBDAV', '删除旧对象失败', { r2Key: existingFile.r2Key }, error);
       }
       await updateBucketStats(db, oldBucketCfg.id, -existingFile.size, -1);
     } else if (c.env.FILES) {
@@ -688,8 +689,8 @@ async function handleDelete(c: AppContext, userId: string, path: string) {
         if (bucketCfgD) {
           try {
             await s3Delete(bucketCfgD, child.r2Key);
-          } catch (e) {
-            console.error('webdav delete s3 error:', e);
+          } catch (error) {
+            logger.error('WEBDAV', 'S3删除失败', { r2Key: child.r2Key }, error);
           }
           await updateBucketStats(db, bucketCfgD.id, -child.size, -1);
         } else if (c.env.FILES) {
@@ -704,8 +705,8 @@ async function handleDelete(c: AppContext, userId: string, path: string) {
     if (bucketCfgD) {
       try {
         await s3Delete(bucketCfgD, file.r2Key);
-      } catch (e) {
-        console.error('webdav delete s3 error:', e);
+      } catch (error) {
+        logger.error('WEBDAV', 'S3删除失败', { r2Key: file.r2Key }, error);
       }
       await updateBucketStats(db, bucketCfgD.id, -file.size, -1);
     } else if (c.env.FILES) {

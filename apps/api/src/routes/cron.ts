@@ -12,7 +12,7 @@
 import { Hono } from 'hono';
 import { eq, and, or, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { getDb, files, users, shares, uploadTasks, loginAttempts, userDevices, fileVersions, emailTokens } from '../db';
-import { TRASH_RETENTION_DAYS, DEVICE_SESSION_EXPIRY, ERROR_CODES } from '@osshelf/shared';
+import { TRASH_RETENTION_DAYS, DEVICE_SESSION_EXPIRY, ERROR_CODES, logger } from '@osshelf/shared';
 import type { Env } from '../types/env';
 import { s3Delete } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats, updateUserStorage } from '../lib/bucketResolver';
@@ -59,7 +59,7 @@ app.post('/cron/trash-cleanup', async (c) => {
         userStorageChanges.set(file.userId, currentChange + file.size);
         freedBytes += file.size;
       } catch (error) {
-        console.error(`Failed to delete file ${file.id}:`, error);
+        logger.error('CRON', '删除文件失败', { fileId: file.id }, error);
         continue;
       }
     }
@@ -82,9 +82,7 @@ app.post('/cron/trash-cleanup', async (c) => {
     )
     .returning({ id: files.id });
 
-  console.log(
-    `Trash cleanup completed: ${deletedCount} files deleted, ${(freedBytes / 1024 / 1024).toFixed(2)} MB freed, ${expiredDirectLinks.length} direct links expired`
-  );
+  logger.info('CRON', `回收站清理完成: ${deletedCount} 文件, ${(freedBytes / 1024 / 1024).toFixed(2)} MB, ${expiredDirectLinks.length} 链接过期`);
 
   return c.json({
     success: true,
@@ -113,8 +111,8 @@ app.post('/cron/session-cleanup', async (c) => {
       try {
         const { s3AbortMultipartUpload } = await import('../lib/s3client');
         await s3AbortMultipartUpload(bucketConfig, task.r2Key, task.uploadId);
-      } catch (e) {
-        console.error('Failed to abort expired upload:', e);
+      } catch (error) {
+        logger.error('CRON', '中止过期上传失败', { taskId: task.id }, error);
       }
     }
     await db.update(uploadTasks).set({ status: 'expired', updatedAt: now }).where(eq(uploadTasks.id, task.id));
@@ -171,9 +169,7 @@ app.post('/cron/version-cleanup', async (c) => {
   try {
     const result = await cleanExpiredVersions(db, c.env);
 
-    console.log(
-      `Version cleanup: ${result.prunedCount} versions deleted, ${result.freedBytes} bytes freed, ${result.errors.length} errors`
-    );
+    logger.info('CRON', `版本清理完成: ${result.prunedCount} 版本, ${result.freedBytes} bytes, ${result.errors.length} 错误`);
 
     return c.json({
       success: true,
@@ -187,7 +183,7 @@ app.post('/cron/version-cleanup', async (c) => {
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error('Version cleanup failed:', error);
+    logger.error('CRON', '版本清理失败', {}, error);
     return c.json(
       {
         success: false,

@@ -30,6 +30,8 @@ import {
   HardDrive,
   Star,
   BarChart3,
+  MessageSquare,
+  Cpu,
 } from 'lucide-react';
 import { cn } from '@/utils';
 import { useFileStore } from '@/stores/files';
@@ -41,17 +43,19 @@ import { StorageBar } from '@/components/files/StorageBar';
 const NAV_ITEMS = [
   { path: '/', label: '概览', icon: LayoutDashboard, exact: true },
   { path: '/files', label: '文件', icon: FolderOpen, exact: false },
-  { path: '/shares', label: '分享', icon: Share2, exact: false },
+  { path: '/ai-chat', label: 'AI对话', icon: MessageSquare, exact: false },
   { path: '/downloads', label: '下载', icon: Download, exact: false },
 ];
 
 const QUICK_ACTIONS = [
   { path: '/starred', label: '收藏', icon: Star },
+  { path: '/shares', label: '分享', icon: Share2 },
   { path: '/tasks', label: '上传任务', icon: Upload },
   { path: '/analytics', label: '存储分析', icon: BarChart3 },
   { path: '/trash', label: '回收站', icon: Trash2, showBadge: true },
   { path: '/buckets', label: '存储桶', icon: Database },
   { path: '/permissions', label: '权限管理', icon: ShieldCheck },
+  { path: '/ai-settings', label: 'AI 配置', icon: Cpu },
   { path: '/settings', label: '设置', icon: Settings },
 ];
 

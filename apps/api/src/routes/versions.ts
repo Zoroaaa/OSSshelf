@@ -15,7 +15,7 @@ import { eq, and, desc, sql } from 'drizzle-orm';
 import { getDb, files, fileVersions, filePermissions } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
-import { ERROR_CODES } from '@osshelf/shared';
+import { ERROR_CODES, logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { checkFilePermission } from './permissions';
 import { z } from 'zod';
@@ -416,11 +416,13 @@ app.delete('/:fileId/versions/:version', async (c) => {
     const encKey = getEncryptionKey(c.env);
     const bucketConfig = await resolveBucketConfig(db, userId!, encKey, file.bucketId);
     if (bucketConfig) {
-      await s3Delete(bucketConfig, version.r2Key).catch((e) =>
-        console.error(`Version r2Key delete failed ${version.r2Key}:`, e)
+      await s3Delete(bucketConfig, version.r2Key).catch((error) =>
+        logger.error('VERSIONS', '版本删除失败', { r2Key: version.r2Key }, error)
       );
     } else if (c.env.FILES) {
-      await (c.env.FILES as R2Bucket).delete(version.r2Key).catch(() => {});
+      await (c.env.FILES as R2Bucket).delete(version.r2Key).catch((error) => {
+        logger.error('VERSIONS', 'R2版本删除失败', { r2Key: version.r2Key }, error);
+      });
     }
     await updateUserStorage(db, userId!, -version.size);
   }

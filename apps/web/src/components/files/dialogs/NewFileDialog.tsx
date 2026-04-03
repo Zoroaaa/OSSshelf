@@ -7,13 +7,15 @@
  * - 文件类型选择（扩展名）
  * - 内容编辑区域
  * - 保存路径选择
+ * - 智能命名建议
  */
 
 import { useState, useMemo, useCallback } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { cn } from '@/utils';
-import { FileText, Code, FileJson, FileCode, File, ChevronDown } from 'lucide-react';
+import { FileText, Code, FileJson, FileCode, File, ChevronDown, Sparkles, Loader2, Check } from 'lucide-react';
+import { aiApi } from '@/services/api';
 
 export interface FileTemplate {
   extension: string;
@@ -418,6 +420,10 @@ export function NewFileDialog({
 }: NewFileDialogProps) {
   const [showExtensionDropdown, setShowExtensionDropdown] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>('text');
+  const [isNamingLoading, setIsNamingLoading] = useState(false);
+  const [nameSuggestions, setNameSuggestions] = useState<string[]>([]);
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false);
+  const [namingError, setNamingError] = useState<string | null>(null);
 
   const selectedTemplate = useMemo(() => {
     return FILE_TEMPLATES.find((t) => t.extension === selectedExtension) || FILE_TEMPLATES[0];
@@ -448,6 +454,53 @@ export function NewFileDialog({
       onNameChange(value);
     },
     [selectedExtension, onExtensionChange, onNameChange]
+  );
+
+  const handleSmartNaming = useCallback(async () => {
+    if (!content || content.trim().length < 30) {
+      setNamingError('文件内容至少需要30个字符');
+      return;
+    }
+
+    setIsNamingLoading(true);
+    setNamingError(null);
+    setShowNameSuggestions(false);
+
+    try {
+      const response = await aiApi.suggestFileName({
+        content,
+        mimeType: selectedTemplate.mimeType,
+        extension: selectedExtension,
+      });
+
+      if (response.data.success && response.data.data) {
+        setNameSuggestions(response.data.data.suggestions);
+        setShowNameSuggestions(true);
+      }
+    } catch (e: any) {
+      setNamingError(e.response?.data?.error?.message || '获取命名建议失败');
+    } finally {
+      setIsNamingLoading(false);
+    }
+  }, [content, selectedTemplate.mimeType, selectedExtension]);
+
+  const handleSelectSuggestion = useCallback(
+    (suggestion: string) => {
+      const lastDot = suggestion.lastIndexOf('.');
+      if (lastDot > 0) {
+        const suggestionName = suggestion.slice(0, lastDot);
+        const suggestionExt = suggestion.slice(lastDot).toLowerCase();
+        onNameChange(suggestionName);
+        const matchingTemplate = FILE_TEMPLATES.find((t) => t.extension === suggestionExt);
+        if (matchingTemplate && matchingTemplate.extension !== selectedExtension) {
+          onExtensionChange(matchingTemplate.extension);
+        }
+      } else {
+        onNameChange(suggestion);
+      }
+      setShowNameSuggestions(false);
+    },
+    [onNameChange, onExtensionChange, selectedExtension]
   );
 
   const finalFileName = useMemo(() => {
@@ -558,7 +611,42 @@ export function NewFileDialog({
           )}
 
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">文件内容</label>
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium">文件内容</label>
+              <button
+                type="button"
+                onClick={handleSmartNaming}
+                disabled={isNamingLoading || !content || content.trim().length < 30}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/10 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="根据文件内容智能生成文件名建议"
+              >
+                {isNamingLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                <span>智能命名</span>
+              </button>
+            </div>
+            {namingError && (
+              <div className="text-xs text-destructive bg-destructive/10 px-2 py-1 rounded">{namingError}</div>
+            )}
+            {showNameSuggestions && nameSuggestions.length > 0 && (
+              <div className="bg-muted/50 border rounded-lg p-2 space-y-1">
+                <div className="text-xs text-muted-foreground mb-1.5">AI 建议的文件名：</div>
+                {nameSuggestions.map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    onClick={() => handleSelectSuggestion(suggestion)}
+                    className="w-full flex items-center justify-between px-2.5 py-2 text-sm text-left rounded-md hover:bg-background transition-colors group"
+                  >
+                    <span>{suggestion}</span>
+                    <Check className="h-4 w-4 text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="border rounded-lg overflow-hidden">
               <div className="bg-muted/50 px-3 py-1.5 border-b flex items-center gap-2 text-xs text-muted-foreground">
                 {selectedTemplate.icon}
@@ -574,7 +662,9 @@ export function NewFileDialog({
             </div>
           </div>
 
-          <div className="text-xs text-muted-foreground">提示: 输入文件名时自动检测扩展名，或直接选择文件类型</div>
+          <div className="text-xs text-muted-foreground">
+            提示: 输入文件名时自动检测扩展名，或直接选择文件类型。填写内容后可使用智能命名获取文件名建议。
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 px-6 py-4 border-t bg-muted/30">

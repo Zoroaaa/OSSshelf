@@ -12,8 +12,9 @@
 
 import { eq, and, isNotNull, lt } from 'drizzle-orm';
 import { getDb, files, users, shares, uploadTasks, loginAttempts, userDevices, auditLogs } from '../db';
-import { TRASH_RETENTION_DAYS, DEVICE_SESSION_EXPIRY } from '@osshelf/shared';
+import { TRASH_RETENTION_DAYS, DEVICE_SESSION_EXPIRY, logger, logCleanupError } from '@osshelf/shared';
 import type { Env } from '../types/env';
+import { getAuditRetentionDays, hasTelegramAlert } from '../types/env';
 import { s3Delete, s3AbortMultipartUpload } from './s3client';
 import { resolveBucketConfig, updateBucketStats } from './bucketResolver';
 import { getEncryptionKey } from './crypto';
@@ -36,23 +37,20 @@ interface CleanupResult {
   };
 }
 
-/**
- * 向 Telegram 发送 cron 执行告警。
- * 需要在环境变量中配置 ALERT_TG_BOT_TOKEN 和 ALERT_TG_CHAT_ID。
- * 任意一项缺失则静默跳过（不影响主流程）。
- */
 async function sendCronAlert(env: Env, message: string): Promise<void> {
-  const botToken = (env as any).ALERT_TG_BOT_TOKEN as string | undefined;
-  const chatId = (env as any).ALERT_TG_CHAT_ID as string | undefined;
-  if (!botToken || !chatId) return;
+  if (!hasTelegramAlert(env)) return;
   try {
-    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    await fetch(`https://api.telegram.org/bot${env.ALERT_TG_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' }),
+      body: JSON.stringify({
+        chat_id: env.ALERT_TG_CHAT_ID,
+        text: message,
+        parse_mode: 'HTML',
+      }),
     });
-  } catch (e) {
-    console.error('[CronAlert] Failed to send Telegram notification:', e);
+  } catch (error) {
+    logger.error('CLEANUP', 'Telegram告警发送失败', {}, error);
   }
 }
 
@@ -74,15 +72,15 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
     result.trash = await runTrashCleanup(db, env, encKey);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error('Trash cleanup failed:', error);
+    logCleanupError('回收站', error);
     failures.push(`回收站清理: ${msg}`);
   }
 
   try {
-    result.sessions = await runSessionCleanup(db, encKey);
+    result.sessions = await runSessionCleanup(db, env, encKey);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error('Session cleanup failed:', error);
+    logCleanupError('会话', error);
     failures.push(`会话清理: ${msg}`);
   }
 
@@ -90,7 +88,7 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
     result.shares = await runShareCleanup(db);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error('Share cleanup failed:', error);
+    logCleanupError('分享', error);
     failures.push(`分享清理: ${msg}`);
   }
 
@@ -98,11 +96,10 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
     result.audit = await runAuditLogCleanup(db, env);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error('Audit log cleanup failed:', error);
+    logCleanupError('审计日志', error);
     failures.push(`审计日志清理: ${msg}`);
   }
 
-  // 发送 Telegram 告警
   if (failures.length > 0) {
     const alertMsg =
       `⚠️ <b>OSSshelf Cron 告警</b>\n` +
@@ -159,7 +156,7 @@ async function runTrashCleanup(
         userStorageChanges.set(file.userId, currentChange + file.size);
         freedBytes += file.size;
       } catch (error) {
-        console.error(`Failed to delete file ${file.id}:`, error);
+        logger.error('CLEANUP', '删除文件失败', { fileId: file.id, r2Key: file.r2Key }, error);
         continue;
       }
     }
@@ -181,13 +178,14 @@ async function runTrashCleanup(
     }
   }
 
-  console.log(`Trash cleanup: ${deletedCount} files deleted, ${(freedBytes / 1024 / 1024).toFixed(2)} MB freed`);
+  logger.info('CLEANUP', `回收站清理完成: ${deletedCount} 文件, ${(freedBytes / 1024 / 1024).toFixed(2)} MB`);
 
   return { deletedCount, freedBytes };
 }
 
 async function runSessionCleanup(
   db: ReturnType<typeof getDb>,
+  env: Env,
   encKey: string
 ): Promise<{
   uploadTasksExpired: number;
@@ -208,8 +206,8 @@ async function runSessionCleanup(
       if (bucketConfig) {
         await s3AbortMultipartUpload(bucketConfig, task.r2Key, task.uploadId);
       }
-    } catch (e) {
-      console.error('Failed to abort expired upload:', e);
+    } catch (error) {
+      logger.error('CLEANUP', '中止过期上传失败', { taskId: task.id, r2Key: task.r2Key }, error);
     }
     await db.update(uploadTasks).set({ status: 'expired', updatedAt: now }).where(eq(uploadTasks.id, task.id));
   }
@@ -225,10 +223,9 @@ async function runSessionCleanup(
     .where(lt(userDevices.lastActive, deviceExpiryThreshold))
     .returning({ id: userDevices.id });
 
-  console.log(
-    `Session cleanup: ${expiredUploadTasks.length} upload tasks, ` +
-      `${oldLoginAttempts.length} login attempts, ` +
-      `${expiredDevices.length} inactive devices`
+  logger.info(
+    'CLEANUP',
+    `会话清理完成: ${expiredUploadTasks.length} 上传任务, ${oldLoginAttempts.length} 登录尝试, ${expiredDevices.length} 设备`
   );
 
   return {
@@ -241,24 +238,23 @@ async function runSessionCleanup(
 async function runShareCleanup(db: ReturnType<typeof getDb>): Promise<{ sharesCleaned: number }> {
   const now = new Date().toISOString();
 
-  // 只删除有明确过期时间且已过期的分享（NULL 表示永不过期）
   const expiredShares = await db
     .delete(shares)
     .where(and(isNotNull(shares.expiresAt), lt(shares.expiresAt, now)))
     .returning({ id: shares.id });
 
-  console.log(`Share cleanup: ${expiredShares.length} expired shares removed`);
+  logger.info('CLEANUP', `分享清理完成: ${expiredShares.length} 条过期分享`);
 
   return { sharesCleaned: expiredShares.length };
 }
 
 async function runAuditLogCleanup(db: ReturnType<typeof getDb>, env: Env): Promise<{ cleaned: number }> {
-  // 默认保留 90 天，通过 AUDIT_RETENTION_DAYS env var 配置
-  const retentionDays = parseInt((env as any).AUDIT_RETENTION_DAYS || '90', 10);
+  const retentionDays = getAuditRetentionDays(env);
   const threshold = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
 
   const deleted = await db.delete(auditLogs).where(lt(auditLogs.createdAt, threshold)).returning({ id: auditLogs.id });
 
-  console.log(`Audit log cleanup: ${deleted.length} records older than ${retentionDays} days removed`);
+  logger.info('CLEANUP', `审计日志清理完成: ${deleted.length} 条 (保留 ${retentionDays} 天)`);
+
   return { cleaned: deleted.length };
 }

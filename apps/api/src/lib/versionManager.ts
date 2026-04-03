@@ -18,6 +18,7 @@ import { eq, and, desc, lt } from 'drizzle-orm';
 import { getDb, files, fileVersions } from '../db';
 import type { DrizzleDb } from '../db';
 import type { Env } from '../types/env';
+import { logger } from '@osshelf/shared';
 import { s3Delete } from './s3client';
 import { resolveBucketConfig } from './bucketResolver';
 import { getEncryptionKey } from './crypto';
@@ -343,11 +344,13 @@ async function deleteStorageObject(
   const bucketConfig = await resolveBucketConfig(db, file.userId, encKey, file.bucketId, file.parentId);
 
   if (bucketConfig) {
-    await s3Delete(bucketConfig, r2Key).catch((e) => {
-      console.error(`Failed to delete storage object ${r2Key}:`, e);
+    await s3Delete(bucketConfig, r2Key).catch((error) => {
+      logger.error('VERSION', '删除存储对象失败', { r2Key }, error);
     });
   } else if (env.FILES) {
-    await (env.FILES as R2Bucket).delete(r2Key).catch(() => {});
+    await (env.FILES as R2Bucket).delete(r2Key).catch((error) => {
+      logger.error('VERSION', 'R2删除失败', { r2Key }, error);
+    });
   }
 }
 

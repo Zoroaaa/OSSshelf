@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/Input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
 import { useToast } from '@/components/ui/useToast';
 import { MoveFolderPicker } from '@/components/files/dialogs';
-import { useResponsive } from '@/hooks/useResponsive';
+
 import { formatBytes, formatDate } from '@/utils';
 import { cn } from '@/utils';
 import {

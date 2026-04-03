@@ -3,12 +3,12 @@
  * 用户组列表组件
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/useToast';
 import { groupsApi } from '@/services/api';
-import { Users, Plus, Settings, Trash2, UserPlus, Loader2 } from 'lucide-react';
+import { Users, Plus, Trash2, UserPlus, Loader2 } from 'lucide-react';
 import GroupCreateDialog from './GroupCreateDialog';
 import GroupMemberDialog from './GroupMemberDialog';
 

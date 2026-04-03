@@ -20,7 +20,7 @@ import { Hono } from 'hono';
 import { and, eq, isNull, inArray } from 'drizzle-orm';
 import { getDb, files, storageBuckets, telegramFileRefs, users } from '../db';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES } from '@osshelf/shared';
+import { ERROR_CODES, logger } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import { getEncryptionKey } from '../lib/crypto';
 import { resolveBucketConfig, updateBucketStats } from '../lib/bucketResolver';
@@ -495,8 +495,7 @@ async function runMigration(
           // 软删除原文件记录
           await db.update(files).set({ deletedAt: now, updatedAt: now }).where(eq(files.id, file.id));
         } catch (delErr) {
-          // 删除失败不影响整体迁移成功状态，记录警告
-          console.warn(`[migrate] deleteSource failed for ${file.id}:`, delErr);
+          logger.warn('MIGRATE', '删除源文件失败', { fileId: file.id }, delErr);
         }
       }
 
@@ -507,7 +506,7 @@ async function runMigration(
       entry.status = 'failed';
       entry.error = err?.message ?? '未知错误';
       status.failed++;
-      console.error(`[migrate] file ${file.id} failed:`, err);
+      logger.error('MIGRATE', '文件迁移失败', { fileId: file.id }, err);
     }
 
     status.updatedAt = new Date().toISOString();

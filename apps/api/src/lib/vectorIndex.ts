@@ -13,6 +13,7 @@
 import type { Env } from '../types/env';
 import { getDb, files, fileNotes } from '../db';
 import { eq, and, inArray, isNull } from 'drizzle-orm';
+import { logger } from '@osshelf/shared';
 
 // bge-m3: 多语言，1024 维，中文效果远优于 bge-base-en-v1.5
 const EMBEDDING_MODEL = '@cf/baai/bge-m3';
@@ -32,12 +33,12 @@ export interface IndexResult {
 
 export async function indexFileVector(env: Env, fileId: string, text: string): Promise<void> {
   if (!env.AI || !env.VECTORIZE) {
-    console.warn('AI or VECTORIZE not configured, skipping vector indexing');
+    logger.warn('VECTOR', 'AI或VECTORIZE未配置，跳过向量索引');
     return;
   }
 
   if (!text || text.trim().length === 0) {
-    console.warn(`Empty text for file ${fileId}, skipping vector indexing`);
+    logger.warn('VECTOR', '文件文本为空，跳过向量索引', { fileId });
     return;
   }
 
@@ -75,7 +76,7 @@ export async function indexFileVector(env: Env, fileId: string, text: string): P
 
     await db.update(files).set({ vectorIndexedAt: new Date().toISOString() }).where(eq(files.id, fileId));
   } catch (error) {
-    console.error(`Failed to index file ${fileId}:`, error);
+    logger.error('VECTOR', '文件索引失败', { fileId }, error);
     throw error;
   }
 }
@@ -86,7 +87,7 @@ export async function deleteFileVector(env: Env, fileId: string): Promise<void> 
   try {
     await env.VECTORIZE.deleteByIds([fileId]);
   } catch (error) {
-    console.error(`Failed to delete vector for file ${fileId}:`, error);
+    logger.error('VECTOR', '删除向量失败', { fileId }, error);
   }
 }
 
@@ -134,7 +135,7 @@ export async function searchSimilarFiles(
         metadata: m.metadata as Record<string, unknown> | undefined,
       }));
   } catch (error) {
-    console.error('Failed to search similar files:', error);
+    logger.error('VECTOR', '搜索相似文件失败', {}, error);
     return [];
   }
 }

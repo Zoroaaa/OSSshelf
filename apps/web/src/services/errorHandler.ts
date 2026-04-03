@@ -234,7 +234,6 @@ export function logError(error: unknown, context?: string): void {
     requestId: parsed.requestId,
     isNetworkError: parsed.isNetworkError,
     isTimeout: parsed.isTimeout,
-    originalError: error,
   });
 }
 

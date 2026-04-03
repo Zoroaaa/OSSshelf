@@ -11,6 +11,7 @@
 import { getDb, auditLogs } from '../db';
 import type { Env } from '../types/env';
 import type { AuditAction } from '@osshelf/shared';
+import { logger } from '@osshelf/shared';
 
 interface CreateAuditLogParams {
   env: Env;
@@ -57,7 +58,7 @@ export async function createAuditLog(params: CreateAuditLogParams): Promise<void
       createdAt: now,
     });
   } catch (error) {
-    console.error('Failed to create audit log:', error);
+    logger.error('AUDIT', '创建审计日志失败', { userId, action }, error);
   }
 }
 

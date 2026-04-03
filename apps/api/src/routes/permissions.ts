@@ -13,7 +13,7 @@ import { Hono } from 'hono';
 import { eq, and, inArray, like, isNull, or } from 'drizzle-orm';
 import { getDb, files, filePermissions, users, fileTags, userGroups, groupMembers } from '../db';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES } from '@osshelf/shared';
+import { ERROR_CODES, logger } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
@@ -489,8 +489,8 @@ app.post('/grant', async (c) => {
             subjectType,
           },
         });
-      } catch (e) {
-        console.error('Failed to send notification:', e);
+      } catch (error) {
+        logger.error('PERMISSIONS', '发送通知失败', {}, error);
       }
     })()
   );

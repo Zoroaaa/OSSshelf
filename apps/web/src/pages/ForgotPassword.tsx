@@ -11,7 +11,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/useToast';
-import { Mail, ArrowLeft, Loader2, CheckCircle2 } from 'lucide-react';
+import { Mail, ArrowLeft, Loader2 } from 'lucide-react';
 
 export default function ForgotPassword() {
   const navigate = useNavigate();
@@ -74,7 +74,10 @@ export default function ForgotPassword() {
           <Button className="w-full" onClick={handleGoToReset}>
             输入验证码并重置密码
           </Button>
-          <Link to="/login" className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 mx-auto">
+          <Link
+            to="/login"
+            className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 mx-auto"
+          >
             <ArrowLeft className="h-3 w-3" />
             返回登录
           </Link>

@@ -10,7 +10,7 @@
  */
 
 import type { MiddlewareHandler, Context } from 'hono';
-import { ERROR_CODES, type ErrorCode } from '@osshelf/shared';
+import { ERROR_CODES, type ErrorCode, logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 
 type AppEnv = { Bindings: Env; Variables: Variables };
@@ -75,7 +75,7 @@ export function createErrorResponse(c: Context<AppEnv>, error: AppError | Error 
   }
 
   if (error instanceof Error) {
-    console.error('Unhandled error:', error);
+    logger.error('ERROR', '未处理错误', {}, error);
     const response: ErrorResponse = {
       success: false,
       error: {
@@ -91,7 +91,7 @@ export function createErrorResponse(c: Context<AppEnv>, error: AppError | Error 
     return c.json(response, 500);
   }
 
-  console.error('Unknown error:', error);
+  logger.error('ERROR', '未知错误类型', {}, error);
   const response: ErrorResponse = {
     success: false,
     error: {

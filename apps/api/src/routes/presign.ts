@@ -24,7 +24,7 @@ import { Hono } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files, users, storageBuckets } from '../db';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES, MAX_FILE_SIZE, isPreviewableMimeType } from '@osshelf/shared';
+import { ERROR_CODES, MAX_FILE_SIZE, isPreviewableMimeType, logger } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import { getEncryptionKey } from '../lib/crypto';
 import type { Env, Variables } from '../types/env';
@@ -42,7 +42,7 @@ import { resolveBucketConfig, updateBucketStats, updateUserStorage, checkBucketQ
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 import { getUserOrFail, encodeFilename } from '../lib/utils';
 import { computeSha256Hex, checkAndClaimDedup, releaseFileRef } from '../lib/dedup';
-import { autoProcessFile, isAIConfigured } from '../lib/aiFeatures';
+import { autoProcessFile, isAIConfigured } from '../lib/ai/features';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -250,7 +250,7 @@ app.post('/confirm', async (c) => {
           await autoProcessFile(c.env, fileId);
         }
       } catch (error) {
-        console.error('Failed to auto process file:', error);
+        logger.error('PRESIGN', '自动处理文件失败', { fileId }, error);
       }
     })()
   );
@@ -423,7 +423,7 @@ app.post('/multipart/complete', async (c) => {
           await autoProcessFile(c.env, fileId);
         }
       } catch (error) {
-        console.error('Failed to process file with AI:', error);
+        logger.error('PRESIGN', 'AI处理文件失败', { fileId }, error);
       }
     })()
   );

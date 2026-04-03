@@ -27,7 +27,13 @@ import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getRegConfig } from '../lib/utils';
 import { AppError, throwAppError } from '../middleware/error';
 import { createNotification, sendNotification } from '../lib/notificationUtils';
-import { sendEmail, emailTemplates, parseEmailPreferences, shouldSendEmail, generateVerificationCode } from '../lib/emailService';
+import {
+  sendEmail,
+  emailTemplates,
+  parseEmailPreferences,
+  shouldSendEmail,
+  generateVerificationCode,
+} from '../lib/emailService';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
