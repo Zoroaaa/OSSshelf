@@ -208,7 +208,7 @@ export default function Downloads() {
   } = useQuery({
     queryKey: ['downloads'],
     queryFn: () => downloadsApi.list().then((r) => r.data.data),
-    refetchInterval: 5000,
+    refetchInterval: 10000,
   });
   const tasks = result?.items ?? [];
 

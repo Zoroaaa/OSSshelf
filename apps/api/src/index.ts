@@ -44,7 +44,8 @@ import notificationsRoutes from './routes/notifications';
 import v1Routes from './routes/v1';
 import { errorHandler } from './middleware/error';
 import { runAllCleanupTasks } from './lib/cleanup';
-import type { Env } from './types/env';
+import { processAiTaskMessage, checkAndCompleteTask } from './lib/aiTaskQueue';
+import type { Env, AiTaskMessage } from './types/env';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -188,5 +189,42 @@ export default {
           appLogger.error('CRON', '定时任务失败', {}, error);
         })
     );
+  },
+  async queue(batch: MessageBatch<AiTaskMessage>, env: Env, ctx: ExecutionContext) {
+    appLogger.info('QUEUE', '收到队列消息', { count: batch.messages.length });
+
+    for (const message of batch.messages) {
+      try {
+        const result = await processAiTaskMessage(message.body, env);
+
+        if (result.success) {
+          message.ack();
+          appLogger.info('QUEUE', '任务处理成功', {
+            type: message.body.type,
+            fileId: message.body.fileId,
+          });
+
+          await checkAndCompleteTask(env, message.body.taskId);
+        } else {
+          message.retry();
+          appLogger.warn('QUEUE', '任务处理失败，将重试', {
+            type: message.body.type,
+            fileId: message.body.fileId,
+            error: result.error,
+          });
+        }
+      } catch (error) {
+        message.retry();
+        appLogger.error(
+          'QUEUE',
+          '任务处理异常',
+          {
+            type: message.body.type,
+            fileId: message.body.fileId,
+          },
+          error
+        );
+      }
+    }
   },
 };

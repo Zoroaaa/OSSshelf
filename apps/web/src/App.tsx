@@ -9,7 +9,7 @@
  */
 
 import { useEffect } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAuthStore } from './stores/auth';
 import MainLayout from './components/layouts/MainLayout';
 import AuthLayout from './components/layouts/AuthLayout';
@@ -73,7 +73,7 @@ function App() {
       <Route path="/share/:shareId" element={<SharePage />} />
       <Route path="/upload/:uploadToken" element={<SharePage />} />
 
-      {/* Protected */}
+      {/* Protected - MainLayout 内 */}
       <Route
         element={
           <PrivateRoute>
@@ -94,9 +94,19 @@ function App() {
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/starred" element={<Starred />} />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/ai-settings" element={<AISettings />} />
+      </Route>
+
+      {/* Protected - 独立全屏页面（无侧边栏） */}
+      <Route
+        element={
+          <PrivateRoute>
+            <Outlet />
+          </PrivateRoute>
+        }
+      >
         <Route path="/ai-chat" element={<AIChat />} />
         <Route path="/ai-chat/:sessionId" element={<AIChat />} />
-        <Route path="/ai-settings" element={<AISettings />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

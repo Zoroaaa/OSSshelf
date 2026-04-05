@@ -12,7 +12,7 @@
 
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/Button';
-import { getErrorMessage } from '@/services/errorHandler';
+import { getErrorMessage } from '@/utils';
 import api from '@/services/api';
 import { formatBytes } from '@/utils';
 import { FileIcon } from './FileIcon';

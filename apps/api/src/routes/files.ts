@@ -51,7 +51,7 @@ import {
 } from '../lib/telegramChunked';
 import { checkAndClaimDedup, releaseFileRef, computeSha256Hex } from '../lib/dedup';
 import { createVersionSnapshot, shouldCreateVersion } from '../lib/versionManager';
-import { autoProcessFile, isAIConfigured } from '../lib/ai/features';
+import { autoProcessFile, isAIConfigured, enqueueAutoProcessFile } from '../lib/ai/features';
 import { dispatchWebhook } from '../lib/webhook';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -531,7 +531,7 @@ app.post('/upload', async (c) => {
   c.executionCtx.waitUntil(
     (async () => {
       try {
-        if (await isAIConfigured(c.env)) {
+        if (isAIConfigured(c.env)) {
           await autoProcessFile(c.env, fileId);
         }
       } catch (error) {
@@ -1106,7 +1106,7 @@ app.post('/create', async (c) => {
   c.executionCtx.waitUntil(
     (async () => {
       try {
-        if (await isAIConfigured(c.env)) {
+        if (isAIConfigured(c.env)) {
           await autoProcessFile(c.env, fileId);
         }
       } catch (error) {
@@ -1418,6 +1418,13 @@ app.put('/:id/content', async (c) => {
       fileName: file.name,
       size: newSize,
     })
+  );
+
+  // 内容变更后重新触发 AI 摘要 + 向量索引
+  c.executionCtx.waitUntil(
+    enqueueAutoProcessFile(c.env, fileId, userId).catch((err) =>
+      logger.error('FILES', '内容更新后AI处理失败', { fileId }, err)
+    )
   );
 
   return c.json({

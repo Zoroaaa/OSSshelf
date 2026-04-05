@@ -10,13 +10,14 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, sql, count } from 'drizzle-orm';
 import { getDb, aiChatSessions, aiChatMessages, files } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { ModelGateway, RagEngine } from '../lib/ai';
+import { AgentEngine, type AgentChunk } from '../lib/ai/agentEngine';
 import type { StreamChunk } from '../lib/ai/types';
 import { logger } from '@osshelf/shared';
 
@@ -37,28 +38,25 @@ app.get('/sessions', async (c) => {
       .limit(50)
       .all();
 
-    const sessionWithCounts = await Promise.all(
-      sessions.map(async (session) => {
-        try {
-          const messages = await db
-            .select({ id: aiChatMessages.id })
-            .from(aiChatMessages)
-            .where(eq(aiChatMessages.sessionId, session.id))
-            .all();
+    // Single batch query for all message counts
+    const msgCounts = await db
+      .select({ sessionId: aiChatMessages.sessionId, cnt: count(aiChatMessages.id) })
+      .from(aiChatMessages)
+      .where(
+        sql`${aiChatMessages.sessionId} IN (${sql.join(
+          sessions.map((s) => sql`${s.id}`),
+          sql`, `
+        )})`
+      )
+      .groupBy(aiChatMessages.sessionId)
+      .all();
 
-          return {
-            ...session,
-            messageCount: messages.length,
-          };
-        } catch (msgError) {
-          logger.error('AI Chat', 'Failed to get message count', { sessionId: session.id }, msgError);
-          return {
-            ...session,
-            messageCount: 0,
-          };
-        }
-      })
-    );
+    const countMap = new Map(msgCounts.map((r) => [r.sessionId, r.cnt]));
+
+    const sessionWithCounts = sessions.map((session) => ({
+      ...session,
+      messageCount: countMap.get(session.id) ?? 0,
+    }));
 
     return c.json({
       success: true,
@@ -96,10 +94,7 @@ app.post('/sessions', async (c) => {
     return c.json({ success: true, data: newSession });
   } catch (error) {
     logger.error('AI Chat', 'Failed to create session', { userId }, error);
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '创建会话失败' } },
-      500
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '创建会话失败' } }, 500);
   }
 });
 
@@ -144,10 +139,7 @@ app.put('/sessions/:sessionId', async (c) => {
   const { title } = body as { title?: string };
 
   if (!title) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '标题不能为空' } },
-      400
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '标题不能为空' } }, 400);
   }
 
   const db = getDb(c.env.DB);
@@ -170,10 +162,7 @@ app.put('/sessions/:sessionId', async (c) => {
 
     return c.json({ success: true, data: { id: sessionId, title } });
   } catch (error) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '更新会话失败' } },
-      500
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '更新会话失败' } }, 500);
   }
 });
 
@@ -197,10 +186,7 @@ app.delete('/sessions/:sessionId', async (c) => {
 
     return c.json({ success: true, data: { message: '会话已删除' } });
   } catch (error) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '删除会话失败' } },
-      500
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '删除会话失败' } }, 500);
   }
 });
 
@@ -215,6 +201,7 @@ const chatSchema = z.object({
 
 app.post('/chat', async (c) => {
   const userId = c.get('userId')!;
+
   const body = await c.req.json();
   const result = chatSchema.safeParse(body);
 
@@ -228,7 +215,7 @@ app.post('/chat', async (c) => {
   const { query, sessionId, modelId, maxFiles, includeFileContent, stream } = result.data;
 
   if (stream) {
-    return handleStreamChat(c, userId, query, sessionId, modelId, maxFiles, includeFileContent);
+    return handleStreamChat(c, userId, query, sessionId, modelId);
   }
 
   return handleNormalChat(c, userId, query, sessionId, modelId, maxFiles, includeFileContent);
@@ -260,6 +247,29 @@ async function handleNormalChat(
       };
       await db.insert(aiChatSessions).values(newSession);
       actualSessionId = newSession.id;
+
+      c.executionCtx.waitUntil(
+        (async () => {
+          try {
+            const gateway = new ModelGateway(c.env);
+            const titleResponse = await gateway.chatCompletion(userId, {
+              messages: [
+                { role: 'system', content: '用 8-12 个中文字概括用户对话的主题。只输出标题，不加标点和解释。' },
+                { role: 'user', content: query },
+              ],
+              maxTokens: 30,
+              temperature: 0.5,
+            });
+            const generatedTitle = titleResponse.content.trim().slice(0, 20);
+            if (generatedTitle && generatedTitle !== query.slice(0, 20)) {
+              await db
+                .update(aiChatSessions)
+                .set({ title: generatedTitle })
+                .where(eq(aiChatSessions.id, actualSessionId));
+            }
+          } catch {}
+        })()
+      );
     } else {
       await db
         .update(aiChatSessions)
@@ -275,19 +285,32 @@ async function handleNormalChat(
       createdAt: new Date().toISOString(),
     });
 
+    const existingMessages = await db
+      .select()
+      .from(aiChatMessages)
+      .where(eq(aiChatMessages.sessionId, actualSessionId))
+      .orderBy(aiChatMessages.createdAt)
+      .all();
+
+    const conversationHistory = existingMessages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
     const ragEngine = new RagEngine(c.env);
     const ragContext = await ragEngine.buildContext({
       query,
       userId,
       maxFiles,
       includeFileContent,
+      conversationHistory,
     });
 
     const gateway = new ModelGateway(c.env);
     const response = await gateway.chatCompletion(
       userId,
       {
-        messages: [{ role: 'user', content: ragContext.assembledPrompt }],
+        messages: ragContext.messages,
       },
       modelId
     );
@@ -308,7 +331,6 @@ async function handleNormalChat(
       role: 'assistant',
       content: response.content + ragEngine.formatSourcesForResponse(ragContext.relevantFiles),
       sources: sourcesJson,
-      tokenCount: response.usage?.totalTokens || 0,
       modelUsed: response.model,
       latencyMs,
       createdAt: new Date().toISOString(),
@@ -325,7 +347,6 @@ async function handleNormalChat(
           score: f.similarityScore,
         })),
         sessionId: actualSessionId,
-        usage: response.usage,
         latencyMs,
       },
     });
@@ -349,9 +370,7 @@ async function handleStreamChat(
   userId: string,
   query: string,
   sessionId?: string,
-  modelId?: string,
-  maxFiles?: number,
-  includeFileContent?: boolean
+  modelId?: string
 ) {
   const startTime = Date.now();
   let actualSessionId = sessionId;
@@ -359,6 +378,7 @@ async function handleStreamChat(
   try {
     const db = getDb(c.env.DB);
 
+    // Ensure session exists
     if (!actualSessionId) {
       const newSession = {
         id: crypto.randomUUID(),
@@ -370,6 +390,30 @@ async function handleStreamChat(
       };
       await db.insert(aiChatSessions).values(newSession);
       actualSessionId = newSession.id;
+
+      // 异步生成 LLM 标题（与 handleNormalChat 保持一致）
+      c.executionCtx.waitUntil(
+        (async () => {
+          try {
+            const gateway = new ModelGateway(c.env);
+            const titleResponse = await gateway.chatCompletion(userId, {
+              messages: [
+                { role: 'system', content: '用 8-12 个中文字概括用户对话的主题。只输出标题，不加标点和解释。' },
+                { role: 'user', content: query },
+              ],
+              maxTokens: 30,
+              temperature: 0.5,
+            });
+            const generatedTitle = titleResponse.content.trim().slice(0, 20);
+            if (generatedTitle && generatedTitle !== query.slice(0, 20)) {
+              await db
+                .update(aiChatSessions)
+                .set({ title: generatedTitle })
+                .where(eq(aiChatSessions.id, actualSessionId));
+            }
+          } catch {}
+        })()
+      );
     } else {
       await db
         .update(aiChatSessions)
@@ -377,6 +421,7 @@ async function handleStreamChat(
         .where(eq(aiChatSessions.id, actualSessionId));
     }
 
+    // Save user message
     await db.insert(aiChatMessages).values({
       id: crypto.randomUUID(),
       sessionId: actualSessionId,
@@ -385,67 +430,129 @@ async function handleStreamChat(
       createdAt: new Date().toISOString(),
     });
 
-    const ragEngine = new RagEngine(c.env);
-    const ragContext = await ragEngine.buildContext({
-      query,
-      userId,
-      maxFiles,
-      includeFileContent,
-    });
+    // Load conversation history for context
+    const existingMessages = await db
+      .select()
+      .from(aiChatMessages)
+      .where(eq(aiChatMessages.sessionId, actualSessionId))
+      .orderBy(aiChatMessages.createdAt)
+      .all();
 
-    const gateway = new ModelGateway(c.env);
+    const conversationHistory = existingMessages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+    const agentEngine = new AgentEngine(c.env);
+
+    let fullText = '';
+    let finalSources: Array<{ id: string; name: string; mimeType: string | null; score: number }> = [];
+    let resolveStream!: () => void;
+    let doneEmitted = false;
+    const streamDone = new Promise<void>((r) => {
+      resolveStream = r;
+    });
 
     const stream = new ReadableStream({
       async start(controller) {
-        try {
-          let fullContent = '';
+        const enqueue = (data: object) => {
+          try {
+            controller.enqueue(`data: ${JSON.stringify(data)}\n\n`);
+          } catch {
+            // controller already closed
+          }
+        };
 
-          await gateway.chatCompletionStream(
+        const emitDone = (data: object) => {
+          if (doneEmitted) return;
+          doneEmitted = true;
+          enqueue(data);
+          try {
+            controller.close();
+          } catch {}
+          resolveStream();
+        };
+
+        try {
+          const result = await agentEngine.run(
             userId,
-            {
-              messages: [{ role: 'user', content: ragContext.assembledPrompt }],
-            },
-            (chunk: StreamChunk) => {
+            query,
+            conversationHistory,
+            modelId,
+            (chunk: AgentChunk) => {
               if (chunk.done) {
-                controller.enqueue(`data: ${JSON.stringify({ done: true, sessionId: actualSessionId })}\n\n`);
-                controller.close();
+                if (chunk.type === 'done') {
+                  finalSources = chunk.sources;
+                  emitDone({ done: true, sessionId: actualSessionId, sources: chunk.sources });
+                } else {
+                  emitDone({ done: true, error: (chunk as any).message, sessionId: actualSessionId, sources: [] });
+                }
               } else {
-                fullContent += chunk.content;
-                controller.enqueue(`data: ${JSON.stringify({ content: chunk.content, done: false })}\n\n`);
+                if (chunk.type === 'text') {
+                  fullText += chunk.content;
+                  enqueue({ content: chunk.content, done: false });
+                } else if (chunk.type === 'reasoning') {
+                  enqueue({ reasoning: true, content: chunk.content, done: false });
+                } else if (chunk.type === 'tool_start') {
+                  enqueue({
+                    toolStart: true,
+                    toolName: chunk.toolName,
+                    toolCallId: chunk.toolCallId,
+                    args: chunk.args,
+                    done: false,
+                  });
+                } else if (chunk.type === 'tool_result') {
+                  enqueue({
+                    toolResult: true,
+                    toolCallId: chunk.toolCallId,
+                    toolName: chunk.toolName,
+                    result: chunk.result,
+                    done: false,
+                  });
+                }
               }
             },
             c.req.raw.signal
           );
 
+          // Guard: agent finished without emitting done
+          if (!doneEmitted) {
+            finalSources = result.sources;
+            emitDone({ done: true, sessionId: actualSessionId, sources: result.sources });
+          }
+        } catch (error) {
+          logger.error('AI Agent', 'Stream failed', { userId }, error);
+          enqueue({ done: true, error: 'AI 响应出错', sessionId: actualSessionId, sources: [] });
+          try {
+            controller.close();
+          } catch {}
+          resolveStream();
+        }
+      },
+    });
+
+    // Save assistant message after stream completes
+    c.executionCtx.waitUntil(
+      (async () => {
+        await streamDone;
+        try {
+          if (!fullText.trim()) return;
           const latencyMs = Date.now() - startTime;
-          const sourcesJson = JSON.stringify(
-            ragContext.relevantFiles.map((f) => ({
-              id: f.id,
-              name: f.name,
-              mimeType: f.mimeType,
-              score: f.similarityScore,
-            }))
-          );
-
-          const finalContent =
-            fullContent + ragEngine.formatSourcesForResponse(ragContext.relevantFiles);
-
           await db.insert(aiChatMessages).values({
             id: crypto.randomUUID(),
             sessionId: actualSessionId!,
             role: 'assistant',
-            content: finalContent,
-            sources: sourcesJson,
-            tokenCount: Math.ceil(finalContent.length * 0.5),
+            content: fullText,
+            sources: JSON.stringify(finalSources),
             latencyMs,
             createdAt: new Date().toISOString(),
           });
+          logger.info('AI Agent', 'Message saved', { sessionId: actualSessionId, latencyMs });
         } catch (error) {
-          logger.error('AI Chat', 'Stream chat failed', { userId }, error);
-          controller.error(error);
+          logger.error('AI Agent', 'Failed to save message', { userId }, error);
         }
-      },
-    });
+      })()
+    );
 
     return new Response(stream, {
       headers: {
@@ -456,13 +563,13 @@ async function handleStreamChat(
       },
     });
   } catch (error) {
-    logger.error('AI Chat', 'Failed to start stream', { userId }, error);
+    logger.error('AI Chat', 'Failed to start agent stream', { userId }, error);
     return c.json(
       {
         success: false,
         error: {
           code: ERROR_CODES.INTERNAL_ERROR,
-          message: error instanceof Error ? error.message : '启动流式对话失败',
+          message: error instanceof Error ? error.message : '启动对话失败',
         },
       },
       500

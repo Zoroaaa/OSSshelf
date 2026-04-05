@@ -592,16 +592,6 @@ export const userStars = sqliteTable(
   })
 );
 
-export type File = typeof files.$inferSelect;
-export type FileVersion = typeof fileVersions.$inferSelect;
-export type FileNote = typeof fileNotes.$inferSelect;
-export type ApiKey = typeof apiKeys.$inferSelect;
-export type UserGroup = typeof userGroups.$inferSelect;
-export type GroupMember = typeof groupMembers.$inferSelect;
-export type FilePermission = typeof filePermissions.$inferSelect;
-export type Notification = typeof notifications.$inferSelect;
-export type EmailToken = typeof emailTokens.$inferSelect;
-
 export const aiModels = sqliteTable(
   'ai_models',
   {
@@ -656,7 +646,6 @@ export const aiChatMessages = sqliteTable(
     role: text('role').notNull(),
     content: text('content').notNull(),
     sources: text('sources'),
-    tokenCount: integer('token_count'),
     modelUsed: text('model_used'),
     latencyMs: integer('latency_ms'),
     createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
@@ -669,3 +658,55 @@ export const aiChatMessages = sqliteTable(
 export type AiModel = typeof aiModels.$inferSelect;
 export type AiChatSession = typeof aiChatSessions.$inferSelect;
 export type AiChatMessage = typeof aiChatMessages.$inferSelect;
+
+export const aiTasks = sqliteTable(
+  'ai_tasks',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    type: text('type').notNull(), // 'index' | 'summary' | 'tags'
+    status: text('status').notNull().default('running'), // 'running' | 'completed' | 'failed' | 'cancelled'
+    total: integer('total').notNull(),
+    processed: integer('processed').notNull().default(0),
+    failed: integer('failed').notNull().default(0),
+    startedAt: text('started_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    completedAt: text('completed_at'),
+    error: text('error'),
+  },
+  (table) => ({
+    userTypeIdx: index('idx_ai_tasks_user_type').on(table.userId, table.type),
+    statusIdx: index('idx_ai_tasks_status').on(table.status),
+  })
+);
+
+export type AiTask = typeof aiTasks.$inferSelect;
+
+export const aiConfig = sqliteTable(
+  'ai_config',
+  {
+    id: text('id').primaryKey(),
+    key: text('key').notNull().unique(),
+    category: text('category').notNull(),
+    label: text('label').notNull(),
+    description: text('description'),
+    valueType: text('value_type').notNull().default('string'),
+    stringValue: text('string_value'),
+    numberValue: real('number_value'),
+    booleanValue: integer('boolean_value', { mode: 'boolean' }).default(false),
+    jsonValue: text('json_value'),
+    defaultValue: text('default_value').notNull(),
+    isSystem: integer('is_system', { mode: 'boolean' }).notNull().default(true),
+    isEditable: integer('is_editable', { mode: 'boolean' }).notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+    updatedAt: text('updated_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    categoryIdx: index('idx_ai_config_category').on(table.category),
+    keyIdx: index('idx_ai_config_key').on(table.key),
+  })
+);
+
+export type AiConfig = typeof aiConfig.$inferSelect;
+export type File = typeof files.$inferSelect;

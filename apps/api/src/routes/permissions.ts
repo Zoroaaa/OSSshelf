@@ -10,7 +10,7 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, inArray, like, isNull, or } from 'drizzle-orm';
+import { eq, and, inArray, like, isNull } from 'drizzle-orm';
 import { getDb, files, filePermissions, users, fileTags, userGroups, groupMembers } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES, logger } from '@osshelf/shared';

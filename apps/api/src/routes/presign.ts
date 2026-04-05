@@ -38,7 +38,7 @@ import {
   s3UploadPart,
   type MultipartPart,
 } from '../lib/s3client';
-import { resolveBucketConfig, updateBucketStats, updateUserStorage, checkBucketQuota } from '../lib/bucketResolver';
+import { resolveBucketConfig, updateBucketStats, updateUserStorage } from '../lib/bucketResolver';
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 import { getUserOrFail, encodeFilename } from '../lib/utils';
 import { computeSha256Hex, checkAndClaimDedup, releaseFileRef } from '../lib/dedup';
@@ -48,24 +48,6 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
 
 // ── Validation schemas ─────────────────────────────────────────────────────
-
-const presignUploadSchema = z.object({
-  fileName: z.string().min(1, '文件名不能为空').max(1024),
-  fileSize: z.number().int().min(1).max(MAX_FILE_SIZE),
-  mimeType: z.string().optional().default('application/octet-stream'),
-  parentId: z.string().nullable().optional(),
-  bucketId: z.string().nullable().optional(),
-});
-
-const presignConfirmSchema = z.object({
-  fileId: z.string().min(1),
-  fileName: z.string().min(1).max(1024),
-  fileSize: z.number().int().min(1),
-  mimeType: z.string().optional().default('application/octet-stream'),
-  parentId: z.string().nullable().optional(),
-  r2Key: z.string().min(1),
-  bucketId: z.string().nullable().optional(),
-});
 
 const multipartInitSchema = z.object({
   fileName: z.string().min(1).max(1024),
@@ -112,154 +94,6 @@ const multipartAbortSchema = z.object({
 /** 1-hour presign window for upload, 6-hour for download (large files take time) */
 const UPLOAD_EXPIRY = 3600;
 const DOWNLOAD_EXPIRY = 21600;
-
-// ── POST /api/presign/upload ───────────────────────────────────────────────
-// Phase 1: Return a presigned PUT URL. The browser uploads directly.
-// Phase 2: Browser calls /confirm after a successful upload.
-
-app.post('/upload', async (c) => {
-  const userId = c.get('userId')!;
-  const body = await c.req.json();
-  const result = presignUploadSchema.safeParse(body);
-  if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
-      400
-    );
-  }
-
-  const { fileName, fileSize, mimeType, parentId, bucketId: requestedBucketId } = result.data;
-  const db = getDb(c.env.DB);
-  const encKey = getEncryptionKey(c.env);
-
-  const mimeCheck = await checkFolderMimeTypeRestriction(db, parentId, mimeType);
-  if (!mimeCheck.allowed) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.VALIDATION_ERROR,
-          message: `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
-        },
-      },
-      400
-    );
-  }
-
-  const user = await getUserOrFail(db, userId);
-  if (user.storageUsed + fileSize > user.storageQuota) {
-    throwAppError('STORAGE_EXCEEDED', '用户存储配额已满');
-  }
-
-  const bucketConfig = await resolveBucketConfig(db, userId, encKey, requestedBucketId, parentId);
-
-  // No S3 config → tell frontend to use the proxy upload route
-  if (!bucketConfig) {
-    return c.json({ success: true, data: { useProxy: true } });
-  }
-
-  // Telegram 桶不支持预签名上传，让前端使用代理上传
-  if (bucketConfig.provider === 'telegram') {
-    return c.json({ success: true, data: { useProxy: true, bucketId: bucketConfig.id } });
-  }
-
-  // Check per-bucket quota
-  const quotaErr = await checkBucketQuota(db, bucketConfig.id, fileSize);
-  if (quotaErr) {
-    throwAppError('STORAGE_EXCEEDED', quotaErr);
-  }
-
-  const fileId = crypto.randomUUID();
-  const r2Key = `files/${userId}/${fileId}/${encodeFilename(fileName)}`;
-
-  const uploadUrl = await s3PresignUrl(bucketConfig, 'PUT', r2Key, UPLOAD_EXPIRY, mimeType);
-
-  return c.json({
-    success: true,
-    data: {
-      uploadUrl,
-      fileId,
-      r2Key,
-      bucketId: bucketConfig.id,
-      expiresIn: UPLOAD_EXPIRY,
-    },
-  });
-});
-
-// ── POST /api/presign/confirm ──────────────────────────────────────────────
-// Called by the browser after a successful direct PUT upload.
-// Creates the DB record and updates storage stats.
-
-app.post('/confirm', async (c) => {
-  const userId = c.get('userId')!;
-  const body = await c.req.json();
-  const result = presignConfirmSchema.safeParse(body);
-  if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
-      400
-    );
-  }
-
-  const { fileId, fileName, fileSize, mimeType, parentId, r2Key, bucketId } = result.data;
-  const db = getDb(c.env.DB);
-
-  // Guard: check file ID not already used (idempotency protection)
-  const existing = await db.select().from(files).where(eq(files.id, fileId)).get();
-  if (existing) {
-    return c.json({ success: true, data: { id: existing.id, name: existing.name, alreadyConfirmed: true } });
-  }
-
-  const now = new Date().toISOString();
-  const path = parentId ? `${parentId}/${fileName}` : `/${fileName}`;
-
-  // Note: presign confirm receives the final hash from client (or null if unsupported).
-  // Server-side hash computation is not possible here since the file was uploaded directly
-  // to S3. We record the hash as provided; dedup on confirm path is best-effort.
-  await db.insert(files).values({
-    id: fileId,
-    userId,
-    parentId: parentId || null,
-    name: fileName,
-    path,
-    type: 'file',
-    size: fileSize,
-    r2Key,
-    mimeType: mimeType || null,
-    hash: null,
-    refCount: 1,
-    isFolder: false,
-    bucketId: bucketId || null,
-    createdAt: now,
-    updatedAt: now,
-    deletedAt: null,
-  });
-
-  // Update user storage usage (atomic SQL, no read-then-write)
-  await updateUserStorage(db, userId, fileSize);
-
-  // Update bucket stats
-  if (bucketId) {
-    await updateBucketStats(db, bucketId, fileSize, 1);
-  }
-
-  c.executionCtx.waitUntil(
-    (async () => {
-      try {
-        if (await isAIConfigured(c.env)) {
-          await autoProcessFile(c.env, fileId);
-        }
-      } catch (error) {
-        logger.error('PRESIGN', '自动处理文件失败', { fileId }, error);
-      }
-    })()
-  );
-
-  return c.json({
-    success: true,
-    data: { id: fileId, name: fileName, size: fileSize, mimeType, path, bucketId: bucketId || null, createdAt: now },
-  });
-});
 
 // ── POST /api/presign/multipart/init ──────────────────────────────────────
 // Start a multipart upload. Returns UploadId + presigned part URL for part 1.

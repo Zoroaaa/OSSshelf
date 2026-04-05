@@ -10,8 +10,8 @@
  * - cron 执行结果 Telegram 告警
  */
 
-import { eq, and, isNotNull, lt } from 'drizzle-orm';
-import { getDb, files, users, shares, uploadTasks, loginAttempts, userDevices, auditLogs } from '../db';
+import { eq, and, or, isNotNull, lt } from 'drizzle-orm';
+import { getDb, files, users, shares, uploadTasks, loginAttempts, userDevices, auditLogs, searchHistory, notifications, aiTasks } from '../db';
 import { TRASH_RETENTION_DAYS, DEVICE_SESSION_EXPIRY, logger, logCleanupError } from '@osshelf/shared';
 import type { Env } from '../types/env';
 import { getAuditRetentionDays, hasTelegramAlert } from '../types/env';
@@ -34,6 +34,11 @@ interface CleanupResult {
   };
   audit: {
     cleaned: number;
+  };
+  data: {
+    searchHistoryCleaned: number;
+    notificationsCleaned: number;
+    aiTasksCleaned: number;
   };
 }
 
@@ -64,6 +69,7 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
     sessions: { uploadTasksExpired: 0, loginAttemptsCleaned: 0, devicesCleaned: 0 },
     shares: { sharesCleaned: 0 },
     audit: { cleaned: 0 },
+    data: { searchHistoryCleaned: 0, notificationsCleaned: 0, aiTasksCleaned: 0 },
   };
 
   const failures: string[] = [];
@@ -100,11 +106,19 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
     failures.push(`审计日志清理: ${msg}`);
   }
 
+  try {
+    result.data = await runDataCleanup(db);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    logCleanupError('数据', error);
+    failures.push(`数据清理: ${msg}`);
+  }
+
   if (failures.length > 0) {
     const alertMsg =
       `⚠️ <b>OSSshelf Cron 告警</b>\n` +
       `时间：${startedAt}\n` +
-      `失败任务（${failures.length}/${4}）：\n` +
+      `失败任务（${failures.length}/5）：\n` +
       failures.map((f) => `• ${f}`).join('\n');
     await sendCronAlert(env, alertMsg);
   } else {
@@ -115,7 +129,8 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
       `• 回收站：删除 ${result.trash.deletedCount} 文件，释放 ${mb} MB\n` +
       `• 会话：清理 ${result.sessions.uploadTasksExpired} 上传任务，${result.sessions.devicesCleaned} 设备\n` +
       `• 分享：清理 ${result.shares.sharesCleaned} 条\n` +
-      `• 审计日志：清理 ${result.audit.cleaned} 条`;
+      `• 审计日志：清理 ${result.audit.cleaned} 条\n` +
+      `• 数据：清理 ${result.data.searchHistoryCleaned} 搜索历史，${result.data.notificationsCleaned} 通知，${result.data.aiTasksCleaned} AI任务`;
     await sendCronAlert(env, summaryMsg);
   }
 
@@ -257,4 +272,45 @@ async function runAuditLogCleanup(db: ReturnType<typeof getDb>, env: Env): Promi
   logger.info('CLEANUP', `审计日志清理完成: ${deleted.length} 条 (保留 ${retentionDays} 天)`);
 
   return { cleaned: deleted.length };
+}
+
+async function runDataCleanup(
+  db: ReturnType<typeof getDb>
+): Promise<{ searchHistoryCleaned: number; notificationsCleaned: number; aiTasksCleaned: number }> {
+  const searchRetentionDays = 30;
+  const searchThreshold = new Date(Date.now() - searchRetentionDays * 86_400_000).toISOString();
+  const oldSearchHistory = await db
+    .delete(searchHistory)
+    .where(lt(searchHistory.createdAt, searchThreshold))
+    .returning({ id: searchHistory.id });
+
+  const notificationRetentionDays = 30;
+  const notificationThreshold = new Date(Date.now() - notificationRetentionDays * 86_400_000).toISOString();
+  const oldNotifications = await db
+    .delete(notifications)
+    .where(and(eq(notifications.isRead, true), lt(notifications.createdAt, notificationThreshold)))
+    .returning({ id: notifications.id });
+
+  const aiTaskRetentionDays = 7;
+  const aiTaskThreshold = new Date(Date.now() - aiTaskRetentionDays * 86_400_000).toISOString();
+  const completedAiTasks = await db
+    .delete(aiTasks)
+    .where(
+      and(
+        or(eq(aiTasks.status, 'completed'), eq(aiTasks.status, 'failed'), eq(aiTasks.status, 'cancelled')),
+        lt(aiTasks.updatedAt, aiTaskThreshold)
+      )
+    )
+    .returning({ id: aiTasks.id });
+
+  logger.info(
+    'CLEANUP',
+    `数据清理完成: ${oldSearchHistory.length} 搜索历史, ${oldNotifications.length} 通知, ${completedAiTasks.length} AI任务`
+  );
+
+  return {
+    searchHistoryCleaned: oldSearchHistory.length,
+    notificationsCleaned: oldNotifications.length,
+    aiTasksCleaned: completedAiTasks.length,
+  };
 }

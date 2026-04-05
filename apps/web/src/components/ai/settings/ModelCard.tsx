@@ -9,9 +9,29 @@
  */
 
 import { useState } from 'react';
-import { Cloud, Zap, Cpu, Edit2, Trash2, Check, ChevronDown, ChevronUp, Loader2, PlayCircle, XCircle, CheckCircle } from 'lucide-react';
+import {
+  Cloud,
+  Zap,
+  Cpu,
+  Edit2,
+  Trash2,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  PlayCircle,
+  XCircle,
+  CheckCircle,
+} from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import type { AiModel } from '@/services/api';
+
+function formatMaxTokens(tokens: number): string {
+  if (tokens >= 1000) {
+    return `${(tokens / 1000).toFixed(tokens % 1000 === 0 ? 0 : 1)}K`;
+  }
+  return String(tokens);
+}
 
 interface ModelCardProps {
   model: AiModel;
@@ -58,7 +78,9 @@ export function ModelCard({
   const currentTestResult = testResult?.modelId === model.id ? testResult : null;
 
   return (
-    <div className={`border rounded-lg transition-all ${model.isActive ? 'border-primary bg-primary/5' : 'hover:border-primary/30'}`}>
+    <div
+      className={`border rounded-lg transition-all ${model.isActive ? 'border-primary bg-primary/5' : 'hover:border-primary/30'}`}
+    >
       <div className="p-3 sm:p-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -93,11 +115,7 @@ export function ModelCard({
                 disabled={isTesting}
                 className="text-xs"
               >
-                {isTesting ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <PlayCircle className="h-3 w-3" />
-                )}
+                {isTesting ? <Loader2 className="h-3 w-3 animate-spin" /> : <PlayCircle className="h-3 w-3" />}
                 <span className="ml-1 hidden sm:inline">测试</span>
               </Button>
             )}
@@ -115,11 +133,13 @@ export function ModelCard({
 
         {/* 测试结果展示 */}
         {currentTestResult && (
-          <div className={`mt-3 p-3 rounded-lg text-sm ${
-            currentTestResult.valid
-              ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
-              : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
-          }`}>
+          <div
+            className={`mt-3 p-3 rounded-lg text-sm ${
+              currentTestResult.valid
+                ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
+                : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
+            }`}
+          >
             <div className="flex items-center gap-2 mb-2">
               {currentTestResult.valid ? (
                 <>
@@ -133,9 +153,7 @@ export function ModelCard({
                 </>
               )}
               {currentTestResult.latencyMs && (
-                <span className="text-xs text-muted-foreground ml-auto">
-                  响应时间: {currentTestResult.latencyMs}ms
-                </span>
+                <span className="text-xs text-muted-foreground ml-auto">响应时间: {currentTestResult.latencyMs}ms</span>
               )}
             </div>
             {currentTestResult.response && (
@@ -158,7 +176,7 @@ export function ModelCard({
               </div>
               <div>
                 <span className="text-muted-foreground">最大 Token：</span>
-                <span className="font-medium">{model.maxTokens.toLocaleString()}</span>
+                <span className="font-medium">{formatMaxTokens(model.maxTokens)}</span>
               </div>
               <div>
                 <span className="text-muted-foreground">温度：</span>

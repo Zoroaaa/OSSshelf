@@ -15,24 +15,115 @@
  */
 
 import type { Env } from '../../types/env';
-import { getDb, files } from '../../db';
+import { getDb, files, telegramFileRefs, storageBuckets } from '../../db';
 import { eq } from 'drizzle-orm';
 import { getFileContent } from '../utils';
+import { getEncryptionKey } from '../crypto';
 import { isEditableFile, logger, logAiError } from '@osshelf/shared';
 import { indexFileVector, buildFileTextForVector } from '../vectorIndex';
+import { createTaskRecord } from '../aiTaskQueue';
 import { ModelGateway } from './modelGateway';
-import type { ChatCompletionRequest } from './types';
+import type { ChatCompletionRequest, ModelConfig } from './types';
+import { tgDownloadFile, type TelegramBotConfig } from '../telegramClient';
+import { tgDownloadChunked, isChunkedFileId } from '../telegramChunked';
+import { decryptSecret } from '../s3client';
+import { initializeAiConfig, getAiConfigString, getAiConfigNumber, getAiConfigBoolean } from './aiConfigService';
+import { uint8ArrayToBase64, fetchFileBuffer, buildVisionMessageContent } from './utils';
+import type { AiFeatureType } from './types';
 
-const SUMMARY_CONTENT_LIMIT = 8192;
-const RENAME_CONTENT_LIMIT = 4096;
+const DEFAULT_SUMMARY_CONTENT_LIMIT = 8192;
+const DEFAULT_RENAME_CONTENT_LIMIT = 4096;
 
-// 默认模型 ID（当用户未配置时使用）
-const DEFAULT_MODELS = {
-  summary: '@cf/meta/llama-3.1-8b-instruct',
-  imageCaption: '@cf/llava-hf/llava-1.5-7b-hf',
-  imageTag: '@cf/microsoft/resnet-50',
-  rename: '@cf/meta/llama-3.1-8b-instruct',
-} as const;
+async function getContentLimits(env: Env): Promise<{ summary: number; rename: number }> {
+  try {
+    const summaryLimit = await getAiConfigNumber(env, 'ai.summary.content_limit', DEFAULT_SUMMARY_CONTENT_LIMIT);
+    const renameLimit = await getAiConfigNumber(env, 'ai.rename.content_limit', DEFAULT_RENAME_CONTENT_LIMIT);
+    return { summary: summaryLimit, rename: renameLimit };
+  } catch {
+    return { summary: DEFAULT_SUMMARY_CONTENT_LIMIT, rename: DEFAULT_RENAME_CONTENT_LIMIT };
+  }
+}
+
+const SUMMARY_PROMPTS: Record<string, string> = {
+  default: '你是文件助手。请用简洁的中文（不超过3句话）概括文件主要内容。',
+  code: '你是代码分析助手。请概括以下代码的功能、主要类/函数/接口、核心逻辑。（不超过4句话）',
+  markdown: '你是技术文档助手。请概括 Markdown 文档的结构、主要章节和核心内容。（不超过3句话）',
+  data: '你是数据分析助手。请概括数据/配置文件的结构、关键字段和主要内容。（不超过3句话）',
+};
+
+async function getSummaryPromptFromConfig(env: Env): Promise<Record<string, string>> {
+  try {
+    const defaultPrompt = await getAiConfigString(env, 'ai.summary.prompt.default', SUMMARY_PROMPTS.default);
+    const codePrompt = await getAiConfigString(env, 'ai.summary.prompt.code', SUMMARY_PROMPTS.code);
+    const markdownPrompt = await getAiConfigString(env, 'ai.summary.prompt.markdown', SUMMARY_PROMPTS.markdown);
+    const dataPrompt = await getAiConfigString(env, 'ai.summary.prompt.data', SUMMARY_PROMPTS.data);
+
+    return {
+      default: defaultPrompt,
+      code: codePrompt,
+      markdown: markdownPrompt,
+      data: dataPrompt,
+    };
+  } catch (error) {
+    logger.warn('AI', 'Failed to load prompts from config, using defaults');
+    return SUMMARY_PROMPTS;
+  }
+}
+
+function getSummaryPrompt(mimeType: string | null, fileName: string): string {
+  const ext = fileName.split('.').pop()?.toLowerCase() || '';
+  
+  const codeExts = [
+    'js', 'jsx', 'ts', 'tsx', 'py', 'java', 'go', 'rs', 'c', 'cpp', 'h', 'hpp',
+    'cs', 'rb', 'php', 'swift', 'kt', 'scala', 'r', 'sql', 'sh', 'bash',
+    'html', 'htm', 'css', 'scss', 'less', 'vue', 'svelte',
+  ];
+  
+  const dataExts = ['json', 'xml', 'yaml', 'yml', 'toml', 'ini', 'env'];
+
+  if (ext === 'md' || ext === 'markdown') {
+    return SUMMARY_PROMPTS.markdown;
+  }
+  
+  if (codeExts.includes(ext)) {
+    return SUMMARY_PROMPTS.code;
+  }
+  
+  if (dataExts.includes(ext)) {
+    return SUMMARY_PROMPTS.data;
+  }
+  
+  if (mimeType === 'application/json' || mimeType === 'application/xml' ||
+      mimeType === 'application/javascript' || mimeType?.includes('yaml')) {
+    return SUMMARY_PROMPTS.data;
+  }
+  
+  if (mimeType?.startsWith('text/') && mimeType !== 'text/plain') {
+    return SUMMARY_PROMPTS.code;
+  }
+
+  return SUMMARY_PROMPTS.default;
+}
+
+// 默认模型 ID（当用户未配置时使用）- 现在从配置表读取
+async function getDefaultModels(env: Env): Promise<Record<string, string>> {
+  try {
+    return {
+      summary: await getAiConfigString(env, 'ai.default_model.summary', '@cf/meta/llama-3.1-8b-instruct'),
+      imageCaption: await getAiConfigString(env, 'ai.default_model.image_caption', '@cf/llava-hf/llava-1.5-7b-hf'),
+      imageTag: await getAiConfigString(env, 'ai.default_model.image_tag', '@cf/llava-hf/llava-1.5-7b-hf'),
+      rename: await getAiConfigString(env, 'ai.default_model.rename', '@cf/meta/llama-3.1-8b-instruct'),
+    };
+  } catch (error) {
+    logger.warn('AI', 'Failed to load default models from config, using hardcoded fallback');
+    return {
+      summary: '@cf/meta/llama-3.1-8b-instruct',
+      imageCaption: '@cf/llava-hf/llava-1.5-7b-hf',
+      imageTag: '@cf/llava-hf/llava-1.5-7b-hf',
+      rename: '@cf/meta/llama-3.1-8b-instruct',
+    };
+  }
+}
 
 export interface SummaryResult {
   summary: string;
@@ -48,15 +139,26 @@ export interface RenameSuggestion {
   suggestions: string[];
 }
 
-// 功能类型定义
-export type AiFeatureType = 'summary' | 'imageCaption' | 'imageTag' | 'rename';
-
 // 功能级模型配置接口
 export interface FeatureModelConfig {
-  summary?: string;      // 文件摘要模型 ID
-  imageCaption?: string; // 图片描述模型 ID
-  imageTag?: string;     // 图片标签模型 ID
-  rename?: string;       // 智能重命名模型 ID
+  summary?: string;
+  imageCaption?: string;
+  imageTag?: string;
+  rename?: string;
+}
+
+// AiFeatureType 到 FeatureModelConfig 键名的映射
+function mapFeatureTypeToConfigKey(featureType: string): keyof FeatureModelConfig {
+  const mapping: Record<string, keyof FeatureModelConfig> = {
+    file_summary: 'summary',
+    summary: 'summary',
+    image_caption: 'imageCaption',
+    image_tag: 'imageTag',
+    image_analysis: 'imageCaption',
+    chat: 'summary',
+    rename: 'rename',
+  };
+  return mapping[featureType] || 'summary';
 }
 
 export function canGenerateSummary(mimeType: string | null, fileName: string): boolean {
@@ -68,7 +170,7 @@ export function isImageFile(mimeType: string | null): boolean {
 }
 
 export function isAIConfigured(env: Env): boolean {
-  return !!(env.AI && env.VECTORIZE);
+  return !!(env.AI || env.VECTORIZE);
 }
 
 /**
@@ -78,11 +180,11 @@ async function getFeatureModelConfig(env: Env, userId: string): Promise<FeatureM
   try {
     const configKey = `ai:feature-model-config:${userId}`;
     const cached = await env.KV.get(configKey, 'json');
-    
+
     if (cached) {
       return cached as FeatureModelConfig;
     }
-    
+
     return {};
   } catch (error) {
     logger.error('AI', 'Failed to get feature model config', { userId }, error);
@@ -92,117 +194,261 @@ async function getFeatureModelConfig(env: Env, userId: string): Promise<FeatureM
 
 /**
  * 通过 ModelGateway 调用聊天模型（统一入口）
+ * 智能识别模型类型，支持自定义模型和 Workers AI
  */
 async function callChatModel(
   env: Env,
   userId: string,
   featureType: AiFeatureType,
-  request: ChatCompletionRequest
+  request: ChatCompletionRequest,
+  signal?: AbortSignal
 ): Promise<string> {
   const gateway = new ModelGateway(env);
-  
-  // 获取该功能的自定义模型配置
+  const defaultModels = await getDefaultModels(env);
   const featureConfig = await getFeatureModelConfig(env, userId);
-  const customModelId = featureConfig[featureType];
-  
+  const configKey = mapFeatureTypeToConfigKey(featureType);
+  const customModelId = featureConfig[configKey];
+  const effectiveModelId = customModelId || defaultModels[configKey] || defaultModels.summary;
+
+  const resolved = await gateway.resolveModelForCall(userId, effectiveModelId);
+
   try {
-    // 尝试使用用户配置的自定义模型或默认活跃模型
-    const response = await gateway.chatCompletion(userId, request, customModelId);
-    return response.content;
-  } catch (error) {
-    // 如果失败，尝试使用 Workers AI 默认模型作为最终回退
-    logger.warn('AI', 'Custom model failed, falling back to default', { featureType, error });
-    
-    const defaultModelId = DEFAULT_MODELS[featureType] || DEFAULT_MODELS.summary;
-    
-    // 直接调用 Workers AI（绕过 Gateway 的配置检查）
+    if (resolved.type === 'custom') {
+      const response = await gateway.chatCompletion(userId, { ...request, featureType }, effectiveModelId, signal);
+      return response.content;
+    }
+
     if (env.AI) {
-      const fallbackResponse = await (env.AI as any).run(defaultModelId, {
+      const fallbackResponse = await (env.AI as any).run(effectiveModelId, {
         messages: request.messages,
         max_tokens: request.maxTokens || 200,
         stream: false,
       });
-      
+
+      if (signal?.aborted) {
+        throw new DOMException('The operation was aborted', 'AbortError');
+      }
+
       return (fallbackResponse as { response?: string }).response?.trim() || '';
     }
-    
+
+    throw new Error('AI service not available');
+  } catch (error) {
+    if ((error as Error).name === 'AbortError') {
+      throw error;
+    }
+
+    if (signal?.aborted) {
+      throw new DOMException('The operation was aborted', 'AbortError');
+    }
+
+    logger.error('AI', 'Chat model call failed', { featureType, modelId: effectiveModelId }, error);
     throw error;
   }
 }
 
 /**
  * 调用图片理解模型（支持 vision 能力）
+ * 智能识别模型类型：
+ * - 如果模型ID在用户的 ai_models 表中 → 通过 ModelGateway 调用
+ * - 否则 → 假设是 Workers AI 模型，用 env.AI.run() 调用
  */
 async function callVisionModel(
   env: Env,
   userId: string,
-  modelId: string,
+  defaultModelId: string,
   imageData: number[],
-  prompt: string
+  prompt: string,
+  mimeType: string = 'image/jpeg'
 ): Promise<string> {
   const gateway = new ModelGateway(env);
   const featureConfig = await getFeatureModelConfig(env, userId);
-  const customModelId = featureConfig.imageCaption;
-  
+  const effectiveModelId = featureConfig.imageCaption || defaultModelId;
+
+  const visionGateway = new ModelGateway(env);
+  const resolved = await visionGateway.resolveModelForCall(userId, effectiveModelId);
+
   try {
-    if (customModelId && env.AI) {
-      // 使用用户配置的自定义 vision 模型
-      const response = await (env.AI as any).run(customModelId, {
-        image: imageData,
-        prompt,
-        max_tokens: 300,
-      });
-      
-      return (response as { description?: string; response?: string }).description?.trim() 
-        || (response as { response?: string }).response?.trim() 
-        || '';
+    if (resolved.type === 'custom') {
+      const customModel = resolved.config;
+      if (customModel.provider === 'openai_compatible') {
+        if (!customModel.capabilities.includes('vision')) {
+          logger.warn('AI', 'Custom model does not support vision, falling back to Workers AI', {
+            modelId: effectiveModelId,
+            capabilities: customModel.capabilities,
+          });
+          return await callWorkersAiVision(env, defaultModelId, imageData, prompt);
+        }
+        const base64Image = uint8ArrayToBase64(imageData);
+        const response = await gateway.chatCompletion(
+          userId,
+          {
+            messages: [
+              {
+                role: 'user',
+                content: buildVisionMessageContent(base64Image, mimeType, prompt),
+              },
+            ],
+            maxTokens: 2048,
+            featureType: 'image_caption',
+          },
+          effectiveModelId
+        );
+        return response.content.trim() || '';
+      } else if (env.AI) {
+        const uint8Array = new Uint8Array(imageData);
+        const response = await (env.AI as any).run(effectiveModelId, {
+          image: uint8Array,
+          prompt,
+          max_tokens: 2048,
+        });
+        return (
+          (response as { description?: string; response?: string }).description?.trim() ||
+          (response as { response?: string }).response?.trim() ||
+          ''
+        );
+      }
     }
-    
-    // 使用默认模型
-    if (env.AI) {
-      const response = await (env.AI as any).run(modelId, {
-        image: imageData,
-        prompt,
-        max_tokens: 300,
-      });
-      
-      return (response as { description?: string }).description?.trim() || '';
-    }
-    
-    throw new Error('AI service not available');
+
+    return await callWorkersAiVision(env, effectiveModelId, imageData, prompt);
   } catch (error) {
-    logger.error('AI', 'Vision model call failed', { modelId }, error);
+    logger.error('AI', 'Vision model call failed', { modelId: effectiveModelId }, error);
     throw error;
   }
 }
 
-/**
- * 调用图片分类模型（生成标签）
- */
-async function callClassificationModel(
+async function callWorkersAiVision(
   env: Env,
   modelId: string,
-  imageData: number[]
-): Promise<unknown> {
+  imageData: number[],
+  prompt: string
+): Promise<string> {
   if (!env.AI) {
-    throw new Error('AI service not configured');
+    throw new Error('AI service not available');
   }
-
-  return await (env.AI as any).run(modelId, {
+  const response = await (env.AI as any).run(modelId, {
     image: imageData,
+    prompt,
+    max_tokens: 300,
   });
+  return (response as { description?: string }).description?.trim() || '';
+}
+
+const IMAGE_TAG_PROMPT = `请分析这张图片，生成5-8个描述性标签。
+
+要求：
+1. 标签应该描述图片的主要内容、物体、场景、颜色、风格等
+2. 每个标签2-6个字，使用中文
+3. 只输出标签，用逗号分隔，不要其他任何内容
+4. 示例格式：风景,山脉,日落,自然,户外,宁静`;
+
+/**
+ * 调用视觉模型生成图片标签
+ * 智能识别模型类型，支持自定义模型和 Workers AI
+ */
+async function callVisionModelForTags(
+  env: Env,
+  userId: string,
+  defaultModelId: string,
+  imageData: number[],
+  mimeType: string = 'image/jpeg'
+): Promise<string[]> {
+  const gateway = new ModelGateway(env);
+  const featureConfig = await getFeatureModelConfig(env, userId);
+  const effectiveModelId = featureConfig.imageTag || defaultModelId;
+
+  const resolved = await gateway.resolveModelForCall(userId, effectiveModelId);
+
+  try {
+    if (resolved.type === 'custom') {
+      const customModel = resolved.config;
+      if (customModel.provider === 'openai_compatible') {
+        if (!customModel.capabilities.includes('vision')) {
+          logger.warn('AI', 'Custom model does not support vision for tags, falling back to Workers AI', {
+            modelId: effectiveModelId,
+            capabilities: customModel.capabilities,
+          });
+          return await callWorkersAiVisionForTags(env, defaultModelId, imageData);
+        }
+        const base64Image = uint8ArrayToBase64(imageData);
+        const response = await gateway.chatCompletion(
+          userId,
+          {
+            messages: [
+              {
+                role: 'user',
+                content: buildVisionMessageContent(base64Image, mimeType, IMAGE_TAG_PROMPT),
+              },
+            ],
+            maxTokens: 1024,
+            featureType: 'image_tag',
+          },
+          effectiveModelId
+        );
+        return parseTagsFromText(response.content);
+      } else if (env.AI) {
+        const uint8Array = new Uint8Array(imageData);
+        const response = await (env.AI as any).run(effectiveModelId, {
+          image: uint8Array,
+          prompt: IMAGE_TAG_PROMPT,
+          max_tokens: 1024,
+        });
+        const text =
+          (response as { description?: string; response?: string }).description?.trim() ||
+          (response as { response?: string }).response?.trim() ||
+          '';
+        return parseTagsFromText(text);
+      }
+    }
+
+    return await callWorkersAiVisionForTags(env, effectiveModelId, imageData);
+  } catch (error) {
+    logger.error('AI', 'Vision model for tags call failed', { modelId: effectiveModelId }, error);
+    throw error;
+  }
+}
+
+async function callWorkersAiVisionForTags(env: Env, modelId: string, imageData: number[]): Promise<string[]> {
+  if (!env.AI) {
+    throw new Error('AI service not available');
+  }
+  const response = await (env.AI as any).run(modelId, {
+    image: imageData,
+    prompt: IMAGE_TAG_PROMPT,
+    max_tokens: 100,
+  });
+  const text = (response as { description?: string }).description?.trim() || '';
+  return parseTagsFromText(text);
+}
+
+/**
+ * 从文本中解析标签
+ */
+function parseTagsFromText(text: string): string[] {
+  if (!text) return [];
+
+  const tags = text
+    .split(/[,，、\n]/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2 && t.length <= 10)
+    .filter((t) => !/^\d+$/.test(t))
+    .filter((t) => !/^(标签|tag|tags)$/i.test(t));
+
+  return [...new Set(tags)].slice(0, 8);
 }
 
 export async function generateFileSummary(
   env: Env,
   fileId: string,
   content?: string,
-  userId?: string
+  userId?: string,
+  signal?: AbortSignal
 ): Promise<SummaryResult> {
   if (!env.AI) {
     throw new Error('AI service not configured');
   }
 
+  const contentLimits = await getContentLimits(env);
   const db = getDb(env.DB);
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
 
@@ -210,7 +456,7 @@ export async function generateFileSummary(
     throw new Error('File not found');
   }
 
-  const cacheKey = `ai:summary:${fileId}:${file.hash || file.updatedAt}`;
+  const cacheKey = `ai:summary:${fileId}:${file.hash || 'unknown'}`;
   const cached = await env.KV.get(cacheKey);
 
   if (cached) {
@@ -219,7 +465,7 @@ export async function generateFileSummary(
 
   let textContent = content;
   if (!textContent) {
-    textContent = await extractTextFromFile(env, file);
+    textContent = await extractTextFromFile(env, file, contentLimits.summary);
   }
 
   if (!textContent) {
@@ -230,7 +476,7 @@ export async function generateFileSummary(
     throw new Error('文件内容太短（少于50字符），无法生成摘要');
   }
 
-  const truncatedContent = textContent.slice(0, SUMMARY_CONTENT_LIMIT);
+  const truncatedContent = textContent.slice(0, contentLimits.summary);
 
   try {
     const summary = await callChatModel(
@@ -241,8 +487,7 @@ export async function generateFileSummary(
         messages: [
           {
             role: 'system',
-            content:
-              '你是文件助手。请用简洁的中文（不超过3句话）概括文件内容。如果内容是代码，请说明代码的主要功能。',
+            content: getSummaryPrompt(file.mimeType, file.name),
           },
           {
             role: 'user',
@@ -250,7 +495,8 @@ export async function generateFileSummary(
           },
         ],
         maxTokens: 200,
-      }
+      },
+      signal
     );
 
     await Promise.all([
@@ -284,7 +530,7 @@ export async function generateImageTags(
 
   let imageData = imageBuffer;
   if (!imageData) {
-    imageData = (await fetchFileContentAsBuffer(env, file)) ?? undefined;
+    imageData = (await fetchFileBuffer(env, file)) ?? undefined;
   }
 
   if (!imageData) {
@@ -292,17 +538,21 @@ export async function generateImageTags(
   }
 
   const uint8Array = new Uint8Array(imageData);
+  const effectiveUserId = userId || file.userId || 'default';
+  const defaultModels = await getDefaultModels(env);
+  const actualMimeType = file.mimeType || 'image/jpeg';
 
   try {
     const [captionResult, tagResult] = await Promise.allSettled([
       callVisionModel(
         env,
-        userId || file.userId || 'default',
-        DEFAULT_MODELS.imageCaption,
+        effectiveUserId,
+        defaultModels.imageCaption,
         Array.from(uint8Array),
-        'Describe this image in detail. If there is any text in the image, please transcribe it accurately. Respond in the same language as the text in the image, or in Chinese if no text is present.'
+        '请详细描述这张图片的内容，包括画面主体、颜色、构图等。如果有文字请准确转录。使用中文回答。',
+        actualMimeType
       ),
-      callClassificationModel(env, DEFAULT_MODELS.imageTag, Array.from(uint8Array)),
+      callVisionModelForTags(env, effectiveUserId, defaultModels.imageTag, Array.from(uint8Array), actualMimeType),
     ]);
 
     let caption = '';
@@ -312,7 +562,7 @@ export async function generateImageTags(
 
     let tags: string[] = [];
     if (tagResult.status === 'fulfilled') {
-      tags = parseImageTags(tagResult.value);
+      tags = tagResult.value;
     }
 
     const now = new Date().toISOString();
@@ -342,6 +592,7 @@ export async function suggestFileName(
     throw new Error('AI service not configured');
   }
 
+  const contentLimits = await getContentLimits(env);
   const db = getDb(env.DB);
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
 
@@ -360,7 +611,7 @@ export async function suggestFileName(
       textContent = await extractTextFromFile(env, file);
     }
     if (textContent && textContent.length >= 30) {
-      contextForAI = `文件内容（前${RENAME_CONTENT_LIMIT}字）：\n${textContent.slice(0, RENAME_CONTENT_LIMIT)}`;
+      contextForAI = `文件内容（前${contentLimits.rename}字）：\n${textContent.slice(0, contentLimits.rename)}`;
       isContentBased = true;
     } else {
       contextForAI = `文件类型：${file.mimeType || '未知'}`;
@@ -377,30 +628,25 @@ export async function suggestFileName(
   }
 
   try {
-    const responseText = await callChatModel(
-      env,
-      userId || file.userId || 'default',
-      'rename',
-      {
-        messages: [
-          {
-            role: 'system',
-            content: `你是文件命名助手。根据提供的信息，建议3个简洁、有意义的中文文件名。
+    const responseText = await callChatModel(env, userId || file.userId || 'default', 'rename', {
+      messages: [
+        {
+          role: 'system',
+          content: `你是文件命名助手。根据提供的信息，建议3个简洁、有意义的中文文件名。
 规则：
 1. 每个文件名不超过20个字
 2. 保留文件扩展名 ${ext || '（无扩展名）'}
 3. 每行一个文件名，不加编号、不加解释
 4. 文件名要能反映文件主要内容
 5. 只输出文件名，不输出其他任何内容`,
-          },
-          {
-            role: 'user',
-            content: `原文件名：${file.name}\n${contextForAI}`,
-          },
-        ],
-        maxTokens: 150,
-      }
-    );
+        },
+        {
+          role: 'user',
+          content: `原文件名：${file.name}\n${contextForAI}`,
+        },
+      ],
+      maxTokens: 150,
+    });
 
     const suggestions = responseText
       .split('\n')
@@ -434,33 +680,29 @@ export async function suggestFileNameFromContent(
     throw new Error('文件内容太短（少于30字符），无法生成命名建议');
   }
 
+  const contentLimits = await getContentLimits(env);
   const ext = extension || '';
 
   try {
-    const responseText = await callChatModel(
-      env,
-      userId || 'default',
-      'rename',
-      {
-        messages: [
-          {
-            role: 'system',
-            content: `你是文件命名助手。根据提供的文件内容，建议3个简洁、有意义的中文文件名。
+    const responseText = await callChatModel(env, userId || 'default', 'rename', {
+      messages: [
+        {
+          role: 'system',
+          content: `你是文件命名助手。根据提供的文件内容，建议3个简洁、有意义的中文文件名。
 规则：
 1. 每个文件名不超过20个字
 2. 保留文件扩展名 ${ext || '（无扩展名）'}
 3. 每行一个文件名，不加编号、不加解释
 4. 文件名要能反映文件主要内容
 5. 只输出文件名，不输出其他任何内容`,
-          },
-          {
-            role: 'user',
-            content: `文件类型：${mimeType || '未知'}\n文件内容（前${RENAME_CONTENT_LIMIT}字）：\n${content.slice(0, RENAME_CONTENT_LIMIT)}`,
-          },
-        ],
-        maxTokens: 150,
-      }
-    );
+        },
+        {
+          role: 'user',
+          content: `文件类型：${mimeType || '未知'}\n文件内容（前${contentLimits.rename}字）：\n${content.slice(0, contentLimits.rename)}`,
+        },
+      ],
+      maxTokens: 150,
+    });
 
     const suggestions = responseText
       .split('\n')
@@ -478,34 +720,31 @@ export async function suggestFileNameFromContent(
   }
 }
 
-async function extractTextFromFile(env: Env, file: typeof files.$inferSelect): Promise<string> {
+async function extractTextFromFile(env: Env, file: typeof files.$inferSelect, limit?: number): Promise<string> {
   if (!canGenerateSummary(file.mimeType, file.name)) {
     return '';
   }
 
   try {
-    const content = await fetchFileContentAsBuffer(env, file);
+    const content = await fetchFileBuffer(env, file);
     if (!content) return '';
 
     const decoder = new TextDecoder('utf-8');
-    return decoder.decode(content).slice(0, SUMMARY_CONTENT_LIMIT);
+    const contentLimit = limit || DEFAULT_SUMMARY_CONTENT_LIMIT;
+    return decoder.decode(content).slice(0, contentLimit);
   } catch (error) {
     logger.error('AI', '提取文件文本失败', { fileId: file.id }, error);
     return '';
   }
 }
 
-async function fetchFileContentAsBuffer(env: Env, file: typeof files.$inferSelect): Promise<ArrayBuffer | null> {
-  if (!file.bucketId || !file.r2Key) {
-    return null;
-  }
-
-  try {
-    return await getFileContent(env, file.bucketId, file.r2Key);
-  } catch (error) {
-    logger.error('AI', '获取文件内容失败', { fileId: file.id, r2Key: file.r2Key }, error);
-    return null;
-  }
+export async function resolveTgConfig(env: Env, bucketId: string): Promise<TelegramBotConfig | null> {
+  const db = getDb(env.DB);
+  const bucket = await db.select().from(storageBuckets).where(eq(storageBuckets.id, bucketId)).get();
+  if (!bucket || bucket.provider !== 'telegram') return null;
+  const encKey = getEncryptionKey(env);
+  const botToken = await decryptSecret(bucket.accessKeyId, encKey);
+  return { botToken, chatId: bucket.bucketName, apiBase: bucket.endpoint || undefined };
 }
 
 function parseImageTags(result: unknown): string[] {
@@ -530,7 +769,27 @@ function parseImageTags(result: unknown): string[] {
 }
 
 export async function autoProcessFile(env: Env, fileId: string, userId?: string): Promise<void> {
-  if (!env.AI) {
+  await enqueueAutoProcessFile(env, fileId, userId);
+}
+
+/**
+ * 将文件上传后的自动AI处理任务入队（推荐方式）
+ * 根据文件类型自动判断需要执行的任务：
+ * - 图片文件：tags（标签生成）+ summary（图片描述）
+ * - 可编辑文本文件：summary（摘要生成）
+ * - 所有已处理文件：index（向量索引，需 VECTORIZE 配置）
+ *
+ * 优先使用 Queue 异步执行（独立 Worker、自动重试、不受请求 CPU 时间限制），
+ * 无队列配置时降级为同步直接执行。
+ */
+export async function enqueueAutoProcessFile(env: Env, fileId: string, userId?: string): Promise<void> {
+  if (!isAIConfigured(env)) {
+    return;
+  }
+
+  const autoProcessEnabled = await getAiConfigBoolean(env, 'ai.feature.auto_process_enabled', true);
+  if (!autoProcessEnabled) {
+    logger.debug('AI', '自动处理功能已禁用', { fileId });
     return;
   }
 
@@ -542,24 +801,80 @@ export async function autoProcessFile(env: Env, fileId: string, userId?: string)
   }
 
   const effectiveUserId = userId || file.userId || 'default';
+  const taskId = crypto.randomUUID();
+
+  const taskTypes: Array<'index' | 'summary' | 'tags'> = [];
+
+  if (isImageFile(file.mimeType)) {
+    taskTypes.push('tags');
+  }
+
+  if (canGenerateSummary(file.mimeType, file.name)) {
+    taskTypes.push('summary');
+  }
+
+  const vectorIndexEnabled = await getAiConfigBoolean(env, 'ai.feature.vector_index_enabled', true);
+  if (env.VECTORIZE && taskTypes.length > 0 && vectorIndexEnabled) {
+    taskTypes.push('index');
+  }
+
+  if (taskTypes.length === 0) {
+    return;
+  }
+
+  if (env.AI_TASKS_QUEUE) {
+    try {
+      // 先创建 task 记录（processAiTaskMessage 会先查此记录，不存在则跳过）
+      // index 不单独入队 —— 由 tags/summary 各自完成后在 aiTaskQueue 里触发
+      const contentTaskTypes = taskTypes.filter((t) => t !== 'index') as Array<'summary' | 'tags'>;
+      if (contentTaskTypes.length === 0) return;
+
+      // 创建一个 task 记录，total = contentTaskTypes.length
+      // index 在所有内容任务完成后由队列处理器自动触发
+      const task = await createTaskRecord(env, contentTaskTypes[0], effectiveUserId, contentTaskTypes.length);
+      const taskId = task.id;
+
+      const messages = contentTaskTypes.map((type) => ({
+        body: {
+          type,
+          fileId,
+          userId: effectiveUserId,
+          taskId,
+          // 标记需要在完成后触发 index
+          triggerIndexOnComplete: env.VECTORIZE ? true : false,
+        } as import('../../types/env').AiTaskMessage,
+      }));
+
+      await env.AI_TASKS_QUEUE.sendBatch(messages);
+      logger.info('AI', '文件AI处理任务已入队', { fileId, taskTypes: contentTaskTypes, userId: effectiveUserId });
+      return;
+    } catch (error) {
+      logger.warn('AI', '队列发送失败，降级为同步处理', { fileId }, error);
+    }
+  }
+
+  await autoProcessFileDirect(env, file, effectiveUserId);
+}
+
+async function autoProcessFileDirect(env: Env, file: typeof files.$inferSelect, userId: string): Promise<void> {
   const tasks: Promise<void>[] = [];
 
   if (isImageFile(file.mimeType)) {
     tasks.push(
-      generateImageTags(env, fileId, undefined, effectiveUserId)
+      generateImageTags(env, file.id, undefined, userId)
         .then(() => {})
         .catch((error) => {
-          logAiError('自动图片标签', fileId, error);
+          logAiError('自动图片标签', file.id, error);
         })
     );
   }
 
   if (canGenerateSummary(file.mimeType, file.name)) {
     tasks.push(
-      generateFileSummary(env, fileId, undefined, effectiveUserId)
+      generateFileSummary(env, file.id, undefined, userId)
         .then(() => {})
         .catch((error) => {
-          logAiError('自动摘要', fileId, error);
+          logAiError('自动摘要', file.id, error);
         })
     );
   }
@@ -569,12 +884,12 @@ export async function autoProcessFile(env: Env, fileId: string, userId?: string)
 
     if (env.VECTORIZE) {
       try {
-        const text = await buildFileTextForVector(env, fileId);
+        const text = await buildFileTextForVector(env, file.id);
         if (text && text.trim().length > 0) {
-          await indexFileVector(env, fileId, text);
+          await indexFileVector(env, file.id, text);
         }
       } catch (error) {
-        logAiError('自动向量索引', fileId, error);
+        logAiError('自动向量索引', file.id, error);
       }
     }
   }

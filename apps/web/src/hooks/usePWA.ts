@@ -118,30 +118,3 @@ export function usePWA(): [PWAState, PWAActions] {
 
   return [state, { install, update, skipWaiting }];
 }
-
-export function registerServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', async () => {
-      try {
-        const registration = await navigator.serviceWorker.register('/sw.js', {
-          scope: '/',
-        });
-
-        console.log('Service Worker registered:', registration.scope);
-
-        registration.addEventListener('updatefound', () => {
-          const newWorker = registration.installing;
-          if (newWorker) {
-            newWorker.addEventListener('statechange', () => {
-              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                console.log('New content available, please refresh.');
-              }
-            });
-          }
-        });
-      } catch (error) {
-        console.error('Service Worker registration failed:', error);
-      }
-    });
-  }
-}

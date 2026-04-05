@@ -7,6 +7,7 @@ export { AISummaryCard } from './AISummaryCard';
 export { ImageTagsDisplay } from './ImageTagsDisplay';
 export { SmartRenameDialog } from './SmartRenameDialog';
 export { AIIndexButton } from './AIIndexButton';
+export { AIChatWidget } from './AIChatWidget';
 
 // 聊天页面可复用组件
 export { ChatMessageBubble, ChatInputBox, SuggestedQuestions } from './chat';

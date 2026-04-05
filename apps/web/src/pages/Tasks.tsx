@@ -108,7 +108,7 @@ export default function Tasks() {
   } = useQuery<UploadTask[]>({
     queryKey: ['tasks'],
     queryFn: () => tasksApi.list().then((r) => r.data.data ?? []),
-    refetchInterval: 5000,
+    refetchInterval: 10000,
   });
 
   const activeTasks = tasks.filter((t) => ['uploading', 'pending', 'paused'].includes(t.status));

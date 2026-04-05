@@ -1075,31 +1075,6 @@ export const webhooksApi = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Global Permissions (全局权限管理)
-// ─────────────────────────────────────────────────────────────────────────────
-export interface GlobalPermission {
-  id: string;
-  subjectType: 'user' | 'group';
-  subjectId: string | null;
-  subjectName: string;
-  fileId: string;
-  fileName: string;
-  filePath: string;
-  isFolder: boolean;
-  permission: 'read' | 'write' | 'admin';
-  expiresAt: string | null;
-  createdAt: string;
-}
-
-export const globalPermissionsApi = {
-  getAll: () => api.get<ApiResponse<{ permissions: GlobalPermission[] }>>('/api/permissions/all'),
-  revokeById: (permissionId: string) =>
-    api.delete<ApiResponse<{ message: string }>>(`/api/permissions/${permissionId}`),
-  update: (permissionId: string, data: { permission: 'read' | 'write' | 'admin'; expiresAt?: string }) =>
-    api.patch<ApiResponse<{ message: string }>>(`/api/permissions/${permissionId}`, data),
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
 // AI Features (AI 功能)
 // ─────────────────────────────────────────────────────────────────────────────
 export interface AIStatus {
@@ -1190,6 +1165,71 @@ export interface AIIndexStats {
   };
 }
 
+export interface AIIndexDiagnose {
+  vectorize: {
+    configured: boolean;
+    totalCount: number;
+    userCount: number;
+    sampleVectors: Array<{
+      id: string;
+      score: number;
+      metadata: Record<string, unknown>;
+    }>;
+  };
+  database: {
+    totalFiles: number;
+    indexedFiles: number;
+    filesWithSummary: number;
+    mismatchedFiles: string[];
+  };
+  testSearch: {
+    success: boolean;
+    resultCount: number;
+    sampleQuery: string;
+    error: string;
+  };
+}
+
+export interface AIIndexSample {
+  file: {
+    id: string;
+    name: string;
+    mimeType: string | null;
+    vectorIndexedAt: string | null;
+    aiSummary: string | null;
+  };
+  vectorize: {
+    found: boolean;
+    metadata: Record<string, unknown> | null;
+  } | null;
+  indexedText: string;
+}
+
+export interface VectorItem {
+  id: string;
+  name: string;
+  mimeType: string | null;
+  size: number | null;
+  vectorIndexedAt: string | null;
+  aiSummary: string | null;
+  vectorize: {
+    found: boolean;
+    metadata: Record<string, unknown> | null;
+  };
+  indexedTextLength: number;
+  indexedTextPreview: string;
+}
+
+export interface VectorListResponse {
+  vectors: VectorItem[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
 export const aiApi = {
   getStatus: () => api.get<ApiResponse<AIStatus>>('/api/ai/status'),
 
@@ -1220,7 +1260,8 @@ export const aiApi = {
 
   cancelIndexTask: () => api.delete<ApiResponse<{ message: string; task: AIIndexTask }>>('/api/ai/index/task'),
 
-  cancelSummarizeTask: () => api.delete<ApiResponse<{ message: string; task: AISummarizeTask }>>('/api/ai/summarize/batch'),
+  cancelSummarizeTask: () =>
+    api.delete<ApiResponse<{ message: string; task: AISummarizeTask }>>('/api/ai/summarize/batch'),
 
   cancelTagsTask: () => api.delete<ApiResponse<{ message: string; task: AITagsTask }>>('/api/ai/tags/batch'),
 
@@ -1234,7 +1275,26 @@ export const aiApi = {
 
   getTagsTask: () => api.get<ApiResponse<AITagsTask>>('/api/ai/tags/task'),
 
+  processSelected: (params: { fileIds: string[]; types: ('summary' | 'tags')[] }) =>
+    api.post<
+      ApiResponse<{
+        message: string;
+        task: AIIndexTask;
+        summaryCount: number;
+        tagsCount: number;
+      }>
+    >('/api/ai/process-selected', params),
+
   getIndexStats: () => api.get<ApiResponse<AIIndexStats>>('/api/ai/index/stats'),
+
+  getVectors: (params?: { page?: number; pageSize?: number; search?: string }) =>
+    api.get<ApiResponse<VectorListResponse>>('/api/ai/index/vectors', { params }),
+
+  deleteVector: (fileId: string) => api.delete<ApiResponse<{ message: string }>>(`/api/ai/index/vectors/${fileId}`),
+
+  getIndexDiagnose: () => api.get<ApiResponse<AIIndexDiagnose>>('/api/ai/index/diagnose'),
+
+  getIndexSample: (fileId: string) => api.get<ApiResponse<AIIndexSample>>(`/api/ai/index/sample/${fileId}`),
 
   chat: (query: string, options?: { scope?: string; folderId?: string; limit?: number }) =>
     api.post<
@@ -1249,7 +1309,8 @@ export const aiApi = {
 
   // 新增：AI配置管理
   config: {
-    getModels: () => api.get<ApiResponse<AiModel[]>>('/api/ai-config/models'),
+    getModels: (capability?: 'chat' | 'vision' | 'embedding') =>
+      api.get<ApiResponse<AiModel[]>>('/api/ai-config/models', { params: capability ? { capability } : {} }),
     getModel: (modelId: string) => api.get<ApiResponse<AiModel>>(`/api/ai-config/models/${modelId}`),
     createModel: (data: CreateAiModelParams) => api.post<ApiResponse<AiModel>>('/api/ai-config/models', data),
     updateModel: (modelId: string, data: Partial<CreateAiModelParams>) =>
@@ -1279,12 +1340,14 @@ export const aiApi = {
 
     // 功能级模型配置
     getFeatureConfig: () =>
-      api.get<ApiResponse<{
-        summary: string | null;
-        imageCaption: string | null;
-        imageTag: string | null;
-        rename: string | null;
-      }>>('/api/ai-config/feature-config'),
+      api.get<
+        ApiResponse<{
+          summary: string | null;
+          imageCaption: string | null;
+          imageTag: string | null;
+          rename: string | null;
+        }>
+      >('/api/ai-config/feature-config'),
 
     saveFeatureConfig: (data: {
       summary?: string | null;
@@ -1292,6 +1355,13 @@ export const aiApi = {
       imageTag?: string | null;
       rename?: string | null;
     }) => api.put<ApiResponse<{ message: string; config: any }>>('/api/ai-config/feature-config', data),
+
+    // AI系统配置（高级配置）
+    getSystemConfig: () => api.get<ApiResponse<AiSystemConfigItem[]>>('/api/ai-config/system-config'),
+    updateSystemConfig: (key: string, value: unknown) =>
+      api.put<ApiResponse<{ message: string; key: string }>>(`/api/ai-config/system-config/${key}`, { value }),
+    resetSystemConfig: (key: string) =>
+      api.post<ApiResponse<{ message: string; key: string }>>(`/api/ai-config/system-config/${key}/reset`),
   },
 
   // 新增：AI会话管理（增强版）
@@ -1313,7 +1383,19 @@ export const aiApi = {
         modelId?: string;
         maxFiles?: number;
         includeFileContent?: boolean;
-        onChunk: (chunk: { content: string; done: boolean; sessionId?: string }) => void;
+        onChunk: (chunk: {
+          content?: string;
+          done?: boolean;
+          sessionId?: string;
+          sources?: Array<{ id: string; name: string; mimeType: string | null; score: number }>;
+          error?: string;
+          toolStart?: boolean;
+          toolResult?: boolean;
+          toolName?: string;
+          toolCallId?: string;
+          args?: Record<string, unknown>;
+          result?: unknown;
+        }) => void;
         onError?: (error: Error) => void;
         signal?: AbortSignal;
       }
@@ -1371,6 +1453,25 @@ export const aiApi = {
 };
 
 // AI配置相关类型定义
+export interface AiSystemConfigItem {
+  id: string;
+  key: string;
+  category: string;
+  label: string;
+  description: string | null;
+  valueType: 'string' | 'number' | 'boolean' | 'json';
+  stringValue: string | null;
+  numberValue: number | null;
+  booleanValue: boolean;
+  jsonValue: string | null;
+  defaultValue: string;
+  isSystem: boolean;
+  isEditable: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AiModel {
   id: string;
   userId: string;
@@ -1463,7 +1564,6 @@ export interface AiChatMessage {
     mimeType: string | null;
     score: number;
   }>;
-  tokenCount?: number;
   modelUsed?: string;
   latencyMs?: number;
   createdAt: string;

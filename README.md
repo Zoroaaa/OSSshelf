@@ -46,7 +46,32 @@
 
 详细的版本更新日志请参阅 [CHANGELOG.md](CHANGELOG.md)。
 
-### 最新版本 v4.1.0 - AI 系统全面升级 🤖
+### 最新版本 v4.2.0 - AI Agent 引擎与系统配置 🚀
+
+**核心功能**：
+
+- 🤖 **Agent 引擎**：支持 Function Calling 工具调用、推理内容显示
+- ⚙️ **AI 系统配置**：可配置默认模型、参数、限制、重试策略、提示词模板
+- 📊 **向量库管理**：查看和删除向量索引，支持分页和搜索
+- 📈 **任务中心**：统一显示所有任务状态，实时进度监控
+- 💬 **全局 AI 聊天**：悬浮式 AI 聊天组件，支持会话切换
+- 🔧 **自定义模型**：支持任意 Workers AI 模型 ID
+
+**推理内容支持**：
+
+- DeepSeek R1 系列：显示完整推理过程
+- 智谱 GLM-4.5/4.6/4.7/5：支持 thinking 模式
+- 阿里 QwQ 系列：显示推理过程
+
+**SSE 流式响应增强**：
+
+- 新增 `reasoning` 事件类型（推理内容）
+- 新增 `toolStart` 事件类型（工具调用开始）
+- 新增 `toolResult` 事件类型（工具调用结果）
+
+详细说明请参阅 [docs/AI_FEATURES.md](docs/AI_FEATURES.md) 和 [docs/API_AI.md](docs/API_AI.md)。
+
+### 历史版本 v4.1.0 - AI 系统全面升级
 
 **核心功能**：
 
@@ -62,16 +87,6 @@
 - 三层模型回退机制
 - 功能级模型可配置化
 - Drizzle ORM camelCase 字段修复
-
-**新增 API 路由**：
-
-```
-/api/ai-config      # AI 配置管理（11 个端点）
-/api/ai-chat        # AI 对话系统（8 个端点）
-/api/ai             # AI 文件处理功能（增强）
-```
-
-详细说明请参阅 [docs/AI_FEATURES.md](docs/AI_FEATURES.md) 和 [docs/API_AI.md](docs/API_AI.md)。
 
 ### 历史版本 v4.0.0 - 邮件通知系统
 
@@ -175,10 +190,14 @@
 
 </details>
 
-- 🤖 **AI 功能 v4.1.0 全面升级**:
+- 🤖 **AI 功能 v4.2.0 全面升级**:
+  - Agent 引擎：支持 Function Calling 工具调用、推理内容显示
+  - AI 系统配置：可配置默认模型、参数、限制、重试策略、提示词模板
+  - 向量库管理：查看和删除向量索引，支持分页和搜索
+  - 任务中心：统一显示所有任务状态
+  - 全局 AI 聊天：悬浮式 AI 聊天组件
   - 多模型支持：Workers AI（9个模型）+ OpenAI 兼容 API
   - AI 对话系统：SSE 流式响应、会话管理、RAG 文件问答
-  - AI 配置中心：模型管理、功能级配置、一键启用、连接测试
   - 文件摘要生成（可配置专用模型）
   - 图片智能描述 + 标签生成（需 vision 能力模型）
   - 语义搜索（Vectorize 向量索引）
@@ -614,9 +633,9 @@ ossshelf/
 | `/api/api-keys`      | API Keys 管理 (v3.5.0)                    |
 | `/api/groups`        | 用户组管理 (v3.6.0)                       |
 | `/api/webhooks`      | Webhook 管理 (v3.6.0)                     |
-| `/api/ai`            | AI 文件处理功能 (v3.7.0, v4.1.0 增强) |
-| `/api/ai-config`     | AI 配置管理 (v4.1.0 新增)               |
-| `/api/ai-chat`       | AI 对话系统 (v4.1.0 新增)               |
+| `/api/ai`            | AI 文件处理功能 (v3.7.0, v4.2.0 增强) |
+| `/api/ai-config`     | AI 配置管理、系统配置 (v4.1.0, v4.2.0 增强) |
+| `/api/ai-chat`       | AI 对话系统 (v4.1.0) |
 | `/api/analytics`     | 存储分析 (v3.8.0)                         |
 | `/api/notifications` | 通知系统 (v3.8.0)                         |
 | `/api/v1`            | RESTful v1 API (v3.6.0)                   |

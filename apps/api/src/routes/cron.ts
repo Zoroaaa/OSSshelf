@@ -11,7 +11,7 @@
 
 import { Hono } from 'hono';
 import { eq, and, or, isNotNull, isNull, lt, sql } from 'drizzle-orm';
-import { getDb, files, users, shares, uploadTasks, loginAttempts, userDevices, fileVersions, emailTokens } from '../db';
+import { getDb, files, users, shares, uploadTasks, loginAttempts, userDevices, fileVersions, emailTokens, searchHistory, notifications, aiTasks } from '../db';
 import { TRASH_RETENTION_DAYS, DEVICE_SESSION_EXPIRY, ERROR_CODES, logger } from '@osshelf/shared';
 import type { Env } from '../types/env';
 import { s3Delete } from '../lib/s3client';
@@ -82,7 +82,10 @@ app.post('/cron/trash-cleanup', async (c) => {
     )
     .returning({ id: files.id });
 
-  logger.info('CRON', `回收站清理完成: ${deletedCount} 文件, ${(freedBytes / 1024 / 1024).toFixed(2)} MB, ${expiredDirectLinks.length} 链接过期`);
+  logger.info(
+    'CRON',
+    `回收站清理完成: ${deletedCount} 文件, ${(freedBytes / 1024 / 1024).toFixed(2)} MB, ${expiredDirectLinks.length} 链接过期`
+  );
 
   return c.json({
     success: true,
@@ -169,7 +172,10 @@ app.post('/cron/version-cleanup', async (c) => {
   try {
     const result = await cleanExpiredVersions(db, c.env);
 
-    logger.info('CRON', `版本清理完成: ${result.prunedCount} 版本, ${result.freedBytes} bytes, ${result.errors.length} 错误`);
+    logger.info(
+      'CRON',
+      `版本清理完成: ${result.prunedCount} 版本, ${result.freedBytes} bytes, ${result.errors.length} 错误`
+    );
 
     return c.json({
       success: true,
@@ -194,12 +200,58 @@ app.post('/cron/version-cleanup', async (c) => {
   }
 });
 
+app.post('/cron/data-cleanup', async (c) => {
+  const db = getDb(c.env.DB);
+  const now = new Date().toISOString();
+
+  const searchRetentionDays = 30;
+  const searchThreshold = new Date(Date.now() - searchRetentionDays * 86_400_000).toISOString();
+  const oldSearchHistory = await db
+    .delete(searchHistory)
+    .where(lt(searchHistory.createdAt, searchThreshold))
+    .returning({ id: searchHistory.id });
+
+  const notificationRetentionDays = 30;
+  const notificationThreshold = new Date(Date.now() - notificationRetentionDays * 86_400_000).toISOString();
+  const oldNotifications = await db
+    .delete(notifications)
+    .where(and(eq(notifications.isRead, true), lt(notifications.createdAt, notificationThreshold)))
+    .returning({ id: notifications.id });
+
+  const aiTaskRetentionDays = 7;
+  const aiTaskThreshold = new Date(Date.now() - aiTaskRetentionDays * 86_400_000).toISOString();
+  const completedAiTasks = await db
+    .delete(aiTasks)
+    .where(
+      and(
+        or(eq(aiTasks.status, 'completed'), eq(aiTasks.status, 'failed'), eq(aiTasks.status, 'cancelled')),
+        lt(aiTasks.updatedAt, aiTaskThreshold)
+      )
+    )
+    .returning({ id: aiTasks.id });
+
+  logger.info(
+    'CRON',
+    `数据清理完成: ${oldSearchHistory.length} 搜索历史, ${oldNotifications.length} 通知, ${completedAiTasks.length} AI任务`
+  );
+
+  return c.json({
+    success: true,
+    data: {
+      searchHistoryCleaned: oldSearchHistory.length,
+      notificationsCleaned: oldNotifications.length,
+      aiTasksCleaned: completedAiTasks.length,
+    },
+  });
+});
+
 app.post('/cron/all', async (c) => {
   const results = {
     trash: null as unknown,
     sessions: null as unknown,
     shares: null as unknown,
     versions: null as unknown,
+    data: null as unknown,
   };
 
   try {
@@ -240,6 +292,16 @@ app.post('/cron/all', async (c) => {
     results.versions = await versionRes.json();
   } catch (e) {
     results.versions = { error: String(e) };
+  }
+
+  try {
+    const dataRes = await fetch(new URL('/cron/data-cleanup', c.req.url), {
+      method: 'POST',
+      headers: c.req.raw.headers,
+    });
+    results.data = await dataRes.json();
+  } catch (e) {
+    results.data = { error: String(e) };
   }
 
   return c.json({

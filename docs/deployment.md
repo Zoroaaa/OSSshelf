@@ -2,7 +2,7 @@
 
 本文档基于项目实际配置文件，提供完整的部署指南，确保您能够一次性成功部署 OSSshelf。
 
-**当前版本**: v4.0.0
+**当前版本**: v4.2.0
 
 ---
 
@@ -72,6 +72,102 @@
 ## 版本更新说明
 
 详细的版本更新日志请参阅 [CHANGELOG.md](../CHANGELOG.md)。
+
+### v4.2.0 (2026-04-06)
+
+本次更新包含以下重要变更：
+
+**新功能 - AI Agent 引擎与系统配置**
+
+1. **Agent 引擎**
+   - 支持 Function Calling 工具调用
+   - 支持推理内容显示（DeepSeek R1、智谱 GLM、阿里 QwQ）
+   - 内置工具：search_files、get_file_content、list_files、get_file_info
+
+2. **AI 系统配置**
+   - 可配置默认模型、参数、限制
+   - 可配置重试策略、提示词模板
+   - 功能开关控制
+
+3. **向量库管理**
+   - 查看和删除向量索引
+   - 支持分页和搜索
+
+4. **任务中心**
+   - 统一显示所有任务状态
+   - 实时进度监控
+
+5. **全局 AI 聊天**
+   - 悬浮式 AI 聊天组件
+   - 支持会话切换
+
+6. **自定义模型**
+   - 支持任意 Workers AI 模型 ID
+
+**数据库迁移**
+
+- 新增迁移文件 `0021_ai_system_config.sql`
+  - 新增 `ai_system_config` 表
+
+**升级步骤**
+
+```bash
+# 1. 拉取最新代码
+git pull origin main
+
+# 2. 运行数据库迁移
+pnpm db:migrate
+
+# 3. 推送触发部署
+git push origin main
+```
+
+### v4.1.0 (2026-04-03)
+
+本次更新包含以下重要变更：
+
+**新功能 - AI 系统全面升级**
+
+1. **多模型架构**
+   - 支持 Workers AI（9个模型）+ OpenAI 兼容 API
+   - Model Gateway Pattern 设计
+   - 适配器模式可扩展
+
+2. **AI 对话系统**
+   - 全新 AI 对话页面 `/ai-chat`
+   - SSE 流式响应
+   - 会话管理
+   - RAG 文件问答
+
+3. **AI 配置中心**
+   - 独立 AI 设置页面 `/ai-settings`
+   - 模型管理、功能级配置
+   - 一键启用、连接测试
+
+4. **批量操作优化**
+   - 支持取消操作
+   - 超时控制
+   - 错误限制
+
+**数据库迁移**
+
+- 新增迁移文件 `0020_ai_models_config.sql`
+  - 新增 `ai_models` 表
+  - 新增 `ai_chat_sessions` 表
+  - 新增 `ai_chat_messages` 表
+
+**升级步骤**
+
+```bash
+# 1. 拉取最新代码
+git pull origin main
+
+# 2. 运行数据库迁移
+pnpm db:migrate
+
+# 3. 推送触发部署
+git push origin main
+```
 
 ### v4.0.0 (2026-04-02)
 
@@ -365,6 +461,8 @@ pnpm db:migrate
 - `0015_notifications.sql` - 通知系统 (v3.8.0)
 - `0016_fts5.sql` - FTS5 全文搜索 (v3.8.0)
 - `0018_email.sql` - 邮件通知系统 (v4.0.0)
+- `0020_ai_models_config.sql` - AI 模型配置 (v4.1.0)
+- `0021_ai_system_config.sql` - AI 系统配置 (v4.2.0)
 
 ### Step 5: 设置加密密钥
 
@@ -1175,7 +1273,46 @@ curl "https://api.telegram.org/bot<TOKEN>/getMe"
 2. 确认 `VITE_API_URL` 环境变量正确
 3. 检查浏览器控制台错误
 
-#### 9. 版本控制功能不可用（v3.3.0）
+#### 9. 直链打开失败跳转首页
+
+**原因**: 直链URL指向了前端域名而不是后端API域名，请求被 Cloudflare Pages 的 SPA fallback 捕获并重定向到首页。
+
+**解决方案**:
+
+**方案一：配置 PUBLIC_URL（推荐）**
+
+在后端配置 `PUBLIC_URL` 环境变量，指向后端API的域名：
+
+```bash
+# GitHub Secrets 中添加
+PUBLIC_URL=https://your-api.workers.dev
+```
+
+或在 `wrangler.toml` 中配置：
+
+```toml
+[vars]
+PUBLIC_URL = "https://your-api.workers.dev"
+```
+
+**方案二：使用同一域名**
+
+如果前端和后端使用同一域名（通过 Cloudflare Pages Functions 或 Service Bindings），项目已内置 `_routes.json` 配置文件，自动排除以下路径不被 SPA fallback 处理：
+
+- `/api/*` - API 接口
+- `/dav/*` - WebDAV 服务
+- `/cron/*` - 定时任务
+- `/health` - 健康检查
+
+**验证直链配置**:
+
+```bash
+# 测试直链是否正常工作
+curl -I https://your-api.workers.dev/api/direct/<token>
+# 应返回 200 或文件内容，而非 HTML 页面
+```
+
+#### 10. 版本控制功能不可用（v3.3.0）
 
 **排查步骤**:
 
@@ -1230,6 +1367,8 @@ wrangler d1 execute ossshelf-db --command "SELECT name FROM sqlite_master WHERE 
 
 ## AI 功能配置
 
+v4.2.0 版本的 AI 功能包含以下核心能力：
+
 ### 前置要求
 
 1. Cloudflare Workers AI 已启用
@@ -1281,18 +1420,45 @@ pnpm deploy:api
 部署完成后，访问 AI 设置页面验证功能：
 
 1. 登录系统
-2. 进入「设置」→「AI 功能」
-3. 检查功能状态是否显示为已配置
+2. 进入「AI 配置」页面
+3. 检查各功能状态
 
-### AI 功能说明
+### v4.2.0 新功能
 
-| 功能       | 模型             | 说明                   |
-| ---------- | ---------------- | ---------------------- |
-| 文件摘要   | Llama 3.1 8B     | 自动为文本文件生成摘要 |
-| 图片描述   | LLaVA 1.5 7B     | 自动识别图片内容并描述 |
-| 图片标签   | ResNet-50        | 自动生成图片分类标签   |
-| 智能重命名 | Llama 3.1 8B     | 根据内容推荐文件名     |
-| 语义搜索   | BGE-M3 (1024 维) | 基于语义相似度搜索文件 |
+| 功能 | 说明 |
+|------|------|
+| Agent 引擎 | 支持 Function Calling 工具调用、推理内容显示 |
+| AI 系统配置 | 可配置默认模型、参数、限制、重试策略、提示词模板 |
+| 向量库管理 | 查看和删除向量索引，支持分页和搜索 |
+| 任务中心 | 统一显示所有任务状态，实时进度监控 |
+| 全局 AI 聊天 | 悬浮式 AI 聊天组件，支持会话切换 |
+| 自定义模型 | 支持任意 Workers AI 模型 ID |
+
+### v4.1.0 功能
+
+| 功能 | 说明 |
+|------|------|
+| 多模型架构 | 支持 Workers AI（9个模型）+ OpenAI 兼容 API |
+| AI 对话系统 | SSE 流式响应、会话管理、RAG 文件问答 |
+| AI 配置中心 | 模型管理、功能级配置、一键启用、连接测试 |
+| 文件摘要 | 自动为文本文件生成摘要 |
+| 图片描述 | 自动识别图片内容并描述 |
+| 图片标签 | 自动生成图片分类标签 |
+| 智能重命名 | 根据内容推荐文件名 |
+| 语义搜索 | 基于语义相似度搜索文件 |
+
+### Workers AI 可用模型
+
+| 模型 | 类型 | 说明 |
+|------|------|------|
+| DeepSeek R1 32B | chat | 推理能力强，数学/代码专家 |
+| Llama 3.3 70B | chat | Meta 最新大模型 |
+| Qwen 1.5 14B | chat | 中文能力优秀 |
+| Llama 3.1 8B | chat | 默认模型，通用问答 |
+| Mistral 7B | chat | 响应速度快 |
+| Gemma 2B | chat | 轻量极速 |
+| LLaVA 1.5 7B | vision | 图片理解 |
+| BGE-M3 | embedding | 文本向量化 |
 
 ### 成本说明
 

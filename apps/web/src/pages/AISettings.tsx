@@ -17,8 +17,6 @@ import {
   Cpu,
   Plus,
   Trash2,
-  Edit2,
-  Check,
   X,
   Key,
   Cloud,
@@ -26,8 +24,6 @@ import {
   AlertCircle,
   AlertTriangle,
   Loader2,
-  ChevronDown,
-  ChevronUp,
   Database,
   RefreshCw,
   CheckCircle,
@@ -42,15 +38,26 @@ import {
   Settings2,
   Tags,
   Type,
+  Layers,
+  Sliders,
+  RotateCcw,
+  Save,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { ModelCard } from '@/components/ai';
-import { aiApi, type AiModel, type AiProvider, type AiWorkersAiModel, type AiOpenAiModel } from '@/services/api';
+import {
+  aiApi,
+  type AiModel,
+  type AiProvider,
+  type AiWorkersAiModel,
+  type AiOpenAiModel,
+  type AiSystemConfigItem,
+} from '@/services/api';
 import type { AIIndexTask, AISummarizeTask, AITagsTask, AIIndexStats } from '@/services/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/utils';
 
-type TabType = 'models' | 'providers' | 'index' | 'tasks';
+type TabType = 'models' | 'providers' | 'index' | 'tasks' | 'vectors' | 'advanced';
 
 export function AISettings() {
   const navigate = useNavigate();
@@ -81,12 +88,37 @@ export function AISettings() {
   } | null>(null);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
 
+  // 向量库状态
+  const [vectorPage, setVectorPage] = useState(1);
+  const [deletingVectorId, setDeletingVectorId] = useState<string | null>(null);
+
+  // 系统配置状态
+  const [editingConfigKey, setEditingConfigKey] = useState<string | null>(null);
+  const [configEditValue, setConfigEditValue] = useState<string>('');
+
   // 查询模型列表
   const { data: models = [], isLoading: modelsLoading } = useQuery({
     queryKey: ['ai-models'],
     queryFn: () => aiApi.config.getModels().then((r) => r.data.data ?? []),
     staleTime: 30000,
   });
+
+  // 查询有vision能力的模型（用于图片相关配置）
+  const { data: visionModels = [] } = useQuery({
+    queryKey: ['ai-models', 'vision'],
+    queryFn: () => aiApi.config.getModels('vision').then((r) => r.data.data ?? []),
+    staleTime: 30000,
+  });
+
+  // 模型能力映射：配置key -> 需要的能力
+  const modelCapabilityMap: Record<string, 'chat' | 'vision'> = {
+    'ai.default_model.chat': 'chat',
+    'ai.default_model.vision': 'vision',
+    'ai.default_model.summary': 'chat',
+    'ai.default_model.image_caption': 'vision',
+    'ai.default_model.image_tag': 'vision',
+    'ai.default_model.rename': 'chat',
+  };
 
   // 查询AI状态
   const { data: status } = useQuery({
@@ -100,6 +132,17 @@ export function AISettings() {
     queryKey: ['ai-providers'],
     queryFn: () => aiApi.config.getProviders().then((r) => r.data.data),
     staleTime: 300000,
+  });
+
+  // 查询系统配置
+  const {
+    data: systemConfigs = [],
+    isLoading: configLoading,
+    refetch: refetchSystemConfig,
+  } = useQuery({
+    queryKey: ['ai-system-config'],
+    queryFn: () => aiApi.config.getSystemConfig().then((r) => r.data.data ?? []),
+    staleTime: 30000,
   });
 
   // 模型操作 mutations
@@ -130,6 +173,43 @@ export function AISettings() {
     },
   });
 
+  // 向量库查询
+  const {
+    data: vectorsData,
+    isLoading: isLoadingVectors,
+    error: vectorsError,
+    refetch: refetchVectors,
+  } = useQuery({
+    queryKey: ['ai-vectors', vectorPage],
+    queryFn: () => aiApi.getVectors({ page: vectorPage, pageSize: 20 }).then((r) => r.data.data),
+    staleTime: 30000,
+  });
+
+  // 删除向量
+  const deleteVectorMutation = useMutation({
+    mutationFn: (fileId: string) => aiApi.deleteVector(fileId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ai-vectors'] });
+      setDeletingVectorId(null);
+    },
+    onError: () => {
+      setDeletingVectorId(null);
+    },
+  });
+
+  const handleDeleteVector = async (fileId: string, fileName: string) => {
+    if (!confirm(`确定要删除文件 "${fileName}" 的向量索引吗？`)) return;
+    setDeletingVectorId(fileId);
+    deleteVectorMutation.mutate(fileId);
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  };
+
   // 测试模型连接
   const [testResult, setTestResult] = useState<{
     modelId: string;
@@ -157,7 +237,7 @@ export function AISettings() {
   });
 
   // 功能模型配置
-  const { data: featureConfigData, isLoading: configLoading } = useQuery({
+  const { data: featureConfigData } = useQuery({
     queryKey: ['ai-feature-config'],
     queryFn: () => aiApi.config.getFeatureConfig().then((r) => r.data.data),
     staleTime: 30000,
@@ -174,6 +254,22 @@ export function AISettings() {
       aiApi.config.saveFeatureConfig(data as Parameters<typeof aiApi.config.saveFeatureConfig>[0]),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ai-feature-config'] });
+    },
+  });
+
+  // 系统配置操作 mutations
+  const updateSystemConfigMutation = useMutation({
+    mutationFn: ({ key, value }: { key: string; value: unknown }) => aiApi.config.updateSystemConfig(key, value),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ai-system-config'] });
+      setEditingConfigKey(null);
+    },
+  });
+
+  const resetSystemConfigMutation = useMutation({
+    mutationFn: (key: string) => aiApi.config.resetSystemConfig(key),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ai-system-config'] });
     },
   });
 
@@ -200,9 +296,7 @@ export function AISettings() {
   const quickActivateMutation = useMutation({
     mutationFn: async (workersAiModelId: string) => {
       // 检查是否已存在该模型
-      const existingModel = models.find(
-        (m) => m.provider === 'workers_ai' && m.modelId === workersAiModelId
-      );
+      const existingModel = models.find((m) => m.provider === 'workers_ai' && m.modelId === workersAiModelId);
 
       if (existingModel) {
         // 已存在则直接激活
@@ -230,13 +324,6 @@ export function AISettings() {
   useEffect(() => {
     fetchAllTaskStatus();
     fetchStats();
-
-    const interval = setInterval(() => {
-      fetchAllTaskStatus();
-      fetchStats();
-    }, 5000);
-
-    return () => clearInterval(interval);
   }, []);
 
   const fetchAllTaskStatus = async () => {
@@ -257,13 +344,11 @@ export function AISettings() {
 
   // 任务状态自动轮询：当有任务运行时，每3秒刷新一次
   useEffect(() => {
-    const isAnyTaskRunning = [task, summarizeTask, tagsTask].some(
-      (t) => t && t.status === 'running'
-    );
+    const isAnyTaskRunning = [task, summarizeTask, tagsTask].some((t) => t && t.status === 'running');
 
     if (!isAnyTaskRunning) return;
 
-    const interval = setInterval(fetchAllTaskStatus, 3000);
+    const interval = setInterval(fetchAllTaskStatus, 10000);
     return () => clearInterval(interval);
   }, [task?.status, summarizeTask?.status, tagsTask?.status]);
 
@@ -323,20 +408,6 @@ export function AISettings() {
     }
   };
 
-  const handleCancelTask = async () => {
-    try {
-      const response = await aiApi.cancelIndexTask();
-      if (response.data.success && response.data.data) {
-        setTask(response.data.data.task);
-        // 立即刷新所有任务状态
-        await fetchAllTaskStatus();
-      }
-    } catch (e: any) {
-      console.error('Failed to cancel task:', e);
-    }
-  };
-
-  // 强制重置卡住的任务
   const handleForceResetTask = async (taskType: 'index' | 'summarize' | 'tags') => {
     try {
       if (taskType === 'index') {
@@ -350,6 +421,18 @@ export function AISettings() {
     } catch (e: any) {
       console.error('Failed to reset task:', e);
     }
+  };
+
+  const handleSaveConfig = (config: AiSystemConfigItem) => {
+    let value: string | number | boolean = configEditValue;
+
+    if (config.valueType === 'number') {
+      value = Number(configEditValue);
+    } else if (config.valueType === 'boolean') {
+      value = configEditValue === 'true';
+    }
+
+    updateSystemConfigMutation.mutate({ key: config.key, value });
   };
 
   // 渲染任务进度条
@@ -392,12 +475,7 @@ export function AISettings() {
           </div>
           {/* 所有非 idle 和 completed 状态都显示操作按钮 */}
           {taskType && taskData.status !== 'completed' && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleForceResetTask(taskType)}
-              className="text-xs"
-            >
+            <Button variant="outline" size="sm" onClick={() => handleForceResetTask(taskType)} className="text-xs">
               {taskData.status === 'running' ? '取消' : '清除'}
             </Button>
           )}
@@ -453,12 +531,13 @@ export function AISettings() {
 
   const isAIAvailable = status?.configured;
 
-  // 标签页配置（移动端友好）
   const tabs: { id: TabType; label: string; icon: typeof Cpu; badge?: number }[] = [
     { id: 'models', label: '模型', icon: Cpu, badge: models.length },
     { id: 'providers', label: '可用模型', icon: Zap },
     { id: 'index', label: '索引与处理', icon: Database },
+    { id: 'vectors', label: '向量库', icon: Layers },
     { id: 'tasks', label: '任务中心', icon: BarChart3 },
+    { id: 'advanced', label: '高级配置', icon: Sliders },
   ];
 
   return (
@@ -481,6 +560,21 @@ export function AISettings() {
 
             {/* 快捷操作按钮 */}
             <div className="flex gap-2 ml-auto">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  fetchAllTaskStatus();
+                  fetchStats();
+                  queryClient.invalidateQueries({ queryKey: ['ai-models'] });
+                  queryClient.invalidateQueries({ queryKey: ['ai-config-status'] });
+                  queryClient.invalidateQueries({ queryKey: ['ai-feature-config'] });
+                }}
+                className="gap-2 text-xs sm:text-sm"
+              >
+                <RefreshCw className="h-4 w-4" />
+                <span className="hidden sm:inline">刷新</span>
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -618,69 +712,79 @@ export function AISettings() {
               </div>
               <p className="text-sm text-muted-foreground mb-4">Cloudflare 内置的 AI 服务，无需配置 API 密钥即可使用</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {providersData.workersAiModels.map((m) => {
-                  const isAdded = models.some((model) => model.provider === 'workers_ai' && model.modelId === m.id);
-                  const isActive = status?.activeModel?.modelId === m.id;
-                  const isPending = quickActivateMutation.isPending;
+                {providersData.workersAiModels
+                  .filter((m) => m.id !== '__custom__')
+                  .map((m) => {
+                    const isAdded = models.some((model) => model.provider === 'workers_ai' && model.modelId === m.id);
+                    const isActive = status?.activeModel?.modelId === m.id;
+                    const isPending = quickActivateMutation.isPending;
 
-                  return (
-                    <div key={m.id} className={cn(
-                      "p-3 sm:p-4 border rounded-lg transition-colors relative",
-                      isActive ? "border-primary bg-primary/5" : "hover:border-primary/50"
-                    )}>
-                      {isActive && (
-                        <div className="absolute top-2 right-2">
-                          <CheckCircle className="h-5 w-5 text-primary" />
+                    return (
+                      <div
+                        key={m.id}
+                        className={cn(
+                          'p-3 sm:p-4 border rounded-lg transition-colors relative',
+                          isActive ? 'border-primary bg-primary/5' : 'hover:border-primary/50'
+                        )}
+                      >
+                        {isActive && (
+                          <div className="absolute top-2 right-2">
+                            <CheckCircle className="h-5 w-5 text-primary" />
+                          </div>
+                        )}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0 pr-6">
+                            <h3 className="font-medium text-sm sm:text-base truncate">{m.name}</h3>
+                            <p className="text-xs text-muted-foreground mt-1 font-mono break-all">{m.id}</p>
+                            <p className="text-xs sm:text-sm text-muted-foreground mt-2 line-clamp-2">
+                              {m.description}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-1 flex-shrink-0">
+                            {m.capabilities.map((cap) => (
+                              <span
+                                key={cap}
+                                className="px-2 py-0.5 bg-accent text-accent-foreground text-xs rounded-full"
+                              >
+                                {cap}
+                              </span>
+                            ))}
+                          </div>
                         </div>
-                      )}
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0 pr-6">
-                          <h3 className="font-medium text-sm sm:text-base truncate">{m.name}</h3>
-                          <p className="text-xs text-muted-foreground mt-1 font-mono break-all">{m.id}</p>
-                          <p className="text-xs sm:text-sm text-muted-foreground mt-2 line-clamp-2">{m.description}</p>
-                        </div>
-                        <div className="flex flex-wrap gap-1 flex-shrink-0">
-                          {m.capabilities.map((cap) => (
-                            <span key={cap} className="px-2 py-0.5 bg-accent text-accent-foreground text-xs rounded-full">
-                              {cap}
-                            </span>
-                          ))}
+                        <div className="mt-3 pt-3 border-t">
+                          <Button
+                            size="sm"
+                            variant={isActive ? 'default' : 'outline'}
+                            className="w-full"
+                            disabled={isPending}
+                            onClick={() => quickActivateMutation.mutate(m.id)}
+                          >
+                            {isPending ? (
+                              <>
+                                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                处理中...
+                              </>
+                            ) : isActive ? (
+                              <>
+                                <CheckCircle className="h-3 w-3 mr-1" />
+                                当前使用中
+                              </>
+                            ) : isAdded ? (
+                              <>
+                                <Play className="h-3 w-3 mr-1" />
+                                切换到此模型
+                              </>
+                            ) : (
+                              <>
+                                <Plus className="h-3 w-3 mr-1" />
+                                快速启用
+                              </>
+                            )}
+                          </Button>
                         </div>
                       </div>
-                      <div className="mt-3 pt-3 border-t">
-                        <Button
-                          size="sm"
-                          variant={isActive ? "default" : "outline"}
-                          className="w-full"
-                          disabled={isPending}
-                          onClick={() => quickActivateMutation.mutate(m.id)}
-                        >
-                          {isPending ? (
-                            <>
-                              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                              处理中...
-                            </>
-                          ) : isActive ? (
-                            <>
-                              <CheckCircle className="h-3 w-3 mr-1" />
-                              当前使用中
-                            </>
-                          ) : isAdded ? (
-                            <>
-                              <Play className="h-3 w-3 mr-1" />
-                              切换到此模型
-                            </>
-                          ) : (
-                            <>
-                              <Plus className="h-3 w-3 mr-1" />
-                              快速启用
-                            </>
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
               </div>
             </section>
 
@@ -761,7 +865,7 @@ export function AISettings() {
                   <div className="space-y-4">
                     {/* 文件摘要模型 */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                      {([
+                      {[
                         {
                           key: 'summary' as const,
                           label: '文件摘要',
@@ -783,8 +887,8 @@ export function AISettings() {
                           label: '图片标签',
                           icon: <Tags className="h-4 w-4" />,
                           desc: '识别图片内容标签',
-                          capability: 'classify',
-                          defaultModel: '@cf/microsoft/resnet-50',
+                          capability: 'vision',
+                          defaultModel: '@cf/llava-hf/llava-1.5-7b-hf',
                         },
                         {
                           key: 'rename' as const,
@@ -794,7 +898,7 @@ export function AISettings() {
                           capability: 'chat',
                           defaultModel: '@cf/meta/llama-3.1-8b-instruct',
                         },
-                      ]).map((item) => (
+                      ].map((item) => (
                         <div key={item.key} className="border rounded-lg p-3 space-y-2">
                           <div className="flex items-center gap-2">
                             <span className="text-primary">{item.icon}</span>
@@ -810,11 +914,7 @@ export function AISettings() {
                             <option value="__default__">使用默认模型</option>
                             <optgroup label="已添加的自定义模型">
                               {models
-                                .filter((m) =>
-                                  item.capability === 'classify'
-                                    ? m.provider === 'workers_ai'
-                                    : m.capabilities?.includes(item.capability) || m.capabilities?.includes('chat')
-                                )
+                                .filter((m) => m.capabilities?.includes(item.capability))
                                 .map((m) => (
                                   <option key={m.id} value={m.id}>
                                     {m.name}
@@ -823,13 +923,7 @@ export function AISettings() {
                                 ))}
                             </optgroup>
                             {providersData?.workersAiModels
-                              .filter((m) =>
-                                item.capability === 'vision'
-                                  ? m.capabilities.includes('vision')
-                                  : item.capability === 'classify'
-                                  ? false
-                                  : m.capabilities.includes('chat')
-                              )
+                              .filter((m) => m.capabilities.includes(item.capability))
                               .map((m) => (
                                 <option key={`wa-${m.id}`} value={m.id}>
                                   Workers AI: {m.name}
@@ -841,7 +935,7 @@ export function AISettings() {
                     </div>
 
                     <div className="mt-3 p-3 bg-muted/50 rounded-lg text-xs text-muted-foreground">
-                      💡 提示：图片描述需要支持 vision 能力的模型（如 LLaVA）；图片标签仅限 Workers AI 分类模型
+                      💡 提示：图片描述和图片标签都需要支持 vision 能力的模型（如 LLaVA、GPT-4 Vision 等）
                     </div>
                   </div>
                 </section>
@@ -953,6 +1047,127 @@ export function AISettings() {
                   {renderTaskProgress(task, 'index')}
                 </div>
               </>
+            )}
+          </div>
+        )}
+
+        {/* ========== 向量库标签页 ========== */}
+        {activeTab === 'vectors' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg sm:text-xl font-semibold">向量索引库</h2>
+              <Button variant="outline" size="sm" onClick={() => refetchVectors()} disabled={isLoadingVectors}>
+                {isLoadingVectors ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                刷新
+              </Button>
+            </div>
+
+            {vectorsError ? <div className="text-red-500 text-sm">{String(vectorsError)}</div> : null}
+
+            <div className="border rounded-lg overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="text-left p-3 font-medium">文件名</th>
+                      <th className="text-left p-3 font-medium">类型</th>
+                      <th className="text-left p-3 font-medium">大小</th>
+                      <th className="text-left p-3 font-medium">索引时间</th>
+                      <th className="text-left p-3 font-medium">摘要</th>
+                      <th className="text-left p-3 font-medium">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {isLoadingVectors ? (
+                      <tr>
+                        <td colSpan={6} className="p-8 text-center text-muted-foreground">
+                          <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />
+                          加载中...
+                        </td>
+                      </tr>
+                    ) : vectorsData?.vectors.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="p-8 text-center text-muted-foreground">
+                          暂无向量索引数据
+                        </td>
+                      </tr>
+                    ) : (
+                      vectorsData?.vectors.map((vector) => (
+                        <tr key={vector.id} className="hover:bg-muted/30">
+                          <td className="p-3">
+                            <div className="flex items-center gap-2">
+                              <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                              <span className="truncate max-w-[200px]" title={vector.name}>
+                                {vector.name}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="p-3 text-muted-foreground">{vector.mimeType?.split('/')[1] || '未知'}</td>
+                          <td className="p-3 text-muted-foreground">
+                            {vector.size ? formatFileSize(vector.size) : '-'}
+                          </td>
+                          <td className="p-3 text-muted-foreground">
+                            {vector.vectorIndexedAt ? new Date(vector.vectorIndexedAt).toLocaleString('zh-CN') : '-'}
+                          </td>
+                          <td className="p-3">
+                            {vector.aiSummary ? (
+                              <span className="text-xs text-green-600 dark:text-green-400">已生成</span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">无</span>
+                            )}
+                          </td>
+                          <td className="p-3">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                              onClick={() => handleDeleteVector(vector.id, vector.name)}
+                              disabled={deletingVectorId === vector.id}
+                            >
+                              {deletingVectorId === vector.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {vectorsData && vectorsData.pagination.totalPages > 1 && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">共 {vectorsData.pagination.total} 条记录</span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={vectorPage === 1}
+                    onClick={() => setVectorPage((p) => p - 1)}
+                  >
+                    上一页
+                  </Button>
+                  <span>
+                    {vectorPage} / {vectorsData.pagination.totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={vectorPage === vectorsData.pagination.totalPages}
+                    onClick={() => setVectorPage((p) => p + 1)}
+                  >
+                    下一页
+                  </Button>
+                </div>
+              </div>
             )}
           </div>
         )}
@@ -1120,6 +1335,249 @@ export function AISettings() {
             )}
           </div>
         )}
+
+        {/* ========== 高级配置标签页 ========== */}
+        {activeTab === 'advanced' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg sm:text-xl font-semibold">AI 系统配置</h2>
+                <p className="text-sm text-muted-foreground mt-1">调整AI功能的核心参数和默认模型</p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => refetchSystemConfig()} disabled={configLoading}>
+                {configLoading ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                刷新
+              </Button>
+            </div>
+
+            {configLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : systemConfigs.length === 0 ? (
+              <div className="text-center py-12 border-2 border-dashed rounded-lg">
+                <Sliders className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-base sm:text-lg font-medium mb-2">暂无配置项</h3>
+                <p className="text-sm text-muted-foreground">系统配置尚未初始化</p>
+              </div>
+            ) : (
+              <>
+                {/* 按分类分组显示配置 */}
+                {['model', 'parameter', 'limit', 'retry', 'prompt', 'feature'].map((category) => {
+                  const categoryConfigs = systemConfigs.filter((c) => c.category === category);
+                  if (categoryConfigs.length === 0) return null;
+
+                  const categoryLabels: Record<string, string> = {
+                    model: '🤖 默认模型',
+                    parameter: '⚙️ 模型参数',
+                    limit: '📏 内容限制',
+                    retry: '🔄 重试策略',
+                    prompt: '💬 提示词模板',
+                    feature: '✨ 功能开关',
+                  };
+
+                  return (
+                    <section key={category} className="border rounded-lg p-4 sm:p-6 space-y-4">
+                      <h3 className="font-medium text-base sm:text-lg flex items-center gap-2">
+                        {categoryLabels[category] || category}
+                        <span className="text-xs text-muted-foreground font-normal">({categoryConfigs.length} 项)</span>
+                      </h3>
+
+                      <div className="space-y-3">
+                        {categoryConfigs.map((config) => {
+                          const isEditing = editingConfigKey === config.key;
+                          const currentValue =
+                            config.valueType === 'string'
+                              ? (config.stringValue ?? '')
+                              : config.valueType === 'number'
+                                ? String(config.numberValue ?? '')
+                                : config.valueType === 'boolean'
+                                  ? String(config.booleanValue)
+                                  : (config.jsonValue ?? '');
+
+                          const isModelConfig = config.key.startsWith('ai.default_model.');
+                          const requiredCapability = modelCapabilityMap[config.key];
+                          const availableModels = requiredCapability === 'vision' ? visionModels : models;
+                          const selectedModel = availableModels.find((m) => m.modelId === currentValue);
+
+                          const renderInput = () => {
+                            if (config.valueType === 'boolean') {
+                              return (
+                                <button
+                                  onClick={() => {
+                                    if (!config.isEditable) return;
+                                    updateSystemConfigMutation.mutate({
+                                      key: config.key,
+                                      value: !config.booleanValue,
+                                    });
+                                  }}
+                                  disabled={!config.isEditable || updateSystemConfigMutation.isPending}
+                                  className={cn(
+                                    'relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0',
+                                    config.booleanValue ? 'bg-primary' : 'bg-muted'
+                                  )}
+                                >
+                                  <span
+                                    className={cn(
+                                      'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                                      config.booleanValue ? 'translate-x-6' : 'translate-x-1'
+                                    )}
+                                  />
+                                </button>
+                              );
+                            }
+
+                            if (isModelConfig) {
+                              return (
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    value={currentValue}
+                                    onChange={(e) => {
+                                      const newValue = e.target.value;
+                                      updateSystemConfigMutation.mutate({
+                                        key: config.key,
+                                        value: newValue,
+                                      });
+                                    }}
+                                    disabled={!config.isEditable || updateSystemConfigMutation.isPending}
+                                    className="flex-1 px-3 py-1.5 border rounded bg-background text-sm"
+                                  >
+                                    <option value={config.defaultValue}>
+                                      {config.defaultValue} (系统默认)
+                                    </option>
+                                    {availableModels
+                                      .filter((m) => m.modelId !== config.defaultValue)
+                                      .map((m) => (
+                                        <option key={m.id} value={m.modelId}>
+                                          {m.name} ({m.provider})
+                                        </option>
+                                      ))}
+                                  </select>
+                                  {currentValue !== config.defaultValue && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() =>
+                                        updateSystemConfigMutation.mutate({
+                                          key: config.key,
+                                          value: config.defaultValue,
+                                        })
+                                      }
+                                      disabled={updateSystemConfigMutation.isPending}
+                                      title="重置为默认值"
+                                    >
+                                      <RotateCcw className="h-3 w-3" />
+                                    </Button>
+                                  )}
+                                </div>
+                              );
+                            }
+
+                            if (isEditing) {
+                              return (
+                                <div className="flex gap-2">
+                                  <input
+                                    type={config.valueType === 'number' ? 'number' : 'text'}
+                                    value={configEditValue}
+                                    onChange={(e) => setConfigEditValue(e.target.value)}
+                                    className="flex-1 px-3 py-1.5 border rounded bg-background text-sm font-mono"
+                                    autoFocus
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') handleSaveConfig(config);
+                                      if (e.key === 'Escape') setEditingConfigKey(null);
+                                    }}
+                                  />
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleSaveConfig(config)}
+                                    disabled={updateSystemConfigMutation.isPending}
+                                  >
+                                    <Save className="h-3 w-3" />
+                                  </Button>
+                                  <Button size="sm" variant="ghost" onClick={() => setEditingConfigKey(null)}>
+                                    <X className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div className="flex items-center gap-2">
+                                <code className="px-2.5 py-1.5 bg-muted rounded text-sm font-mono flex-1 min-w-0 truncate">
+                                  {currentValue || '(空)'}
+                                </code>
+                                {config.isEditable && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => {
+                                      setEditingConfigKey(config.key);
+                                      setConfigEditValue(currentValue);
+                                    }}
+                                  >
+                                    编辑
+                                  </Button>
+                                )}
+                              </div>
+                            );
+                          };
+
+                          return (
+                            <div
+                              key={config.key}
+                              className={cn('p-3 rounded-lg border space-y-2', !config.isEditable && 'opacity-75')}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium text-sm">{config.label}</span>
+                                    {!config.isEditable && (
+                                      <span className="px-1.5 py-0.5 bg-muted text-xs rounded text-muted-foreground">
+                                        系统只读
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-muted-foreground mt-0.5">{config.description}</p>
+                                  <p className="text-[10px] text-muted-foreground mt-1 font-mono">Key: {config.key}</p>
+                                </div>
+
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                  {renderInput()}
+                                  {config.defaultValue !== currentValue &&
+                                    config.isEditable &&
+                                    !isEditing &&
+                                    !isModelConfig && (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => resetSystemConfigMutation.mutate(config.key)}
+                                        disabled={resetSystemConfigMutation.isPending}
+                                        title="重置为默认值"
+                                      >
+                                        <RotateCcw className="h-3 w-3" />
+                                      </Button>
+                                    )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  );
+                })}
+
+                <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg text-xs text-muted-foreground">
+                  💡 提示：修改配置后立即生效。如遇问题可点击重置按钮恢复默认值。
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 添加/编辑模型弹窗 */}
@@ -1257,6 +1715,7 @@ function ModelFormModal({
     name: model?.name || '',
     provider: model?.provider || 'workers_ai',
     modelId: model?.modelId || '',
+    customModelId: undefined as string | undefined,
     apiEndpoint: model?.apiEndpoint || '',
     apiKey: '',
     capabilities: model?.capabilities || ['chat'],
@@ -1268,7 +1727,12 @@ function ModelFormModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(formData);
+    const submitData = { ...formData };
+    if (formData.modelId === '__custom__' && formData.customModelId) {
+      submitData.modelId = formData.customModelId;
+      submitData.name = formData.customModelId.split('/').pop() || formData.name;
+    }
+    onSubmit(submitData);
   };
 
   return (
@@ -1318,18 +1782,54 @@ function ModelFormModal({
               <div>
                 <label className="block text-sm font-medium mb-1">选择模型 *</label>
                 <select
-                  value={formData.modelId}
-                  onChange={(e) => setFormData({ ...formData, modelId: e.target.value })}
+                  value={formData.modelId || ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const selectedModel = providersData.workersAiModels.find((m) => m.id === val);
+                    setFormData({
+                      ...formData,
+                      modelId: val,
+                      name: formData.name || selectedModel?.name || formData.name,
+                      customModelId: val === '__custom__' ? '' : undefined,
+                    });
+                  }}
                   className="w-full px-3 py-2 border rounded-lg bg-background text-sm"
                   required
                 >
                   <option value="">请选择一个 Workers AI 模型</option>
                   {providersData.workersAiModels.map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.name} ({m.id})
+                      {m.name} {m.id !== '__custom__' ? `(${m.id})` : ''}
                     </option>
                   ))}
                 </select>
+
+                {formData.modelId === '__custom__' && (
+                  <div className="mt-2">
+                    <label className="block text-xs text-muted mb-1">自定义模型 ID（@cf/ 开头）</label>
+                    <input
+                      type="text"
+                      value={formData.customModelId || ''}
+                      onChange={(e) => setFormData({ ...formData, customModelId: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg bg-background font-mono text-sm"
+                      placeholder="@cf/deepseek/deepseek-r1 或 @cf/black-forest-labs/flux-2-klein-4b"
+                      required
+                    />
+                    <p className="mt-1 text-xs text-muted">
+                      可在{' '}
+                      <a
+                        href="https://developers.cloudflare.com/workers-ai/models/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline"
+                      >
+                        Workers AI 模型目录
+                      </a>{' '}
+                      查看所有可用模型。免费额度：Workers Paid 计划每日约 10,000 neurons 免费，超出按 $0.0001/neuron
+                      计费。
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
               <>
@@ -1345,12 +1845,21 @@ function ModelFormModal({
                   />
                   {providersData?.openAiModels && (
                     <div className="mt-2 flex flex-wrap gap-1">
-                      {providersData.openAiModels.slice(0, 6).map((m) => (
+                      {providersData.openAiModels.slice(0, 8).map((m) => (
                         <button
                           key={m.id}
                           type="button"
-                          onClick={() => setFormData({ ...formData, modelId: m.id })}
-                          className="px-2 py-1 text-xs border rounded hover:bg-accent transition-colors"
+                          onClick={() =>
+                            setFormData({
+                              ...formData,
+                              modelId: m.id,
+                              capabilities: m.capabilities.length > 0 ? [...m.capabilities] : ['chat'],
+                            })
+                          }
+                          className={`px-2 py-1 text-xs border rounded transition-colors ${
+                            formData.modelId === m.id ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-accent'
+                          }`}
+                          title={m.description}
                         >
                           {m.name}
                         </button>
@@ -1397,15 +1906,16 @@ function ModelFormModal({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-1">最大 Token</label>
+                <label className="block text-sm font-medium mb-1">最大 Token (K)</label>
                 <input
                   type="number"
-                  value={formData.maxTokens}
-                  onChange={(e) => setFormData({ ...formData, maxTokens: parseInt(e.target.value) || 4096 })}
+                  value={Math.round(formData.maxTokens / 1000)}
+                  onChange={(e) => setFormData({ ...formData, maxTokens: (parseInt(e.target.value) || 4) * 1000 })}
                   className="w-full px-3 py-2 border rounded-lg bg-background text-sm"
                   min={1}
-                  max={128000}
+                  max={128}
                 />
+                <p className="text-xs text-muted-foreground mt-1">输入值单位为 K，如 4 表示 4K tokens</p>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">温度 (0-2)</label>
@@ -1430,6 +1940,50 @@ function ModelFormModal({
                 rows={3}
                 placeholder="自定义系统提示词..."
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                模型能力 *<span className="text-xs text-muted-foreground ml-1">（决定该模型可用于哪些功能）</span>
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { value: 'chat', label: '💬 对话', desc: '文本对话、摘要生成' },
+                  { value: 'vision', label: '👁️ 视觉', desc: '图片理解（如 GPT-4o）' },
+                  { value: 'embedding', label: '📊 向量', desc: '文本向量化' },
+                  { value: 'function_calling', label: '⚡ 函数调用', desc: '工具调用能力' },
+                  { value: 'completion', label: '✏️ 补全', desc: '文本补全' },
+                ].map((cap) => (
+                  <label
+                    key={cap.value}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg cursor-pointer transition-colors text-sm ${
+                      formData.capabilities.includes(cap.value)
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border hover:border-primary/50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={formData.capabilities.includes(cap.value)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setFormData({ ...formData, capabilities: [...formData.capabilities, cap.value] });
+                        } else {
+                          setFormData({
+                            ...formData,
+                            capabilities: formData.capabilities.filter((c) => c !== cap.value),
+                          });
+                        }
+                      }}
+                      className="rounded"
+                    />
+                    <span>{cap.label}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1.5">
+                💡 图片描述功能需要选择「视觉」能力的模型（如 GPT-4o、Claude 3）
+              </p>
             </div>
 
             {!model && (

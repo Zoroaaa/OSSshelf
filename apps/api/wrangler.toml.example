@@ -33,6 +33,20 @@ database_id = "YOUR_D1_DATABASE_ID"
 binding = "KV"
 id = "YOUR_KV_NAMESPACE_ID"
 
+# ── AI 批处理队列 ───────────────────────────────────────────────────────
+# 用于一键索引、一键摘要、一键标签等批量任务
+# 避免单个 Worker 超时，每个消息处理一个文件
+[[queues.producers]]
+queue = "ossshelf-ai-tasks"
+binding = "AI_TASKS_QUEUE"
+
+[[queues.consumers]]
+queue = "ossshelf-ai-tasks"
+max_batch_size = 1
+max_batch_timeout = 5
+max_retries = 3
+retry_delay = 60
+
 [vars]
 ENVIRONMENT = "development"
 JWT_SECRET = "your-jwt-secret-change-in-production"

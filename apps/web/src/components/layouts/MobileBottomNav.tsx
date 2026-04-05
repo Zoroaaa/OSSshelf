@@ -43,7 +43,7 @@ import { StorageBar } from '@/components/files/StorageBar';
 const NAV_ITEMS = [
   { path: '/', label: '概览', icon: LayoutDashboard, exact: true },
   { path: '/files', label: '文件', icon: FolderOpen, exact: false },
-  { path: '/ai-chat', label: 'AI对话', icon: MessageSquare, exact: false },
+  { path: '/starred', label: '收藏', icon: Star, exact: false },
   { path: '/downloads', label: '下载', icon: Download, exact: false },
 ];
 

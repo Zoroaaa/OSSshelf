@@ -3,7 +3,7 @@
  * 向量索引模块
  *
  * 功能:
- * - 为文件生成向量嵌入并存储到 Vectorize
+ * - 为文件生成向量嵌入并存储到 Vectorize（支持分块索引）
  * - 语义相似文件搜索
  * - 批量索引管理
  * 模型: @cf/baai/bge-m3（多语言，1024维）
@@ -19,6 +19,16 @@ import { logger } from '@osshelf/shared';
 const EMBEDDING_MODEL = '@cf/baai/bge-m3';
 const MAX_TEXT_LENGTH = 4096;
 
+// 分块配置: 滑动窗口策略
+const CHUNK_CONFIG = {
+  chunkSize: 1000, // 约 512 token (中文约 2 字符/token)
+  overlap: 128, // 约 64 token 重叠，保持上下文连续性
+  maxChunks: 20, // 单文件最多 20 块，控制存储成本
+} as const;
+
+// 向量 ID 前缀: 用于区分单块和多块模式
+const CHUNK_ID_PREFIX = '_chunk_';
+
 export interface VectorSearchResult {
   fileId: string;
   score: number;
@@ -29,6 +39,48 @@ export interface IndexResult {
   success: boolean;
   fileId: string;
   error?: string;
+}
+
+/**
+ * 文本分块 — 滑动窗口策略
+ * 超过 MAX_TEXT_LENGTH 的文本会被分割为多个重叠块
+ */
+function splitTextIntoChunks(text: string): string[] {
+  if (text.length <= MAX_TEXT_LENGTH) {
+    return [text];
+  }
+
+  const chunks: string[] = [];
+  let start = 0;
+
+  while (start < text.length && chunks.length < CHUNK_CONFIG.maxChunks) {
+    const end = Math.min(start + CHUNK_CONFIG.chunkSize, text.length);
+    chunks.push(text.slice(start, end));
+    start += CHUNK_CONFIG.chunkSize - CHUNK_CONFIG.overlap;
+  }
+
+  return chunks;
+}
+
+/**
+ * 生成分块向量 ID
+ */
+function buildChunkVectorId(fileId: string, index: number): string {
+  return `${fileId}${CHUNK_ID_PREFIX}${index}`;
+}
+
+/**
+ * 判断向量 ID 是否为分块 ID
+ */
+function isChunkId(vectorId: string): boolean {
+  return vectorId.includes(CHUNK_ID_PREFIX);
+}
+
+/**
+ * 从分块向量 ID 提取原始文件 ID
+ */
+function extractFileIdFromChunkId(vectorId: string): string {
+  return vectorId.split(CHUNK_ID_PREFIX)[0];
 }
 
 export async function indexFileVector(env: Env, fileId: string, text: string): Promise<void> {
@@ -42,19 +94,7 @@ export async function indexFileVector(env: Env, fileId: string, text: string): P
     return;
   }
 
-  const truncatedText = text.slice(0, MAX_TEXT_LENGTH);
-
   try {
-    const result = await (env.AI as any).run(EMBEDDING_MODEL, {
-      text: [truncatedText],
-    });
-
-    // bge-m3 返回结构: { data: number[][] }
-    const data = result?.data;
-    if (!data || data.length === 0) {
-      throw new Error('Failed to generate embedding: empty data');
-    }
-
     const db = getDb(env.DB);
     const file = await db.select().from(files).where(eq(files.id, fileId)).get();
 
@@ -62,17 +102,60 @@ export async function indexFileVector(env: Env, fileId: string, text: string): P
       throw new Error(`File not found: ${fileId}`);
     }
 
-    await env.VECTORIZE.upsert([
-      {
-        id: fileId,
-        values: data[0],
+    const chunks = splitTextIntoChunks(text);
+
+    if (chunks.length === 1) {
+      // 短文本：单块模式（兼容旧逻辑）
+      const truncatedText = chunks[0].slice(0, MAX_TEXT_LENGTH);
+      const result = await (env.AI as any).run(EMBEDDING_MODEL, {
+        text: [truncatedText],
+      });
+
+      const data = result?.data;
+      if (!data || data.length === 0) {
+        throw new Error('Failed to generate embedding: empty data');
+      }
+
+      await env.VECTORIZE.upsert([
+        {
+          id: fileId,
+          values: data[0],
+          metadata: {
+            userId: file.userId,
+            name: file.name,
+            mimeType: file.mimeType || '',
+            chunkCount: 1,
+          },
+        },
+      ]);
+    } else {
+      // 长文本：多块模式
+      logger.info('VECTOR', '文件使用分块索引', { fileId, chunkCount: chunks.length });
+
+      const embeddings = await (env.AI as any).run(EMBEDDING_MODEL, {
+        text: chunks.map((c) => c.slice(0, MAX_TEXT_LENGTH)),
+      });
+
+      const data = embeddings?.data;
+      if (!data || data.length === 0) {
+        throw new Error('Failed to generate embeddings: empty data');
+      }
+
+      const upsertItems = data.map((embedding: number[], index: number) => ({
+        id: buildChunkVectorId(fileId, index),
+        values: embedding,
         metadata: {
           userId: file.userId,
           name: file.name,
           mimeType: file.mimeType || '',
+          chunkIndex: index,
+          chunkCount: chunks.length,
+          sourceFileId: fileId,
         },
-      },
-    ]);
+      }));
+
+      await env.VECTORIZE.upsert(upsertItems);
+    }
 
     await db.update(files).set({ vectorIndexedAt: new Date().toISOString() }).where(eq(files.id, fileId));
   } catch (error) {
@@ -85,7 +168,14 @@ export async function deleteFileVector(env: Env, fileId: string): Promise<void> 
   if (!env.VECTORIZE) return;
 
   try {
-    await env.VECTORIZE.deleteByIds([fileId]);
+    // 尝试删除所有可能的向量 ID（单块 + 所有分块）
+    const idsToDelete: string[] = [fileId];
+
+    for (let i = 0; i < CHUNK_CONFIG.maxChunks; i++) {
+      idsToDelete.push(buildChunkVectorId(fileId, i));
+    }
+
+    await env.VECTORIZE.deleteByIds(idsToDelete);
   } catch (error) {
     logger.error('VECTOR', '删除向量失败', { fileId }, error);
   }
@@ -101,7 +191,6 @@ export async function searchSimilarFiles(
     mimeType?: string;
   } = {}
 ): Promise<VectorSearchResult[]> {
-  // threshold 默认 0.5（bge-m3 cosine 分数普遍偏低，0.7 会过滤掉大量有效结果）
   const { limit = 20, threshold = 0.5 } = options;
 
   if (!env.AI || !env.VECTORIZE) {
@@ -109,6 +198,10 @@ export async function searchSimilarFiles(
   }
 
   try {
+    // 搜索时增加 topK 以应对同一文件多个 chunk 的情况
+    // Cloudflare Vectorize 限制：returnMetadata='all' 时 topK 最大 50
+    const effectiveLimit = Math.min(limit * 3, 50);
+
     const result = await (env.AI as any).run(EMBEDDING_MODEL, {
       text: [query.slice(0, MAX_TEXT_LENGTH)],
     });
@@ -118,22 +211,39 @@ export async function searchSimilarFiles(
       return [];
     }
 
-    // userId filter 防止跨用户泄露
     const filter: VectorizeVectorMetadataFilter = { userId };
 
     const results = await env.VECTORIZE.query(data[0], {
-      topK: limit,
+      topK: effectiveLimit,
       filter,
       returnMetadata: 'all',
     });
 
-    return results.matches
+    const rawMatches = results.matches
       .filter((m) => m.score >= threshold)
       .map((m) => ({
-        fileId: m.id,
+        rawId: m.id,
+        fileId: isChunkId(m.id) ? extractFileIdFromChunkId(m.id) : m.id,
         score: m.score,
         metadata: m.metadata as Record<string, unknown> | undefined,
       }));
+
+    // 同一文件多个 chunk 时取最高分
+    const bestScoreMap = new Map<string, VectorSearchResult>();
+    for (const match of rawMatches) {
+      const existing = bestScoreMap.get(match.fileId);
+      if (!existing || match.score > existing.score) {
+        bestScoreMap.set(match.fileId, {
+          fileId: match.fileId,
+          score: match.score,
+          metadata: match.metadata,
+        });
+      }
+    }
+
+    return Array.from(bestScoreMap.values())
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
   } catch (error) {
     logger.error('VECTOR', '搜索相似文件失败', {}, error);
     return [];
@@ -181,7 +291,55 @@ export async function batchIndexFiles(env: Env, fileIds: string[]): Promise<Inde
 }
 
 /**
- * 语义搜索 + DB 查询合并，避免 ai/search 路由的全表扫描
+ * Reciprocal Rank Fusion (RRF) — 合并语义搜索和关键词搜索结果
+ * k=60 是常用值，用于平滑排名差异
+ */
+function reciprocalRankFusion(
+  vectorResults: VectorSearchResult[],
+  keywordResults: VectorSearchResult[],
+  k: number = 60
+): VectorSearchResult[] {
+  const scores = new Map<string, number>();
+
+  for (const results of [vectorResults, keywordResults]) {
+    results.forEach((r, rank) => {
+      const prev = scores.get(r.fileId) || 0;
+      scores.set(r.fileId, prev + 1 / (k + rank + 1));
+    });
+  }
+
+  return Array.from(scores.entries())
+    .map(([fileId, score]) => ({ fileId, score }))
+    .sort((a, b) => b.score - a.score);
+}
+
+/**
+ * 关键词搜索（SQL LIKE）— 作为语义搜索的补充
+ */
+async function keywordSearch(env: Env, query: string, userId: string, limit: number): Promise<VectorSearchResult[]> {
+  const db = getDb(env.DB);
+
+  try {
+    const rows = await db
+      .select({ id: files.id, name: files.name })
+      .from(files)
+      .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
+      .all();
+
+    const queryLower = query.toLowerCase();
+    const matched = rows
+      .filter((r) => r.name.toLowerCase().includes(queryLower))
+      .slice(0, limit)
+      .map((r) => ({ fileId: r.id, score: 0.8 }));
+
+    return matched;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 语义搜索 + DB 查询合并，使用 RRF 混合检索策略
  */
 export async function searchAndFetchFiles(
   env: Env,
@@ -189,11 +347,20 @@ export async function searchAndFetchFiles(
   userId: string,
   options: { limit?: number; threshold?: number; mimeType?: string } = {}
 ) {
-  const searchResults = await searchSimilarFiles(env, query, userId, options);
-  if (searchResults.length === 0) return [];
+  const { limit = 20 } = options;
+
+  const [vectorResults, keywordResults] = await Promise.all([
+    searchSimilarFiles(env, query, userId, { limit: Math.min(limit * 2, 40) }),
+    keywordSearch(env, query, userId, Math.min(limit * 2, 40)),
+  ]);
+
+  const fusedResults = reciprocalRankFusion(vectorResults, keywordResults);
+  const topResults = fusedResults.slice(0, limit);
+
+  if (topResults.length === 0) return [];
 
   const db = getDb(env.DB);
-  const fileIds = searchResults.map((r) => r.fileId);
+  const fileIds = topResults.map((r) => r.fileId);
 
   const fileRecords = await db
     .select()
@@ -203,7 +370,7 @@ export async function searchAndFetchFiles(
 
   const fileMap = new Map(fileRecords.map((f) => [f.id, f]));
 
-  return searchResults
+  return topResults
     .filter((r) => fileMap.has(r.fileId))
     .map((r) => ({
       ...fileMap.get(r.fileId)!,

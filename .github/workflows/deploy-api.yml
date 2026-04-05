@@ -47,6 +47,19 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      - name: Create AI Tasks Queue
+        run: |
+          echo "Checking if AI Tasks Queue exists..."
+          if ! npx wrangler queues list 2>/dev/null | grep -q "ossshelf-ai-tasks"; then
+            echo "Creating AI Tasks Queue..."
+            npx wrangler queues create ossshelf-ai-tasks
+          else
+            echo "AI Tasks Queue already exists, skipping creation"
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Generate wrangler.toml
         run: |
           cat > apps/api/wrangler.toml << EOF
@@ -70,6 +83,17 @@ jobs:
           [[kv_namespaces]]
           binding = "KV"
           id = "${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}"
+
+          [[queues.producers]]
+          queue = "ossshelf-ai-tasks"
+          binding = "AI_TASKS_QUEUE"
+
+          [[queues.consumers]]
+          queue = "ossshelf-ai-tasks"
+          max_batch_size = 1
+          max_batch_timeout = 5
+          max_retries = 3
+          retry_delay = 60
 
           [observability]
           enabled = false

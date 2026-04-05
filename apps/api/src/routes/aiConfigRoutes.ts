@@ -17,45 +17,52 @@ import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { ModelGateway, WorkersAiAdapter, OpenAiCompatibleAdapter } from '../lib/ai';
-import type { ModelConfig } from '../lib/ai/types';
+import type { ModelConfig, ModelCapability } from '../lib/ai/types';
 import { logger } from '@osshelf/shared';
+import { encryptCredential, decryptCredential, getEncryptionKey, isAesGcmFormat } from '../lib/crypto';
+import { initializeAiConfig, getAllAiConfigs, updateAiConfig, resetAiConfigToDefault } from '../lib/ai/aiConfigService';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
 
-const createModelSchema = z.object({
-  name: z.string().min(1).max(100),
-  provider: z.enum(['workers_ai', 'openai_compatible']),
-  modelId: z.string().min(1),
-  apiEndpoint: z.string().max(500).optional(), // 移除 .url() 验证，改为可选字符串
-  apiKey: z.string().min(1).optional(),
-  capabilities: z.array(z.enum(['chat', 'completion', 'embedding', 'vision', 'function_calling'])).default(['chat']),
-  maxTokens: z.number().int().min(1).max(128000).default(4096),
-  temperature: z.number().min(0).max(2).default(0.7),
-  systemPrompt: z.string().max(2000).optional(),
-  isActive: z.boolean().default(false),
-}).refine((data) => {
-  // 仅当 provider 为 openai_compatible 且提供了 apiEndpoint 时才验证 URL 格式
-  if (data.provider === 'openai_compatible' && data.apiEndpoint) {
-    try {
-      new URL(data.apiEndpoint);
+const createModelSchema = z
+  .object({
+    name: z.string().min(1).max(100),
+    provider: z.enum(['workers_ai', 'openai_compatible']),
+    modelId: z.string().min(1),
+    apiEndpoint: z.string().max(500).optional(), // 移除 .url() 验证，改为可选字符串
+    apiKey: z.string().min(1).optional(),
+    capabilities: z.array(z.enum(['chat', 'completion', 'embedding', 'vision', 'function_calling'])).default(['chat']),
+    maxTokens: z.number().int().min(1).max(128000).default(4096),
+    temperature: z.number().min(0).max(2).default(0.7),
+    systemPrompt: z.string().max(2000).optional(),
+    isActive: z.boolean().default(false),
+  })
+  .refine(
+    (data) => {
+      // 仅当 provider 为 openai_compatible 且提供了 apiEndpoint 时才验证 URL 格式
+      if (data.provider === 'openai_compatible' && data.apiEndpoint) {
+        try {
+          new URL(data.apiEndpoint);
+          return true;
+        } catch {
+          return false;
+        }
+      }
       return true;
-    } catch {
-      return false;
+    },
+    {
+      message: 'API 端点格式无效，请输入有效的 URL',
+      path: ['apiEndpoint'],
     }
-  }
-  return true;
-}, {
-  message: 'API 端点格式无效，请输入有效的 URL',
-  path: ['apiEndpoint'],
-});
+  );
 
 const updateModelSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   provider: z.enum(['workers_ai', 'openai_compatible']).optional(),
   modelId: z.string().min(1).optional(),
   apiEndpoint: z.string().max(500).optional(),
-  apiKey: z.string().min(1).optional(),
+  apiKey: z.union([z.string().min(1), z.literal('')]).optional(),
   capabilities: z.array(z.enum(['chat', 'completion', 'embedding', 'vision', 'function_calling'])).optional(),
   maxTokens: z.number().int().min(1).max(128000).optional(),
   temperature: z.number().min(0).max(2).optional(),
@@ -65,10 +72,16 @@ const updateModelSchema = z.object({
 
 app.get('/models', async (c) => {
   const userId = c.get('userId')!;
+  const capability = c.req.query('capability') as ModelCapability | undefined;
   const gateway = new ModelGateway(c.env);
   const models = await gateway.getAllModels(userId);
 
-  const modelsWithDecryptedKey = models.map((m) => ({
+  let filteredModels = models;
+  if (capability) {
+    filteredModels = models.filter((m) => m.capabilities.includes(capability));
+  }
+
+  const modelsWithDecryptedKey = filteredModels.map((m) => ({
     ...m,
     apiKeyEncrypted: m.apiKeyEncrypted ? '***' : undefined,
     hasApiKey: !!m.apiKeyEncrypted,
@@ -107,8 +120,16 @@ app.post('/models', async (c) => {
   const result = createModelSchema.safeParse(body);
 
   if (!result.success) {
+    const firstError = result.error.errors[0];
+    const fieldPath = firstError.path.join('.') || 'unknown';
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.VALIDATION_ERROR,
+          message: `${fieldPath}: ${firstError.message}`,
+        },
+      },
       400
     );
   }
@@ -122,7 +143,7 @@ app.post('/models', async (c) => {
       await db.update(aiModels).set({ isActive: false }).where(eq(aiModels.userId, userId));
     }
 
-    const apiKeyEncrypted = data.apiKey ? await encryptApiKey(data.apiKey) : null;
+    const apiKeyEncrypted = data.apiKey ? await encryptApiKey(data.apiKey, c.env) : null;
 
     const newModel = {
       id: crypto.randomUUID(),
@@ -157,10 +178,7 @@ app.post('/models', async (c) => {
     });
   } catch (error) {
     logger.error('AI', 'Failed to create model', { userId }, error);
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '创建模型失败' } },
-      500
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '创建模型失败' } }, 500);
   }
 });
 
@@ -171,8 +189,16 @@ app.put('/models/:modelId', async (c) => {
   const result = updateModelSchema.safeParse(body);
 
   if (!result.success) {
+    const firstError = result.error.errors[0];
+    const fieldPath = firstError.path.join('.') || 'unknown';
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.VALIDATION_ERROR,
+          message: `${fieldPath}: ${firstError.message}`,
+        },
+      },
       400
     );
   }
@@ -196,8 +222,8 @@ app.put('/models/:modelId', async (c) => {
     }
 
     let apiKeyEncrypted = existingModel.apiKeyEncrypted;
-    if (data.apiKey !== undefined) {
-      apiKeyEncrypted = data.apiKey ? await encryptApiKey(data.apiKey) : null;
+    if (data.apiKey !== undefined && data.apiKey !== '') {
+      apiKeyEncrypted = data.apiKey ? await encryptApiKey(data.apiKey, c.env) : null;
     }
 
     const updateData: Record<string, unknown> = {
@@ -206,14 +232,14 @@ app.put('/models/:modelId', async (c) => {
 
     if (data.name !== undefined) updateData.name = data.name;
     if (data.provider !== undefined) updateData.provider = data.provider;
-    if (data.modelId !== undefined) updateData.model_id = data.modelId;
-    if (data.apiEndpoint !== undefined) updateData.api_endpoint = data.apiEndpoint || null;
-    if (data.apiKey !== undefined) updateData.api_key_encrypted = apiKeyEncrypted;
-    if (data.isActive !== undefined) updateData.is_active = data.isActive ? 1 : 0;
+    if (data.modelId !== undefined) updateData.modelId = data.modelId;
+    if (data.apiEndpoint !== undefined) updateData.apiEndpoint = data.apiEndpoint || null;
+    if (data.apiKey !== undefined) updateData.apiKeyEncrypted = apiKeyEncrypted;
+    if (data.isActive !== undefined) updateData.isActive = data.isActive;
     if (data.capabilities !== undefined) updateData.capabilities = JSON.stringify(data.capabilities);
-    if (data.maxTokens !== undefined) updateData.max_tokens = data.maxTokens;
+    if (data.maxTokens !== undefined) updateData.maxTokens = data.maxTokens;
     if (data.temperature !== undefined) updateData.temperature = data.temperature;
-    if (data.systemPrompt !== undefined) updateData.system_prompt = data.systemPrompt || null;
+    if (data.systemPrompt !== undefined) updateData.systemPrompt = data.systemPrompt || null;
 
     await db.update(aiModels).set(updateData).where(eq(aiModels.id, modelId));
 
@@ -222,10 +248,7 @@ app.put('/models/:modelId', async (c) => {
     return c.json({ success: true, data: { id: modelId, ...data, apiKeyEncrypted: undefined } });
   } catch (error) {
     logger.error('AI', 'Failed to update model', { userId, modelId }, error);
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '更新模型失败' } },
-      500
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '更新模型失败' } }, 500);
   }
 });
 
@@ -252,10 +275,7 @@ app.delete('/models/:modelId', async (c) => {
     return c.json({ success: true, data: { message: '模型已删除' } });
   } catch (error) {
     logger.error('AI', 'Failed to delete model', { userId, modelId }, error);
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '删除模型失败' } },
-      500
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '删除模型失败' } }, 500);
   }
 });
 
@@ -276,17 +296,17 @@ app.post('/models/:modelId/activate', async (c) => {
 
   try {
     await db.update(aiModels).set({ isActive: false }).where(eq(aiModels.userId, userId));
-    await db.update(aiModels).set({ isActive: true, updatedAt: new Date().toISOString() }).where(eq(aiModels.id, modelId));
+    await db
+      .update(aiModels)
+      .set({ isActive: true, updatedAt: new Date().toISOString() })
+      .where(eq(aiModels.id, modelId));
 
     logger.info('AI', 'Model activated', { userId, modelId });
 
     return c.json({ success: true, data: { message: '模型已激活', activeModelId: modelId } });
   } catch (error) {
     logger.error('AI', 'Failed to activate model', { userId, modelId }, error);
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '激活模型失败' } },
-      500
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '激活模型失败' } }, 500);
   }
 });
 
@@ -353,12 +373,72 @@ app.get('/feature-config', async (c) => {
     });
   } catch (error) {
     logger.error('AI Config', 'Failed to get feature config', { userId }, error);
-    return c.json({
-      success: false,
-      error: { code: ERROR_CODES.INTERNAL_ERROR, message: '获取配置失败' },
-    }, 500);
+    return c.json(
+      {
+        success: false,
+        error: { code: ERROR_CODES.INTERNAL_ERROR, message: '获取配置失败' },
+      },
+      500
+    );
   }
 });
+
+// 获取各功能可用的模型列表（带能力过滤）
+// 前端用此接口渲染下拉选项，避免用户选到不支持的模型
+app.get('/feature-models', async (c) => {
+  const userId = c.get('userId')!;
+  const gateway = new ModelGateway(c.env);
+
+  try {
+    const allModels = await gateway.getAllModels(userId);
+
+    const featureModels = {
+      summary: allModels.filter((m) => m.capabilities.includes('chat')).map(formatModelForSelect),
+      imageCaption: allModels.filter((m) => m.capabilities.includes('vision')).map(formatModelForSelect),
+      imageTag: allModels.filter((m) => m.capabilities.includes('chat')).map(formatModelForSelect),
+      rename: allModels.filter((m) => m.capabilities.includes('chat')).map(formatModelForSelect),
+    };
+
+    return c.json({
+      success: true,
+      data: featureModels,
+    });
+  } catch (error) {
+    logger.error('AI Config', 'Failed to get feature models', { userId }, error);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '获取可用模型失败' } }, 500);
+  }
+});
+
+function formatModelForSelect(m: ModelConfig) {
+  return {
+    id: m.id,
+    name: m.name,
+    provider: m.provider,
+    modelId: m.modelId,
+    capabilities: m.capabilities,
+    isActive: m.isActive,
+  };
+}
+
+// 各功能所需的模型能力映射
+const FEATURE_CAPABILITY_REQUIREMENTS: Record<string, ModelCapability[]> = {
+  summary: ['chat'],
+  imageCaption: ['vision'],
+  imageTag: ['chat'],
+  rename: ['chat'],
+};
+
+function validateWorkersAiModel(modelId: string, requiredCapability: ModelCapability): { valid: boolean; error?: string } {
+  const workersAiModels = WorkersAiAdapter.getAvailableModels();
+  const model = workersAiModels.find((m) => m.id === modelId);
+  if (!model) {
+    return { valid: false, error: 'Workers AI 模型不存在' };
+  }
+  if (!model.capabilities.includes(requiredCapability)) {
+    return { valid: false, error: `该模型不支持 ${requiredCapability} 能力` };
+  }
+  return { valid: true };
+}
 
 // 保存功能模型配置
 app.put('/feature-config', async (c) => {
@@ -371,28 +451,83 @@ app.put('/feature-config', async (c) => {
     rename?: string | null;
   };
 
-  // 验证：如果提供了 modelId，需要验证模型存在且属于该用户
   const gateway = new ModelGateway(c.env);
-  const validations = await Promise.all([
-    summary ? gateway.getModelById(summary, userId).then((m) => !!m) : Promise.resolve(true),
-    imageCaption ? gateway.getModelById(imageCaption, userId).then((m) => !!m) : Promise.resolve(true),
-    imageTag ? gateway.getModelById(imageTag, userId).then((m) => !!m) : Promise.resolve(true),
-    rename ? gateway.getModelById(rename, userId).then((m) => !!m) : Promise.resolve(true),
-  ]);
 
-  const [validSummary, validImageCaption, validImageTag, validRename] = validations;
+  if (summary) {
+    if (summary.startsWith('@cf/')) {
+      const result = validateWorkersAiModel(summary, 'chat');
+      if (!result.valid) {
+        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error } }, 400);
+      }
+    } else {
+      const m = await gateway.getModelById(summary, userId);
+      if (!m) {
+        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '摘要模型不存在' } }, 400);
+      }
+      if (!m.capabilities?.includes('chat')) {
+        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该模型不支持 chat 能力' } }, 400);
+      }
+    }
+  }
 
-  if (summary && !validSummary) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '摘要模型不存在' } }, 400);
+  if (imageCaption) {
+    if (imageCaption.startsWith('@cf/')) {
+      const result = validateWorkersAiModel(imageCaption, 'vision');
+      if (!result.valid) {
+        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error } }, 400);
+      }
+    } else {
+      const m = await gateway.getModelById(imageCaption, userId);
+      if (!m) {
+        return c.json(
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '图片描述模型不存在' } },
+          400
+        );
+      }
+      if (!m.capabilities?.includes('vision')) {
+        return c.json(
+          {
+            success: false,
+            error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该模型不支持 vision 能力（需要多模态模型如 GPT-4o）' },
+          },
+          400
+        );
+      }
+    }
   }
-  if (imageCaption && !validImageCaption) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '图片描述模型不存在或无 vision 能力' } }, 400);
+
+  if (imageTag) {
+    if (imageTag.startsWith('@cf/')) {
+      const result = validateWorkersAiModel(imageTag, 'vision');
+      if (!result.valid) {
+        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error } }, 400);
+      }
+    } else {
+      const m = await gateway.getModelById(imageTag, userId);
+      if (!m) {
+        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '图片标签模型不存在' } }, 400);
+      }
+      if (!m.capabilities?.includes('chat')) {
+        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该模型不支持 chat 能力' } }, 400);
+      }
+    }
   }
-  if (imageTag && !validImageTag) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '图片标签模型不存在' } }, 400);
-  }
-  if (rename && !validRename) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '重命名模型不存在' } }, 400);
+
+  if (rename) {
+    if (rename.startsWith('@cf/')) {
+      const result = validateWorkersAiModel(rename, 'chat');
+      if (!result.valid) {
+        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error } }, 400);
+      }
+    } else {
+      const m = await gateway.getModelById(rename, userId);
+      if (!m) {
+        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '重命名模型不存在' } }, 400);
+      }
+      if (!m.capabilities?.includes('chat')) {
+        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该模型不支持 chat 能力' } }, 400);
+      }
+    }
   }
 
   const config = {
@@ -403,7 +538,7 @@ app.put('/feature-config', async (c) => {
   };
 
   try {
-    await c.env.KV.put(FEATURE_CONFIG_KEY(userId), JSON.stringify(config), { expirationTtl: 86400 * 30 }); // 30天过期
+    await c.env.KV.put(FEATURE_CONFIG_KEY(userId), JSON.stringify(config), { expirationTtl: 86400 * 30 });
 
     logger.info('AI Config', 'Feature model config saved', { userId, config });
 
@@ -413,10 +548,7 @@ app.put('/feature-config', async (c) => {
     });
   } catch (error) {
     logger.error('AI Config', 'Failed to save feature config', { userId }, error);
-    return c.json({
-      success: false,
-      error: { code: ERROR_CODES.INTERNAL_ERROR, message: '保存配置失败' },
-    }, 500);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '保存配置失败' } }, 500);
   }
 });
 
@@ -447,16 +579,18 @@ app.post('/test', async (c) => {
       const adapter = gateway.getAdapter(testConfig);
       const validation = adapter.validateConfig(testConfig);
       if (!validation.valid) {
-        return c.json({
-          success: false,
-          error: { code: ERROR_CODES.VALIDATION_ERROR, message: validation.error || '配置无效' },
-          data: { valid: false, error: validation.error },
-        }, 400);
+        return c.json(
+          {
+            success: false,
+            error: { code: ERROR_CODES.VALIDATION_ERROR, message: validation.error || '配置无效' },
+            data: { valid: false, error: validation.error },
+          },
+          400
+        );
       }
     } else if (provider) {
       // 测试临时配置（保存前测试）
       const actualModelId = body.modelId || (provider === 'workers_ai' ? '@cf/meta/llama-3.1-8b-instruct' : 'gpt-4o');
-      const apiKeyEncrypted = apiKey ? await encryptApiKey(apiKey) : null;
 
       testConfig = {
         id: 'test-temp',
@@ -465,7 +599,8 @@ app.post('/test', async (c) => {
         provider: provider as any,
         modelId: actualModelId,
         apiEndpoint: apiEndpoint || undefined,
-        apiKeyEncrypted: apiKeyEncrypted || undefined,
+        apiKeyEncrypted: undefined,
+        apiKeyDecrypted: apiKey || undefined,
         isActive: false,
         capabilities: ['chat'],
         maxTokens: 100,
@@ -500,7 +635,6 @@ app.post('/test', async (c) => {
         response: response.content,
         model: response.model,
         latencyMs,
-        usage: response.usage,
         timestamp: new Date().toISOString(),
       },
     });
@@ -508,27 +642,120 @@ app.post('/test', async (c) => {
     logger.error('AI Config', 'Model test failed', { userId, provider, modelId }, error);
 
     const errorMessage = error instanceof Error ? error.message : '测试失败';
-    return c.json({
-      success: false,
-      error: {
-        code: ERROR_CODES.INTERNAL_ERROR,
-        message: `模型测试失败: ${errorMessage}`,
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.INTERNAL_ERROR,
+          message: `模型测试失败: ${errorMessage}`,
+        },
+        data: {
+          valid: false,
+          error: errorMessage,
+          timestamp: new Date().toISOString(),
+        },
       },
-      data: {
-        valid: false,
-        error: errorMessage,
-        timestamp: new Date().toISOString(),
-      },
-    }, 500);
+      500
+    );
   }
 });
 
-async function encryptApiKey(apiKey: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(apiKey);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+async function encryptApiKey(apiKey: string, env: Env): Promise<string> {
+  const secret = getEncryptionKey(env);
+  return encryptCredential(apiKey, secret);
 }
+
+async function decryptApiKey(encrypted: string, env: Env): Promise<string> {
+  const secret = getEncryptionKey(env);
+  return decryptCredential(encrypted, secret);
+}
+
+export function decryptModelApiKey(model: ModelConfig, env: Env): ModelConfig {
+  if (model.apiKeyEncrypted && isAesGcmFormat(model.apiKeyEncrypted)) {
+    return {
+      ...model,
+      apiKeyEncrypted: undefined,
+      apiKeyDecrypted: model.apiKeyEncrypted,
+    } as ModelConfig & { apiKeyDecrypted?: string };
+  }
+  return model;
+}
+
+export async function decryptModelApiKeyAsync(
+  model: ModelConfig,
+  env: Env
+): Promise<ModelConfig & { apiKeyDecrypted?: string }> {
+  if (model.apiKeyEncrypted && isAesGcmFormat(model.apiKeyEncrypted)) {
+    const decrypted = await decryptApiKey(model.apiKeyEncrypted, env);
+    return {
+      ...model,
+      apiKeyEncrypted: undefined,
+      apiKeyDecrypted: decrypted,
+    };
+  }
+  return model as ModelConfig & { apiKeyDecrypted?: string };
+}
+
+// AI功能配置表相关接口
+
+// 获取所有AI配置项
+app.get('/system-config', async (c) => {
+  try {
+    await initializeAiConfig(c.env);
+    const configs = await getAllAiConfigs(c.env);
+
+    return c.json({
+      success: true,
+      data: configs,
+    });
+  } catch (error) {
+    logger.error('AI Config', 'Failed to get system config', { error: String(error) });
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '获取系统配置失败' } }, 500);
+  }
+});
+
+// 更新单个AI配置项
+app.put('/system-config/:key', async (c) => {
+  const key = c.req.param('key');
+  const body = await c.req.json();
+  const { value } = body as { value: unknown };
+
+  try {
+    const success = await updateAiConfig(c.env, key, value as string | number | boolean | object | null);
+
+    if (!success) {
+      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '配置项不存在或不可编辑' } }, 404);
+    }
+
+    return c.json({
+      success: true,
+      data: { message: '配置已更新', key },
+    });
+  } catch (error) {
+    logger.error('AI Config', 'Failed to update system config', { key, error: String(error) });
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '更新配置失败' } }, 500);
+  }
+});
+
+// 重置单个配置为默认值
+app.post('/system-config/:key/reset', async (c) => {
+  const key = c.req.param('key');
+
+  try {
+    const success = await resetAiConfigToDefault(c.env, key);
+
+    if (!success) {
+      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '配置项不存在' } }, 404);
+    }
+
+    return c.json({
+      success: true,
+      data: { message: '配置已重置为默认值', key },
+    });
+  } catch (error) {
+    logger.error('AI Config', 'Failed to reset system config', { key, error: String(error) });
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '重置配置失败' } }, 500);
+  }
+});
 
 export default app;

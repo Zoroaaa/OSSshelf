@@ -2,7 +2,7 @@
 
 本文档基于项目实际代码，详细描述 OSSshelf 的系统架构、数据库设计和核心功能实现。
 
-**当前版本**: v4.1.0
+**当前版本**: v4.2.0
 
 ---
 
@@ -41,6 +41,25 @@ OSSshelf 是一个基于 Cloudflare 部署的多厂商 OSS 文件管理系统，
 
 详细的版本更新日志请参阅 [CHANGELOG.md](../CHANGELOG.md)。
 
+### v4.2.0 (2026-04-06) - AI Agent 引擎与系统配置
+
+**核心变更**：
+- Agent 引擎：支持 Function Calling 工具调用、推理内容显示
+- AI 系统配置：可配置默认模型、参数、限制、重试策略、提示词模板
+- 向量库管理：查看和删除向量索引，支持分页和搜索
+- 任务中心：统一显示所有任务状态
+- 全局 AI 聊天：悬浮式 AI 聊天组件
+- 自定义模型：支持任意 Workers AI 模型 ID
+
+**新增文件**：
+- 后端：`lib/ai/agentEngine.ts`, `lib/ai/aiConfigService.ts`, `lib/ai/agentTools.ts`, `lib/ai/utils.ts`
+- 前端：`components/ai/AIChatWidget.tsx`
+
+**新增数据库表**：
+- `ai_system_config`
+
+详细功能说明请参阅 [AI_FEATURES.md](./AI_FEATURES.md)，API 文档请参阅 [API_AI.md](./API_AI.md)。
+
 ### v4.1.0 (2026-04-03) - AI 系统全面升级
 
 **核心变更**：
@@ -56,8 +75,6 @@ OSSshelf 是一个基于 Cloudflare 部署的多厂商 OSS 文件管理系统，
 
 **新增数据库表**：
 - `ai_models`, `ai_chat_sessions`, `ai_chat_messages`, `ai_usage_stats`
-
-详细功能说明请参阅 [AI_FEATURES.md](./AI_FEATURES.md)，API 文档请参阅 [API_AI.md](./API_AI.md)。
 
 ## 技术栈
 
@@ -123,12 +140,16 @@ ossshelf/
 │   │   │   │   ├── webhook.ts   # Webhook 分发 (v3.6.0)
 │   │   │   │   ├── aiFeatures.ts # AI 功能 (v3.7.0)
 │   │   │   ├── vectorIndex.ts # 向量索引 (v3.7.0)
-│   │   │   ├── ai/                    # AI 模块 (v4.1.0)
+│   │   │   ├── ai/                    # AI 模块 (v4.1.0, v4.2.0 增强)
 │   │   │   │   ├── index.ts          # 模块导出
 │   │   │   │   ├── types.ts          # 类型定义
 │   │   │   │   ├── modelGateway.ts   # 模型网关（核心）
+│   │   │   │   ├── agentEngine.ts    # Agent 引擎 (v4.2.0)
+│   │   │   │   ├── aiConfigService.ts # AI 配置服务 (v4.2.0)
 │   │   │   │   ├── ragEngine.ts      # RAG 引擎
+│   │   │   │   ├── agentTools.ts     # Agent 工具集 (v4.2.0)
 │   │   │   │   ├── features.ts       # 文件处理功能
+│   │   │   │   ├── utils.ts          # AI 工具函数 (v4.2.0)
 │   │   │   │   └── adapters/
 │   │   │   │       ├── workersAiAdapter.ts
 │   │   │   │       └── openAiCompatibleAdapter.ts
@@ -184,14 +205,17 @@ ossshelf/
 │   │   │   ├── 0014_ai_features.sql # AI 功能 (v3.7.0)
 │   │   │   ├── 0015_notifications.sql # 通知系统 (v3.8.0)
 │   │   │   ├── 0016_fts5.sql        # FTS5 全文搜索 (v3.8.0)
-│   │   │   └── 0018_email.sql       # 邮件通知系统 (v4.0.0)
+│   │   │   ├── 0018_email.sql       # 邮件通知系统 (v4.0.0)
+│   │   │   ├── 0020_ai_models_config.sql # AI 模型配置 (v4.1.0)
+│   │   │   └── 0021_ai_system_config.sql # AI 系统配置 (v4.2.0)
 │   │   ├── drizzle.config.ts
 │   │   ├── wrangler.toml.example
 │   │   └── package.json
 │   └── web/                        # 前端应用
 │       ├── src/
 │       │   ├── components/         # UI 组件
-│       │   │   ├── ai/             # AI 组件 (v3.7.0, v4.1.0 增强)
+│       │   │   ├── ai/             # AI 组件 (v3.7.0, v4.1.0, v4.2.0 增强)
+│       │   │   │   ├── AIChatWidget.tsx # 全局悬浮聊天 (v4.2.0)
 │       │   │   │   ├── chat/      # 对话组件 (v4.1.0 新增)
 │       │   │   │   │   ├── ChatMessageBubble.tsx
 │       │   │   │   │   ├── ChatInputBox.tsx
@@ -706,9 +730,9 @@ ossshelf/
 | `/api/api-keys`      | apiKeys.ts       | API Keys (v3.5.0)                         |
 | `/api/groups`        | groups.ts        | 用户组管理 (v3.6.0)                       |
 | `/api/webhooks`      | webhooks.ts      | Webhook 管理 (v3.6.0)                     |
-| `/api/ai`            | ai.ts            | AI 文件处理功能 (v3.7.0, v4.1.0 增强) |
-| `/api/ai-config`     | aiConfigRoutes.ts | AI 配置管理 (v4.1.0 新增)               |
-| `/api/ai-chat`       | aiChatRoutes.ts   | AI 对话系统 (v4.1.0 新增)               |
+| `/api/ai`            | ai.ts            | AI 文件处理功能 (v3.7.0, v4.2.0 增强) |
+| `/api/ai-config`     | aiConfigRoutes.ts | AI 配置管理、系统配置 (v4.1.0, v4.2.0 增强) |
+| `/api/ai-chat`       | aiChatRoutes.ts   | AI 对话系统 (v4.1.0) |
 | `/api/analytics`     | analytics.ts     | 存储分析 (v3.8.0)                         |
 | `/api/notifications` | notifications.ts | 通知系统 (v3.8.0)                         |
 | `/api/v1`            | v1/index.ts      | RESTful v1 (v3.6.0)                       |
@@ -720,13 +744,13 @@ ossshelf/
 
 ---
 
-## AI 系统架构 (v4.1.0)
+## AI 系统架构 (v4.2.0)
 
 ### 架构概览
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     AI 系统架构 (v4.1.0)                      │
+│                     AI 系统架构 (v4.2.0)                      │
 ├─────────────────────────────────────────────────────────────┤
 │                                                               │
 │  ┌─────────────────────────────────────────────────────┐   │
@@ -752,9 +776,27 @@ ossshelf/
 │  └──────────────┘ └──────────────┘ └──────────────┘     │
 │                                                               │
 │  ┌─────────────────────────────────────────────────────┐   │
+│  │                   Agent Engine (v4.2.0)              │   │
+│  │                                                     │   │
+│  │  用户提问 → 工具调用 → 推理内容 → 流式返回答案       │   │
+│  │                                                     │   │
+│  │  内置工具: search_files, get_file_content,          │   │
+│  │          list_files, get_file_info                  │   │
+│  │                                                     │   │
+│  │  推理支持: DeepSeek R1, 智谱 GLM, 阿里 QwQ          │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                               │
+│  ┌─────────────────────────────────────────────────────┐   │
 │  │                   RAG Engine                        │   │
 │  │                                                     │   │
 │  │  用户提问 → 向量搜索 → 组装上下文 → 发送给模型      │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                               │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │                AI Config Service (v4.2.0)            │   │
+│  │                                                     │   │
+│  │  系统配置: 默认模型、参数、限制、重试策略、提示词    │   │
+│  │  功能开关: 推理内容显示                              │   │
 │  └─────────────────────────────────────────────────────┘   │
 │                                                               │
 │  三层回退机制:                                              │
@@ -770,8 +812,12 @@ apps/api/src/lib/ai/
 ├── index.ts                    # 模块导出
 ├── types.ts                    # 类型定义 (IModelAdapter, ModelConfig, etc.)
 ├── modelGateway.ts             # 模型网关（核心）
+├── agentEngine.ts              # Agent 引擎 (v4.2.0)
+├── aiConfigService.ts          # AI 配置服务 (v4.2.0)
 ├── ragEngine.ts                # RAG 引擎
+├── agentTools.ts               # Agent 工具集 (v4.2.0)
 ├── features.ts                 # 文件处理功能（重构版）
+├── utils.ts                    # AI 工具函数 (v4.2.0)
 └── adapters/
     ├── workersAiAdapter.ts     # Workers AI 适配器
     └── openAiCompatibleAdapter.ts # OpenAI 兼容适配器
@@ -781,6 +827,7 @@ apps/web/src/
 │   ├── AIChat.tsx              # AI 对话页面
 │   └── AISettings.tsx           # AI 设置页面
 └── components/ai/
+    ├── AIChatWidget.tsx        # 全局悬浮聊天 (v4.2.0)
     ├── chat/                   # 对话组件
     │   ├── ChatMessageBubble.tsx
     │   ├── ChatInputBox.tsx
@@ -821,6 +868,74 @@ class ModelGateway {
 
   // 获取默认 Workers AI 模型配置
   private getDefaultWorkersAiModel(): ModelConfig
+}
+```
+
+### 核心类：AgentEngine (v4.2.0)
+
+```typescript
+class AgentEngine {
+  // 运行 Agent
+  async run(
+    userId: string,
+    query: string,
+    history: ChatMessage[],
+    modelId?: string,
+    onChunk?: (chunk: AgentChunk) => void,
+    signal?: AbortSignal
+  ): Promise<AgentResult>
+
+  // 内置工具
+  tools: ToolDefinition[]
+
+  // 工具执行
+  private async executeTool(toolName: string, args: Record<string, unknown>): Promise<ToolResult>
+}
+
+// SSE 事件类型
+interface AgentChunk {
+  content?: string           // 文本内容
+  reasoning?: boolean        // 是否为推理内容
+  toolStart?: boolean        // 工具调用开始
+  toolResult?: boolean       // 工具调用结果
+  toolName?: string          // 工具名称
+  toolCallId?: string        // 工具调用 ID
+  args?: Record<string, unknown>  // 工具参数
+  result?: unknown           // 工具结果
+  done: boolean              // 是否完成
+  sources?: SourceFile[]     // 来源文件
+}
+```
+
+### 核心类：AiConfigService (v4.2.0)
+
+```typescript
+class AiConfigService {
+  // 获取所有系统配置
+  async getAllConfigs(env: Env): Promise<AiSystemConfigItem[]>
+
+  // 获取单个配置
+  async getConfig(env: Env, key: string): Promise<ConfigValue | null>
+
+  // 更新配置
+  async setConfig(env: Env, key: string, value: ConfigValue): Promise<void>
+
+  // 重置为默认值
+  async resetConfig(env: Env, key: string): Promise<void>
+}
+
+// 配置分类
+type ConfigCategory = 'model' | 'parameter' | 'limit' | 'retry' | 'prompt' | 'feature'
+
+// 配置项示例
+interface AiSystemConfigItem {
+  key: string
+  label: string
+  description: string
+  category: ConfigCategory
+  valueType: 'string' | 'number' | 'boolean' | 'json'
+  defaultValue: string | number | boolean
+  isEditable: boolean
 }
 ```
 

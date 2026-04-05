@@ -2,6 +2,153 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v4.2.0] - 2026-04-06
+
+### Added - AI Agent 引擎与系统配置 🚀
+
+**核心功能 - Agent 引擎**
+
+- **Agent 引擎（agentEngine.ts）**
+  - 支持 Function Calling 工具调用
+  - 支持推理内容（Reasoning Content）显示
+  - 内置工具：search_files、get_file_content、list_files、get_file_info
+  - 多轮对话上下文记忆
+  - 流式输出支持
+
+- **推理内容支持**
+  - DeepSeek R1 系列模型：显示完整推理过程
+  - 智谱 GLM-4.5/4.6/4.7/5：支持 thinking 模式
+  - 阿里 QwQ 系列：显示推理过程
+
+- **SSE 流式响应格式增强**
+  - 新增 `reasoning` 事件类型（推理内容）
+  - 新增 `toolStart` 事件类型（工具调用开始）
+  - 新增 `toolResult` 事件类型（工具调用结果）
+
+**AI 系统配置**
+
+- **高级配置标签页**
+  - 默认模型配置（chat、vision、summary、image_caption、image_tag、rename）
+  - 模型参数配置（temperature、max_tokens）
+  - 内容限制配置（摘要最大长度、标签最大数量）
+  - 重试策略配置（最大重试次数、重试间隔）
+  - 提示词模板配置
+  - 功能开关配置（启用推理内容显示）
+
+- **配置 API**
+  - GET /api/ai-config/system-config - 获取所有配置
+  - PUT /api/ai-config/system-config/:key - 更新配置
+  - POST /api/ai-config/system-config/:key/reset - 重置为默认值
+  - GET /api/ai-config/feature-models - 获取各功能可用模型列表
+
+**向量库管理**
+
+- **向量库标签页**
+  - 已索引文件列表（分页显示）
+  - 文件名、类型、大小、索引时间、摘要状态
+  - 搜索过滤功能
+  - 单个删除向量索引
+
+- **向量库 API**
+  - GET /api/ai/index/vectors - 获取向量索引列表
+  - DELETE /api/ai/index/vectors/:fileId - 删除单个索引
+  - GET /api/ai/index/diagnose - 向量索引诊断
+  - GET /api/ai/index/sample/:fileId - 获取文件索引样本
+
+**任务中心**
+
+- **任务中心标签页**
+  - 统一显示所有任务状态
+  - 索引任务状态
+  - 摘要生成任务状态
+  - 标签生成任务状态
+  - 文件处理总览统计
+
+**全局 AI 聊天组件**
+
+- **AIChatWidget 组件**
+  - 页面右下角悬浮按钮
+  - 快速发起 AI 对话
+  - 会话列表切换
+  - 抽屉式聊天面板
+  - 支持最小化/展开
+
+**Workers AI 自定义模型**
+
+- **自定义模型选项**
+  - 支持输入任意 `@cf/` 开头的模型 ID
+  - 例如：`@cf/deepseek/deepseek-r1`、`@cf/black-forest-labs/flux-2-klein-4b`
+  - 可在 Workers AI 模型目录查看所有可用模型
+
+**前端改进**
+
+- ChatMessageBubble 组件增强
+  - 支持推理内容折叠显示
+  - 支持工具调用结果显示
+  - 优化 Markdown 渲染
+
+- AISettings 页面增强
+  - 新增「向量库」标签页
+  - 新增「任务中心」标签页
+  - 新增「高级配置」标签页
+  - 标签页横向滚动优化
+
+**后端改进**
+
+- agentEngine.ts
+  - 实现完整的 Agent 引擎
+  - 工具定义和执行
+  - 推理内容提取
+
+- aiConfigService.ts
+  - AI 系统配置管理
+  - 配置项定义和默认值
+  - 配置更新和重置
+
+- agentTools.ts
+  - Agent 工具集实现
+  - 文件搜索、内容获取等工具
+
+- utils.ts
+  - AI 相关工具函数
+  - 消息格式化、请求处理
+
+**模型能力更新**
+
+- 新增 `function_calling` 能力标识
+- 支持识别推理内容模型
+- 智谱模型支持 thinking 配置
+
+**数据库变更**
+
+- 新增迁移文件 `0021_ai_system_config.sql`
+  - ai_system_config 表：AI 系统配置存储
+
+**新文件**
+
+后端：
+- `apps/api/src/lib/ai/agentEngine.ts` - Agent 引擎
+- `apps/api/src/lib/ai/aiConfigService.ts` - AI 配置服务
+- `apps/api/src/lib/ai/agentTools.ts` - Agent 工具集
+- `apps/api/src/lib/ai/utils.ts` - AI 工具函数
+
+前端：
+- `apps/web/src/components/ai/AIChatWidget.tsx` - 全局悬浮聊天组件
+
+### Changed
+
+- AI_FEATURES.md 文档更新至 v4.2.0
+- API_AI.md 文档更新至 v4.2.0
+- README.md 版本号更新至 v4.2.0
+
+### Fixed
+
+- 修复推理内容显示格式问题
+- 修复工具调用结果显示问题
+- 优化向量库列表分页性能
+
+---
+
 ## [v4.1.0] - 2026-04-03
 
 ### Added - AI 系统全面升级 🤖

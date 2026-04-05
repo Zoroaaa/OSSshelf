@@ -12,7 +12,6 @@
 import { Hono } from 'hono';
 import { eq, and, inArray } from 'drizzle-orm';
 import { getDb, uploadTasks, users, storageBuckets, files, telegramFileRefs, telegramFileChunks } from '../db';
-import type { DrizzleDb } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import {
   ERROR_CODES,
@@ -39,16 +38,12 @@ import {
 } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats, checkBucketQuota } from '../lib/bucketResolver';
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
-import {
-  tgUploadFile,
-  TG_MAX_FILE_SIZE,
-  TG_MAX_CHUNKED_FILE_SIZE,
-  type TelegramBotConfig,
-} from '../lib/telegramClient';
-import { needsChunking, tgUploadChunked, TG_CHUNK_SIZE, TG_CHUNK_THRESHOLD } from '../lib/telegramChunked';
+import { tgUploadFile, TG_MAX_CHUNKED_FILE_SIZE, type TelegramBotConfig } from '../lib/telegramClient';
+import { TG_CHUNK_SIZE, TG_CHUNK_THRESHOLD } from '../lib/telegramChunked';
 import { decryptSecret, s3Delete } from '../lib/s3client';
 import { getUserOrFail, encodeFilename } from '../lib/utils';
 import { checkAndClaimDedup } from '../lib/dedup';
+import { enqueueAutoProcessFile } from '../lib/ai/features';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -759,216 +754,6 @@ app.post('/telegram-part', async (c) => {
   return c.json({ success: true, data: { partNumber, tgFileId } });
 });
 
-// ── POST /api/tasks/telegram-upload (legacy, kept for backward compat) ───
-// 旧版单次整包上传入口，已被 /telegram-part 分片方案取代。
-// 保留此路由避免旧客户端 404，但建议前端升级为分片流程。
-app.post('/telegram-upload', async (c) => {
-  const userId = c.get('userId')!;
-  const contentType = c.req.header('Content-Type') || '';
-  if (!contentType.includes('multipart/form-data')) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请使用 multipart/form-data' } },
-      400
-    );
-  }
-
-  const formData = await c.req.formData();
-  const taskId = formData.get('taskId') as string | null;
-  const fileBlob = formData.get('file') as File | null;
-
-  if (!taskId || !fileBlob) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少 taskId 或 file' } },
-      400
-    );
-  }
-
-  const db = getDb(c.env.DB);
-  const encKey = getEncryptionKey(c.env);
-
-  const task = await db
-    .select()
-    .from(uploadTasks)
-    .where(and(eq(uploadTasks.id, taskId), eq(uploadTasks.userId, userId)))
-    .get();
-
-  if (!task) {
-    throwAppError('TASK_NOT_FOUND');
-  }
-  if (new Date(task.expiresAt) < new Date()) {
-    throwAppError('TASK_EXPIRED', '上传任务已过期');
-  }
-
-  const bucket = await db
-    .select()
-    .from(storageBuckets)
-    .where(and(eq(storageBuckets.id, task.bucketId!), eq(storageBuckets.userId, userId)))
-    .get();
-
-  if (!bucket || bucket.provider !== 'telegram') {
-    return c.json({ success: false, error: { code: 'TG_CONFIG_ERROR', message: '找不到 Telegram 存储桶' } }, 404);
-  }
-
-  const botToken = await decryptSecret(bucket.accessKeyId, encKey);
-  const tgConfig: TelegramBotConfig = {
-    botToken,
-    chatId: bucket.bucketName,
-    apiBase: bucket.endpoint || undefined,
-  };
-
-  const r2KeyParts = task.r2Key.split('/');
-  const fileId = r2KeyParts[2] || crypto.randomUUID();
-
-  await db
-    .update(uploadTasks)
-    .set({ status: 'uploading', progress: 0, updatedAt: new Date().toISOString() })
-    .where(eq(uploadTasks.id, taskId));
-
-  const fileBuffer = await fileBlob.arrayBuffer();
-
-  c.executionCtx.waitUntil(
-    runTelegramUpload({
-      db,
-      userId,
-      taskId,
-      fileId,
-      task: {
-        fileName: task.fileName,
-        fileSize: task.fileSize,
-        mimeType: task.mimeType,
-        parentId: task.parentId,
-        bucketId: task.bucketId!,
-        r2Key: task.r2Key,
-      },
-      tgConfig,
-      fileBuffer,
-    })
-  );
-
-  return c.json({
-    success: true,
-    data: {
-      taskId,
-      status: 'uploading',
-      message: '上传任务已启动，请轮询进度',
-    },
-  });
-});
-
-// ── Telegram 异步上传执行器 ─────────────────────────────────────────────
-interface RunTelegramUploadParams {
-  db: DrizzleDb;
-  userId: string;
-  taskId: string;
-  fileId: string;
-  task: {
-    fileName: string;
-    fileSize: number;
-    mimeType: string | null;
-    parentId: string | null;
-    bucketId: string;
-    r2Key: string;
-  };
-  tgConfig: TelegramBotConfig;
-  fileBuffer: ArrayBuffer;
-}
-
-async function runTelegramUpload(params: RunTelegramUploadParams): Promise<void> {
-  const { db, userId, taskId, fileId, task, tgConfig, fileBuffer } = params;
-  const now = new Date().toISOString();
-  const path = task.parentId ? `${task.parentId}/${task.fileName}` : `/${task.fileName}`;
-
-  let tgFileId: string;
-  let tgFileSize: number;
-
-  try {
-    if (needsChunking(fileBuffer.byteLength)) {
-      const chunked = await tgUploadChunked(
-        tgConfig,
-        fileBuffer,
-        task.fileName,
-        task.mimeType,
-        db,
-        task.bucketId,
-        async (progress) => {
-          await db
-            .update(uploadTasks)
-            .set({ progress: progress.percent, updatedAt: new Date().toISOString() })
-            .where(eq(uploadTasks.id, taskId));
-        }
-      );
-      tgFileId = chunked.virtualFileId;
-      tgFileSize = chunked.totalBytes;
-    } else {
-      await db
-        .update(uploadTasks)
-        .set({ progress: 50, updatedAt: new Date().toISOString() })
-        .where(eq(uploadTasks.id, taskId));
-
-      const caption = `📁 ${task.fileName}\n🗂 OSSshelf | ${now.slice(0, 10)}`;
-      const result = await tgUploadFile(tgConfig, fileBuffer, task.fileName, task.mimeType, caption);
-      tgFileId = result.fileId;
-      tgFileSize = result.fileSize;
-    }
-  } catch (e: any) {
-    await db
-      .update(uploadTasks)
-      .set({ status: 'failed', errorMessage: e?.message || 'Telegram 上传失败', updatedAt: new Date().toISOString() })
-      .where(eq(uploadTasks.id, taskId));
-    return;
-  }
-
-  try {
-    await db.insert(files).values({
-      id: fileId,
-      userId,
-      parentId: task.parentId,
-      name: task.fileName,
-      path,
-      type: 'file',
-      size: task.fileSize,
-      r2Key: task.r2Key,
-      mimeType: task.mimeType,
-      hash: null,
-      refCount: 1,
-      isFolder: false,
-      bucketId: task.bucketId,
-      createdAt: now,
-      updatedAt: now,
-      deletedAt: null,
-    });
-
-    await db.insert(telegramFileRefs).values({
-      id: crypto.randomUUID(),
-      fileId,
-      r2Key: task.r2Key,
-      tgFileId,
-      tgFileSize,
-      bucketId: task.bucketId,
-      createdAt: now,
-    });
-
-    const user = await db.select().from(users).where(eq(users.id, userId)).get();
-    if (user) {
-      await db
-        .update(users)
-        .set({ storageUsed: user.storageUsed + task.fileSize, updatedAt: now })
-        .where(eq(users.id, userId));
-    }
-    await updateBucketStats(db, task.bucketId, task.fileSize, 1);
-
-    await db
-      .update(uploadTasks)
-      .set({ status: 'completed', progress: 100, updatedAt: now })
-      .where(eq(uploadTasks.id, taskId));
-  } catch (e: any) {
-    await db
-      .update(uploadTasks)
-      .set({ status: 'failed', errorMessage: e?.message || '数据库写入失败', updatedAt: new Date().toISOString() })
-      .where(eq(uploadTasks.id, taskId));
-  }
-}
-
 app.post('/complete', async (c) => {
   const userId = c.get('userId')!;
   const body = await c.req.json();
@@ -1098,6 +883,12 @@ app.post('/complete', async (c) => {
         await updateBucketStats(db, task.bucketId!, physicalDelta, 1);
       }
 
+      c.executionCtx.waitUntil(
+        enqueueAutoProcessFile(c.env, fileId, userId).catch((error) => {
+          logger.error('TASKS', '自动处理文件失败(TG小文件)', { fileId }, error);
+        })
+      );
+
       await db
         .update(uploadTasks)
         .set({ status: 'completed', progress: 100, updatedAt: now })
@@ -1223,6 +1014,12 @@ app.post('/complete', async (c) => {
         await updateBucketStats(db, task.bucketId!, physicalDelta, 1);
       }
 
+      c.executionCtx.waitUntil(
+        enqueueAutoProcessFile(c.env, fileId, userId).catch((error) => {
+          logger.error('TASKS', '自动处理文件失败(TG分片)', { fileId }, error);
+        })
+      );
+
       await db
         .update(uploadTasks)
         .set({ status: 'completed', progress: 100, updatedAt: now })
@@ -1334,6 +1131,12 @@ app.post('/complete', async (c) => {
     }
 
     await updateBucketStats(db, task.bucketId, task.fileSize, 1);
+
+    c.executionCtx.waitUntil(
+      enqueueAutoProcessFile(c.env, fileId, userId).catch((error) => {
+        logger.error('TASKS', '自动处理文件失败(S3)', { fileId }, error);
+      })
+    );
 
     await db.update(uploadTasks).set({ status: 'completed', updatedAt: now }).where(eq(uploadTasks.id, taskId));
 

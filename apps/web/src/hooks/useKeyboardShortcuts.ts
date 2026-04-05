@@ -98,24 +98,6 @@ export function useKeyboardShortcuts(shortcuts: ShortcutConfig[]) {
   };
 }
 
-export const DEFAULT_FILE_SHORTCUTS: Omit<ShortcutConfig, 'action'>[] = [
-  { key: 'a', ctrl: true, description: '全选', scope: 'files' },
-  { key: 'Escape', description: '取消选择/关闭', scope: 'global' },
-  { key: 'Delete', description: '删除选中项', scope: 'files' },
-  { key: 'F2', description: '重命名', scope: 'files' },
-  { key: 'Enter', description: '打开/确认', scope: 'files' },
-  { key: 'ArrowUp', description: '向上移动', scope: 'files' },
-  { key: 'ArrowDown', description: '向下移动', scope: 'files' },
-  { key: 'n', ctrl: true, shift: true, description: '新建文件夹', scope: 'files' },
-  { key: 'u', ctrl: true, description: '上传文件', scope: 'files' },
-  { key: 'g', ctrl: true, description: '切换网格视图', scope: 'files' },
-  { key: 'l', ctrl: true, description: '切换列表视图', scope: 'files' },
-  { key: '/', ctrl: true, description: '聚焦搜索框', scope: 'global' },
-  { key: 'c', ctrl: true, description: '复制', scope: 'files' },
-  { key: 'x', ctrl: true, description: '剪切', scope: 'files' },
-  { key: 'v', ctrl: true, description: '粘贴', scope: 'files' },
-];
-
 export function useFileKeyboardShortcuts({
   onSelectAll,
   onClearSelection,

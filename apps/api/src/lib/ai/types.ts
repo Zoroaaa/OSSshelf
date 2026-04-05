@@ -34,6 +34,7 @@ export interface ModelConfig {
   modelId: string;
   apiEndpoint?: string;
   apiKeyEncrypted?: string;
+  apiKeyDecrypted?: string;
   isActive: boolean;
   capabilities: ModelCapability[];
   maxTokens: number;
@@ -44,12 +45,19 @@ export interface ModelConfig {
   updatedAt: string;
 }
 
+export type AiFeatureType = 'image_caption' | 'image_tag' | 'image_analysis' | 'chat' | 'file_summary' | 'summary' | 'rename';
+
 export interface ChatCompletionRequest {
   messages: ChatMessage[];
   maxTokens?: number;
   temperature?: number;
   stream?: boolean;
   stop?: string[];
+  signal?: AbortSignal;
+  tools?: ToolDefinition[];
+  toolChoice?: 'auto' | 'none' | 'required' | { type: 'tool'; toolName: string };
+  extraBody?: Record<string, unknown>;
+  featureType?: AiFeatureType;
 }
 
 export interface ChatCompletionResponse {
@@ -57,12 +65,12 @@ export interface ChatCompletionResponse {
   content: string;
   role: 'assistant';
   model: string;
-  usage?: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  };
-  finishReason?: 'stop' | 'length' | 'content_filter';
+  finishReason?: 'stop' | 'length' | 'content_filter' | 'tool_calls';
+  toolCalls?: Array<{
+    id: string;
+    name: string;
+    arguments: string;
+  }>;
 }
 
 export interface StreamChunk {
@@ -71,10 +79,25 @@ export interface StreamChunk {
   role: 'assistant';
   model: string;
   done: boolean;
-  usage?: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
+  reasoningContent?: string;
+  toolCalls?: Array<{
+    id: string;
+    name?: string;
+    arguments?: string;
+    index: number;
+  }>;
+}
+
+export interface ToolDefinition {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: {
+      type: 'object';
+      properties: Record<string, unknown>;
+      required?: string[];
+    };
   };
 }
 
@@ -85,17 +108,13 @@ export interface EmbeddingRequest {
 export interface EmbeddingResponse {
   embeddings: number[][];
   model: string;
-  usage?: {
-    promptTokens: number;
-    totalTokens: number;
-  };
 }
 
 export interface IModelAdapter {
   readonly provider: ModelProvider;
   readonly modelName: string;
 
-  chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResponse>;
+  chatCompletion(request: ChatCompletionRequest, signal?: AbortSignal): Promise<ChatCompletionResponse>;
   chatCompletionStream(
     request: ChatCompletionRequest,
     onChunk: (chunk: StreamChunk) => void,

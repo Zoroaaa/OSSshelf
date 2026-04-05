@@ -10,12 +10,23 @@
 
 import type { Context } from 'hono';
 
+export interface AiTaskMessage {
+  type: 'index' | 'summary' | 'tags';
+  fileId: string;
+  userId: string;
+  taskId: string;
+  retryCount?: number;
+  /** tags/summary 完成后是否自动触发向量索引（上传自动处理时使用） */
+  triggerIndexOnComplete?: boolean;
+}
+
 export interface Env {
   DB: D1Database;
   FILES?: R2Bucket;
   KV: KVNamespace;
   AI?: Ai;
   VECTORIZE?: VectorizeIndex;
+  AI_TASKS_QUEUE?: Queue<AiTaskMessage>;
   ENVIRONMENT: string;
   JWT_SECRET: string;
   PUBLIC_URL?: string;

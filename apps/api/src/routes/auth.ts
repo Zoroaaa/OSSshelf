@@ -11,7 +11,7 @@
 
 import { Hono } from 'hono';
 import { getDb, users, loginAttempts, userDevices, files, storageBuckets, emailTokens } from '../db';
-import { eq, and, gt, lt, desc, isNull, isNotNull, inArray } from 'drizzle-orm';
+import { eq, and, gt, desc, isNull, isNotNull, inArray } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth';
 import { signJWT, hashPassword, verifyPassword } from '../lib/crypto';
 import {
@@ -25,7 +25,7 @@ import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getRegConfig } from '../lib/utils';
-import { AppError, throwAppError } from '../middleware/error';
+import { throwAppError } from '../middleware/error';
 import { createNotification, sendNotification } from '../lib/notificationUtils';
 import {
   sendEmail,

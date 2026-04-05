@@ -1,7 +1,7 @@
 # OSSshelf AI 功能说明文档
 
-**版本**: v4.1.0
-**更新日期**: 2026-04-03
+**版本**: v4.2.0
+**更新日期**: 2026-04-06
 
 ---
 
@@ -9,11 +9,14 @@
 
 - [功能概述](#功能概述)
 - [AI 对话系统](#ai-对话系统)
+- [Agent 引擎](#agent-引擎)
 - [AI 文件处理功能](#ai-文件处理功能)
 - [多模型支持](#多模型支持)
 - [AI 配置中心](#ai-配置中心)
 - [功能级模型配置](#功能级模型配置)
+- [AI 系统配置](#ai-系统配置)
 - [批量操作](#批量操作)
+- [向量库管理](#向量库管理)
 - [移动端支持](#移动端支持)
 - [技术架构](#技术架构)
 
@@ -21,12 +24,18 @@
 
 ## 功能概述
 
-v4.1.0 版本对 AI 功能进行了全面升级，新增以下核心能力：
+v4.2.0 版本对 AI 功能进行了全面升级，新增以下核心能力：
 
 | 功能 | 说明 | 版本 |
 |------|------|------|
-| **AI 对话** | 基于 RAG 的智能问答，支持文件内容理解 | v4.1.0 新增 |
-| **多模型架构** | 支持 Workers AI + OpenAI 兼容 API | v4.1.0 新增 |
+| **Agent 引擎** | 支持工具调用、推理内容显示、多轮对话 | v4.2.0 新增 |
+| **AI 系统配置** | 可配置默认模型、参数、限制、重试策略、提示词模板 | v4.2.0 新增 |
+| **向量库管理** | 查看和删除向量索引，支持分页和搜索 | v4.2.0 新增 |
+| **任务中心** | 统一显示所有任务状态，实时进度监控 | v4.2.0 新增 |
+| **全局 AI 聊天** | 悬浮式 AI 聊天组件，支持会话切换 | v4.2.0 新增 |
+| **自定义模型** | 支持任意 Workers AI 模型 ID | v4.2.0 新增 |
+| **AI 对话** | 基于 RAG 的智能问答，支持文件内容理解 | v4.1.0 |
+| **多模型架构** | 支持 Workers AI + OpenAI 兼容 API | v4.1.0 |
 | **文件摘要** | 自动生成文本文件内容摘要 | v3.7.0, v4.1.0 增强 |
 | **图片描述** | 识别图片内容并生成文字描述 | v3.7.0, v4.1.0 增强 |
 | **图片标签** | 自动识别图片内容标签 | v3.7.0, v4.1.0 增强 |
@@ -46,12 +55,26 @@ v4.1.0 版本对 AI 功能进行了全面升级，新增以下核心能力：
 - **RAG 集成**：基于用户存储的文件内容进行智能问答
 - **Markdown 渲染**：支持代码高亮、表格、列表等格式
 - **源文件引用**：回答中引用相关文件，可点击跳转
+- **推理内容显示**：支持显示模型的思考过程（DeepSeek R1、智谱 GLM 等）
+- **工具调用显示**：显示 AI 调用的工具和结果
+
+### 全局悬浮聊天组件
+
+v4.2.0 新增全局悬浮式 AI 聊天组件（AIChatWidget）：
+
+- **位置**：页面右下角悬浮按钮
+- **功能**：
+  - 快速发起 AI 对话
+  - 会话列表切换
+  - 抽屉式聊天面板
+  - 支持最小化/展开
 
 ### 使用方式
 
 1. 访问 `/ai-chat` 页面（或点击导航栏「AI 对话」）
-2. 直接输入问题开始对话
-3. 系统自动搜索相关文件并基于文件内容回答
+2. 或点击页面右下角悬浮按钮打开聊天面板
+3. 直接输入问题开始对话
+4. 系统自动搜索相关文件并基于文件内容回答
 
 ### 支持的提问类型
 
@@ -72,6 +95,62 @@ v4.1.0 版本对 AI 功能进行了全面升级，新增以下核心能力：
 
 ---
 
+## Agent 引擎
+
+### 功能介绍
+
+v4.2.0 新增 Agent 引擎（agentEngine.ts），提供更强大的 AI 代理能力：
+
+**核心特性**：
+- **工具调用（Function Calling）**：AI 可调用预定义工具获取信息
+- **推理内容（Reasoning Content）**：显示模型的思考过程
+- **多轮对话**：支持上下文记忆和连续对话
+- **流式输出**：实时返回 AI 响应
+
+### 内置工具
+
+Agent 引擎内置以下工具：
+
+| 工具名称 | 功能 | 说明 |
+|---------|------|------|
+| `search_files` | 搜索文件 | 根据关键词搜索用户文件 |
+| `get_file_content` | 获取文件内容 | 读取指定文件的内容 |
+| `list_files` | 列出文件 | 列出指定文件夹下的文件 |
+| `get_file_info` | 获取文件信息 | 获取文件的元数据信息 |
+
+### 推理内容支持
+
+以下模型支持显示推理内容：
+
+| 厂商 | 模型 | 说明 |
+|------|------|------|
+| DeepSeek | R1 系列 | 显示完整推理过程 |
+| 智谱 | GLM-4.5/4.6/4.7/5 | 支持 thinking 模式 |
+| 阿里 | QwQ 系列 | 显示推理过程 |
+
+### SSE 事件类型
+
+流式响应支持以下事件类型：
+
+```typescript
+// 文本内容
+{ content: "文本内容", done: false }
+
+// 推理内容
+{ reasoning: true, content: "思考过程...", done: false }
+
+// 工具调用开始
+{ toolStart: true, toolName: "search_files", toolCallId: "xxx", args: {...}, done: false }
+
+// 工具调用结果
+{ toolResult: true, toolCallId: "xxx", toolName: "search_files", result: {...}, done: false }
+
+// 完成
+{ done: true, sessionId: "xxx", sources: [...] }
+```
+
+---
+
 ## AI 文件处理功能
 
 ### 1️⃣ 文件摘要生成
@@ -85,7 +164,7 @@ v4.1.0 版本对 AI 功能进行了全面升级，新增以下核心能力：
 
 **使用方式**：
 - 单个文件：右键菜单 →「AI 摘要」
-- 批量处理：AI 设置 → 索引与处理 →「一键摘要」
+- 批量处理：AI 设置 → 索引与处理 →「批量生成摘要」
 
 **输出示例**：
 ```
@@ -102,11 +181,11 @@ v4.1.0 版本对 AI 功能进行了全面升级，新增以下核心能力：
 
 **使用的模型**：
 - 描述：LLaVA 1.5 7B Vision（需 vision 能力）
-- 标签：ResNet-50 分类模型
+- 标签：使用 chat 模型生成
 
 **使用方式**：
 - 单个图片：右键菜单 →「AI 描述」或「AI 标签」
-- 批量处理：AI 设置 → 索引与处理 →「一键标签+描述」
+- 批量处理：AI 设置 → 索引与处理 →「批量生成标签」
 
 ### 3️⃣ 语义搜索
 
@@ -125,7 +204,7 @@ v4.1.0 版本对 AI 功能进行了全面升级，新增以下核心能力：
 - 语义理解（同义词、概念关联）
 
 **使用方式**：
-- 批量索引：AI 设置 → 索引与处理 →「一键索引」
+- 批量索引：AI 设置 → 索引与处理 →「一键生成索引」
 - 搜索：文件列表页面的搜索栏切换到「语义搜索」
 
 ### 4️⃣ 智能重命名
@@ -151,7 +230,7 @@ v4.1.0 版本对 AI 功能进行了全面升级，新增以下核心能力：
 
 ### Workers AI 内置模型
 
-系统内置 9 个 Cloudflare Workers AI 模型，可直接使用：
+系统内置多个 Cloudflare Workers AI 模型，可直接使用：
 
 #### 聊天模型 (Chat)
 
@@ -176,6 +255,14 @@ v4.1.0 版本对 AI 功能进行了全面升级，新增以下核心能力：
 |---------|------|------|
 | `@cf/baai/bge-m3` | BGE-M3 | 文本向量化、语义搜索 |
 
+#### 自定义模型
+
+v4.2.0 新增自定义模型选项，支持输入任意 Workers AI 模型 ID：
+
+- 支持所有 `@cf/` 开头的模型 ID
+- 例如：`@cf/deepseek/deepseek-r1`、`@cf/black-forest-labs/flux-2-klein-4b`
+- 可在 [Workers AI 模型目录](https://developers.cloudflare.com/workers-ai/models/) 查看所有可用模型
+
 ### OpenAI 兼容 API
 
 支持接入任何 OpenAI API 格式的服务：
@@ -192,6 +279,15 @@ v4.1.0 版本对 AI 功能进行了全面升级，新增以下核心能力：
 - API Key
 - 选择模型 ID
 
+### 模型能力
+
+| 能力 | 说明 | 适用功能 |
+|------|------|---------|
+| `chat` | 文本对话 | 摘要生成、智能重命名、对话 |
+| `vision` | 图片理解 | 图片描述、图片标签 |
+| `embedding` | 文本向量化 | 语义搜索 |
+| `function_calling` | 工具调用 | Agent 引擎 |
+
 ---
 
 ## AI 配置中心
@@ -200,7 +296,7 @@ v4.1.0 版本对 AI 功能进行了全面升级，新增以下核心能力：
 
 导航至 `/ai-settings` 或点击导航栏「AI 配置」
 
-### 主要功能
+### 标签页功能
 
 #### 📋 模型管理（Models 标签）
 
@@ -210,7 +306,7 @@ v4.1.0 版本对 AI 功能进行了全面升级，新增以下核心能力：
 - **激活模型**：设置当前使用的默认模型
 - **测试连接**：发送测试消息验证可用性
 
-#### ⚡ 快速启用（Providers 标签）
+#### ⚡ 可用模型（Providers 标签）
 
 Workers AI 模型列表，每个模型显示：
 - 模型名称和 ID
@@ -218,7 +314,7 @@ Workers AI 模型列表，每个模型显示：
 - 一键快速启用按钮
 - 当前使用状态
 
-#### 🎯 功能级配置（Index & Processing 标签）
+#### 🎯 索引与处理（Index 标签）
 
 为不同 AI 功能选择专用模型：
 
@@ -226,20 +322,28 @@ Workers AI 模型列表，每个模型显示：
 |------|------------|------|
 | 文件摘要 | chat 模型 | 推荐使用大参数模型 |
 | 图片描述 | vision 模型 | 必须支持图片理解 |
-| 图片标签 | classify 模型 | 仅限 Workers AI |
+| 图片标签 | chat 模型 | 使用文本模型生成标签 |
 | 智能重命名 | chat 模型 | 推荐使用轻量快速模型 |
 
-#### 📊 任务管理（Tasks 标签）
+#### 📊 向量库（Vectors 标签）v4.2.0 新增
 
-查看和管理批量任务状态：
-- 一键摘要任务
-- 一键标签+描述任务
-- 一键索引任务
+查看和管理向量索引：
+- 已索引文件列表（分页显示）
+- 文件名、类型、大小、索引时间
+- 摘要生成状态
+- 单个删除向量索引
 
-每个任务显示：
-- 进度条（已处理/总数）
-- 状态图标（运行中/完成/失败/已取消）
-- 取消/清除按钮
+#### 📈 任务中心（Tasks 标签）v4.2.0 新增
+
+统一显示所有任务状态：
+- 索引任务状态
+- 摘要生成任务状态
+- 标签生成任务状态
+- 文件处理总览统计
+
+#### ⚙️ 高级配置（Advanced 标签）v4.2.0 新增
+
+AI 系统配置管理，详见 [AI 系统配置](#ai-系统配置)。
 
 ---
 
@@ -262,7 +366,7 @@ Workers AI 模型列表，每个模型显示：
 |------|-----------|-------------|
 | 文件摘要 | `chat` | Llama 3.1 8B, DeepSeek 32B, GPT-4o |
 | 图片描述 | `vision` | LLaVA 1.5 7B, GPT-4 Vision |
-| 图片标签 | `classify` | ResNet-50（仅 Workers AI） |
+| 图片标签 | `chat` | Llama 3.1 8B, Qwen 14B, GPT-4o |
 | 智能重命名 | `chat` | Llama 3.1 8B, Qwen 14B, GPT-4o |
 
 ### 配置方法
@@ -271,6 +375,47 @@ Workers AI 模型列表，每个模型显示：
 2. 找到「功能模型配置」区域
 3. 为每个功能选择模型（或留空使用默认）
 4. 选择后自动保存
+
+---
+
+## AI 系统配置
+
+v4.2.0 新增 AI 系统配置功能，支持细粒度的 AI 参数调整。
+
+### 配置分类
+
+| 分类 | 说明 | 配置项示例 |
+|------|------|-----------|
+| 🤖 默认模型 | 各功能的默认模型 | 默认聊天模型、默认视觉模型 |
+| ⚙️ 模型参数 | 模型调用参数 | 默认温度、最大 Token |
+| 📏 内容限制 | 内容生成限制 | 摘要最大长度、标签最大数量 |
+| 🔄 重试策略 | 错误重试配置 | 最大重试次数、重试间隔 |
+| 💬 提示词模板 | 自定义提示词 | 摘要提示词、标签提示词 |
+| ✨ 功能开关 | 功能启用控制 | 启用推理内容显示 |
+
+### 配置项示例
+
+| 配置 Key | 说明 | 默认值 |
+|----------|------|--------|
+| `ai.default_model.chat` | 默认聊天模型 | `@cf/meta/llama-3.1-8b-instruct` |
+| `ai.default_model.vision` | 默认视觉模型 | `@cf/llava-hf/llava-1.5-7b-hf` |
+| `ai.default_model.summary` | 默认摘要模型 | `@cf/meta/llama-3.1-8b-instruct` |
+| `ai.default_model.image_caption` | 默认图片描述模型 | `@cf/llava-hf/llava-1.5-7b-hf` |
+| `ai.default_model.image_tag` | 默认图片标签模型 | `@cf/llava-hf/llava-1.5-7b-hf` |
+| `ai.default_model.rename` | 默认重命名模型 | `@cf/meta/llama-3.1-8b-instruct` |
+| `ai.parameter.temperature` | 默认温度 | `0.7` |
+| `ai.parameter.max_tokens` | 默认最大 Token | `4096` |
+| `ai.limit.summary_max_length` | 摘要最大长度 | `500` |
+| `ai.limit.tags_max_count` | 标签最大数量 | `10` |
+| `ai.retry.max_attempts` | 最大重试次数 | `3` |
+| `ai.retry.delay_ms` | 重试间隔（毫秒） | `1000` |
+
+### 配置方法
+
+1. 进入 AI 设置 → 高级配置
+2. 找到需要修改的配置项
+3. 点击「编辑」按钮修改值
+4. 可点击「重置」按钮恢复默认值
 
 ---
 
@@ -290,8 +435,8 @@ Workers AI 模型列表，每个模型显示：
 **API**：
 ```http
 POST /api/ai/summarize/batch   # 启动任务
-GET  /api/ai/summarize/batch    # 查询状态
-DELETE /api/ai/summarize/batch  # 取消任务
+GET  /api/ai/summarize/task    # 查询状态
+DELETE /api/ai/summarize/batch # 取消任务
 ```
 
 ### 一键标签+描述
@@ -308,8 +453,8 @@ DELETE /api/ai/summarize/batch  # 取消任务
 **API**：
 ```http
 POST /api/ai/tags/batch   # 启动任务
-GET  /api/ai/tags/batch    # 查询状态
-DELETE /api/ai/tags/batch  # 取消任务
+GET  /api/ai/tags/task    # 查询状态
+DELETE /api/ai/tags/batch # 取消任务
 ```
 
 ### 一键索引
@@ -325,9 +470,38 @@ DELETE /api/ai/tags/batch  # 取消任务
 
 **API**：
 ```http
-POST /api/ai/index/batch   # 启动任务
-GET  /api/ai/index/status   # 查询状态
-DELETE /api/ai/index/task   # 取消任务
+POST /api/ai/index/all    # 索引所有未索引文件
+GET  /api/ai/index/status # 查询状态
+DELETE /api/ai/index/task # 取消任务
+```
+
+---
+
+## 向量库管理
+
+v4.2.0 新增向量库管理功能。
+
+### 功能列表
+
+- **查看已索引文件**：分页显示所有已建立向量索引的文件
+- **文件信息展示**：文件名、类型、大小、索引时间、摘要状态
+- **搜索过滤**：按文件名搜索
+- **删除索引**：单个删除文件的向量索引
+
+### 使用方式
+
+1. 进入 AI 设置 → 向量库
+2. 查看已索引文件列表
+3. 可使用搜索框过滤文件
+4. 点击删除按钮移除单个索引
+
+### API 接口
+
+```http
+GET    /api/ai/index/vectors         # 获取向量索引列表
+DELETE /api/ai/index/vectors/:fileId # 删除单个向量索引
+GET    /api/ai/index/diagnose        # 向量索引诊断
+GET    /api/ai/index/sample/:fileId  # 获取文件索引样本
 ```
 
 ---
@@ -354,6 +528,7 @@ DELETE /api/ai/index/task   # 取消任务
 - 表单布局自适应
 - 模型卡片堆叠排列
 - 操作按钮触控友好
+- 标签页横向滚动
 
 ---
 
@@ -366,8 +541,12 @@ apps/api/src/lib/ai/
 ├── index.ts                    # 模块导出
 ├── types.ts                    # 类型定义
 ├── modelGateway.ts             # 模型网关（核心）
+├── agentEngine.ts              # Agent 引擎 v4.2.0
+├── aiConfigService.ts          # AI 配置服务 v4.2.0
 ├── ragEngine.ts                # RAG 引擎
+├── agentTools.ts               # Agent 工具集 v4.2.0
 ├── features.ts                 # 文件处理功能
+├── utils.ts                    # 工具函数 v4.2.0
 └── adapters/
     ├── workersAiAdapter.ts     # Workers AI 适配器
     └── openAiCompatibleAdapter.ts # OpenAI 兼容适配器
@@ -377,14 +556,11 @@ apps/web/src/
 │   ├── AIChat.tsx              # AI 对话页面
 │   └── AISettings.tsx          # AI 设置页面
 └── components/ai/
-    ├── chat/
-    │   ├── ChatMessageBubble.tsx
-    │   ├── ChatInputBox.tsx
-    │   └── SuggestedQuestions.tsx
-    └── settings/
-        ├── ModelCard.tsx
-        ├── TaskProgress.tsx
-        └── StatsCard.tsx
+    ├── AIChatWidget.tsx        # 全局悬浮聊天组件 v4.2.0
+    └── chat/
+        ├── ChatMessageBubble.tsx
+        ├── ChatInputBox.tsx
+        └── SuggestedQuestions.tsx
 ```
 
 ### 核心类/函数
@@ -409,6 +585,18 @@ class ModelGateway {
 
   // 获取适配器
   getAdapter(config): IModelAdapter
+}
+```
+
+#### AgentEngine（Agent 引擎）v4.2.0
+
+```typescript
+class AgentEngine {
+  // 运行 Agent
+  run(userId, query, history, modelId?, onChunk?, signal?): Promise<AgentResult>
+
+  // 内置工具
+  tools: ToolDefinition[]
 }
 ```
 
@@ -451,6 +639,7 @@ class ModelGateway {
 | id | text | 主键 UUID |
 | user_id | text | 用户 ID |
 | title | text | 会话标题 |
+| model_id | text? | 使用的模型 ID |
 | created_at | text | 创建时间 |
 | updated_at | text | 更新时间 |
 
@@ -463,6 +652,8 @@ class ModelGateway {
 | role | text | 角色: user / assistant / system |
 | content | text | 消息内容 |
 | sources | text? | 来源文件 JSON |
+| model_used | text? | 使用的模型 |
+| latency_ms | integer? | 响应延迟（毫秒） |
 | created_at | text | 创建时间 |
 
 ---

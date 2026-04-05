@@ -16,6 +16,7 @@ import type {
   StreamChunk,
   EmbeddingRequest,
   EmbeddingResponse,
+  ChatContentPart,
 } from '../types';
 import { logger } from '@osshelf/shared';
 
@@ -28,20 +29,35 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
     this.config = config;
   }
 
-  async chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResponse> {
+  async chatCompletion(request: ChatCompletionRequest, signal?: AbortSignal): Promise<ChatCompletionResponse> {
     this.validateConnection();
 
     try {
+      const body: Record<string, unknown> = {
+        model: this.config.modelId,
+        messages: request.messages.map((msg) => ({
+          role: msg.role,
+          content: this.formatMessageContent(msg.content),
+        })),
+        max_tokens: request.maxTokens || this.config.maxTokens,
+        temperature: request.temperature ?? this.config.temperature,
+        stream: false,
+      };
+
+      if (request.tools && request.tools.length > 0) {
+        body.tools = request.tools;
+        body.tool_choice = request.toolChoice || 'auto';
+      }
+
+      if (request.extraBody) {
+        Object.assign(body, request.extraBody);
+      }
+
       const response = await fetch(`${this.config.apiEndpoint}/chat/completions`, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify({
-          model: this.config.modelId,
-          messages: request.messages,
-          max_tokens: request.maxTokens || this.config.maxTokens,
-          temperature: request.temperature ?? this.config.temperature,
-          stream: false,
-        }),
+        body: JSON.stringify(body),
+        signal,
       });
 
       if (!response.ok) {
@@ -52,29 +68,35 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
       const data = (await response.json()) as {
         id: string;
         choices: Array<{
-          message: { content: string; role: string };
+          message: {
+            content: string | null;
+            reasoning_content?: string | null;
+            role: string;
+            tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>;
+          };
           finish_reason: string;
         }>;
-        usage?: {
-          prompt_tokens: number;
-          completion_tokens: number;
-          total_tokens: number;
-        };
       };
+
+      const choice = data.choices[0];
+      const responseContent = choice?.message?.reasoning_content || choice?.message?.content || '';
+      const toolCalls = choice?.message?.tool_calls?.map((tc) => ({
+        id: tc.id,
+        name: tc.function.name,
+        arguments: tc.function.arguments,
+      }));
 
       return {
         id: data.id || crypto.randomUUID(),
-        content: data.choices[0]?.message?.content || '',
+        content: responseContent,
         role: 'assistant',
         model: this.config.modelId,
-        usage: data.usage
-          ? {
-              promptTokens: data.usage.prompt_tokens,
-              completionTokens: data.usage.completion_tokens,
-              totalTokens: data.usage.total_tokens,
-            }
-          : undefined,
-        finishReason: data.choices[0]?.finish_reason as 'stop' | 'length' | 'content_filter',
+        finishReason: (choice?.finish_reason === 'tool_calls' ? 'tool_calls' : choice?.finish_reason) as
+          | 'stop'
+          | 'length'
+          | 'content_filter'
+          | 'tool_calls',
+        toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
       };
     } catch (error) {
       logger.error('AI', 'OpenAI compatible chat completion failed', {}, error);
@@ -90,19 +112,33 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
     this.validateConnection();
 
     try {
+      const streamBody: Record<string, unknown> = {
+        model: this.config.modelId,
+        messages: request.messages.map((msg) => ({
+          role: msg.role,
+          content: this.formatMessageContent(msg.content),
+        })),
+        max_tokens: request.maxTokens || this.config.maxTokens,
+        temperature: request.temperature ?? this.config.temperature,
+        stream: true,
+      };
+
+      if (request.tools && request.tools.length > 0) {
+        streamBody.tools = request.tools;
+        streamBody.tool_choice = request.toolChoice || 'auto';
+      }
+
+      if (request.extraBody) {
+        Object.assign(streamBody, request.extraBody);
+      }
+
       const response = await fetch(`${this.config.apiEndpoint}/chat/completions`, {
         method: 'POST',
         headers: {
           ...this.getHeaders(),
           Accept: 'text/event-stream',
         },
-        body: JSON.stringify({
-          model: this.config.modelId,
-          messages: request.messages,
-          max_tokens: request.maxTokens || this.config.maxTokens,
-          temperature: request.temperature ?? this.config.temperature,
-          stream: true,
-        }),
+        body: JSON.stringify(streamBody),
         signal,
       });
 
@@ -118,6 +154,7 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
 
       const decoder = new TextDecoder();
       let buffer = '';
+      const toolCallMap = new Map<number, { id?: string; name?: string; arguments: string }>();
 
       while (true) {
         const { done, value } = await reader.read();
@@ -131,6 +168,23 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
           const trimmedLine = line.trim();
           if (!trimmedLine || trimmedLine === 'data: [DONE]') {
             if (trimmedLine === 'data: [DONE]') {
+              // 如果 finish_reason=tool_calls 已经 emit 并 clear 了，这里 size=0，跳过
+              if (toolCallMap.size > 0) {
+                onChunk({
+                  id: crypto.randomUUID(),
+                  content: '',
+                  role: 'assistant',
+                  model: this.config.modelId,
+                  done: false,
+                  toolCalls: Array.from(toolCallMap.entries()).map(([index, tc]) => ({
+                    id: tc.id || `tc_idx_${index}`,
+                    name: tc.name || '',
+                    arguments: tc.arguments,
+                    index,
+                  })),
+                });
+                toolCallMap.clear();
+              }
               onChunk({
                 id: crypto.randomUUID(),
                 content: '',
@@ -145,15 +199,59 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
           if (trimmedLine.startsWith('data: ')) {
             try {
               const data = JSON.parse(trimmedLine.slice(6));
-              const delta = data.choices?.[0]?.delta?.content;
-              if (delta) {
+              const choice = data.choices?.[0];
+              const delta = choice?.delta;
+
+              if (delta?.content) {
                 onChunk({
                   id: data.id || crypto.randomUUID(),
-                  content: delta,
+                  content: delta.content,
                   role: 'assistant',
                   model: this.config.modelId,
                   done: false,
                 });
+              }
+
+              if (delta?.reasoning_content) {
+                onChunk({
+                  id: data.id || crypto.randomUUID(),
+                  content: '',
+                  role: 'assistant',
+                  model: this.config.modelId,
+                  done: false,
+                  reasoningContent: delta.reasoning_content,
+                });
+              }
+
+              if (delta?.tool_calls) {
+                for (const tc of delta.tool_calls) {
+                  const idx = tc.index ?? 0;
+                  if (!toolCallMap.has(idx)) {
+                    toolCallMap.set(idx, { arguments: '' });
+                  }
+                  const existing = toolCallMap.get(idx)!;
+                  if (tc.id) existing.id = tc.id;
+                  if (tc.function?.name) existing.name = tc.function.name;
+                  if (tc.function?.arguments) existing.arguments += tc.function.arguments;
+                }
+              }
+
+              // finish_reason=tool_calls 时立即 emit（部分模型不发 [DONE] 或发送顺序不同）
+              if (choice?.finish_reason === 'tool_calls' && toolCallMap.size > 0) {
+                onChunk({
+                  id: data.id || crypto.randomUUID(),
+                  content: '',
+                  role: 'assistant',
+                  model: this.config.modelId,
+                  done: false,
+                  toolCalls: Array.from(toolCallMap.entries()).map(([index, tc]) => ({
+                    id: tc.id || `tc_idx_${index}`,
+                    name: tc.name || '',
+                    arguments: tc.arguments,
+                    index,
+                  })),
+                });
+                toolCallMap.clear();
               }
             } catch {
               continue;
@@ -190,21 +288,11 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
       const data = (await response.json()) as {
         data: Array<{ embedding: number[] }>;
         model: string;
-        usage?: {
-          prompt_tokens: number;
-          total_tokens: number;
-        };
       };
 
       return {
         embeddings: data.data.map((item) => item.embedding),
         model: data.model,
-        usage: data.usage
-          ? {
-              promptTokens: data.usage.prompt_tokens,
-              totalTokens: data.usage.total_tokens,
-            }
-          : undefined,
       };
     } catch (error) {
       logger.error('AI', 'OpenAI compatible embedding failed', {}, error);
@@ -235,8 +323,9 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
       'Content-Type': 'application/json',
     };
 
-    if (this.config.apiKeyEncrypted) {
-      headers['Authorization'] = `Bearer ${this.config.apiKeyEncrypted}`;
+    const apiKey = this.config.apiKeyDecrypted || this.config.apiKeyEncrypted;
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
     return headers;
@@ -246,6 +335,26 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
     if (!this.config.apiEndpoint) {
       throw new Error('API endpoint not configured');
     }
+  }
+
+  private formatMessageContent(
+    content: string | ChatContentPart[]
+  ): string | Array<{ type: string; text?: string; image_url?: { url: string; detail?: string } }> {
+    if (typeof content === 'string') {
+      return content;
+    }
+
+    return content
+      .map((part) => {
+        if (part.type === 'text') {
+          return { type: 'text', text: part.text };
+        }
+        if (part.type === 'image_url' && part.image_url) {
+          return { type: 'image_url', image_url: part.image_url };
+        }
+        return null;
+      })
+      .filter(Boolean) as Array<{ type: string; text?: string; image_url?: { url: string; detail?: string } }>;
   }
 
   static getPopularModels(): Array<{

@@ -20,6 +20,7 @@ import { MobileBottomNav } from '@/components/layouts/MobileBottomNav';
 import { PWAPrompt } from '@/components/ui/PWAInstallPrompt';
 import { NotificationBell } from '@/components/notifications';
 import { EmailVerificationBanner } from '@/components/auth/EmailVerificationBanner';
+import { AIChatWidget } from '@/components/ai';
 import { useQuery } from '@tanstack/react-query';
 import { filesApi } from '@/services/api';
 import {
@@ -42,7 +43,6 @@ import {
   Monitor,
   BarChart3,
   Star,
-  MessageSquare,
   Cpu,
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
@@ -60,7 +60,6 @@ const baseNavItems = [
   { path: '/trash', label: '回收站', icon: Trash2, exact: false },
   { path: '/buckets', label: '存储桶', icon: Database, exact: false },
   { path: '/permissions', label: '权限管理', icon: ShieldCheck, exact: false },
-  { path: '/ai-chat', label: 'AI 对话', icon: MessageSquare, exact: false },
   { path: '/ai-settings', label: 'AI 配置', icon: Cpu, exact: false },
   { path: '/settings', label: '设置', icon: Settings, exact: false },
 ];
@@ -348,7 +347,7 @@ export default function MainLayout() {
           'pt-16 lg:pt-0 pb-20 lg:pb-0 min-h-[calc(100vh-4rem)]'
         )}
       >
-        <div className="p-4 lg:p-6 max-w-[1400px] mx-auto">
+        <div className="p-4 lg:p-6 max-w-[1400px] mx-auto relative">
           <Outlet />
         </div>
       </main>
@@ -368,6 +367,8 @@ export default function MainLayout() {
       <KeyboardShortcutsDialog isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
 
       <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileSelect} />
+
+      <AIChatWidget />
     </div>
   );
 }

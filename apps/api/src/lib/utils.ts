@@ -11,6 +11,7 @@ import type { Env } from '../types/env';
 import { makeBucketConfigAsync } from './s3client';
 import { s3Get } from './s3client';
 import { tgDownloadFile, type TelegramBotConfig } from './telegramClient';
+import { getEncryptionKey } from './crypto';
 
 export function encodeFilename(name: string): string {
   return name.replace(/[^\w.\-\u4e00-\u9fa5]/g, '_');
@@ -126,7 +127,7 @@ export async function getFileContent(env: Env, bucketId: string, r2Key: string):
 
     try {
       const { decryptSecret } = await import('./s3client');
-      const botToken = await decryptSecret(bucket.accessKeyId, env.JWT_SECRET);
+      const botToken = await decryptSecret(bucket.accessKeyId, getEncryptionKey(env));
       const tgConfig: TelegramBotConfig = {
         botToken,
         chatId: bucket.bucketName,
@@ -145,7 +146,7 @@ export async function getFileContent(env: Env, bucketId: string, r2Key: string):
     return object.arrayBuffer();
   }
 
-  const bucketConfig = await makeBucketConfigAsync(bucket, env.JWT_SECRET);
+  const bucketConfig = await makeBucketConfigAsync(bucket, getEncryptionKey(env));
   if (!bucketConfig) return null;
 
   try {

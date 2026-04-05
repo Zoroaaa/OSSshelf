@@ -71,14 +71,13 @@ export function TaskProgress({ task, onCancel }: TaskProgressProps) {
 
       {/* 进度条 */}
       <div className="w-full bg-secondary rounded-full h-2 overflow-hidden">
-        <div
-          className="bg-primary h-full rounded-full transition-all duration-500"
-          style={{ width: `${progress}%` }}
-        />
+        <div className="bg-primary h-full rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
       </div>
 
       <div className="flex justify-between text-xs text-muted-foreground">
-        <span>进度: {task.processed} / {task.total}</span>
+        <span>
+          进度: {task.processed} / {task.total}
+        </span>
         {task.failed > 0 && <span className="text-red-500">失败: {task.failed}</span>}
       </div>
     </div>

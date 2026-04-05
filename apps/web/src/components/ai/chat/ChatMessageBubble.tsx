@@ -73,12 +73,7 @@ export function ChatMessageBubble({
                 <Sparkles className="h-3 w-3 text-white" />
               </div>
             )}
-            <span
-              className={cn(
-                'text-xs font-medium',
-                role === 'user' ? 'text-white/80' : 'text-muted-foreground'
-              )}
-            >
+            <span className={cn('text-xs font-medium', role === 'user' ? 'text-white/80' : 'text-muted-foreground')}>
               {role === 'user' ? '你' : 'AI 助手'}
             </span>
           </div>
@@ -100,13 +95,7 @@ export function ChatMessageBubble({
           </div>
         </div>
 
-        <div
-          className={cn(
-            'prose prose-sm max-w-none',
-            role === 'user' ? 'prose-invert' : '',
-            'dark:prose-invert'
-          )}
-        >
+        <div className={cn('prose prose-sm max-w-none', role === 'user' ? 'prose-invert' : '', 'dark:prose-invert')}>
           {role === 'assistant' && content ? (
             <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
               {content}
@@ -142,9 +131,7 @@ export function ChatMessageBubble({
                   <div className="text-muted-foreground">{getFileIcon(source.mimeType)}</div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{source.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      相关度: {(source.score * 100).toFixed(0)}%
-                    </p>
+                    <p className="text-xs text-muted-foreground">相关度: {(source.score * 100).toFixed(0)}%</p>
                   </div>
                   <ExternalLink className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                 </button>
@@ -153,12 +140,7 @@ export function ChatMessageBubble({
           </div>
         )}
 
-        <div
-          className={cn(
-            'text-xs mt-2',
-            role === 'user' ? 'text-white/70' : 'text-muted-foreground'
-          )}
-        >
+        <div className={cn('text-xs mt-2', role === 'user' ? 'text-white/70' : 'text-muted-foreground')}>
           {formatDate(timestamp.toISOString())}
         </div>
       </div>
