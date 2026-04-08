@@ -1161,10 +1161,51 @@ export default function Files() {
               const selectedItems = selectedFileItems;
               const hasEditable = selectedItems.some((f) => {
                 const ext = f.name.split('.').pop()?.toLowerCase() || '';
-                const codeExts = ['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'go', 'rs', 'c', 'cpp', 'h', 'cs', 'rb', 'php', 'swift', 'kt', 'scala', 'r', 'sql', 'sh', 'bash', 'yaml', 'yml', 'json', 'xml', 'html', 'css', 'scss', 'vue', 'svelte', 'md', 'txt', 'log', 'csv'];
+                const codeExts = [
+                  'js',
+                  'ts',
+                  'jsx',
+                  'tsx',
+                  'py',
+                  'java',
+                  'go',
+                  'rs',
+                  'c',
+                  'cpp',
+                  'h',
+                  'cs',
+                  'rb',
+                  'php',
+                  'swift',
+                  'kt',
+                  'scala',
+                  'r',
+                  'sql',
+                  'sh',
+                  'bash',
+                  'yaml',
+                  'yml',
+                  'json',
+                  'xml',
+                  'html',
+                  'css',
+                  'scss',
+                  'vue',
+                  'svelte',
+                  'md',
+                  'txt',
+                  'log',
+                  'csv',
+                ];
                 const docExts = ['pdf', 'doc', 'docx', 'rtf', 'odt'];
                 const sheetExts = ['xls', 'xlsx', 'ods'];
-                const isEditable = f.mimeType?.startsWith('text/') || f.mimeType === 'application/json' || codeExts.includes(ext) || docExts.includes(ext) || sheetExts.includes(ext) || ext === 'md';
+                const isEditable =
+                  f.mimeType?.startsWith('text/') ||
+                  f.mimeType === 'application/json' ||
+                  codeExts.includes(ext) ||
+                  docExts.includes(ext) ||
+                  sheetExts.includes(ext) ||
+                  ext === 'md';
                 return isEditable;
               });
               const hasImages = selectedItems.some((f) => f.mimeType?.startsWith('image/'));

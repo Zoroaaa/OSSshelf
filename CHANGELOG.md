@@ -2,6 +2,140 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v4.3.0] - 2026-04-08
+
+### Added - AI Agent 全面升级 🚀
+
+**核心架构重构**
+
+- **Agent 引擎全面重构（agentEngine.ts）**
+  - 采用 ReAct 架构（Reason → Act → Observe → Reason...）
+  - 支持多轮推理和链式工具调用
+  - 智能意图识别与工具选择矩阵
+  - 视觉意图检测与自动链式调用
+  - 循环防护机制（调用签名去重 + 空转检测）
+  - 写操作确认机制（敏感操作需用户确认）
+
+- **工具数量大幅扩展（95 个工具）**
+  - 从 v4.2.0 的 4 个工具扩展到 95 个
+  - 分为 13 个功能模块：
+    - 🔍 搜索与发现（7 个）：search_files, filter_files, search_by_tag, search_duplicates, smart_search, get_similar_files, get_file_details
+    - 📄 内容理解与分析（7 个）：read_file_text, analyze_image, compare_files, extract_metadata, generate_summary, generate_tags, content_preview
+    - 📂 目录导航（7 个）：navigate_path, list_folder, get_recent_files, get_starred_files, get_parent_chain, get_folder_tree, get_storage_overview
+    - 📊 统计与分析（5 个）：get_storage_stats, get_activity_stats, get_user_quota_info, get_file_type_distribution, get_sharing_stats
+    - 📁 文件操作（15 个）：create_text_file, create_code_file, create_file_from_template, edit_file_content, append_to_file, find_and_replace, rename_file, move_file, copy_file, delete_file, restore_file, create_folder, batch_rename, star_file, unstar_file
+    - 🏷️ 标签管理（7 个）：add_tag, remove_tag, get_file_tags, list_all_tags_for_management, merge_tags, tag_folder, auto_tag_files
+    - 🔗 分享链接（8 个）：create_share_link, list_shares, update_share_settings, revoke_share, get_share_stats, create_direct_link, revoke_direct_link, create_upload_link_for_folder
+    - 📜 版本管理（4 个）：get_file_versions, restore_version, compare_versions, set_version_retention
+    - 📝 笔记备注（5 个）：add_note, get_notes, update_note, delete_note, search_notes
+    - 🔐 权限管理（6 个）：get_file_permissions, grant_permission, revoke_permission, set_folder_access_level, list_user_groups, manage_group_members
+    - 💾 存储桶管理（8 个）：get_storage_usage, get_large_files, get_folder_sizes, get_cleanup_suggestions, list_buckets, get_bucket_info, set_default_bucket, migrate_file_to_bucket
+    - ⚙️ 系统管理（11 个）：get_system_status, get_help, get_version_info, get_faq, get_user_profile, list_api_keys, create_api_key, revoke_api_key, list_webhooks, create_webhook, get_audit_logs
+    - 🤖 AI 增强（5 个）：trigger_ai_summary, trigger_ai_tags, rebuild_vector_index, ask_rag_question, smart_rename_suggest
+
+**智能化提升**
+
+- **意图识别系统**
+  - 自动识别搜索类、视觉类、内容理解类、统计类意图
+  - 根据意图精准选择工具
+  - 搜索关键词提取优化（2-5 个核心词）
+
+- **链式推理规则**
+  - 工具结果中的 `_next_actions` 字段驱动下一步行动
+  - 图片搜索结果自动触发 analyze_image 链路
+  - 视觉意图检测模式匹配（中英文）
+
+- **循环防护机制**
+  - 基于调用签名（工具名+参数哈希）去重
+  - 基于"有效信息轮"计数的空转检测
+  - 单次响应最大 20 次工具调用（可配置）
+  - 无上限次数限制替代死板的轮次限制
+
+**写操作确认机制**
+
+- 敏感操作（删除、移动、权限变更等）需用户确认
+- 确认请求存储在 `ai_confirm_requests` 表
+- 5 分钟有效期，一次性使用
+- 前端展示确认卡片，用户点击后执行
+
+**SSE 流式响应增强**
+
+- 新增 `confirm_request` 事件类型
+- 工具调用结果包含操作摘要
+- 推理内容实时显示
+
+**前端改进**
+
+- ToolCallCard 组件增强
+  - 支持确认请求卡片渲染
+  - 显示操作摘要和参数
+  - 确认/取消按钮
+
+- ChatMessageBubble 组件增强
+  - 支持 83 个工具的调用显示
+  - 工具结果格式化渲染
+  - 文件引用解析和渲染
+
+**后端改进**
+
+- agentTools/index.ts
+  - 统一的工具注册和路由
+  - 工具名称相似度匹配
+  - 按类别获取工具列表
+
+- agentTools/types.ts
+  - 工具定义类型
+  - 写操作标记集合（WRITE_TOOLS）
+  - 文件记录类型
+
+- agentEngine.ts
+  - ReAct 循环实现
+  - Native Tool Calling 和 Prompt-Based 双模式
+  - 自动链式调用逻辑
+  - 历史消息裁剪
+
+**数据库变更**
+
+- 新增迁移文件 `0011_ai_confirm_requests.sql`
+  - ai_confirm_requests 表：写操作确认请求存储
+
+**新文件**
+
+后端：
+
+- `apps/api/src/lib/ai/agentTools/index.ts` - 工具统一入口
+- `apps/api/src/lib/ai/agentTools/types.ts` - 工具类型定义
+- `apps/api/src/lib/ai/agentTools/search.ts` - 搜索工具模块
+- `apps/api/src/lib/ai/agentTools/content.ts` - 内容理解工具模块
+- `apps/api/src/lib/ai/agentTools/navigation.ts` - 导航工具模块
+- `apps/api/src/lib/ai/agentTools/stats.ts` - 统计工具模块
+- `apps/api/src/lib/ai/agentTools/fileops.ts` - 文件操作工具模块
+- `apps/api/src/lib/ai/agentTools/tags.ts` - 标签管理工具模块
+- `apps/api/src/lib/ai/agentTools/share.ts` - 分享链接工具模块
+- `apps/api/src/lib/ai/agentTools/version.ts` - 版本管理工具模块
+- `apps/api/src/lib/ai/agentTools/notes.ts` - 笔记备注工具模块
+- `apps/api/src/lib/ai/agentTools/permission.ts` - 权限管理工具模块
+- `apps/api/src/lib/ai/agentTools/storage.ts` - 存储桶管理工具模块
+- `apps/api/src/lib/ai/agentTools/system.ts` - 系统管理工具模块
+- `apps/api/src/lib/ai/agentTools/ai-enhance.ts` - AI 增强工具模块
+- `apps/api/src/lib/ai/agentTools/agentToolUtils.ts` - 工具通用工具函数
+
+### Changed
+
+- AI_FEATURES.md 文档更新至 v4.3.0
+- API_AI.md 文档更新至 v4.3.0
+- README.md 版本号更新至 v4.3.0
+- architecture.md 架构文档更新
+
+### Fixed
+
+- 修复 Agent 循环调用问题
+- 修复视觉分析超时问题
+- 优化工具调用去重逻辑
+- 改进搜索无结果时的处理策略
+
+---
+
 ## [v4.2.0] - 2026-04-06
 
 ### Added - AI Agent 引擎与系统配置 🚀
@@ -127,12 +261,14 @@ All notable changes to this project will be documented in this file.
 **新文件**
 
 后端：
+
 - `apps/api/src/lib/ai/agentEngine.ts` - Agent 引擎
 - `apps/api/src/lib/ai/aiConfigService.ts` - AI 配置服务
 - `apps/api/src/lib/ai/agentTools.ts` - Agent 工具集
 - `apps/api/src/lib/ai/utils.ts` - AI 工具函数
 
 前端：
+
 - `apps/web/src/components/ai/AIChatWidget.tsx` - 全局悬浮聊天组件
 
 ### Changed
@@ -181,16 +317,16 @@ All notable changes to this project will be documented in this file.
 
 **Workers AI 可用模型**
 
-| 模型 | 参数量 | 类型 | 说明 |
-|------|--------|------|------|
-| DeepSeek R1 Distill Qwen 32B | 32B | chat | 推理能力强，数学/代码专家 |
-| Llama 3.3 70B (FP8) | 70B | chat | Meta 最新大模型 |
-| Qwen 1.5 14B Chat | 14B | chat | 中文能力优秀 |
-| Llama 3.1 8B Instruct | 8B | chat | 默认模型，通用问答 |
-| Mistral 7B Instruct v0.2 | 7B | chat | 响应速度快 |
-| Gemma 2B LoRA | 2B | chat | 轻量极速 |
-| LLaVA 1.5 7B Vision | 7B | vision | 图片理解 |
-| BGE-M3 Embedding | - | embedding | 向量化/语义搜索 |
+| 模型                         | 参数量 | 类型      | 说明                      |
+| ---------------------------- | ------ | --------- | ------------------------- |
+| DeepSeek R1 Distill Qwen 32B | 32B    | chat      | 推理能力强，数学/代码专家 |
+| Llama 3.3 70B (FP8)          | 70B    | chat      | Meta 最新大模型           |
+| Qwen 1.5 14B Chat            | 14B    | chat      | 中文能力优秀              |
+| Llama 3.1 8B Instruct        | 8B     | chat      | 默认模型，通用问答        |
+| Mistral 7B Instruct v0.2     | 7B     | chat      | 响应速度快                |
+| Gemma 2B LoRA                | 2B     | chat      | 轻量极速                  |
+| LLaVA 1.5 7B Vision          | 7B     | vision    | 图片理解                  |
+| BGE-M3 Embedding             | -      | embedding | 向量化/语义搜索           |
 
 **批量操作优化**
 
@@ -257,6 +393,7 @@ app.route('/api/ai-chat', aiChatRoutes)     # AI 对话系统
 **新文件**
 
 后端：
+
 - `apps/api/src/lib/ai/modelGateway.ts` - 模型网关
 - `apps/api/src/lib/ai/types.ts` - 类型定义
 - `apps/api/src/lib/ai/adapters/workersAiAdapter.ts` - Workers AI 适配器
@@ -266,6 +403,7 @@ app.route('/api/ai-chat', aiChatRoutes)     # AI 对话系统
 - `apps/api/src/routes/aiChatRoutes.ts` - AI 对话路由
 
 前端：
+
 - `pages/AIChat.tsx` - AI 对话页面
 - `pages/AISettings.tsx` - AI 设置页面
 - `components/ai/chat/ChatMessageBubble.tsx` - 消息气泡组件

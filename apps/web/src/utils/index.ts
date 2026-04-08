@@ -30,7 +30,20 @@ export function formatBytes(bytes: number, decimals = 2): string {
 
 export function formatDate(date: string | Date | undefined | null): string {
   if (!date) return '—';
-  const d = typeof date === 'string' ? new Date(date) : date;
+  let d: Date;
+  if (typeof date === 'string') {
+    // 处理不带时区信息的时间字符串
+    // SQLite CURRENT_TIMESTAMP 返回 UTC 时间但不带 Z 后缀
+    // 例如: "2024-01-01 12:00:00" 应该被解析为 UTC 时间
+    let normalized = date;
+    if (!date.endsWith('Z') && !date.includes('+') && !date.includes('GMT')) {
+      // ISO 格式但无 Z 后缀，或 SQLite 格式，假设为 UTC 时间
+      normalized = date.replace(' ', 'T') + 'Z';
+    }
+    d = new Date(normalized);
+  } else {
+    d = date;
+  }
   if (isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('zh-CN', {
     year: 'numeric',

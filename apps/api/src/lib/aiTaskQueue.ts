@@ -8,11 +8,12 @@
  */
 
 import type { Env, AiTaskMessage } from '../types/env';
-import { getDb, aiTasks } from '../db';
+import { getDb, aiTasks, files } from '../db';
 import { eq, and, sql } from 'drizzle-orm';
 import { logger } from '@osshelf/shared';
 import { indexFileVector, buildFileTextForVector } from './vectorIndex';
 import { generateFileSummary, generateImageTags } from './ai/features';
+import { dispatchWebhook } from './webhook';
 
 export type TaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
@@ -156,6 +157,21 @@ async function handleIndexTask(env: Env, message: AiTaskMessage): Promise<{ succ
 
     await indexFileVector(env, fileId, text);
     await incrementProcessed(env, taskId);
+
+    try {
+      const db = getDb(env.DB);
+      const file = await db.select().from(files).where(eq(files.id, fileId)).get();
+      if (file) {
+        await dispatchWebhook(env, userId, 'ai.index_complete', {
+          fileId: file.id,
+          fileName: file.name,
+          mimeType: file.mimeType,
+        });
+      }
+    } catch (webhookError) {
+      logger.warn('AI_QUEUE', 'Failed to dispatch index webhook', { fileId }, webhookError);
+    }
+
     return { success: true };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
@@ -171,6 +187,21 @@ async function handleSummaryTask(env: Env, message: AiTaskMessage): Promise<{ su
   try {
     await generateFileSummary(env, fileId, undefined, userId);
     await incrementProcessed(env, taskId);
+
+    try {
+      const db = getDb(env.DB);
+      const file = await db.select().from(files).where(eq(files.id, fileId)).get();
+      if (file) {
+        await dispatchWebhook(env, userId, 'ai.summary_complete', {
+          fileId: file.id,
+          fileName: file.name,
+          mimeType: file.mimeType,
+          summary: file.aiSummary || null,
+        });
+      }
+    } catch (webhookError) {
+      logger.warn('AI_QUEUE', 'Failed to dispatch summary webhook', { fileId }, webhookError);
+    }
 
     // 上传自动处理：summary 完成后触发向量索引（确保 aiSummary 已写入）
     if (message.triggerIndexOnComplete && env.VECTORIZE) {
@@ -200,6 +231,26 @@ async function handleTagsTask(env: Env, message: AiTaskMessage): Promise<{ succe
   try {
     await generateImageTags(env, fileId, undefined, userId);
     await incrementProcessed(env, taskId);
+
+    try {
+      const db = getDb(env.DB);
+      const file = await db.select().from(files).where(eq(files.id, fileId)).get();
+      if (file && file.aiTags) {
+        let tagsData;
+        try {
+          tagsData = JSON.parse(file.aiTags);
+        } catch {
+          tagsData = [];
+        }
+        await dispatchWebhook(env, userId, 'ai.tags_generated', {
+          fileId: file.id,
+          fileName: file.name,
+          tags: Array.isArray(tagsData) ? tagsData.map((t: any) => t.tag || t) : [],
+        });
+      }
+    } catch (webhookError) {
+      logger.warn('AI_QUEUE', 'Failed to dispatch tags webhook', { fileId }, webhookError);
+    }
 
     // 上传自动处理：tags 完成后触发向量索引（确保 aiSummary/caption 已写入）
     if (message.triggerIndexOnComplete && env.VECTORIZE) {

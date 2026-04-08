@@ -15,8 +15,8 @@
  */
 
 import type { Env } from '../../types/env';
-import { getDb, files, telegramFileRefs, storageBuckets } from '../../db';
-import { eq } from 'drizzle-orm';
+import { getDb, files, fileVersions, telegramFileRefs, storageBuckets } from '../../db';
+import { eq, desc } from 'drizzle-orm';
 import { getFileContent } from '../utils';
 import { getEncryptionKey } from '../crypto';
 import { isEditableFile, logger, logAiError } from '@osshelf/shared';
@@ -30,19 +30,6 @@ import { decryptSecret } from '../s3client';
 import { initializeAiConfig, getAiConfigString, getAiConfigNumber, getAiConfigBoolean } from './aiConfigService';
 import { uint8ArrayToBase64, fetchFileBuffer, buildVisionMessageContent } from './utils';
 import type { AiFeatureType } from './types';
-
-const DEFAULT_SUMMARY_CONTENT_LIMIT = 8192;
-const DEFAULT_RENAME_CONTENT_LIMIT = 4096;
-
-async function getContentLimits(env: Env): Promise<{ summary: number; rename: number }> {
-  try {
-    const summaryLimit = await getAiConfigNumber(env, 'ai.summary.content_limit', DEFAULT_SUMMARY_CONTENT_LIMIT);
-    const renameLimit = await getAiConfigNumber(env, 'ai.rename.content_limit', DEFAULT_RENAME_CONTENT_LIMIT);
-    return { summary: summaryLimit, rename: renameLimit };
-  } catch {
-    return { summary: DEFAULT_SUMMARY_CONTENT_LIMIT, rename: DEFAULT_RENAME_CONTENT_LIMIT };
-  }
-}
 
 const SUMMARY_PROMPTS: Record<string, string> = {
   default: '你是文件助手。请用简洁的中文（不超过3句话）概括文件主要内容。',
@@ -72,32 +59,62 @@ async function getSummaryPromptFromConfig(env: Env): Promise<Record<string, stri
 
 function getSummaryPrompt(mimeType: string | null, fileName: string): string {
   const ext = fileName.split('.').pop()?.toLowerCase() || '';
-  
+
   const codeExts = [
-    'js', 'jsx', 'ts', 'tsx', 'py', 'java', 'go', 'rs', 'c', 'cpp', 'h', 'hpp',
-    'cs', 'rb', 'php', 'swift', 'kt', 'scala', 'r', 'sql', 'sh', 'bash',
-    'html', 'htm', 'css', 'scss', 'less', 'vue', 'svelte',
+    'js',
+    'jsx',
+    'ts',
+    'tsx',
+    'py',
+    'java',
+    'go',
+    'rs',
+    'c',
+    'cpp',
+    'h',
+    'hpp',
+    'cs',
+    'rb',
+    'php',
+    'swift',
+    'kt',
+    'scala',
+    'r',
+    'sql',
+    'sh',
+    'bash',
+    'html',
+    'htm',
+    'css',
+    'scss',
+    'less',
+    'vue',
+    'svelte',
   ];
-  
+
   const dataExts = ['json', 'xml', 'yaml', 'yml', 'toml', 'ini', 'env'];
 
   if (ext === 'md' || ext === 'markdown') {
     return SUMMARY_PROMPTS.markdown;
   }
-  
+
   if (codeExts.includes(ext)) {
     return SUMMARY_PROMPTS.code;
   }
-  
+
   if (dataExts.includes(ext)) {
     return SUMMARY_PROMPTS.data;
   }
-  
-  if (mimeType === 'application/json' || mimeType === 'application/xml' ||
-      mimeType === 'application/javascript' || mimeType?.includes('yaml')) {
+
+  if (
+    mimeType === 'application/json' ||
+    mimeType === 'application/xml' ||
+    mimeType === 'application/javascript' ||
+    mimeType?.includes('yaml')
+  ) {
     return SUMMARY_PROMPTS.data;
   }
-  
+
   if (mimeType?.startsWith('text/') && mimeType !== 'text/plain') {
     return SUMMARY_PROMPTS.code;
   }
@@ -221,7 +238,6 @@ async function callChatModel(
     if (env.AI) {
       const fallbackResponse = await (env.AI as any).run(effectiveModelId, {
         messages: request.messages,
-        max_tokens: request.maxTokens || 200,
         stream: false,
       });
 
@@ -289,7 +305,6 @@ async function callVisionModel(
                 content: buildVisionMessageContent(base64Image, mimeType, prompt),
               },
             ],
-            maxTokens: 2048,
             featureType: 'image_caption',
           },
           effectiveModelId
@@ -300,7 +315,6 @@ async function callVisionModel(
         const response = await (env.AI as any).run(effectiveModelId, {
           image: uint8Array,
           prompt,
-          max_tokens: 2048,
         });
         return (
           (response as { description?: string; response?: string }).description?.trim() ||
@@ -317,19 +331,13 @@ async function callVisionModel(
   }
 }
 
-async function callWorkersAiVision(
-  env: Env,
-  modelId: string,
-  imageData: number[],
-  prompt: string
-): Promise<string> {
+async function callWorkersAiVision(env: Env, modelId: string, imageData: number[], prompt: string): Promise<string> {
   if (!env.AI) {
     throw new Error('AI service not available');
   }
   const response = await (env.AI as any).run(modelId, {
     image: imageData,
     prompt,
-    max_tokens: 300,
   });
   return (response as { description?: string }).description?.trim() || '';
 }
@@ -356,7 +364,6 @@ async function callVisionModelForTags(
   const gateway = new ModelGateway(env);
   const featureConfig = await getFeatureModelConfig(env, userId);
   const effectiveModelId = featureConfig.imageTag || defaultModelId;
-
   const resolved = await gateway.resolveModelForCall(userId, effectiveModelId);
 
   try {
@@ -380,7 +387,6 @@ async function callVisionModelForTags(
                 content: buildVisionMessageContent(base64Image, mimeType, IMAGE_TAG_PROMPT),
               },
             ],
-            maxTokens: 1024,
             featureType: 'image_tag',
           },
           effectiveModelId
@@ -391,7 +397,6 @@ async function callVisionModelForTags(
         const response = await (env.AI as any).run(effectiveModelId, {
           image: uint8Array,
           prompt: IMAGE_TAG_PROMPT,
-          max_tokens: 1024,
         });
         const text =
           (response as { description?: string; response?: string }).description?.trim() ||
@@ -415,7 +420,6 @@ async function callWorkersAiVisionForTags(env: Env, modelId: string, imageData: 
   const response = await (env.AI as any).run(modelId, {
     image: imageData,
     prompt: IMAGE_TAG_PROMPT,
-    max_tokens: 100,
   });
   const text = (response as { description?: string }).description?.trim() || '';
   return parseTagsFromText(text);
@@ -448,7 +452,6 @@ export async function generateFileSummary(
     throw new Error('AI service not configured');
   }
 
-  const contentLimits = await getContentLimits(env);
   const db = getDb(env.DB);
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
 
@@ -465,7 +468,7 @@ export async function generateFileSummary(
 
   let textContent = content;
   if (!textContent) {
-    textContent = await extractTextFromFile(env, file, contentLimits.summary);
+    textContent = await extractTextFromFile(env, file);
   }
 
   if (!textContent) {
@@ -475,8 +478,6 @@ export async function generateFileSummary(
   if (textContent.length < 50) {
     throw new Error('文件内容太短（少于50字符），无法生成摘要');
   }
-
-  const truncatedContent = textContent.slice(0, contentLimits.summary);
 
   try {
     const summary = await callChatModel(
@@ -491,10 +492,9 @@ export async function generateFileSummary(
           },
           {
             role: 'user',
-            content: truncatedContent,
+            content: textContent,
           },
         ],
-        maxTokens: 200,
       },
       signal
     );
@@ -592,7 +592,6 @@ export async function suggestFileName(
     throw new Error('AI service not configured');
   }
 
-  const contentLimits = await getContentLimits(env);
   const db = getDb(env.DB);
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
 
@@ -611,7 +610,7 @@ export async function suggestFileName(
       textContent = await extractTextFromFile(env, file);
     }
     if (textContent && textContent.length >= 30) {
-      contextForAI = `文件内容（前${contentLimits.rename}字）：\n${textContent.slice(0, contentLimits.rename)}`;
+      contextForAI = `文件内容：\n${textContent}`;
       isContentBased = true;
     } else {
       contextForAI = `文件类型：${file.mimeType || '未知'}`;
@@ -645,7 +644,6 @@ export async function suggestFileName(
           content: `原文件名：${file.name}\n${contextForAI}`,
         },
       ],
-      maxTokens: 150,
     });
 
     const suggestions = responseText
@@ -680,9 +678,7 @@ export async function suggestFileNameFromContent(
     throw new Error('文件内容太短（少于30字符），无法生成命名建议');
   }
 
-  const contentLimits = await getContentLimits(env);
   const ext = extension || '';
-
   try {
     const responseText = await callChatModel(env, userId || 'default', 'rename', {
       messages: [
@@ -698,10 +694,9 @@ export async function suggestFileNameFromContent(
         },
         {
           role: 'user',
-          content: `文件类型：${mimeType || '未知'}\n文件内容（前${contentLimits.rename}字）：\n${content.slice(0, contentLimits.rename)}`,
+          content: `文件类型：${mimeType || '未知'}\n文件内容：\n${content}`,
         },
       ],
-      maxTokens: 150,
     });
 
     const suggestions = responseText
@@ -720,7 +715,7 @@ export async function suggestFileNameFromContent(
   }
 }
 
-async function extractTextFromFile(env: Env, file: typeof files.$inferSelect, limit?: number): Promise<string> {
+async function extractTextFromFile(env: Env, file: typeof files.$inferSelect): Promise<string> {
   if (!canGenerateSummary(file.mimeType, file.name)) {
     return '';
   }
@@ -730,8 +725,7 @@ async function extractTextFromFile(env: Env, file: typeof files.$inferSelect, li
     if (!content) return '';
 
     const decoder = new TextDecoder('utf-8');
-    const contentLimit = limit || DEFAULT_SUMMARY_CONTENT_LIMIT;
-    return decoder.decode(content).slice(0, contentLimit);
+    return decoder.decode(content);
   } catch (error) {
     logger.error('AI', '提取文件文本失败', { fileId: file.id }, error);
     return '';
@@ -892,5 +886,52 @@ async function autoProcessFileDirect(env: Env, file: typeof files.$inferSelect, 
         logAiError('自动向量索引', file.id, error);
       }
     }
+  }
+}
+
+export async function generateVersionSummary(
+  env: Env,
+  fileId: string,
+  newVersionId: string,
+  userId?: string
+): Promise<void> {
+  const db = getDb(env.DB);
+
+  const versions = await db
+    .select()
+    .from(fileVersions)
+    .where(eq(fileVersions.fileId, fileId))
+    .orderBy(desc(fileVersions.version))
+    .limit(2)
+    .all();
+
+  if (versions.length < 2) return;
+
+  const [newVer, oldVer] = versions;
+  if (!canGenerateSummary(newVer.mimeType, newVer.r2Key || '')) return;
+
+  try {
+    const newText = await buildFileTextForVector(env, fileId);
+    if (!newText || newText.length < 50) return;
+
+    const summary = await callChatModel(env, userId || 'default', 'summary', {
+      messages: [
+        {
+          role: 'system',
+          content: '你是文件变更分析助手。用 1-2 句话描述这次文件更新的主要变化。只关注内容变化，不提文件名或时间。',
+        },
+        {
+          role: 'user',
+          content: `版本：v${oldVer.version} → v${newVer.version}\n当前内容摘要：\n${newText.slice(0, 2000)}`,
+        },
+      ],
+    });
+
+    if (summary && summary.trim().length > 0) {
+      await db.update(fileVersions).set({ aiChangeSummary: summary.trim() }).where(eq(fileVersions.id, newVersionId));
+      logger.info('AI', '版本摘要生成成功', { fileId, versionId: newVersionId });
+    }
+  } catch (error) {
+    logger.error('AI', '版本摘要生成失败', { fileId, newVersionId }, error);
   }
 }

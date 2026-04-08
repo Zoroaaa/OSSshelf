@@ -3,78 +3,79 @@
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 1. 自动更新 updated_at 触发器
+-- 注意：使用 ISO 8601 格式，与代码中 toISOString() 保持一致
 -- ═══════════════════════════════════════════════════════════════════════════
 
 CREATE TRIGGER IF NOT EXISTS trg_users_updated_at
 AFTER UPDATE ON users
 BEGIN
-  UPDATE users SET updated_at = datetime('now') WHERE id = NEW.id;
+  UPDATE users SET updated_at = strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_files_updated_at
 AFTER UPDATE ON files
 BEGIN
-  UPDATE files SET updated_at = datetime('now') WHERE id = NEW.id;
+  UPDATE files SET updated_at = strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_storage_buckets_updated_at
 AFTER UPDATE ON storage_buckets
 BEGIN
-  UPDATE storage_buckets SET updated_at = datetime('now') WHERE id = NEW.id;
+  UPDATE storage_buckets SET updated_at = strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_user_groups_updated_at
 AFTER UPDATE ON user_groups
 BEGIN
-  UPDATE user_groups SET updated_at = datetime('now') WHERE id = NEW.id;
+  UPDATE user_groups SET updated_at = strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_file_permissions_updated_at
 AFTER UPDATE ON file_permissions
 BEGIN
-  UPDATE file_permissions SET updated_at = datetime('now') WHERE id = NEW.id;
+  UPDATE file_permissions SET updated_at = strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_file_notes_updated_at
 AFTER UPDATE ON file_notes
 BEGIN
-  UPDATE file_notes SET updated_at = datetime('now') WHERE id = NEW.id;
+  UPDATE file_notes SET updated_at = strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_ai_models_updated_at
 AFTER UPDATE ON ai_models
 BEGIN
-  UPDATE ai_models SET updated_at = datetime('now') WHERE id = NEW.id;
+  UPDATE ai_models SET updated_at = strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_ai_chat_sessions_updated_at
 AFTER UPDATE ON ai_chat_sessions
 BEGIN
-  UPDATE ai_chat_sessions SET updated_at = datetime('now') WHERE id = NEW.id;
+  UPDATE ai_chat_sessions SET updated_at = strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_ai_config_updated_at
 AFTER UPDATE ON ai_config
 BEGIN
-  UPDATE ai_config SET updated_at = datetime('now') WHERE id = NEW.id;
+  UPDATE ai_config SET updated_at = strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_ai_tasks_updated_at
 AFTER UPDATE ON ai_tasks
 BEGIN
-  UPDATE ai_tasks SET updated_at = datetime('now') WHERE id = NEW.id;
+  UPDATE ai_tasks SET updated_at = strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_upload_tasks_updated_at
 AFTER UPDATE ON upload_tasks
 BEGIN
-  UPDATE upload_tasks SET updated_at = datetime('now') WHERE id = NEW.id;
+  UPDATE upload_tasks SET updated_at = strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now') WHERE id = NEW.id;
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_download_tasks_updated_at
 AFTER UPDATE ON download_tasks
 BEGIN
-  UPDATE download_tasks SET updated_at = datetime('now') WHERE id = NEW.id;
+  UPDATE download_tasks SET updated_at = strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now') WHERE id = NEW.id;
 END;
 
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -162,7 +163,7 @@ END;
 CREATE TRIGGER IF NOT EXISTS trg_ai_chat_sessions_message
 AFTER INSERT ON ai_chat_messages
 BEGIN
-  UPDATE ai_chat_sessions SET updated_at = datetime('now') WHERE id = NEW.session_id;
+  UPDATE ai_chat_sessions SET updated_at = strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now') WHERE id = NEW.session_id;
 END;
 
 -- ═══════════════════════════════════════════════════════════════════════════

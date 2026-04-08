@@ -19,6 +19,7 @@ import type {
   StreamChunk,
   EmbeddingRequest,
   EmbeddingResponse,
+  ThinkingParamFormat,
 } from './types';
 import { WorkersAiAdapter } from './adapters/workersAiAdapter';
 import { OpenAiCompatibleAdapter } from './adapters/openAiCompatibleAdapter';
@@ -227,7 +228,6 @@ export class ModelGateway {
       return await adapter.chatCompletion(
         {
           ...request,
-          maxTokens: request.maxTokens || modelConfig.maxTokens,
           temperature: request.temperature ?? modelConfig.temperature,
         },
         timeoutSignal.signal
@@ -260,7 +260,6 @@ export class ModelGateway {
       return await adapter.chatCompletionStream(
         {
           ...request,
-          maxTokens: request.maxTokens || modelConfig.maxTokens,
           temperature: request.temperature ?? modelConfig.temperature,
         },
         onChunk,
@@ -357,7 +356,6 @@ export class ModelGateway {
 
   private async getDefaultWorkersAiModel(): Promise<ModelConfig> {
     const modelId = await getAiConfigString(this.env, 'ai.default_model.chat', '@cf/meta/llama-3.1-8b-instruct');
-    const maxTokens = await getAiConfigNumber(this.env, 'ai.model.max_tokens', 4096);
     const temperature = await getAiConfigNumber(this.env, 'ai.model.temperature', 0.7);
 
     return {
@@ -368,7 +366,6 @@ export class ModelGateway {
       modelId,
       isActive: true,
       capabilities: ['chat'],
-      maxTokens,
       temperature,
       configJson: {},
       createdAt: new Date().toISOString(),
@@ -413,12 +410,19 @@ export class ModelGateway {
       apiKeyEncrypted: raw.apiKeyEncrypted as string | undefined,
       isActive: Boolean(raw.isActive),
       capabilities: JSON.parse((raw.capabilities as string) || '[]'),
-      maxTokens: (raw.maxTokens as number) || 4096,
       temperature: (raw.temperature as number) || 0.7,
       systemPrompt: raw.systemPrompt as string | undefined,
       configJson: JSON.parse((raw.configJson as string) || '{}'),
       createdAt: raw.createdAt as string,
       updatedAt: raw.updatedAt as string,
+      supportsThinking: Boolean(raw.supportsThinking),
+      thinkingParamFormat: raw.thinkingParamFormat as ThinkingParamFormat | undefined,
+      thinkingParamName: raw.thinkingParamName as string | undefined,
+      thinkingEnabledValue: raw.thinkingEnabledValue as string | undefined,
+      thinkingDisabledValue: raw.thinkingDisabledValue as string | undefined,
+      thinkingNestedKey: raw.thinkingNestedKey as string | undefined,
+      disableThinkingForFeatures: raw.disableThinkingForFeatures as string | undefined,
+      isReadonly: Boolean(raw.isReadonly),
     };
   }
 

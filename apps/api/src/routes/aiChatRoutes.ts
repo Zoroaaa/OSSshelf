@@ -257,7 +257,6 @@ async function handleNormalChat(
                 { role: 'system', content: '用 8-12 个中文字概括用户对话的主题。只输出标题，不加标点和解释。' },
                 { role: 'user', content: query },
               ],
-              maxTokens: 30,
               temperature: 0.5,
             });
             const generatedTitle = titleResponse.content.trim().slice(0, 20);
@@ -365,13 +364,7 @@ async function handleNormalChat(
   }
 }
 
-async function handleStreamChat(
-  c: any,
-  userId: string,
-  query: string,
-  sessionId?: string,
-  modelId?: string
-) {
+async function handleStreamChat(c: any, userId: string, query: string, sessionId?: string, modelId?: string) {
   const startTime = Date.now();
   let actualSessionId = sessionId;
 
@@ -401,7 +394,6 @@ async function handleStreamChat(
                 { role: 'system', content: '用 8-12 个中文字概括用户对话的主题。只输出标题，不加标点和解释。' },
                 { role: 'user', content: query },
               ],
-              maxTokens: 30,
               temperature: 0.5,
             });
             const generatedTitle = titleResponse.content.trim().slice(0, 20);
@@ -457,9 +449,10 @@ async function handleStreamChat(
       async start(controller) {
         const enqueue = (data: object) => {
           try {
-            controller.enqueue(`data: ${JSON.stringify(data)}\n\n`);
-          } catch {
-            // controller already closed
+            const serialized = JSON.stringify(data);
+            controller.enqueue(`data: ${serialized}\n\n`);
+          } catch (err) {
+            logger.error('AI Chat', 'Failed to serialize SSE data', { data: JSON.stringify(data).slice(0, 200) }, err);
           }
         };
 
@@ -467,10 +460,12 @@ async function handleStreamChat(
           if (doneEmitted) return;
           doneEmitted = true;
           enqueue(data);
-          try {
-            controller.close();
-          } catch {}
-          resolveStream();
+          setTimeout(() => {
+            try {
+              controller.close();
+            } catch {}
+            resolveStream();
+          }, 50);
         };
 
         try {
@@ -484,6 +479,17 @@ async function handleStreamChat(
                 if (chunk.type === 'done') {
                   finalSources = chunk.sources;
                   emitDone({ done: true, sessionId: actualSessionId, sources: chunk.sources });
+                } else if (chunk.type === 'confirm_request') {
+                  emitDone({
+                    done: true,
+                    confirmRequest: true,
+                    confirmId: chunk.confirmId,
+                    toolName: chunk.toolName,
+                    args: chunk.args,
+                    summary: chunk.summary,
+                    sessionId: actualSessionId,
+                    sources: [],
+                  });
                 } else {
                   emitDone({ done: true, error: (chunk as any).message, sessionId: actualSessionId, sources: [] });
                 }
@@ -512,7 +518,8 @@ async function handleStreamChat(
                 }
               }
             },
-            c.req.raw.signal
+            c.req.raw.signal,
+            actualSessionId
           );
 
           // Guard: agent finished without emitting done
@@ -578,3 +585,39 @@ async function handleStreamChat(
 }
 
 export default app;
+
+app.post('/confirm', async (c) => {
+  const userId = c.get('userId')!;
+
+  try {
+    const body = await c.req.json();
+    const { confirmId } = body as { confirmId: string };
+
+    if (!confirmId) {
+      return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少 confirmId' } }, 400);
+    }
+
+    const agentEngine = new AgentEngine(c.env);
+    const result = await agentEngine.executeConfirmAction(confirmId, userId);
+
+    return c.json({
+      success: true,
+      data: {
+        result,
+        confirmedAt: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    logger.error('AI Chat', 'Confirm action failed', { userId }, error);
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.INTERNAL_ERROR,
+          message: error instanceof Error ? error.message : '确认执行失败',
+        },
+      },
+      500
+    );
+  }
+});

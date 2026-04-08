@@ -35,11 +35,7 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
     try {
       const body: Record<string, unknown> = {
         model: this.config.modelId,
-        messages: request.messages.map((msg) => ({
-          role: msg.role,
-          content: this.formatMessageContent(msg.content),
-        })),
-        max_tokens: request.maxTokens || this.config.maxTokens,
+        messages: request.messages.map((msg) => this.formatMessage(msg)),
         temperature: request.temperature ?? this.config.temperature,
         stream: false,
       };
@@ -114,11 +110,7 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
     try {
       const streamBody: Record<string, unknown> = {
         model: this.config.modelId,
-        messages: request.messages.map((msg) => ({
-          role: msg.role,
-          content: this.formatMessageContent(msg.content),
-        })),
-        max_tokens: request.maxTokens || this.config.maxTokens,
+        messages: request.messages.map((msg) => this.formatMessage(msg)),
         temperature: request.temperature ?? this.config.temperature,
         stream: true,
       };
@@ -338,8 +330,11 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
   }
 
   private formatMessageContent(
-    content: string | ChatContentPart[]
-  ): string | Array<{ type: string; text?: string; image_url?: { url: string; detail?: string } }> {
+    content: string | ChatContentPart[] | null
+  ): string | Array<{ type: string; text?: string; image_url?: { url: string; detail?: string } }> | null {
+    if (content === null || content === undefined) {
+      return null;
+    }
     if (typeof content === 'string') {
       return content;
     }
@@ -355,6 +350,27 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
         return null;
       })
       .filter(Boolean) as Array<{ type: string; text?: string; image_url?: { url: string; detail?: string } }>;
+  }
+
+  private formatMessage(msg: import('../types').ChatMessage): Record<string, unknown> {
+    const formatted: Record<string, unknown> = {
+      role: msg.role,
+      content: this.formatMessageContent(msg.content),
+    };
+
+    if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
+      formatted.tool_calls = msg.toolCalls.map((tc) => ({
+        id: tc.id,
+        type: tc.type,
+        function: tc.function,
+      }));
+    }
+
+    if (msg.role === 'tool' && msg.toolCallId) {
+      formatted.tool_call_id = msg.toolCallId;
+    }
+
+    return formatted;
   }
 
   static getPopularModels(): Array<{

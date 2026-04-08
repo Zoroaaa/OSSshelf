@@ -14,6 +14,7 @@ import type { Env } from '../types/env';
 import { getDb, files, fileNotes } from '../db';
 import { eq, and, inArray, isNull } from 'drizzle-orm';
 import { logger } from '@osshelf/shared';
+import { readFileContent } from './fileContentHelper';
 
 // bge-m3: 多语言，1024 维，中文效果远优于 bge-base-en-v1.5
 const EMBEDDING_MODEL = '@cf/baai/bge-m3';
@@ -256,6 +257,17 @@ export async function buildFileTextForVector(env: Env, fileId: string): Promise<
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
   if (!file) return '';
 
+  let actualContent = '';
+  try {
+    const readResult = await readFileContent(env, file);
+    if (readResult.success && readResult.content) {
+      actualContent = readResult.content.slice(0, 50000);
+      logger.info('VECTOR', '成功读取文件内容用于索引', { fileId, source: readResult.source });
+    }
+  } catch (error) {
+    logger.warn('VECTOR', '无法读取实际文件内容，使用元数据降级', { fileId, fileName: file.name }, error);
+  }
+
   const notes = await db
     .select({ content: fileNotes.content })
     .from(fileNotes)
@@ -263,9 +275,24 @@ export async function buildFileTextForVector(env: Env, fileId: string): Promise<
     .limit(5)
     .all();
 
-  const parts = [file.name, file.description || '', file.aiSummary || '', ...notes.map((n) => n.content)].filter(
-    Boolean
-  );
+  // aiTags 是 JSON 数组字符串，展开为空格分隔的标签词，提升标签匹配召回率
+  let tagsText = '';
+  if (file.aiTags) {
+    try {
+      const tags: string[] = JSON.parse(file.aiTags);
+      tagsText = tags.join(' ');
+    } catch {
+      tagsText = file.aiTags;
+    }
+  }
+
+  const parts = [
+    file.name,
+    file.description || '',
+    actualContent || file.aiSummary || '',
+    tagsText,
+    ...notes.map((n) => n.content),
+  ].filter(Boolean);
 
   return parts.join('\n');
 }

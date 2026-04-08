@@ -7,38 +7,114 @@ import { resolveTgConfig } from './features';
 import { tgDownloadFile } from '../telegramClient';
 import { tgDownloadChunked, isChunkedFileId } from '../telegramChunked';
 import type { AiFeatureType } from './types';
+import { getVendorConfig, getModelConfig } from './vendorConfig';
 
-export function buildThinkingConfig(modelId: string, featureType: AiFeatureType = 'chat'): Record<string, unknown> | undefined {
+export interface ModelThinkingConfig {
+  supportsThinking?: boolean;
+  thinkingParamFormat?: 'object' | 'boolean' | 'string';
+  thinkingParamName?: string;
+  thinkingEnabledValue?: string;
+  thinkingDisabledValue?: string;
+  thinkingNestedKey?: string;
+  disableThinkingForFeatures?: string;
+}
+
+export function buildThinkingConfig(
+  modelId: string,
+  featureType: AiFeatureType = 'chat',
+  customConfig?: ModelThinkingConfig
+): Record<string, unknown> | undefined {
   const vendor = detectModelVendor(modelId);
-  const id = modelId.toLowerCase();
-  
-  const shouldEnableThinking = (feature: AiFeatureType): boolean => {
-    switch (feature) {
-      case 'chat':
-        return true;
-      case 'image_caption':
-      case 'image_tag':
-      case 'image_analysis':
-      case 'file_summary':
-        return false;
-      default:
-        return false;
+
+  let disableThinkingFeatures: string[] = ['image_caption', 'image_tag', 'image_analysis', 'file_summary'];
+
+  if (customConfig?.disableThinkingForFeatures) {
+    try {
+      disableThinkingFeatures = JSON.parse(customConfig.disableThinkingForFeatures);
+    } catch {
+      // 使用默认值
     }
+  }
+
+  const shouldEnableThinking = (feature: AiFeatureType): boolean => {
+    return !disableThinkingFeatures.includes(feature);
   };
 
   const enableThinking = shouldEnableThinking(featureType);
-  
-  if (vendor === 'zhipu') {
-    if (id.includes('glm-4.5') || id.includes('glm-4.6') || id.includes('glm-4.7') || id.includes('glm-5')) {
-      return { thinking: { type: enableThinking ? 'enabled' : 'disabled' } };
+
+  if (customConfig) {
+    if (!customConfig.supportsThinking) {
+      return undefined;
+    }
+
+    const { thinkingParamFormat, thinkingParamName, thinkingEnabledValue, thinkingDisabledValue, thinkingNestedKey } =
+      customConfig;
+
+    if (!thinkingParamFormat || !thinkingParamName) {
+      return undefined;
+    }
+
+    const enabledVal = thinkingEnabledValue ?? 'enabled';
+    const disabledVal = thinkingDisabledValue ?? 'disabled';
+    const value = enableThinking ? enabledVal : disabledVal;
+
+    switch (thinkingParamFormat) {
+      case 'boolean':
+        return { [thinkingParamName]: value === 'true' || value === '1' };
+
+      case 'string':
+        return { [thinkingParamName]: value };
+
+      case 'object':
+        if (thinkingNestedKey) {
+          return {
+            [thinkingParamName]: {
+              [thinkingNestedKey]: value,
+            },
+          };
+        }
+        return { [thinkingParamName]: value };
+
+      default:
+        return undefined;
     }
   }
-  
-  if (vendor === 'deepseek' && id.includes('r1')) {
+
+  const vendorConfig = getVendorConfig(vendor);
+  if (!vendorConfig || !vendorConfig.thinkingConfig) {
     return undefined;
   }
-  
-  return undefined;
+
+  const modelConfig = getModelConfig(vendor, modelId);
+  if (!modelConfig || !modelConfig.thinking) {
+    return undefined;
+  }
+
+  const thinkingConfig = vendorConfig.thinkingConfig;
+  const { paramFormat, paramName, nestedKey, enabledValue, disabledValue } = thinkingConfig;
+
+  const value = enableThinking ? enabledValue : disabledValue;
+
+  switch (paramFormat) {
+    case 'boolean':
+      return { [paramName]: value };
+
+    case 'string':
+      return { [paramName]: value };
+
+    case 'object':
+      if (nestedKey) {
+        return {
+          [paramName]: {
+            [nestedKey]: value,
+          },
+        };
+      }
+      return { [paramName]: value };
+
+    default:
+      return undefined;
+  }
 }
 
 /**
@@ -152,16 +228,51 @@ export function getMimeTypeCategory(mimeType: string | null | undefined): string
 
 export type VisionMessageContent = Array<{ type: 'text' | 'image_url'; text?: string; image_url?: { url: string } }>;
 
-export type ModelVendor = 'openai' | 'anthropic' | 'zhipu' | 'deepseek' | 'alibaba' | 'google' | 'unknown';
+export type ModelVendor =
+  | 'openai'
+  | 'anthropic'
+  | 'zhipu'
+  | 'deepseek'
+  | 'alibaba'
+  | 'google'
+  | 'volcengine'
+  | 'baidu'
+  | 'tencent'
+  | 'moonshot'
+  | 'minimax'
+  | 'mistral'
+  | 'xai'
+  | 'groq'
+  | 'perplexity'
+  | 'siliconflow'
+  | 'openrouter'
+  | 'unknown';
 
 export function detectModelVendor(modelId: string): ModelVendor {
   const id = modelId.toLowerCase();
+
   if (id.includes('gpt') || id.includes('o1') || id.includes('o3')) return 'openai';
   if (id.includes('claude')) return 'anthropic';
   if (id.includes('glm')) return 'zhipu';
   if (id.includes('deepseek')) return 'deepseek';
-  if (id.includes('qwen') || id.includes('tongyi')) return 'alibaba';
+  if (id.includes('qwen') || id.includes('qwq') || id.includes('tongyi')) return 'alibaba';
   if (id.includes('gemini')) return 'google';
+  if (id.includes('doubao') || id.includes('seed')) return 'volcengine';
+  if (id.includes('ernie') || id.includes('x1')) return 'baidu';
+  if (id.includes('hunyuan') || id.includes('hy-') || id.startsWith('hy')) return 'tencent';
+  if (id.includes('kimi') || id.includes('moonshot')) return 'moonshot';
+  if (id.includes('minimax')) return 'minimax';
+  if (id.includes('mistral') || id.includes('codestral')) return 'mistral';
+  if (id.includes('grok')) return 'xai';
+  if (id.includes('llama-3') && id.includes('sonar')) return 'perplexity';
+  if (id.includes('llama-3') || id.includes('mixtral') || id.includes('gemma')) {
+    if (id.includes('groq')) return 'groq';
+  }
+  if (id.includes('siliconflow') || id.includes('silicon-flow')) return 'siliconflow';
+  if (id.includes('openrouter') || id.includes('anthropic/') || id.includes('openai/') || id.includes('google/')) {
+    return 'openrouter';
+  }
+
   return 'unknown';
 }
 
@@ -176,21 +287,59 @@ export function buildVisionMessageContent(
   ];
 }
 
-export function supportsReasoningContent(modelId: string): boolean {
+export function supportsReasoningContent(modelId: string, customConfig?: ModelThinkingConfig): boolean {
+  if (customConfig) {
+    return customConfig.supportsThinking ?? false;
+  }
+
+  const vendor = detectModelVendor(modelId);
+  const modelConfig = getModelConfig(vendor, modelId);
+
+  return modelConfig?.thinking ?? false;
+}
+
+export interface VendorSpecificParams {
+  reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high';
+  thinking_budget?: number;
+  enable_thinking?: boolean;
+  thinking?: { type: 'enabled' | 'disabled' | 'auto' };
+}
+
+export function buildVendorSpecificParams(
+  modelId: string,
+  options?: {
+    enableThinking?: boolean;
+    thinkingBudget?: number;
+    reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
+  }
+): VendorSpecificParams | undefined {
   const vendor = detectModelVendor(modelId);
   const id = modelId.toLowerCase();
-  
-  if (vendor === 'zhipu') {
-    return id.includes('glm-4.5') || id.includes('glm-4.6') || id.includes('glm-4.7') || id.includes('glm-5');
+  const params: VendorSpecificParams = {};
+
+  const enableThinking = options?.enableThinking ?? true;
+  const thinkingBudget = options?.thinkingBudget;
+  const reasoningEffort = options?.reasoningEffort ?? 'medium';
+
+  if (vendor === 'volcengine') {
+    if (id.includes('doubao-seed-1-6-251015')) {
+      params.reasoning_effort = reasoningEffort;
+    }
   }
-  
-  if (vendor === 'deepseek') {
-    return id.includes('r1');
-  }
-  
+
   if (vendor === 'alibaba') {
-    return id.includes('qwq');
+    if (id.includes('qwq') || id.includes('qwen3')) {
+      if (thinkingBudget !== undefined) {
+        params.thinking_budget = thinkingBudget;
+      }
+    }
   }
-  
-  return false;
+
+  if (vendor === 'minimax') {
+    if (id.includes('m2') && thinkingBudget !== undefined) {
+      params.thinking_budget = thinkingBudget;
+    }
+  }
+
+  return Object.keys(params).length > 0 ? params : undefined;
 }

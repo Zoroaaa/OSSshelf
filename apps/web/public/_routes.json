@@ -1,10 +1,5 @@
 {
   "version": 1,
   "include": ["/*"],
-  "exclude": [
-    "/api/*",
-    "/dav/*",
-    "/cron/*",
-    "/health"
-  ]
+  "exclude": ["/api/*", "/dav/*", "/cron/*", "/health"]
 }

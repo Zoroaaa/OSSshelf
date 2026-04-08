@@ -1375,6 +1375,10 @@ export const aiApi = {
       api.put<ApiResponse<AiChatSession>>('/api/ai-chat/sessions/:sessionId'.replace(':sessionId', sessionId), data),
     deleteSession: (sessionId: string) =>
       api.delete<ApiResponse<{ message: string }>>('/api/ai-chat/sessions/:sessionId'.replace(':sessionId', sessionId)),
+
+    confirmAction: (confirmId: string) =>
+      api.post<ApiResponse<{ result: unknown; confirmedAt: string }>>('/api/ai-chat/confirm', { confirmId }),
+
     // 流式聊天
     chatStream: async (
       query: string,
@@ -1395,6 +1399,9 @@ export const aiApi = {
           toolCallId?: string;
           args?: Record<string, unknown>;
           result?: unknown;
+          confirmRequest?: boolean;
+          confirmId?: string;
+          summary?: string;
         }) => void;
         onError?: (error: Error) => void;
         signal?: AbortSignal;
@@ -1483,11 +1490,18 @@ export interface AiModel {
   hasApiKey?: boolean;
   isActive: boolean;
   capabilities: string[];
-  maxTokens: number;
   temperature: number;
   systemPrompt?: string;
   createdAt: string;
   updatedAt: string;
+  supportsThinking?: boolean;
+  thinkingParamFormat?: 'object' | 'boolean' | 'string' | '';
+  thinkingParamName?: string;
+  thinkingEnabledValue?: string;
+  thinkingDisabledValue?: string;
+  thinkingNestedKey?: string;
+  disableThinkingForFeatures?: string;
+  isReadonly?: boolean;
 }
 
 export interface CreateAiModelParams {
@@ -1497,10 +1511,16 @@ export interface CreateAiModelParams {
   apiEndpoint?: string;
   apiKey?: string;
   capabilities?: string[];
-  maxTokens?: number;
   temperature?: number;
   systemPrompt?: string;
   isActive?: boolean;
+  supportsThinking?: boolean;
+  thinkingParamFormat?: 'object' | 'boolean' | 'string' | '';
+  thinkingParamName?: string;
+  thinkingEnabledValue?: string;
+  thinkingDisabledValue?: string;
+  thinkingNestedKey?: string;
+  disableThinkingForFeatures?: string;
 }
 
 export interface AiProvider {

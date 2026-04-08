@@ -20,7 +20,11 @@ export type WebhookEvent =
   | 'share.created'
   | 'share.deleted'
   | 'permission.granted'
-  | 'permission.revoked';
+  | 'permission.revoked'
+  | 'ai.summary_complete'
+  | 'ai.tags_generated'
+  | 'ai.index_complete'
+  | 'ai.insight_triggered';
 
 export interface WebhookPayload {
   event: WebhookEvent;
@@ -37,6 +41,10 @@ export const WEBHOOK_EVENTS: Array<{ value: WebhookEvent | '*'; label: string; d
   { value: 'share.deleted', label: '分享删除', description: '删除分享链接时触发' },
   { value: 'permission.granted', label: '权限授予', description: '授予权限时触发' },
   { value: 'permission.revoked', label: '权限撤销', description: '撤销权限时触发' },
+  { value: 'ai.summary_complete', label: 'AI 摘要完成', description: '文件 AI 摘要生成完成时触发' },
+  { value: 'ai.tags_generated', label: 'AI 标签生成', description: '图片 AI 标签生成完成时触发' },
+  { value: 'ai.index_complete', label: 'AI 索引完成', description: '向量索引构建完成时触发' },
+  { value: 'ai.insight_triggered', label: 'AI 洞察提醒', description: '检测到异常时触发（预留）' },
 ];
 
 export async function dispatchWebhook(

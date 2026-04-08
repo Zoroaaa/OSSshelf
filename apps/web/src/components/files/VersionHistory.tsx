@@ -23,6 +23,7 @@ interface VersionInfo {
   size: number;
   mimeType: string | null;
   changeSummary: string | null;
+  aiChangeSummary: string | null;
   createdBy: string | null;
   createdAt: string;
 }
@@ -259,6 +260,14 @@ export function VersionHistory({ fileId, fileName, mimeType, onClose, onVersionR
                           {formatBytes(v.size)} · {formatDate(v.createdAt)}
                         </div>
                         {v.changeSummary && <div className="text-sm text-muted-foreground">{v.changeSummary}</div>}
+                        {v.aiChangeSummary && (
+                          <div className="mt-1.5 p-2 bg-primary/5 border border-primary/20 rounded-md">
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <span className="text-xs font-medium text-primary">AI 变更分析</span>
+                            </div>
+                            <p className="text-sm text-foreground/80">{v.aiChangeSummary}</p>
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">

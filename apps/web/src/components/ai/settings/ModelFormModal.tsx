@@ -1,0 +1,458 @@
+/**
+ * ModelFormModal.tsx
+ * 添加/编辑模型表单弹窗组件
+ *
+ * 功能:
+ * - Workers AI / OpenAI兼容API 两种模式
+ * - 基本配置（名称、提供商、模型ID）
+ * - 高级设置（上下文长度、Token、温度、系统提示词）
+ * - 模型特性（思考模式、函数调用、流式、视觉）
+ * - 思考模式详细配置
+ * - 能力标签选择
+ */
+
+import { useState } from 'react';
+import { X, Key, Loader2, Save, Brain } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
+import type { AiModel, AiProvider, AiWorkersAiModel, AiOpenAiModel } from '@/services/api';
+
+interface ModelFormModalProps {
+  model: AiModel | null;
+  providersData?: {
+    providers: AiProvider[];
+    workersAiModels: AiWorkersAiModel[];
+    openAiModels: AiOpenAiModel[];
+  };
+  onClose: () => void;
+  onSubmit: (data: any) => void;
+  isLoading: boolean;
+}
+
+export function ModelFormModal({ model, providersData, onClose, onSubmit, isLoading }: ModelFormModalProps) {
+  const [formData, setFormData] = useState({
+    name: model?.name || '',
+    provider: model?.provider || 'workers_ai',
+    modelId: model?.modelId || '',
+    customModelId: undefined as string | undefined,
+    apiEndpoint: model?.apiEndpoint || '',
+    apiKey: '',
+    capabilities: model?.capabilities || ['chat'],
+    temperature: model?.temperature || 0.7,
+    systemPrompt: model?.systemPrompt || '',
+    isActive: model?.isActive || false,
+    supportsThinking: model?.supportsThinking || false,
+    thinkingParamFormat: model?.thinkingParamFormat || '',
+    thinkingParamName: model?.thinkingParamName || '',
+    thinkingEnabledValue: model?.thinkingEnabledValue || '',
+    thinkingDisabledValue: model?.thinkingDisabledValue || '',
+    thinkingNestedKey: model?.thinkingNestedKey || '',
+    disableThinkingForFeatures:
+      model?.disableThinkingForFeatures || '["image_caption","image_tag","image_analysis","file_summary"]',
+    isReadonly: model?.isReadonly || false,
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const submitData = { ...formData };
+    if (formData.modelId === '__custom__' && formData.customModelId) {
+      submitData.modelId = formData.customModelId;
+      submitData.name = formData.customModelId.split('/').pop() || formData.name;
+    }
+    onSubmit(submitData);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative bg-card rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="p-4 sm:p-6 border-b sticky top-0 bg-card z-10">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg sm:text-xl font-semibold">{model ? '编辑模型' : '添加新模型'}</h2>
+            <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
+              <X className="h-5 w-5" />
+            </Button>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4">
+          <div className="space-y-3">
+            <h3 className="font-medium text-sm sm:text-base">基本信息</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">模型名称 *</label>
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg bg-background text-sm"
+                  placeholder="例如：我的 GPT-4"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">提供商 *</label>
+                <select
+                  value={formData.provider}
+                  onChange={(e) => setFormData({ ...formData, provider: e.target.value as any })}
+                  className="w-full px-3 py-2 border rounded-lg bg-background text-sm"
+                >
+                  <option value="workers_ai">Cloudflare Workers AI</option>
+                  <option value="openai_compatible">OpenAI 兼容 API</option>
+                </select>
+              </div>
+            </div>
+
+            {formData.provider === 'workers_ai' && providersData?.workersAiModels ? (
+              <div>
+                <label className="block text-sm font-medium mb-1">选择模型 *</label>
+                <select
+                  value={formData.modelId || ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const selectedModel = providersData.workersAiModels.find((m) => m.id === val);
+                    setFormData({
+                      ...formData,
+                      modelId: val,
+                      name: formData.name || selectedModel?.name || formData.name,
+                      customModelId: val === '__custom__' ? '' : undefined,
+                    });
+                  }}
+                  className="w-full px-3 py-2 border rounded-lg bg-background text-sm"
+                  required
+                >
+                  <option value="">请选择一个 Workers AI 模型</option>
+                  {providersData.workersAiModels.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} {m.id !== '__custom__' ? `(${m.id})` : ''}
+                    </option>
+                  ))}
+                </select>
+
+                {formData.modelId === '__custom__' && (
+                  <div className="mt-2">
+                    <label className="block block-xs text-muted mb-1">自定义模型 ID（@cf/ 开头）</label>
+                    <input
+                      type="text"
+                      value={formData.customModelId || ''}
+                      onChange={(e) => setFormData({ ...formData, customModelId: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg bg-background font-mono text-sm"
+                      placeholder="@cf/deepseek/deepseek-r1 或 @cf/black-forest-labs/flux-2-klein-4b"
+                      required
+                    />
+                    <p className="mt-1 text-xs text-muted">
+                      可在{' '}
+                      <a
+                        href="https://developers.cloudflare.com/workers-ai/models/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline"
+                      >
+                        Workers AI 模型目录
+                      </a>{' '}
+                      查看所有可用模型。免费额度：Workers Paid 计划每日约 10,000 neurons 免费，超出按 $0.0001/neuron
+                      计费。
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-sm font-medium mb-1">模型 ID *</label>
+                  <input
+                    type="text"
+                    value={formData.modelId}
+                    onChange={(e) => setFormData({ ...formData, modelId: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg bg-background font-mono text-sm"
+                    placeholder="例如：gpt-4o、claude-3-opus-20240229"
+                    required
+                  />
+                  {providersData?.openAiModels && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {providersData.openAiModels.slice(0, 8).map((m) => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() =>
+                            setFormData({
+                              ...formData,
+                              modelId: m.id,
+                              capabilities: m.capabilities.length > 0 ? [...m.capabilities] : ['chat'],
+                            })
+                          }
+                          className={`px-2 py-1 text-xs border rounded transition-colors ${
+                            formData.modelId === m.id ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-accent'
+                          }`}
+                          title={m.description}
+                        >
+                          {m.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">API 端点 *</label>
+                  <input
+                    type="url"
+                    value={formData.apiEndpoint}
+                    onChange={(e) => setFormData({ ...formData, apiEndpoint: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg bg-background font-mono text-sm"
+                    placeholder="https://api.openai.com/v1"
+                    required={formData.provider === 'openai_compatible'}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    <Key className="h-3 w-3 inline mr-1" />
+                    API Key
+                  </label>
+                  <input
+                    type="password"
+                    value={formData.apiKey}
+                    onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg bg-background text-sm"
+                    placeholder={model?.hasApiKey ? '保持原密钥不变，留空则不修改' : '输入 API Key'}
+                  />
+                  {model?.hasApiKey && !formData.apiKey && (
+                    <p className="text-xs text-muted-foreground mt-1">当前已配置密钥，留空则保持不变</p>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="space-y-3 pt-4 border-t">
+            <h3 className="font-medium text-sm sm:text-base">高级设置</h3>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">温度 (0-2)</label>
+                <input
+                  type="number"
+                  value={formData.temperature}
+                  onChange={(e) => setFormData({ ...formData, temperature: parseFloat(e.target.value) || 0.7 })}
+                  className="w-full px-3 py-2 border rounded-lg bg-background text-sm"
+                  min={0}
+                  max={2}
+                  step={0.1}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">系统提示词</label>
+              <textarea
+                value={formData.systemPrompt}
+                onChange={(e) => setFormData({ ...formData, systemPrompt: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg bg-background text-sm"
+                rows={3}
+                placeholder="自定义系统提示词..."
+              />
+            </div>
+
+            <div className="space-y-3 pt-4 border-t">
+              <h3 className="font-medium text-sm sm:text-base">模型特性</h3>
+
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { key: 'supportsThinking', label: '思考模式', desc: '支持深度推理' },
+                ].map((item) => (
+                  <label
+                    key={item.key}
+                    className="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-accent/50 transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={formData[item.key as keyof typeof formData] as boolean}
+                      onChange={(e) => setFormData({ ...formData, [item.key]: e.target.checked })}
+                      className="rounded"
+                    />
+                    <div>
+                      <span className="text-sm font-medium">{item.label}</span>
+                      <p className="text-xs text-muted-foreground">{item.desc}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                💡 视觉能力和函数调用能力请在下方「模型能力」中选择
+              </p>
+            </div>
+
+            {formData.supportsThinking && (
+              <div className="space-y-3 pt-4 border-t">
+                <h3 className="font-medium text-sm sm:text-base flex items-center gap-2">
+                  <Brain className="h-4 w-4" />
+                  思考模式配置
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">参数格式</label>
+                    <select
+                      value={formData.thinkingParamFormat}
+                      onChange={(e) => setFormData({ ...formData, thinkingParamFormat: e.target.value as any })}
+                      className="w-full px-3 py-1.5 border rounded bg-background text-sm"
+                    >
+                      <option value="">请选择</option>
+                      <option value="object">Object (嵌套对象)</option>
+                      <option value="boolean">Boolean (布尔值)</option>
+                      <option value="string">String (字符串)</option>
+                    </select>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      如: thinking: {"{ type: 'enabled' }"} 选择 Object
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1">参数名称</label>
+                    <input
+                      type="text"
+                      value={formData.thinkingParamName}
+                      onChange={(e) => setFormData({ ...formData, thinkingParamName: e.target.value })}
+                      className="w-full px-3 py-1.5 border rounded bg-background text-sm font-mono"
+                      placeholder="如: thinking, enable_thinking"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">启用思考值</label>
+                    <input
+                      type="text"
+                      value={formData.thinkingEnabledValue}
+                      onChange={(e) => setFormData({ ...formData, thinkingEnabledValue: e.target.value })}
+                      className="w-full px-3 py-1.5 border rounded bg-background text-sm font-mono"
+                      placeholder="如: enabled, true"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1">禁用思考值</label>
+                    <input
+                      type="text"
+                      value={formData.thinkingDisabledValue}
+                      onChange={(e) => setFormData({ ...formData, thinkingDisabledValue: e.target.value })}
+                      className="w-full px-3 py-1.5 border rounded bg-background text-sm font-mono"
+                      placeholder="如: disabled, false"
+                    />
+                  </div>
+                </div>
+
+                {formData.thinkingParamFormat === 'object' && (
+                  <div>
+                    <label className="block text-sm font-medium mb-1">嵌套键名</label>
+                    <input
+                      type="text"
+                      value={formData.thinkingNestedKey}
+                      onChange={(e) => setFormData({ ...formData, thinkingNestedKey: e.target.value })}
+                      className="w-full px-3 py-1.5 border rounded bg-background text-sm font-mono"
+                      placeholder="如: type, enabled"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      当参数格式为 Object 时，嵌套的键名。如 thinking: {"{ type: 'enabled' }"} 中的 type
+                    </p>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">禁用思考的功能</label>
+                  <input
+                    type="text"
+                    value={formData.disableThinkingForFeatures}
+                    onChange={(e) => setFormData({ ...formData, disableThinkingForFeatures: e.target.value })}
+                    className="w-full px-3 py-1.5 border rounded bg-background text-sm font-mono"
+                    placeholder='["image_caption","image_tag","image_analysis","file_summary"]'
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    JSON数组格式，这些功能会自动禁用思考模式（如图片标签、文件摘要等）
+                  </p>
+                </div>
+
+                <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg text-xs text-muted-foreground">
+                  💡 <strong>提示：</strong>
+                  <ul className="mt-1 space-y-1 list-disc list-inside">
+                    <li>火山引擎豆包: thinking.type = enabled/disabled</li>
+                    <li>阿里通义千问: enable_thinking = true/false</li>
+                    <li>OpenAI o1/o3: reasoning_effort = low/medium/high</li>
+                    <li>智谱GLM: thinking.type = enabled/disabled</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                模型能力 *<span className="text-xs text-muted-foreground ml-1">（决定该模型可用于哪些功能）</span>
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { value: 'chat', label: '💬 对话', desc: '文本对话、摘要生成' },
+                  { value: 'vision', label: '👁️ 视觉', desc: '图片理解（如 GPT-4o）' },
+                  { value: 'embedding', label: '📊 向量', desc: '文本向量化' },
+                  { value: 'function_calling', label: '⚡ 函数调用', desc: '工具调用能力' },
+                  { value: 'completion', label: '✏️ 补全', desc: '文本补全' },
+                ].map((cap) => (
+                  <label
+                    key={cap.value}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 border rounded-lg cursor-pointer transition-colors text-sm ${
+                      formData.capabilities.includes(cap.value)
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border hover:border-primary/50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={formData.capabilities.includes(cap.value)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setFormData({ ...formData, capabilities: [...formData.capabilities, cap.value] });
+                        } else {
+                          setFormData({
+                            ...formData,
+                            capabilities: formData.capabilities.filter((c) => c !== cap.value),
+                          });
+                        }
+                      }}
+                      className="rounded"
+                    />
+                    <span>{cap.label}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1.5">
+                💡 图片描述功能需要选择「视觉」能力的模型（如 GPT-4o、Claude 3）
+              </p>
+            </div>
+
+            {!model && (
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.isActive}
+                  onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
+                  className="rounded"
+                />
+                <span className="text-sm">设为当前激活模型</span>
+              </label>
+            )}
+          </div>
+
+          <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 pt-4 border-t">
+            <Button type="button" variant="outline" onClick={onClose} className="w-full sm:w-auto">
+              取消
+            </Button>
+            <Button type="submit" disabled={isLoading} className="w-full sm:w-auto">
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {model ? '保存修改' : '添加模型'}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

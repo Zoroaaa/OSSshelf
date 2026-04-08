@@ -14,7 +14,6 @@ CREATE TABLE IF NOT EXISTS ai_models (
     api_key_encrypted TEXT,
     is_active INTEGER NOT NULL DEFAULT 1,
     capabilities TEXT NOT NULL DEFAULT '["chat","completion"]',
-    max_tokens INTEGER DEFAULT 4096,
     temperature REAL DEFAULT 0.7,
     system_prompt TEXT DEFAULT '你是OSSshelf文件管理系统的智能助手。你可以帮助用户查询、分析和管理他们的文件。',
     config_json TEXT DEFAULT '{}',
@@ -115,14 +114,7 @@ INSERT INTO ai_config (id, key, category, label, description, value_type, string
 
 -- 模型参数配置
 INSERT INTO ai_config (id, key, category, label, description, value_type, number_value, default_value, is_editable, sort_order) VALUES
-    ('cfg-param-max-tokens', 'ai.model.max_tokens', 'parameter', '最大Token数', '模型生成的最大token数量', 'number', 4096, '4096', 1, 10),
-    ('cfg-param-temperature', 'ai.model.temperature', 'parameter', '温度参数', '控制模型输出的随机性（0-2之间，越高越随机）', 'number', 0.7, '0.7', 1, 11),
-    ('cfg-param-vision-max-tokens', 'ai.vision.max_tokens', 'parameter', '视觉模型最大Token数', '视觉模型分析图片时的最大输出token数', 'number', 600, '600', 1, 12);
-
--- 内容限制配置
-INSERT INTO ai_config (id, key, category, label, description, value_type, number_value, default_value, is_editable, sort_order) VALUES
-    ('cfg-limit-summary', 'ai.summary.content_limit', 'limit', '摘要内容长度限制', '生成摘要时输入文本的最大字符数', 'number', 8192, '8192', 1, 20),
-    ('cfg-limit-rename', 'ai.rename.content_limit', 'limit', '重命名内容长度限制', '智能重命名时输入文本的最大字符数', 'number', 4096, '4096', 1, 21);
+    ('cfg-param-temperature', 'ai.model.temperature', 'parameter', '温度参数', '控制模型输出的随机性（0-2之间，越高越随机）', 'number', 0.7, '0.7', 1, 11);
 
 -- 重试策略配置
 INSERT INTO ai_config (id, key, category, label, description, value_type, number_value, default_value, is_editable, sort_order) VALUES
@@ -135,9 +127,7 @@ INSERT INTO ai_config (id, key, category, label, description, value_type, string
     ('cfg-prompt-default', 'ai.summary.prompt.default', 'prompt', '默认摘要提示词', '通用文件类型的摘要生成提示词模板', 'string', '你是文件助手。请用简洁的中文（不超过3句话）概括文件主要内容。', '你是文件助手。请用简洁的中文（不超过3句话）概括文件主要内容。', 1, 40),
     ('cfg-prompt-code', 'ai.summary.prompt.code', 'prompt', '代码摘要提示词', '代码文件的摘要生成提示词模板', 'string', '你是代码分析助手。请概括以下代码的功能、主要类/函数/接口、核心逻辑。（不超过4句话）', '你是代码分析助手。请概括以下代码的功能、主要类/函数/接口、核心逻辑。（不超过4句话）', 1, 41),
     ('cfg-prompt-markdown', 'ai.summary.prompt.markdown', 'prompt', 'Markdown摘要提示词', 'Markdown文档的摘要生成提示词模板', 'string', '你是技术文档助手。请概括 Markdown 文档的结构、主要章节和核心内容。（不超过3句话）', '你是技术文档助手。请概括 Markdown 文档的结构、主要章节和核心内容。（不超过3句话）', 1, 42),
-    ('cfg-prompt-data', 'ai.summary.prompt.data', 'prompt', '数据/配置摘要提示词', 'JSON/YAML/XML等数据配置文件的摘要生成提示词模板', 'string', '你是数据分析助手。请概括数据/配置文件的结构、关键字段和主要内容。（不超过3句话）', '你是数据分析助手。请概括数据/配置文件的结构、关键字段和主要内容。（不超过3句话）', 1, 43),
-    ('cfg-prompt-document', 'ai.summary.prompt.document', 'prompt', '文档摘要提示词（暂未启用）', '⚠️ 暂未启用：Office/PDF等文档类型暂不支持AI摘要，此配置保留备用', 'string', '你是文档分析助手。请概括文档的主题、关键论点和结论。（不超过3句话）', '你是文档分析助手。请概括文档的主题、关键论点和结论。（不超过3句话）', 1, 48),
-    ('cfg-prompt-spreadsheet', 'ai.summary.prompt.spreadsheet', 'prompt', '表格数据摘要提示词（暂未启用）', '⚠️ 暂未启用：Excel等表格文件暂不支持AI摘要，此配置保留备用', 'string', '你是数据分析助手。请概括表格/数据文件的数据类型、关键字段和数据趋势。（不超过3句话）', '你是数据分析助手。请概括表格/数据文件的数据类型、关键字段和数据趋势。（不超过3句话）', 1, 49);
+    ('cfg-prompt-data', 'ai.summary.prompt.data', 'prompt', '数据/配置摘要提示词', 'JSON/YAML/XML等数据配置文件的摘要生成提示词模板', 'string', '你是数据分析助手。请概括数据/配置文件的结构、关键字段和主要内容。（不超过3句话）', '你是数据分析助手。请概括数据/配置文件的结构、关键字段和主要内容。（不超过3句话）', 1, 43);
 
 -- 功能开关配置
 INSERT INTO ai_config (id, key, category, label, description, value_type, boolean_value, default_value, is_editable, sort_order) VALUES

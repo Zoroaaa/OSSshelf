@@ -12,123 +12,165 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  MessageSquare,
   Send,
   FileText,
-  Image,
-  File,
   Sparkles,
-  FolderOpen,
-  Plus,
-  Trash2,
-  ExternalLink,
-  PanelLeftClose,
-  Settings,
   StopCircle,
   Copy,
   Check,
   RefreshCw,
-  Pencil,
-  X,
-  Loader2,
   Search,
-  BarChart3,
-  Star,
-  Share2,
-  Clock,
+  Filter,
   Tag,
   Download,
-  ChevronDown,
-  Filter,
+  Zap,
+  Code,
+  Loader2,
 } from 'lucide-react';
 import { aiApi, filesApi, type AiChatMessage } from '@/services/api';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeHighlight from 'rehype-highlight';
-import 'highlight.js/styles/github-dark.css';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatDate } from '@/utils';
 import { FilePreview } from '@/components/files/FilePreview';
 import { useAuthStore } from '@/stores/auth';
 import type { FileItem } from '@osshelf/shared';
-
-// ────────────────────────────────────────────────────────────
-// Types
-// ────────────────────────────────────────────────────────────
-
-interface AgentFile {
-  id: string;
-  name: string;
-  path: string;
-  isFolder: boolean;
-  mimeType: string | null;
-  size: number;
-  createdAt: string;
-}
-
-interface ToolCallEvent {
-  id: string;
-  toolName: string;
-  args: Record<string, unknown>;
-  result?: unknown;
-  status: 'running' | 'done' | 'error';
-}
-
-interface Message {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  reasoning?: string;
-  sources?: Array<{ id: string; name: string; mimeType: string | null; score: number }>;
-  toolCalls?: ToolCallEvent[];
-  timestamp: Date;
-  isLoading?: boolean;
-}
+import {
+  ToolCallCard,
+  FileChip,
+  ReasoningSection,
+  AssistantContent,
+  ToolInfoModal,
+  ChatSidebar,
+  ChatHeader,
+  WelcomeScreen,
+} from '@/components/ai/chat';
+import type { Message, ToolCallEvent, SseChunk, PendingConfirm } from '@/components/ai/types';
 
 // ────────────────────────────────────────────────────────────
 // Tool name → label + icon
 // ────────────────────────────────────────────────────────────
 
-const TOOL_META: Record<string, { label: string; icon: React.ReactNode }> = {
-  search_files: { label: '搜索文件', icon: <Search className="h-3 w-3" /> },
-  filter_files: { label: '筛选文件', icon: <Filter className="h-3 w-3" /> },
-  search_by_tag: { label: '标签搜索', icon: <Tag className="h-3 w-3" /> },
-  search_duplicates: { label: '查找重复文件', icon: <Copy className="h-3 w-3" /> },
-  read_file_text: { label: '读取文件内容', icon: <FileText className="h-3 w-3" /> },
-  analyze_image: { label: '分析图片', icon: <Image className="h-3 w-3" /> },
-  get_file_detail: { label: '获取文件详情', icon: <FileText className="h-3 w-3" /> },
-  get_file_versions: { label: '查看版本历史', icon: <Clock className="h-3 w-3" /> },
-  get_file_notes: { label: '查看备注', icon: <FileText className="h-3 w-3" /> },
-  list_folder: { label: '浏览文件夹', icon: <FolderOpen className="h-3 w-3" /> },
-  get_folder_tree: { label: '查看目录树', icon: <FolderOpen className="h-3 w-3" /> },
-  list_recent: { label: '最近文件', icon: <Clock className="h-3 w-3" /> },
-  list_starred: { label: '查看收藏', icon: <Star className="h-3 w-3" /> },
-  list_shares: { label: '查看共享', icon: <Share2 className="h-3 w-3" /> },
-  get_storage_stats: { label: '查询存储统计', icon: <BarChart3 className="h-3 w-3" /> },
-  get_activity_stats: { label: '查看活动统计', icon: <BarChart3 className="h-3 w-3" /> },
-  compare_files: { label: '对比文件', icon: <FileText className="h-3 w-3" /> },
+const TOOL_META: Record<string, { label: string; icon: React.ReactNode; category: string }> = {
+  // 搜索发现
+  search_files: { label: '搜索文件', icon: <Search className="h-3 w-3" />, category: '搜索发现' },
+  filter_files: { label: '筛选文件', icon: <Filter className="h-3 w-3" />, category: '搜索发现' },
+  search_by_tag: { label: '标签搜索', icon: <Tag className="h-3 w-3" />, category: '搜索发现' },
+  search_duplicates: { label: '查找重复文件', icon: <Copy className="h-3 w-3" />, category: '搜索发现' },
+  smart_search: { label: '智能搜索', icon: <Sparkles className="h-3 w-3" />, category: '搜索发现' },
+  get_similar_files: { label: '相似文件', icon: <Copy className="h-3 w-3" />, category: '搜索发现' },
+  get_file_details: { label: '文件详情', icon: <FileText className="h-3 w-3" />, category: '搜索发现' },
+  get_recent_files: { label: '最近文件', icon: <RefreshCw className="h-3 w-3" />, category: '搜索发现' },
+  get_starred_files: { label: '收藏文件', icon: <Sparkles className="h-3 w-3" />, category: '搜索发现' },
+
+  // 内容理解
+  read_file_text: { label: '读取文件内容', icon: <FileText className="h-3 w-3" />, category: '内容理解' },
+  analyze_image: { label: '分析图片', icon: <Zap className="h-3 w-3" />, category: '内容理解' },
+  compare_files: { label: '对比文件', icon: <FileText className="h-3 w-3" />, category: '内容理解' },
+  extract_metadata: { label: '提取元数据', icon: <Download className="h-3 w-3" />, category: '内容理解' },
+  generate_summary: { label: '生成摘要', icon: <Sparkles className="h-3 w-3" />, category: '内容理解' },
+  generate_tags: { label: '生成标签', icon: <Tag className="h-3 w-3" />, category: '内容理解' },
+  content_preview: { label: '内容预览', icon: <Code className="h-3 w-3" />, category: '内容理解' },
+
+  // 目录导航
+  list_folder: { label: '浏览文件夹', icon: <FileText className="h-3 w-3" />, category: '目录导航' },
+  get_folder_tree: { label: '查看目录树', icon: <FileText className="h-3 w-3" />, category: '目录导航' },
+  navigate_path: { label: '路径导航', icon: <Tag className="h-3 w-3" />, category: '目录导航' },
+  get_storage_overview: { label: '存储概览', icon: <Download className="h-3 w-3" />, category: '目录导航' },
+  get_parent_chain: { label: '父级链路', icon: <FileText className="h-3 w-3" />, category: '目录导航' },
+
+  // 统计分析
+  get_storage_stats: { label: '存储统计', icon: <Search className="h-3 w-3" />, category: '统计分析' },
+  get_activity_stats: { label: '活动趋势', icon: <Search className="h-3 w-3" />, category: '统计分析' },
+  get_user_quota_info: { label: '配额信息', icon: <Search className="h-3 w-3" />, category: '统计分析' },
+  get_file_type_distribution: { label: '文件类型分布', icon: <Search className="h-3 w-3" />, category: '统计分析' },
+  get_sharing_stats: { label: '分享统计', icon: <Copy className="h-3 w-3" />, category: '统计分析' },
+
+  // 文件操作
+  create_text_file: { label: '创建文本文件', icon: <FileText className="h-3 w-3" />, category: '文件操作' },
+  create_code_file: { label: '创建代码文件', icon: <Code className="h-3 w-3" />, category: '文件操作' },
+  create_file_from_template: { label: '从模板创建', icon: <FileText className="h-3 w-3" />, category: '文件操作' },
+  edit_file_content: { label: '编辑文件', icon: <Code className="h-3 w-3" />, category: '文件操作' },
+  append_to_file: { label: '追加内容', icon: <FileText className="h-3 w-3" />, category: '文件操作' },
+  find_and_replace: { label: '查找替换', icon: <Code className="h-3 w-3" />, category: '文件操作' },
+  rename_file: { label: '重命名', icon: <Code className="h-3 w-3" />, category: '文件操作' },
+  move_file: { label: '移动文件', icon: <FileText className="h-3 w-3" />, category: '文件操作' },
+  copy_file: { label: '复制文件', icon: <Copy className="h-3 w-3" />, category: '文件操作' },
+  delete_file: { label: '删除文件', icon: <FileText className="h-3 w-3" />, category: '文件操作' },
+  restore_file: { label: '恢复文件', icon: <RefreshCw className="h-3 w-3" />, category: '文件操作' },
+  create_folder: { label: '创建文件夹', icon: <FileText className="h-3 w-3" />, category: '文件操作' },
+  batch_rename: { label: '批量重命名', icon: <Code className="h-3 w-3" />, category: '文件操作' },
+  star_file: { label: '收藏文件', icon: <Sparkles className="h-3 w-3" />, category: '文件操作' },
+  unstar_file: { label: '取消收藏', icon: <Sparkles className="h-3 w-3" />, category: '文件操作' },
+
+  // 标签管理
+  add_tag: { label: '添加标签', icon: <Tag className="h-3 w-3" />, category: '标签管理' },
+  remove_tag: { label: '移除标签', icon: <Tag className="h-3 w-3" />, category: '标签管理' },
+  get_file_tags: { label: '文件标签', icon: <Tag className="h-3 w-3" />, category: '标签管理' },
+  list_all_tags_for_management: { label: '标签管理列表', icon: <Tag className="h-3 w-3" />, category: '标签管理' },
+  merge_tags: { label: '合并标签', icon: <Code className="h-3 w-3" />, category: '标签管理' },
+  auto_tag_files: { label: '自动打标签', icon: <Zap className="h-3 w-3" />, category: '标签管理' },
+  tag_folder: { label: '文件夹打标', icon: <Tag className="h-3 w-3" />, category: '标签管理' },
+
+  // 分享链接
+  create_share_link: { label: '创建分享链接', icon: <Copy className="h-3 w-3" />, category: '分享链接' },
+  list_shares: { label: '列出分享', icon: <Copy className="h-3 w-3" />, category: '分享链接' },
+  update_share_settings: { label: '更新分享设置', icon: <Code className="h-3 w-3" />, category: '分享链接' },
+  revoke_share: { label: '撤销分享', icon: <Copy className="h-3 w-3" />, category: '分享链接' },
+  get_share_stats: { label: '分享统计', icon: <Copy className="h-3 w-3" />, category: '分享链接' },
+  create_direct_link: { label: '创建直链', icon: <Code className="h-3 w-3" />, category: '分享链接' },
+  revoke_direct_link: { label: '撤销直链', icon: <Code className="h-3 w-3" />, category: '分享链接' },
+  create_upload_link_for_folder: { label: '创建上传链接', icon: <Download className="h-3 w-3" />, category: '分享链接' },
+
+  // 版本管理
+  get_file_versions: { label: '版本历史', icon: <RefreshCw className="h-3 w-3" />, category: '版本管理' },
+  restore_version: { label: '恢复版本', icon: <RefreshCw className="h-3 w-3" />, category: '版本管理' },
+  compare_versions: { label: '对比版本', icon: <Code className="h-3 w-3" />, category: '版本管理' },
+  set_version_retention: { label: '版本保留策略', icon: <Code className="h-3 w-3" />, category: '版本管理' },
+
+  // 笔记备注
+  add_note: { label: '添加备注', icon: <FileText className="h-3 w-3" />, category: '笔记备注' },
+  get_notes: { label: '获取备注列表', icon: <FileText className="h-3 w-3" />, category: '笔记备注' },
+  update_note: { label: '更新备注', icon: <Code className="h-3 w-3" />, category: '笔记备注' },
+  delete_note: { label: '删除备注', icon: <FileText className="h-3 w-3" />, category: '笔记备注' },
+  search_notes: { label: '搜索备注', icon: <Search className="h-3 w-3" />, category: '笔记备注' },
+
+  // 权限管理
+  get_file_permissions: { label: '查看权限', icon: <Code className="h-3 w-3" />, category: '权限管理' },
+  grant_permission: { label: '授权访问', icon: <Code className="h-3 w-3" />, category: '权限管理' },
+  revoke_permission: { label: '撤销权限', icon: <Code className="h-3 w-3" />, category: '权限管理' },
+  set_folder_access_level: { label: '设置访问级别', icon: <Code className="h-3 w-3" />, category: '权限管理' },
+  list_user_groups: { label: '用户组列表', icon: <Code className="h-3 w-3" />, category: '权限管理' },
+  manage_group_members: { label: '管理组成员', icon: <Code className="h-3 w-3" />, category: '权限管理' },
+
+  // 存储管理
+  list_buckets: { label: '列出存储桶', icon: <Download className="h-3 w-3" />, category: '存储管理' },
+  get_bucket_info: { label: '存储桶详情', icon: <Download className="h-3 w-3" />, category: '存储管理' },
+  set_default_bucket: { label: '设默认桶', icon: <Download className="h-3 w-3" />, category: '存储管理' },
+  migrate_file_to_bucket: { label: '迁移文件', icon: <Download className="h-3 w-3" />, category: '存储管理' },
+  get_storage_usage: { label: '存储使用量', icon: <Download className="h-3 w-3" />, category: '存储管理' },
+  get_large_files: { label: '大文件列表', icon: <FileText className="h-3 w-3" />, category: '存储管理' },
+  get_folder_sizes: { label: '文件夹大小', icon: <FileText className="h-3 w-3" />, category: '存储管理' },
+  get_cleanup_suggestions: { label: '清理建议', icon: <RefreshCw className="h-3 w-3" />, category: '存储管理' },
+
+  // 系统管理
+  get_system_status: { label: '系统状态', icon: <Zap className="h-3 w-3" />, category: '系统管理' },
+  get_help: { label: '帮助信息', icon: <FileText className="h-3 w-3" />, category: '系统管理' },
+  get_version_info: { label: '版本信息', icon: <RefreshCw className="h-3 w-3" />, category: '系统管理' },
+  get_faq: { label: '常见问题', icon: <FileText className="h-3 w-3" />, category: '系统管理' },
+  get_user_profile: { label: '用户画像', icon: <Code className="h-3 w-3" />, category: '系统管理' },
+  list_api_keys: { label: 'API密钥列表', icon: <Code className="h-3 w-3" />, category: '系统管理' },
+  create_api_key: { label: '创建API密钥', icon: <Code className="h-3 w-3" />, category: '系统管理' },
+  revoke_api_key: { label: '撤销API密钥', icon: <Code className="h-3 w-3" />, category: '系统管理' },
+  list_webhooks: { label: 'Webhook列表', icon: <Code className="h-3 w-3" />, category: '系统管理' },
+  create_webhook: { label: '创建Webhook', icon: <Code className="h-3 w-3" />, category: '系统管理' },
+  get_audit_logs: { label: '审计日志', icon: <FileText className="h-3 w-3" />, category: '系统管理' },
+
+  // AI增强
+  trigger_ai_summary: { label: 'AI摘要', icon: <Sparkles className="h-3 w-3" />, category: 'AI增强' },
+  trigger_ai_tags: { label: 'AI标签', icon: <Zap className="h-3 w-3" />, category: 'AI增强' },
+  rebuild_vector_index: { label: '重建向量索引', icon: <RefreshCw className="h-3 w-3" />, category: 'AI增强' },
+  ask_rag_question: { label: 'RAG问答', icon: <FileText className="h-3 w-3" />, category: 'AI增强' },
+  smart_rename_suggest: { label: '智能重命名', icon: <Sparkles className="h-3 w-3" />, category: 'AI增强' },
 };
-
-// ────────────────────────────────────────────────────────────
-// SSE Chunk type (mirrors backend AgentChunk)
-// ────────────────────────────────────────────────────────────
-
-interface SseChunk {
-  content?: string;
-  done?: boolean;
-  sessionId?: string;
-  sources?: Array<{ id: string; name: string; mimeType: string | null; score: number }>;
-  error?: string;
-  usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
-  reasoning?: boolean;
-  // Tool events
-  toolStart?: boolean;
-  toolResult?: boolean;
-  toolName?: string;
-  toolCallId?: string;
-  args?: Record<string, unknown>;
-  result?: unknown;
-}
 
 const SUGGESTED = [
   '帮我找最近上传的文件',
@@ -136,335 +178,10 @@ const SUGGESTED = [
   '有哪些带有"项目"标签的文件？',
   '列出根目录的内容',
   '我收藏了哪些文件？',
+  '帮我创建一个备忘录文件，内容是明天要去开会',
+  '帮我把这段代码保存到代码文件夹',
   '查看我分享了哪些文件',
 ];
-
-// ────────────────────────────────────────────────────────────
-// File ref parser: [FILE:id:name] → clickable element
-// ────────────────────────────────────────────────────────────
-
-function parseFileRefs(text: string, onFileClick: (id: string, isFolder: boolean) => void): React.ReactNode[] {
-  const parts: React.ReactNode[] = [];
-  const regex = /\[(FILE|FOLDER):([^:]+):([^\]]+)\]/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = regex.exec(text))) {
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-    const isFolder = match[1] === 'FOLDER';
-    const id = match[2];
-    const name = match[3];
-    parts.push(
-      <button
-        key={`${id}-${match.index}`}
-        onClick={() => onFileClick(id!, isFolder)}
-        className="inline-flex items-center gap-1.5 px-2 py-0.5 mx-0.5 rounded-lg bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-700 hover:bg-violet-100 dark:hover:bg-violet-900/40 text-violet-700 dark:text-violet-300 text-xs font-medium transition-all group"
-      >
-        {isFolder ? (
-          <FolderOpen className="h-3 w-3 text-amber-500" />
-        ) : (
-          <FileText className="h-3 w-3 text-violet-500" />
-        )}
-        <span>{name}</span>
-        <ExternalLink className="h-2.5 w-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
-      </button>
-    );
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
-  }
-
-  return parts;
-}
-
-// ────────────────────────────────────────────────────────────
-// Sub-components
-// ────────────────────────────────────────────────────────────
-
-function ToolCallCard({ tc, onFileClick }: { tc: ToolCallEvent; onFileClick: (id: string) => void }) {
-  const meta = TOOL_META[tc.toolName] || {
-    label: tc.toolName.replace(/_/g, ' '),
-    icon: <Sparkles className="h-3 w-3" />,
-  };
-  const [expanded, setExpanded] = useState(false);
-
-  const resultFiles: AgentFile[] = (() => {
-    if (!tc.result || typeof tc.result !== 'object') return [];
-    const r = tc.result as Record<string, unknown>;
-
-    // 处理 files 数组格式（搜索类工具）
-    const filesArray = r.files as Array<{ id: string; name: string; mimeType?: string | null }> | undefined;
-    if (filesArray?.length) {
-      return filesArray.slice(0, 6).map((f) => ({
-        id: f.id,
-        name: f.name,
-        path: '',
-        isFolder: false,
-        size: 0,
-        createdAt: '',
-        mimeType: f.mimeType ?? null,
-        parentId: null,
-        aiSummary: null,
-        aiTags: null,
-        isStarred: false,
-        description: null,
-      }));
-    }
-
-    // 处理单文件对象格式（get_file_detail 等）
-    if (r.id && r.name && typeof r.id === 'string' && typeof r.name === 'string') {
-      return [{
-        id: r.id as string,
-        name: r.name as string,
-        path: (r.path as string) || '',
-        isFolder: (r.isFolder as boolean) || false,
-        size: (r.size as number) || 0,
-        createdAt: (r.createdAt as string) || '',
-        mimeType: (r.mimeType as string | null) ?? null,
-        parentId: null,
-        aiSummary: null,
-        aiTags: null,
-        isStarred: false,
-        description: null,
-      }];
-    }
-
-    // 处理 compare_files 的 fileA/fileB
-    const fileA = r.fileA as { id: string; name: string; mimeType?: string | null } | undefined;
-    const fileB = r.fileB as { id: string; name: string; mimeType?: string | null } | undefined;
-    if (fileA?.id && fileB?.id) {
-      return [fileA, fileB].map((f) => ({
-        id: f.id,
-        name: f.name,
-        path: '',
-        isFolder: false,
-        size: 0,
-        createdAt: '',
-        mimeType: f.mimeType ?? null,
-        parentId: null,
-        aiSummary: null,
-        aiTags: null,
-        isStarred: false,
-        description: null,
-      }));
-    }
-
-    return [];
-  })();
-
-  const argsSummary = tc.args
-    ? Object.entries(tc.args)
-        .map(([k, v]) => `${k}: ${typeof v === 'string' ? v.slice(0, 30) : JSON.stringify(v).slice(0, 30)}`)
-        .join(' | ')
-    : '';
-
-  const isRunning = tc.status === 'running';
-  const isDone = tc.status === 'done';
-  const hasArgs = Boolean(tc.args && Object.keys(tc.args).length > 0);
-  const showResult = isDone && Boolean(tc.result);
-
-  return (
-    <div
-      className={`my-1.5 rounded-xl overflow-hidden border ${
-        isRunning
-          ? 'border-amber-200 dark:border-amber-800 bg-gradient-to-r from-amber-50/50 to-transparent dark:from-amber-900/10'
-          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80'
-      }`}
-    >
-      {/* Header bar — always visible */}
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-2 w-full px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors text-left"
-      >
-        {/* Status icon */}
-        <span
-          className={`flex items-center justify-center h-5 w-5 rounded-full flex-shrink-0 ${
-            isRunning
-              ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-600 animate-pulse'
-              : 'bg-violet-100 dark:bg-violet-900/40 text-violet-600'
-          }`}
-        >
-          {isRunning ? <Loader2 className="h-3 w-3 animate-spin" /> : meta.icon}
-        </span>
-
-        {/* Tool name + status */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{meta.label}</span>
-            {isRunning && <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">正在执行…</span>}
-            {isDone && <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">已完成</span>}
-          </div>
-          {/* Args preview when not expanded */}
-          {!expanded && argsSummary && <p className="text-[10px] text-slate-400 mt-0.5 truncate">{argsSummary}</p>}
-        </div>
-
-        {/* Expand toggle */}
-        <ChevronDown
-          className={`h-3.5 w-3.5 text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''} flex-shrink-0`}
-        />
-      </button>
-
-      {/* Expanded content */}
-      {expanded && (
-        <div className="px-3 pb-2.5 pt-0 border-t border-slate-100 dark:border-slate-700/50 space-y-2">
-          {/* Args detail */}
-          {hasArgs && (
-            <div className="pt-2">
-              <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1">参数</p>
-              <pre className="text-[11px] text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-950 rounded-md p-2 overflow-auto font-mono max-h-24">
-                {JSON.stringify(tc.args, null, 2)}
-              </pre>
-            </div>
-          )}
-
-          {/* Result */}
-          {showResult && (
-            <div>
-              <p className="text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1">结果</p>
-              {resultFiles.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                  {resultFiles.map((f) => (
-                    <button
-                      key={f.id}
-                      onClick={() => onFileClick(f.id)}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 hover:border-violet-300 dark:hover:border-violet-600 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all text-left"
-                    >
-                      <File className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                      <span className="text-xs text-slate-700 dark:text-slate-300 truncate">{f.name}</span>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <pre
-                  className={`text-[11px] text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-950 rounded-md p-2 overflow-auto font-mono max-h-32`}
-                >
-                  {(() => {
-                    const resultStr = JSON.stringify(tc.result, null, 2);
-                    return resultStr.length > 500 ? resultStr.slice(0, 500) + '\n... (已截断)' : resultStr;
-                  })()}
-                </pre>
-              )}
-            </div>
-          )}
-
-          {/* Running state placeholder */}
-          {isRunning && !tc.result && (
-            <div className="pt-1 flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
-              <div className="flex gap-0.5">
-                {[0, 100, 200].map((d) => (
-                  <span
-                    key={d}
-                    className="h-1 w-1 rounded-full bg-amber-400 animate-bounce"
-                    style={{ animationDelay: `${d}ms` }}
-                  />
-                ))}
-              </div>
-              等待工具返回结果…
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function FileChip({ file, onClick }: { file: AgentFile; onClick: () => void }) {
-  const getIcon = (mime: string | null) => {
-    if (file.isFolder) return <FolderOpen className="h-3.5 w-3.5 text-amber-500" />;
-    if (!mime) return <File className="h-3.5 w-3.5" />;
-    if (mime.startsWith('image/')) return <Image className="h-3.5 w-3.5 text-blue-500" />;
-    if (mime.includes('pdf')) return <FileText className="h-3.5 w-3.5 text-red-500" />;
-    if (mime.startsWith('text/') || mime.includes('document'))
-      return <FileText className="h-3.5 w-3.5 text-slate-500" />;
-    return <File className="h-3.5 w-3.5 text-slate-400" />;
-  };
-
-  const formatSize = (bytes: number) => {
-    if (!bytes) return '';
-    if (bytes < 1024) return `${bytes}B`;
-    if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(0)}KB`;
-    return `${(bytes / 1024 ** 2).toFixed(1)}MB`;
-  };
-
-  return (
-    <button
-      onClick={onClick}
-      className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-violet-300 dark:hover:border-violet-600 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all text-left group w-full sm:w-auto min-w-0"
-    >
-      {getIcon(file.mimeType)}
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium text-slate-700 dark:text-slate-300 truncate max-w-[160px]">{file.name}</p>
-        {file.size > 0 && <p className="text-[10px] text-slate-400">{formatSize(file.size)}</p>}
-      </div>
-      <ExternalLink className="h-3 w-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-    </button>
-  );
-}
-
-function ReasoningSection({ content }: { content: string }) {
-  const [expanded, setExpanded] = useState(false);
-
-  if (!content.trim()) return null;
-
-  return (
-    <div className="mb-2 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-2 w-full px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-700/30 transition-colors text-left"
-      >
-        <span className="flex items-center justify-center h-5 w-5 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-600 flex-shrink-0">
-          <Sparkles className="h-3 w-3" />
-        </span>
-        <span className="text-xs font-medium text-slate-600 dark:text-slate-400">思考过程</span>
-        <ChevronDown
-          className={`h-3.5 w-3.5 text-slate-400 transition-transform ml-auto ${expanded ? 'rotate-180' : ''}`}
-        />
-      </button>
-      {expanded && (
-        <div className="px-3 pb-2.5 pt-0 border-t border-slate-100 dark:border-slate-700/50">
-          <div className="text-xs text-slate-500 dark:text-slate-400 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto">
-            {content}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Renders assistant message content with [FILE:...] refs converted to buttons
-function AssistantContent({
-  content,
-  onFileClick,
-}: {
-  content: string;
-  onFileClick: (id: string, isFolder: boolean) => void;
-}) {
-  const cleanedContent = content.replace(/```tool_call\s*[\s\S]*?```/g, '').trim();
-  const hasRefs = /\[(FILE|FOLDER):[^\]]+\]/.test(cleanedContent);
-
-  if (!hasRefs) {
-    return (
-      <div className="prose prose-sm max-w-none dark:prose-invert prose-p:my-1 prose-headings:mt-3 prose-pre:bg-slate-950 prose-code:text-violet-600 dark:prose-code:text-violet-400">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-          {cleanedContent}
-        </ReactMarkdown>
-      </div>
-    );
-  }
-
-  // Has refs — render inline
-  return (
-    <div className="text-sm leading-relaxed whitespace-pre-wrap">{parseFileRefs(cleanedContent, onFileClick)}</div>
-  );
-}
-
-// ────────────────────────────────────────────────────────────
-// Main component
-// ────────────────────────────────────────────────────────────
 
 export function AIChat() {
   const navigate = useNavigate();
@@ -481,12 +198,12 @@ export function AIChat() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
+  const [showToolInfo, setShowToolInfo] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const renameRef = useRef<HTMLInputElement>(null);
   const scrollPositionsRef = useRef<Map<string, number>>(new Map());
   const prevSessionIdRef = useRef<string | null>(null);
 
@@ -525,12 +242,6 @@ export function AIChat() {
   useEffect(() => {
     if (urlSessionId && urlSessionId !== currentSessionId) loadSession(urlSessionId);
   }, [urlSessionId]);
-  useEffect(() => {
-    if (renamingId) {
-      renameRef.current?.focus();
-      renameRef.current?.select();
-    }
-  }, [renamingId]);
 
   const autoResize = (el: HTMLTextAreaElement) => {
     el.style.height = 'auto';
@@ -633,7 +344,6 @@ export function AIChat() {
           maxFiles: 8,
           includeFileContent: false,
           onChunk: (raw: SseChunk) => {
-            // Tool start event
             if (raw.toolStart && raw.toolCallId && raw.toolName) {
               const tc: ToolCallEvent = {
                 id: raw.toolCallId,
@@ -648,7 +358,6 @@ export function AIChat() {
               return;
             }
 
-            // Tool result event
             if (raw.toolResult && raw.toolCallId) {
               const existing = toolCallsMap.get(raw.toolCallId);
               if (existing) {
@@ -670,7 +379,6 @@ export function AIChat() {
               return;
             }
 
-            // Reasoning content (思考过程)
             if (raw.reasoning && raw.content) {
               setMessages((prev) =>
                 prev.map((m) => (m.id === assistantId ? { ...m, reasoning: (m.reasoning || '') + raw.content! } : m))
@@ -678,26 +386,41 @@ export function AIChat() {
               return;
             }
 
-            // Text content
             if (raw.content) {
               setMessages((prev) =>
                 prev.map((m) => (m.id === assistantId ? { ...m, content: (m.content || '') + raw.content! } : m))
               );
             }
 
-            // Error from SSE stream
             if (raw.error && !raw.done) {
               setMessages((prev) =>
-                prev.map((m) => (m.id === assistantId ? { ...m, content: (m.content || '') + `\n\n❌ 错误: ${raw.error}`, isLoading: false } : m))
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, content: (m.content || '') + `\n\n❌ 错误: ${raw.error}`, isLoading: false }
+                    : m
+                )
               );
               return;
             }
 
-            // Done
             if (raw.done) {
-              setMessages((prev) =>
-                prev.map((m) => (m.id === assistantId ? { ...m, isLoading: false, sources: raw.sources || [] } : m))
-              );
+              if (raw.confirmRequest && raw.confirmId && raw.summary) {
+                const pendingConfirm: PendingConfirm = {
+                  confirmId: raw.confirmId,
+                  toolName: raw.toolName || '',
+                  summary: raw.summary,
+                  args: raw.args || {},
+                };
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId ? { ...m, isLoading: false, pendingConfirm } : m
+                  )
+                );
+              } else {
+                setMessages((prev) =>
+                  prev.map((m) => (m.id === assistantId ? { ...m, isLoading: false, sources: raw.sources || [] } : m))
+                );
+              }
               if (raw.sessionId) {
                 setCurrentSessionId(raw.sessionId);
                 if (!urlSessionId) navigate(`/ai-chat/${raw.sessionId}`, { replace: true });
@@ -725,6 +448,66 @@ export function AIChat() {
     },
     [isLoading, currentSessionId, urlSessionId, navigate, queryClient]
   );
+
+  const handleToolConfirm = useCallback(
+    (toolName: string, args: Record<string, unknown>) => {
+      const confirmMessage = `确认执行 ${TOOL_META[toolName]?.label || toolName}`;
+      sendMessage(confirmMessage);
+    },
+    [sendMessage]
+  );
+
+  const handleConfirm = useCallback(
+    async (msgId: string, confirmId: string) => {
+      setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, isLoading: true } : m)));
+      try {
+        const res = await aiApi.chatSession.confirmAction(confirmId);
+        if (res.data.success && res.data.data) {
+          const resultData = res.data.data;
+          const resultStr =
+            typeof resultData.result === 'object'
+              ? JSON.stringify(resultData.result, null, 2)
+              : String(resultData.result ?? '操作已完成');
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === msgId
+                ? {
+                    ...m,
+                    isLoading: false,
+                    pendingConfirm: undefined,
+                    content: (m.content || '') + `\n\n✅ 操作执行成功:\n${resultStr}`,
+                    toolCalls: (m.toolCalls || []).map((tc) =>
+                      tc.result && typeof tc.result === 'object' && (tc.result as Record<string, unknown>).status === 'pending_confirm'
+                        ? { ...tc, result: resultData.result }
+                        : tc
+                    ),
+                  }
+                : m
+            )
+          );
+        }
+      } catch (e) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === msgId
+              ? { ...m, isLoading: false, content: (m.content || '') + '\n\n❌ 操作执行失败' }
+              : m
+          )
+        );
+      }
+    },
+    []
+  );
+
+  const handleCancelConfirm = useCallback((msgId: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === msgId
+          ? { ...m, pendingConfirm: undefined, content: (m.content || '') + '\n\n⛔ 用户已取消操作' }
+          : m
+      )
+    );
+  }, []);
 
   const handleRegenerate = (msgId: string) => {
     const idx = messages.findIndex((m) => m.id === msgId);
@@ -772,172 +555,32 @@ export function AIChat() {
 
   return (
     <div className="flex bg-slate-50 dark:bg-slate-950 overflow-hidden h-screen">
-      {/* Mobile overlay */}
-      {showSidebar && (
-        <div
-          className="lg:hidden fixed inset-0 z-20 bg-black/40 backdrop-blur-sm"
-          onClick={() => setShowSidebar(false)}
-        />
-      )}
+      <ChatSidebar
+        showSidebar={showSidebar}
+        sessions={sessions}
+        currentSessionId={currentSessionId}
+        renamingId={renamingId}
+        renameValue={renameValue}
+        onNewChat={handleNewChat}
+        onSelectSession={handleSelectSession}
+        onDeleteSession={handleDeleteSession}
+        onStartRename={(session) => {
+          setRenamingId(session.id);
+          setRenameValue(session.title);
+        }}
+        onConfirmRename={handleConfirmRename}
+        onCancelRename={() => setRenamingId(null)}
+        onRenameValueChange={setRenameValue}
+        onCloseMobile={() => setShowSidebar(false)}
+      />
 
-      {/* Sidebar */}
-      <aside
-        className={`flex flex-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 transition-all duration-300 flex-shrink-0 ${showSidebar ? 'w-64' : 'w-0'} fixed inset-y-0 left-0 z-30 lg:relative lg:z-auto overflow-hidden`}
-      >
-        <div className="flex items-center justify-between px-3 py-3 border-b border-slate-200 dark:border-slate-800 flex-shrink-0">
-          <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-            对话历史
-          </span>
-          <button
-            onClick={handleNewChat}
-            className="h-7 w-7 rounded-lg flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-violet-600 transition-colors"
-            title="新建对话"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto min-h-0 p-1.5 space-y-0.5">
-          {sessions.length === 0 ? (
-            <p className="text-xs text-slate-400 text-center py-10">暂无对话记录</p>
-          ) : (
-            sessions.map((session: any) => (
-              <div
-                key={session.id}
-                onClick={() => handleSelectSession(session.id)}
-                className={`relative group rounded-lg px-3 py-2 cursor-pointer transition-colors ${session.id === currentSessionId ? 'bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
-              >
-                {renamingId === session.id ? (
-                  <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      ref={renameRef}
-                      value={renameValue}
-                      onChange={(e) => setRenameValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleConfirmRename(session.id);
-                        if (e.key === 'Escape') setRenamingId(null);
-                      }}
-                      className="flex-1 text-xs bg-white dark:bg-slate-700 border border-violet-300 dark:border-violet-600 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-violet-500"
-                    />
-                    <button
-                      onClick={() => handleConfirmRename(session.id)}
-                      className="p-1 rounded text-green-600 hover:bg-green-100"
-                    >
-                      <Check className="h-3 w-3" />
-                    </button>
-                    <button
-                      onClick={() => setRenamingId(null)}
-                      className="p-1 rounded text-slate-400 hover:bg-slate-100"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-start gap-1">
-                      <span
-                        className={`text-xs font-medium truncate flex-1 leading-snug ${session.id === currentSessionId ? 'text-violet-700 dark:text-violet-300' : 'text-slate-700 dark:text-slate-300'}`}
-                      >
-                        {session.title}
-                      </span>
-                      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setRenamingId(session.id);
-                            setRenameValue(session.title);
-                          }}
-                          className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400"
-                          title="重命名"
-                        >
-                          <Pencil className="h-2.5 w-2.5" />
-                        </button>
-                        <button
-                          onClick={(e) => handleDeleteSession(e, session.id)}
-                          className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500"
-                          title="删除"
-                        >
-                          <Trash2 className="h-2.5 w-2.5" />
-                        </button>
-                      </div>
-                    </div>
-                    <p className="text-[10px] text-slate-400 mt-0.5">{formatDate(session.updatedAt)}</p>
-                  </>
-                )}
-              </div>
-            ))
-          )}
-        </div>
-      </aside>
-
-      {/* Main */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
-        {/* Header */}
-        <header className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex-shrink-0">
-          <div className="flex items-center gap-2.5">
-            <button
-              onClick={() => navigate('/files')}
-              className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              title="返回文件管理"
-            >
-              <PanelLeftClose className="h-4 w-4" />
-            </button>
-            <div className="flex items-center gap-2">
-              <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-sm">
-                <Sparkles className="h-3.5 w-3.5 text-white" />
-              </div>
-              <div>
-                <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">文件管理助手</span>
-                <span className="hidden md:inline text-xs text-slate-400 ml-2">· 可直接查询您的文件</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => navigate('/ai-settings')}
-              className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              title="AI 设置"
-            >
-              <Settings className="h-4 w-4" />
-            </button>
-          </div>
-        </header>
+        <ChatHeader toolCount={Object.keys(TOOL_META).length} onShowToolInfo={() => setShowToolInfo(true)} />
 
-        {/* Messages */}
         <div ref={messagesContainerRef} className="flex-1 overflow-y-auto min-h-0">
           <div className="max-w-3xl mx-auto px-4 py-6 space-y-5">
             {messages.length === 0 && !isLoading && (
-              <div className="flex flex-col items-center justify-center min-h-[50vh] text-center">
-                <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center mb-4 shadow-lg shadow-violet-500/20">
-                  <MessageSquare className="h-7 w-7 text-white" />
-                </div>
-                <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100 mb-1.5">文件管理智能助手</h2>
-                <p className="text-sm text-slate-400 mb-2 max-w-sm">
-                  可以搜索文件、查看统计、浏览文件夹，结果可直接点击跳转
-                </p>
-                <div className="flex flex-wrap gap-1.5 justify-center mb-6 max-w-sm">
-                  {['搜索', '统计', '浏览', '收藏', '共享', '标签'].map((t) => (
-                    <span
-                      key={t}
-                      className="px-2 py-0.5 rounded-full bg-violet-50 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400 text-xs border border-violet-200 dark:border-violet-700"
-                    >
-                      {t}
-                    </span>
-                  ))}
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-lg">
-                  {SUGGESTED.map((q, i) => (
-                    <button
-                      key={i}
-                      onClick={() => setInput(q)}
-                      className="text-left p-3 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-violet-300 dark:hover:border-violet-700 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-all text-xs text-slate-600 dark:text-slate-400 group"
-                    >
-                      <Sparkles className="h-3 w-3 text-violet-500 mb-1.5 group-hover:scale-110 transition-transform" />
-                      {q}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <WelcomeScreen suggestedQuestions={SUGGESTED} onSelectQuestion={setInput} />
             )}
 
             {messages.map((msg, index) => (
@@ -949,19 +592,54 @@ export function AIChat() {
                 )}
 
                 <div className="max-w-[85%] min-w-0">
-                  {/* Reasoning section (思考过程) */}
                   {msg.role === 'assistant' && msg.reasoning && <ReasoningSection content={msg.reasoning} />}
 
-                  {/* Tool calls (above bubble, assistant only) */}
                   {msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0 && (
                     <div className="mb-2 space-y-1">
                       {msg.toolCalls.map((tc) => (
-                        <ToolCallCard key={tc.id} tc={tc} onFileClick={handleToolFileClick} />
+                        <ToolCallCard
+                          key={tc.id}
+                          tc={tc}
+                          onFileClick={handleToolFileClick}
+                          onConfirm={handleToolConfirm}
+                          toolMeta={TOOL_META}
+                        />
                       ))}
                     </div>
                   )}
 
-                  {/* Message bubble */}
+                  {msg.role === 'assistant' && msg.pendingConfirm && (
+                    <div className="my-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-3 text-sm">
+                      <div className="flex items-start gap-2">
+                        <div className="flex items-center justify-center h-5 w-5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-600 flex-shrink-0 mt-0.5">
+                          <Sparkles className="h-3 w-3" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-amber-800 dark:text-amber-200 mb-1">待确认操作</div>
+                          <div className="text-amber-700 dark:text-amber-300 break-words">{msg.pendingConfirm.summary}</div>
+                          <div className="text-xs text-amber-500/70 mt-1 font-mono">{msg.pendingConfirm.toolName}</div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 mt-2.5 justify-end">
+                        <button
+                          onClick={() => handleCancelConfirm(msg.id)}
+                          disabled={msg.isLoading}
+                          className="px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors disabled:opacity-50"
+                        >
+                          取消
+                        </button>
+                        <button
+                          onClick={() => handleConfirm(msg.id, msg.pendingConfirm!.confirmId)}
+                          disabled={msg.isLoading}
+                          className="px-2.5 py-1 rounded-md text-xs font-medium bg-amber-500 text-white hover:bg-amber-600 transition-colors disabled:opacity-50 flex items-center gap-1"
+                        >
+                          {msg.isLoading && <Loader2 className="h-3 w-3 animate-spin" />}
+                          确认执行
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <div
                     className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                       msg.role === 'user'
@@ -993,7 +671,6 @@ export function AIChat() {
                     )}
                   </div>
 
-                  {/* Source chips */}
                   {msg.sources && msg.sources.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {msg.sources.map((src, i) => (
@@ -1005,13 +682,12 @@ export function AIChat() {
                         >
                           <FileText className="h-3 w-3 text-slate-400 group-hover:text-violet-500" />
                           <span className="max-w-[100px] truncate">{src.name}</span>
-                          <ExternalLink className="h-2.5 w-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          <Copy className="h-2.5 w-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
                         </button>
                       ))}
                     </div>
                   )}
 
-                  {/* Action row */}
                   {!msg.isLoading && (
                     <div className={`flex items-center gap-1 mt-1 ${msg.role === 'user' ? 'justify-end' : ''}`}>
                       <span className="text-[10px] text-slate-400">{formatDate(msg.timestamp.toISOString())}</span>
@@ -1052,7 +728,6 @@ export function AIChat() {
           </div>
         </div>
 
-        {/* Input */}
         <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-3">
           <div className="max-w-3xl mx-auto">
             <div className="flex items-end gap-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 focus-within:border-violet-400 dark:focus-within:border-violet-500 focus-within:ring-2 focus-within:ring-violet-400/20 transition-all px-3 py-2">
@@ -1087,7 +762,7 @@ export function AIChat() {
                   <button
                     onClick={() => sendMessage(input)}
                     disabled={!input.trim()}
-                    className="h-8 w-8 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:bg-slate-200 dark:disabled:bg-slate-700 disabled:cursor-not-allowed text-white disabled:text-slate-400 flex items-center justify-center transition-colors shadow-sm"
+                    className="h-8 w-8 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:bg-slate-200 dark:disabled:bg-slate-700 disabled:cursor-not-allowed text-white flex items-center justify-center transition-colors shadow-sm"
                   >
                     <Send className="h-3.5 w-3.5" />
                   </button>
@@ -1120,6 +795,8 @@ export function AIChat() {
           </div>
         </div>
       )}
+
+      <ToolInfoModal open={showToolInfo} onClose={() => setShowToolInfo(false)} toolMeta={TOOL_META} />
     </div>
   );
 }

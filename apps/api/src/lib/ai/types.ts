@@ -12,9 +12,22 @@ export type ModelProvider = 'workers_ai' | 'openai_compatible' | 'anthropic' | '
 
 export type ModelCapability = 'chat' | 'completion' | 'embedding' | 'vision' | 'function_calling';
 
+export type ThinkingParamFormat = 'object' | 'boolean' | 'string' | '';
+
+export interface ToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string | ChatContentPart[];
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string | ChatContentPart[] | null;
+  toolCalls?: ToolCall[];
+  toolCallId?: string;
 }
 
 export interface ChatContentPart {
@@ -26,6 +39,21 @@ export interface ChatContentPart {
   };
 }
 
+/**
+ * 模型配置接口
+ *
+ * 字段说明：
+ * - capabilities: 核心能力标识数组，用于功能路由（决定模型可用于哪些业务场景）
+ *   例如：['chat', 'vision', 'function_calling'] 表示模型可用于对话、图片理解和工具调用
+ *   注意：vision 和 function_calling 能力已包含在 capabilities 中，无需额外的 supportsVision/supportsFunctionCalling 字段
+ *
+ * - supportsThinking: 思考模式特性开关，控制是否启用深度推理参数（如 thinking.type = enabled）
+ * - supportsStreaming: 流式输出特性开关，控制是否支持流式响应
+ *
+ * 设计原则：
+ * - capabilities 描述模型"能做什么"（固有属性）
+ * - supportsXxx 描述特性"如何配置"（运行时开关）
+ */
 export interface ModelConfig {
   id: string;
   userId: string;
@@ -37,19 +65,32 @@ export interface ModelConfig {
   apiKeyDecrypted?: string;
   isActive: boolean;
   capabilities: ModelCapability[];
-  maxTokens: number;
   temperature: number;
   systemPrompt?: string;
   configJson: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+  supportsThinking?: boolean;
+  thinkingParamFormat?: ThinkingParamFormat;
+  thinkingParamName?: string;
+  thinkingEnabledValue?: string;
+  thinkingDisabledValue?: string;
+  thinkingNestedKey?: string;
+  disableThinkingForFeatures?: string;
+  isReadonly?: boolean;
 }
 
-export type AiFeatureType = 'image_caption' | 'image_tag' | 'image_analysis' | 'chat' | 'file_summary' | 'summary' | 'rename';
+export type AiFeatureType =
+  | 'image_caption'
+  | 'image_tag'
+  | 'image_analysis'
+  | 'chat'
+  | 'file_summary'
+  | 'summary'
+  | 'rename';
 
 export interface ChatCompletionRequest {
   messages: ChatMessage[];
-  maxTokens?: number;
   temperature?: number;
   stream?: boolean;
   stop?: string[];

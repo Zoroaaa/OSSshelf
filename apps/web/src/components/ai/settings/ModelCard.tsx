@@ -26,13 +26,6 @@ import {
 import { Button } from '@/components/ui/Button';
 import type { AiModel } from '@/services/api';
 
-function formatMaxTokens(tokens: number): string {
-  if (tokens >= 1000) {
-    return `${(tokens / 1000).toFixed(tokens % 1000 === 0 ? 0 : 1)}K`;
-  }
-  return String(tokens);
-}
-
 interface ModelCardProps {
   model: AiModel;
   isExpanded: boolean;
@@ -173,10 +166,6 @@ export function ModelCard({
               <div>
                 <span className="text-muted-foreground">提供商：</span>
                 <span className="font-medium">{model.provider}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground">最大 Token：</span>
-                <span className="font-medium">{formatMaxTokens(model.maxTokens)}</span>
               </div>
               <div>
                 <span className="text-muted-foreground">温度：</span>

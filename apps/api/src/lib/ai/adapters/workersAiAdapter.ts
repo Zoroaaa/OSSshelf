@@ -47,7 +47,6 @@ export class WorkersAiAdapter implements IModelAdapter {
           role: m.role,
           content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
         })),
-        max_tokens: request.maxTokens || 4096,
         temperature: request.temperature ?? 0.7,
       });
 
@@ -83,7 +82,6 @@ export class WorkersAiAdapter implements IModelAdapter {
           role: m.role,
           content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
         })),
-        max_tokens: request.maxTokens || 4096,
         temperature: request.temperature ?? 0.7,
         stream: true,
       });
@@ -171,14 +169,13 @@ export class WorkersAiAdapter implements IModelAdapter {
     return { valid: true };
   }
 
-  private getModelConfig(request: ChatCompletionRequest): { modelId: string; maxTokens: number; temperature: number } {
+  private getModelConfig(request: ChatCompletionRequest): { modelId: string; temperature: number } {
     const userModelId = this.modelConfig?.modelId;
     const effectiveModelId =
       userModelId && userModelId.startsWith('@cf/') ? userModelId : '@cf/meta/llama-3.1-8b-instruct';
 
     return {
       modelId: effectiveModelId,
-      maxTokens: request.maxTokens || this.modelConfig?.maxTokens || 4096,
       temperature: request.temperature ?? this.modelConfig?.temperature ?? 0.7,
     };
   }

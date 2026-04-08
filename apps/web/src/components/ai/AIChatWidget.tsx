@@ -53,12 +53,20 @@ interface ToolCallEvent {
   status: 'running' | 'done' | 'error';
 }
 
+interface PendingConfirm {
+  confirmId: string;
+  toolName: string;
+  summary: string;
+  args: Record<string, unknown>;
+}
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   sources?: Array<{ id: string; name: string; mimeType: string | null; score: number }>;
   toolCalls?: ToolCallEvent[];
+  pendingConfirm?: PendingConfirm;
   timestamp: Date;
   isLoading?: boolean;
 }
@@ -75,6 +83,9 @@ interface SseChunk {
   toolCallId?: string;
   args?: Record<string, unknown>;
   result?: unknown;
+  confirmRequest?: boolean;
+  confirmId?: string;
+  summary?: string;
 }
 
 const TOOL_META: Record<string, { label: string; icon: React.ReactNode }> = {
@@ -164,6 +175,50 @@ function ToolCallCard({ tc }: { tc: ToolCallEvent }) {
           </pre>
         </div>
       )}
+    </div>
+  );
+}
+
+function ConfirmCard({
+  confirm,
+  onConfirm,
+  onCancel,
+  isLoading,
+}: {
+  confirm: PendingConfirm;
+  onConfirm: () => void;
+  onCancel: () => void;
+  isLoading: boolean;
+}) {
+  return (
+    <div className="my-2 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-3 text-[11px]">
+      <div className="flex items-start gap-2">
+        <div className="flex items-center justify-center h-5 w-5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-600 flex-shrink-0 mt-0.5">
+          <Sparkles className="h-3 w-3" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-amber-800 dark:text-amber-200 mb-1">待确认操作</div>
+          <div className="text-amber-700 dark:text-amber-300 break-words">{confirm.summary}</div>
+          <div className="text-[9px] text-amber-500/70 mt-1 font-mono">{confirm.toolName}</div>
+        </div>
+      </div>
+      <div className="flex gap-2 mt-2.5 justify-end">
+        <button
+          onClick={onCancel}
+          disabled={isLoading}
+          className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors disabled:opacity-50"
+        >
+          取消
+        </button>
+        <button
+          onClick={onConfirm}
+          disabled={isLoading}
+          className="px-2.5 py-1 rounded-md text-[10px] font-medium bg-amber-500 text-white hover:bg-amber-600 transition-colors disabled:opacity-50 flex items-center gap-1"
+        >
+          {isLoading && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+          确认执行
+        </button>
+      </div>
     </div>
   );
 }
@@ -382,15 +437,33 @@ export function AIChatWidget() {
             // Error from SSE stream
             if (raw.error && !raw.done) {
               setMessages((prev) =>
-                prev.map((m) => (m.id === assistantId ? { ...m, content: (m.content || '') + `\n\n❌ 错误: ${raw.error}`, isLoading: false } : m))
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, content: (m.content || '') + `\n\n❌ 错误: ${raw.error}`, isLoading: false }
+                    : m
+                )
               );
               return;
             }
 
             if (raw.done) {
-              setMessages((prev) =>
-                prev.map((m) => (m.id === assistantId ? { ...m, isLoading: false, sources: raw.sources || [] } : m))
-              );
+              if (raw.confirmRequest && raw.confirmId && raw.summary) {
+                const pendingConfirm: PendingConfirm = {
+                  confirmId: raw.confirmId,
+                  toolName: raw.toolName || '',
+                  summary: raw.summary,
+                  args: raw.args || {},
+                };
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId ? { ...m, isLoading: false, pendingConfirm } : m
+                  )
+                );
+              } else {
+                setMessages((prev) =>
+                  prev.map((m) => (m.id === assistantId ? { ...m, isLoading: false, sources: raw.sources || [] } : m))
+                );
+              }
               if (raw.sessionId) {
                 setCurrentSessionId(raw.sessionId);
                 queryClient.invalidateQueries({ queryKey: ['ai-chat-sessions'] });
@@ -443,6 +516,55 @@ export function AIChatWidget() {
     await navigator.clipboard.writeText(content);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleConfirm = async (msgId: string, confirmId: string) => {
+    setMessages((prev) =>
+      prev.map((m) => (m.id === msgId ? { ...m, isLoading: true } : m))
+    );
+    try {
+      const res = await aiApi.chatSession.confirmAction(confirmId);
+      if (res.data.success && res.data.data) {
+        const resultStr =
+          typeof res.data.data.result === 'object'
+            ? JSON.stringify(res.data.data.result, null, 2)
+            : String(res.data.data.result ?? '操作已完成');
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === msgId
+              ? {
+                  ...m,
+                  isLoading: false,
+                  pendingConfirm: undefined,
+                  // 把所有 running 状态的工具卡片标为 done（兜底，防止服务端未发 tool_result）
+                  toolCalls: (m.toolCalls || []).map((tc) =>
+                    tc.status === 'running' ? { ...tc, status: 'done' as const } : tc
+                  ),
+                  content: (m.content || '') + `\n\n✅ 操作执行成功:\n${resultStr}`,
+                }
+              : m
+          )
+        );
+      }
+    } catch (e) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === msgId
+            ? { ...m, isLoading: false, content: (m.content || '') + '\n\n❌ 操作执行失败' }
+            : m
+        )
+      );
+    }
+  };
+
+  const handleCancelConfirm = (msgId: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === msgId
+          ? { ...m, pendingConfirm: undefined, content: (m.content || '') + '\n\n⛔ 用户已取消操作' }
+          : m
+      )
+    );
   };
 
   const lastAssistantIdx = messages.reduce((last, m, i) => (m.role === 'assistant' ? i : last), -1);
@@ -630,6 +752,15 @@ export function AIChatWidget() {
                         <ToolCallCard key={tc.id} tc={tc} />
                       ))}
                     </div>
+                  )}
+
+                  {msg.role === 'assistant' && msg.pendingConfirm && (
+                    <ConfirmCard
+                      confirm={msg.pendingConfirm!}
+                      isLoading={msg.isLoading || false}
+                      onConfirm={() => handleConfirm(msg.id, msg.pendingConfirm!.confirmId)}
+                      onCancel={() => handleCancelConfirm(msg.id)}
+                    />
                   )}
 
                   <div

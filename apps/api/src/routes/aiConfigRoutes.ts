@@ -30,17 +30,22 @@ const createModelSchema = z
     name: z.string().min(1).max(100),
     provider: z.enum(['workers_ai', 'openai_compatible']),
     modelId: z.string().min(1),
-    apiEndpoint: z.string().max(500).optional(), // 移除 .url() 验证，改为可选字符串
+    apiEndpoint: z.string().max(500).optional(),
     apiKey: z.string().min(1).optional(),
     capabilities: z.array(z.enum(['chat', 'completion', 'embedding', 'vision', 'function_calling'])).default(['chat']),
-    maxTokens: z.number().int().min(1).max(128000).default(4096),
     temperature: z.number().min(0).max(2).default(0.7),
     systemPrompt: z.string().max(2000).optional(),
     isActive: z.boolean().default(false),
+    supportsThinking: z.boolean().default(false),
+    thinkingParamFormat: z.enum(['object', 'boolean', 'string', '']).optional(),
+    thinkingParamName: z.string().max(100).optional(),
+    thinkingEnabledValue: z.string().max(100).optional(),
+    thinkingDisabledValue: z.string().max(100).optional(),
+    thinkingNestedKey: z.string().max(100).optional(),
+    disableThinkingForFeatures: z.string().max(500).optional(),
   })
   .refine(
     (data) => {
-      // 仅当 provider 为 openai_compatible 且提供了 apiEndpoint 时才验证 URL 格式
       if (data.provider === 'openai_compatible' && data.apiEndpoint) {
         try {
           new URL(data.apiEndpoint);
@@ -64,10 +69,16 @@ const updateModelSchema = z.object({
   apiEndpoint: z.string().max(500).optional(),
   apiKey: z.union([z.string().min(1), z.literal('')]).optional(),
   capabilities: z.array(z.enum(['chat', 'completion', 'embedding', 'vision', 'function_calling'])).optional(),
-  maxTokens: z.number().int().min(1).max(128000).optional(),
-  temperature: z.number().min(0).max(2).optional(),
-  systemPrompt: z.string().max(2000).optional(),
-  isActive: z.boolean().optional(),
+    temperature: z.number().min(0).max(2).optional(),
+    systemPrompt: z.string().max(2000).optional(),
+    isActive: z.boolean().optional(),
+    supportsThinking: z.boolean().optional(),
+  thinkingParamFormat: z.enum(['object', 'boolean', 'string', '']).optional(),
+  thinkingParamName: z.string().max(100).optional(),
+  thinkingEnabledValue: z.string().max(100).optional(),
+  thinkingDisabledValue: z.string().max(100).optional(),
+  thinkingNestedKey: z.string().max(100).optional(),
+    disableThinkingForFeatures: z.string().max(500).optional(),
 });
 
 app.get('/models', async (c) => {
@@ -155,10 +166,17 @@ app.post('/models', async (c) => {
       apiKeyEncrypted,
       isActive: data.isActive,
       capabilities: JSON.stringify(data.capabilities),
-      maxTokens: data.maxTokens,
       temperature: data.temperature,
       systemPrompt: data.systemPrompt || null,
       configJson: '{}',
+      supportsThinking: data.supportsThinking,
+      thinkingParamFormat: data.thinkingParamFormat || null,
+      thinkingParamName: data.thinkingParamName || null,
+      thinkingEnabledValue: data.thinkingEnabledValue || null,
+      thinkingDisabledValue: data.thinkingDisabledValue || null,
+      thinkingNestedKey: data.thinkingNestedKey || null,
+      disableThinkingForFeatures: data.disableThinkingForFeatures || null,
+      isReadonly: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -237,9 +255,15 @@ app.put('/models/:modelId', async (c) => {
     if (data.apiKey !== undefined) updateData.apiKeyEncrypted = apiKeyEncrypted;
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
     if (data.capabilities !== undefined) updateData.capabilities = JSON.stringify(data.capabilities);
-    if (data.maxTokens !== undefined) updateData.maxTokens = data.maxTokens;
     if (data.temperature !== undefined) updateData.temperature = data.temperature;
     if (data.systemPrompt !== undefined) updateData.systemPrompt = data.systemPrompt || null;
+    if (data.supportsThinking !== undefined) updateData.supportsThinking = data.supportsThinking;
+    if (data.thinkingParamFormat !== undefined) updateData.thinkingParamFormat = data.thinkingParamFormat || null;
+    if (data.thinkingParamName !== undefined) updateData.thinkingParamName = data.thinkingParamName || null;
+    if (data.thinkingEnabledValue !== undefined) updateData.thinkingEnabledValue = data.thinkingEnabledValue || null;
+    if (data.thinkingDisabledValue !== undefined) updateData.thinkingDisabledValue = data.thinkingDisabledValue || null;
+    if (data.thinkingNestedKey !== undefined) updateData.thinkingNestedKey = data.thinkingNestedKey || null;
+    if (data.disableThinkingForFeatures !== undefined) updateData.disableThinkingForFeatures = data.disableThinkingForFeatures || null;
 
     await db.update(aiModels).set(updateData).where(eq(aiModels.id, modelId));
 
@@ -428,7 +452,10 @@ const FEATURE_CAPABILITY_REQUIREMENTS: Record<string, ModelCapability[]> = {
   rename: ['chat'],
 };
 
-function validateWorkersAiModel(modelId: string, requiredCapability: ModelCapability): { valid: boolean; error?: string } {
+function validateWorkersAiModel(
+  modelId: string,
+  requiredCapability: ModelCapability
+): { valid: boolean; error?: string } {
   const workersAiModels = WorkersAiAdapter.getAvailableModels();
   const model = workersAiModels.find((m) => m.id === modelId);
   if (!model) {
@@ -462,10 +489,16 @@ app.put('/feature-config', async (c) => {
     } else {
       const m = await gateway.getModelById(summary, userId);
       if (!m) {
-        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '摘要模型不存在' } }, 400);
+        return c.json(
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '摘要模型不存在' } },
+          400
+        );
       }
       if (!m.capabilities?.includes('chat')) {
-        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该模型不支持 chat 能力' } }, 400);
+        return c.json(
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该模型不支持 chat 能力' } },
+          400
+        );
       }
     }
   }
@@ -488,7 +521,10 @@ app.put('/feature-config', async (c) => {
         return c.json(
           {
             success: false,
-            error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该模型不支持 vision 能力（需要多模态模型如 GPT-4o）' },
+            error: {
+              code: ERROR_CODES.VALIDATION_ERROR,
+              message: '该模型不支持 vision 能力（需要多模态模型如 GPT-4o）',
+            },
           },
           400
         );
@@ -505,10 +541,16 @@ app.put('/feature-config', async (c) => {
     } else {
       const m = await gateway.getModelById(imageTag, userId);
       if (!m) {
-        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '图片标签模型不存在' } }, 400);
+        return c.json(
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '图片标签模型不存在' } },
+          400
+        );
       }
       if (!m.capabilities?.includes('chat')) {
-        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该模型不支持 chat 能力' } }, 400);
+        return c.json(
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该模型不支持 chat 能力' } },
+          400
+        );
       }
     }
   }
@@ -522,10 +564,16 @@ app.put('/feature-config', async (c) => {
     } else {
       const m = await gateway.getModelById(rename, userId);
       if (!m) {
-        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '重命名模型不存在' } }, 400);
+        return c.json(
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '重命名模型不存在' } },
+          400
+        );
       }
       if (!m.capabilities?.includes('chat')) {
-        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该模型不支持 chat 能力' } }, 400);
+        return c.json(
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该模型不支持 chat 能力' } },
+          400
+        );
       }
     }
   }
@@ -603,7 +651,6 @@ app.post('/test', async (c) => {
         apiKeyDecrypted: apiKey || undefined,
         isActive: false,
         capabilities: ['chat'],
-        maxTokens: 100,
         temperature: 0.7,
         configJson: {},
         createdAt: new Date().toISOString(),
@@ -623,8 +670,6 @@ app.post('/test', async (c) => {
     const startTime = Date.now();
     const response = await adapter.chatCompletion({
       messages: [{ role: 'user', content: 'Hello, 请用一句话介绍你自己。' }],
-      maxTokens: 100,
-      temperature: 0.7,
     });
     const latencyMs = Date.now() - startTime;
 

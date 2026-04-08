@@ -11,7 +11,19 @@
  */
 
 import { eq, and, or, isNotNull, lt } from 'drizzle-orm';
-import { getDb, files, users, shares, uploadTasks, loginAttempts, userDevices, auditLogs, searchHistory, notifications, aiTasks } from '../db';
+import {
+  getDb,
+  files,
+  users,
+  shares,
+  uploadTasks,
+  loginAttempts,
+  userDevices,
+  auditLogs,
+  searchHistory,
+  notifications,
+  aiTasks,
+} from '../db';
 import { TRASH_RETENTION_DAYS, DEVICE_SESSION_EXPIRY, logger, logCleanupError } from '@osshelf/shared';
 import type { Env } from '../types/env';
 import { getAuditRetentionDays, hasTelegramAlert } from '../types/env';

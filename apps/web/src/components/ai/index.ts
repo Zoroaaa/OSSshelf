@@ -6,11 +6,32 @@
 export { AISummaryCard } from './AISummaryCard';
 export { ImageTagsDisplay } from './ImageTagsDisplay';
 export { SmartRenameDialog } from './SmartRenameDialog';
-export { AIIndexButton } from './AIIndexButton';
 export { AIChatWidget } from './AIChatWidget';
 
 // 聊天页面可复用组件
-export { ChatMessageBubble, ChatInputBox, SuggestedQuestions } from './chat';
+export {
+  ToolCallCard,
+  FileChip,
+  ReasoningSection,
+  AssistantContent,
+  ToolInfoModal,
+  ChatSidebar,
+  ChatHeader,
+  WelcomeScreen,
+} from './chat';
 
 // 设置页面可复用组件
-export { ModelCard, TaskProgress, StatsCard } from './settings';
+export {
+  ModelCard,
+  TaskProgress,
+  StatsCard,
+  ModelFormModal,
+  ProvidersSection,
+  IndexProcessingTab,
+  VectorsTable,
+  TasksCenter,
+  AdvancedConfigPanel,
+} from './settings';
+
+// 类型导出
+export type { Message, ToolCallEvent, SseChunk, AgentFile } from './types';

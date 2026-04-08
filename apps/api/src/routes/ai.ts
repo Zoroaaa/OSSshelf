@@ -415,9 +415,7 @@ app.post('/process-selected', async (c) => {
     ? filteredFiles.filter((f) => canGenerateSummary(f.mimeType, f.name))
     : [];
 
-  const tagFiles = types.includes('tags')
-    ? filteredFiles.filter((f) => f.mimeType?.startsWith('image/'))
-    : [];
+  const tagFiles = types.includes('tags') ? filteredFiles.filter((f) => f.mimeType?.startsWith('image/')) : [];
 
   const totalTasks = summaryFiles.length + tagFiles.length;
 
@@ -1032,7 +1030,6 @@ app.post('/chat', async (c) => {
           content: `用户问题：${query}\n\n相关文件信息：\n${context}`,
         },
       ],
-      maxTokens: 500,
     },
     chatModelId
   );

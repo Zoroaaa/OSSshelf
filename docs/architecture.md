@@ -1,1617 +1,752 @@
 # OSSshelf 架构文档
 
-本文档基于项目实际代码，详细描述 OSSshelf 的系统架构、数据库设计和核心功能实现。
-
-**当前版本**: v4.2.0
+**版本**: v4.3.0
+**更新日期**: 2026-04-08
 
 ---
 
 ## 📋 目录
 
 - [系统概述](#系统概述)
-- [版本历史](#版本历史)
 - [技术栈](#技术栈)
 - [项目结构](#项目结构)
-- [数据库设计](#数据库设计)
-- [系统常量](#系统常量)
-- [API 路由](#api-路由)
-- [AI 系统架构 (v4.1.0)](#ai-系统架构-v410)
-- [核心功能架构](#核心功能架构)
-- [认证机制](#认证机制)
-- [邮件通知系统](#邮件通知系统)
-- [定时任务](#定时任务)
-- [安全措施](#安全措施)
+- [核心模块](#核心模块)
+- [AI 模块架构](#ai-模块架构)
+- [数据模型](#数据模型)
+- [API 设计](#api-设计)
+- [安全架构](#安全架构)
+- [部署架构](#部署架构)
 
 ---
 
 ## 系统概述
 
-OSSshelf 是一个基于 Cloudflare 部署的多厂商 OSS 文件管理系统，支持 WebDAV 协议。系统采用前后端分离架构：
+OSSshelf 是一个基于 Cloudflare 技术栈构建的现代化对象存储管理平台，提供文件管理、AI 智能处理、多用户协作等功能。
 
-- **前端**: React + Vite + Tailwind CSS
-- **后端**: Hono 框架运行在 Cloudflare Workers 上
-- **数据库**: Cloudflare D1 (SQLite) + Drizzle ORM
-- **存储**: S3 兼容协议 + Telegram Bot API
-- **AI 服务**: Cloudflare Workers AI + Vectorize + OpenAI Compatible API (v4.1.0)
-- **邮件**: Resend API (v4.0.0+)
+### 核心特性
+
+- **文件管理**：上传、下载、预览、版本控制
+- **AI 增强**：智能摘要、图片识别、语义搜索、Agent 引擎
+- **多用户**：用户认证、权限管理、团队协作
+- **分享系统**：公开分享、直链、上传链接
+- **存储管理**：多存储桶支持、存储配额
 
 ---
 
-## 版本历史
-
-详细的版本更新日志请参阅 [CHANGELOG.md](../CHANGELOG.md)。
-
-### v4.2.0 (2026-04-06) - AI Agent 引擎与系统配置
-
-**核心变更**：
-- Agent 引擎：支持 Function Calling 工具调用、推理内容显示
-- AI 系统配置：可配置默认模型、参数、限制、重试策略、提示词模板
-- 向量库管理：查看和删除向量索引，支持分页和搜索
-- 任务中心：统一显示所有任务状态
-- 全局 AI 聊天：悬浮式 AI 聊天组件
-- 自定义模型：支持任意 Workers AI 模型 ID
-
-**新增文件**：
-- 后端：`lib/ai/agentEngine.ts`, `lib/ai/aiConfigService.ts`, `lib/ai/agentTools.ts`, `lib/ai/utils.ts`
-- 前端：`components/ai/AIChatWidget.tsx`
-
-**新增数据库表**：
-- `ai_system_config`
-
-详细功能说明请参阅 [AI_FEATURES.md](./AI_FEATURES.md)，API 文档请参阅 [API_AI.md](./API_AI.md)。
-
-### v4.1.0 (2026-04-03) - AI 系统全面升级
-
-**核心变更**：
-- 多模型架构：Model Gateway Pattern，支持 Workers AI + OpenAI 兼容 API
-- AI 对话系统：SSE 流式响应、会话管理、RAG 文件问答
-- AI 配置中心：模型管理、功能级配置、一键启用、连接测试
-- features.ts 重构：统一使用 ModelGateway，三层回退机制
-- 批量操作优化：取消/超时/错误限制
-
-**新增文件**：
-- 后端：`lib/ai/modelGateway.ts`, `lib/ai/types.ts`, `lib/ai/adapters/*`, `routes/aiConfigRoutes.ts`, `routes/aiChatRoutes.ts`
-- 前端：`pages/AIChat.tsx`, `pages/AISettings.tsx`, `components/ai/**`
-
-**新增数据库表**：
-- `ai_models`, `ai_chat_sessions`, `ai_chat_messages`, `ai_usage_stats`
-
 ## 技术栈
 
-### 前端 (apps/web)
+### 前端
 
-| 技术               | 说明        |
-| ------------------ | ----------- |
-| React 18           | UI 框架     |
-| Vite 5             | 构建工具    |
-| React Router DOM 6 | 路由        |
-| Zustand 4          | 状态管理    |
-| TanStack Query 5   | 数据请求    |
-| Axios              | HTTP 客户端 |
-| Radix UI           | UI 组件     |
-| Tailwind CSS 3     | 样式        |
-| Lucide React       | 图标        |
+| 技术 | 版本 | 用途 |
+| --- | --- | --- |
+| React | 18.x | UI 框架 |
+| TypeScript | 5.x | 类型安全 |
+| Vite | 5.x | 构建工具 |
+| Tailwind CSS | 3.x | 样式框架 |
+| Radix UI | - | 无障碍组件库 |
+| React Router | 6.x | 路由管理 |
+| Zustand | 4.x | 状态管理 |
+| React Query | 5.x | 数据获取 |
+| Clerk | - | 用户认证 |
 
-### 后端 (apps/api)
+### 后端
 
-| 技术               | 说明     |
-| ------------------ | -------- |
-| Hono 4             | Web 框架 |
-| Cloudflare Workers | 运行时   |
-| Cloudflare AI      | AI 服务  |
-| Vectorize          | 向量搜索 |
-| Drizzle ORM 0.29   | ORM      |
-| Zod 3              | 验证     |
-| bcrypt             | 密码哈希 |
+| 技术 | 版本 | 用途 |
+| --- | --- | --- |
+| Hono | 4.x | Web 框架 |
+| TypeScript | 5.x | 类型安全 |
+| Cloudflare Workers | - | Serverless 运行时 |
+| Cloudflare D1 | - | SQLite 数据库 |
+| Cloudflare R2 | - | 对象存储 |
+| Cloudflare Vectorize | - | 向量数据库 |
+| Cloudflare Workers AI | - | AI 推理服务 |
 
-### 共享包 (packages/shared)
+### 开发工具
 
-| 技术     | 说明     |
-| -------- | -------- |
-| tsup     | 构建工具 |
-| 常量定义 | 系统常量 |
-| 类型定义 | 共享类型 |
+| 工具 | 用途 |
+| --- | --- |
+| Turborepo | Monorepo 管理 |
+| ESLint | 代码检查 |
+| Prettier | 代码格式化 |
+| Vitest | 单元测试 |
 
 ---
 
 ## 项目结构
 
 ```
-ossshelf/
+OSSshelf/
 ├── apps/
-│   ├── api/                        # 后端 API 服务
+│   ├── api/                    # 后端 API 服务
 │   │   ├── src/
-│   │   │   ├── db/
-│   │   │   │   ├── index.ts        # 数据库连接
-│   │   │   │   └── schema.ts       # 表结构定义
-│   │   │   ├── lib/
-│   │   │   │   ├── audit.ts        # 审计日志
-│   │   │   │   ├── bucketResolver.ts   # 存储桶解析
-│   │   │   │   ├── cleanup.ts      # 清理任务
-│   │   │   │   ├── crypto.ts       # 加密工具
-│   │   │   │   ├── dedup.ts        # 文件去重
-│   │   │   │   ├── folderPolicy.ts # 文件夹策略
-│   │   │   │   ├── s3client.ts     # S3 客户端
-│   │   │   │   ├── telegramClient.ts   # Telegram 客户端
-│   │   │   │   ├── telegramChunked.ts  # Telegram 分片上传
-│   │   │   │   ├── utils.ts        # 工具函数
-│   │   │   │   ├── versionManager.ts # 版本管理 (v3.5.0 重构)
-│   │   │   │   ├── permissionResolver.ts # 权限解析 (v3.6.0)
-│   │   │   │   ├── webhook.ts   # Webhook 分发 (v3.6.0)
-│   │   │   │   ├── aiFeatures.ts # AI 功能 (v3.7.0)
-│   │   │   ├── vectorIndex.ts # 向量索引 (v3.7.0)
-│   │   │   ├── ai/                    # AI 模块 (v4.1.0, v4.2.0 增强)
-│   │   │   │   ├── index.ts          # 模块导出
-│   │   │   │   ├── types.ts          # 类型定义
-│   │   │   │   ├── modelGateway.ts   # 模型网关（核心）
-│   │   │   │   ├── agentEngine.ts    # Agent 引擎 (v4.2.0)
-│   │   │   │   ├── aiConfigService.ts # AI 配置服务 (v4.2.0)
-│   │   │   │   ├── ragEngine.ts      # RAG 引擎
-│   │   │   │   ├── agentTools.ts     # Agent 工具集 (v4.2.0)
-│   │   │   │   ├── features.ts       # 文件处理功能
-│   │   │   │   ├── utils.ts          # AI 工具函数 (v4.2.0)
-│   │   │   │   └── adapters/
-│   │   │   │       ├── workersAiAdapter.ts
-│   │   │   │       └── openAiCompatibleAdapter.ts
-│   │   │   │   └── zipStream.ts # ZIP 流式打包
-│   │   │   ├── middleware/
-│   │   │   │   ├── auth.ts         # 认证中间件
-│   │   │   │   ├── error.ts        # 错误处理
-│   │   │   │   └── index.ts        # 中间件导出
-│   │   │   ├── routes/
-│   │   │   │   ├── admin.ts        # 管理员接口
-│   │   │   │   ├── apiKeys.ts      # API Keys 管理 (v3.5.0)
-│   │   │   │   ├── auth.ts         # 认证接口
-│   │   │   │   ├── batch.ts        # 批量操作
-│   │   │   │   ├── buckets.ts      # 存储桶管理
-│   │   │   │   ├── cron.ts         # 定时任务
-│   │   │   │   ├── directLink.ts   # 文件直链
-│   │   │   │   ├── downloads.ts    # 离线下载
-│   │   │   │   ├── files.ts        # 文件管理
-│   │   │   │   ├── migrate.ts      # 存储桶迁移
-│   │   │   │   ├── notes.ts        # 文件笔记 (v3.5.0)
-│   │   │   │   ├── permissions.ts  # 权限管理
-│   │   │   │   ├── presign.ts      # 预签名 URL
-│   │   │   │   ├── preview.ts      # 文件预览
-│   │   │   │   ├── search.ts       # 文件搜索（支持 FTS5）
-│   │   │   │   ├── share.ts        # 文件分享
-│   │   │   │   ├── tasks.ts        # 上传任务
-│   │   │   │   ├── telegram.ts     # Telegram 存储
-│   │   │   │   ├── versions.ts     # 版本控制 (v3.3.0)
-│   │   │   │   ├── webhooks.ts  # Webhook 管理 (v3.6.0)
-│   │   │   │   ├── ai.ts        # AI 功能 (v3.7.0, v4.1.0 增强)
-│   │   │   ├── aiConfigRoutes.ts # AI 配置管理 (v4.1.0 新增)
-│   │   │   └── aiChatRoutes.ts   # AI 对话系统 (v4.1.0 新增)
-│   │   │   │   ├── analytics.ts # 存储分析 (v3.8.0)
-│   │   │   │   ├── notifications.ts # 通知系统 (v3.8.0)
-│   │   │   │   └── webdav.ts    # WebDAV 协议
-│   │   │   ├── types/
-│   │   │   │   ├── env.ts          # 环境变量类型
-│   │   │   │   └── index.ts        # 类型导出
-│   │   │   └── index.ts            # 入口文件
-│   │   ├── migrations/             # 数据库迁移
+│   │   │   ├── index.ts        # 入口文件
+│   │   │   ├── routes/         # API 路由
+│   │   │   │   ├── ai.ts       # AI 相关路由
+│   │   │   │   ├── aiChatRoutes.ts    # AI 对话路由 (v4.3.0)
+│   │   │   │   ├── aiConfigRoutes.ts  # AI 配置路由 (v4.3.0)
+│   │   │   │   ├── files.ts    # 文件管理路由
+│   │   │   │   ├── auth.ts     # 认证路由
+│   │   │   │   └── ...
+│   │   │   ├── lib/            # 核心库
+│   │   │   │   ├── ai/         # AI 模块 (v4.3.0 重点)
+│   │   │   │   │   ├── agentEngine.ts    # Agent 引擎
+│   │   │   │   │   ├── agentTools/       # 工具集 (95个工具)
+│   │   │   │   │   ├── modelGateway.ts   # 模型网关
+│   │   │   │   │   ├── ragEngine.ts      # RAG 引擎
+│   │   │   │   │   └── ...
+│   │   │   │   ├── db/         # 数据库操作
+│   │   │   │   │   ├── index.ts
+│   │   │   │   │   └── schema.ts
+│   │   │   │   ├── s3client.ts # S3/R2 客户端
+│   │   │   │   └── ...
+│   │   │   ├── middleware/     # 中间件
+│   │   │   └── utils/          # 工具函数
+│   │   ├── migrations/         # 数据库迁移
 │   │   │   ├── 0001_init.sql
-│   │   │   ├── 0002_optimization.sql
-│   │   │   ├── 0003_folder_upload_types.sql
-│   │   │   ├── 0004_telegram_storage.sql
-│   │   │   ├── 0005_dedup_and_upload_links.sql
-│   │   │   ├── 0006_upload_progress.sql
-│   │   │   ├── 0007_phase7.sql
-│   │   │   ├── 0008_direct_link.sql
-│   │   │   ├── 0009_file_versions.sql  # 文件版本控制 (v3.3.0)
-│   │   │   ├── 0010_notes.sql       # 文件笔记 (v3.5.0)
-│   │   │   ├── 0011_api_keys.sql    # API Keys (v3.5.0)
-│   │   │   ├── 0012_permission_v2.sql # 权限系统 v2 (v3.6.0)
-│   │   │   ├── 0014_ai_features.sql # AI 功能 (v3.7.0)
-│   │   │   ├── 0015_notifications.sql # 通知系统 (v3.8.0)
-│   │   │   ├── 0016_fts5.sql        # FTS5 全文搜索 (v3.8.0)
-│   │   │   ├── 0018_email.sql       # 邮件通知系统 (v4.0.0)
-│   │   │   ├── 0020_ai_models_config.sql # AI 模型配置 (v4.1.0)
-│   │   │   └── 0021_ai_system_config.sql # AI 系统配置 (v4.2.0)
-│   │   ├── drizzle.config.ts
-│   │   ├── wrangler.toml.example
+│   │   │   ├── ...
+│   │   │   └── 0011_ai_confirm_requests.sql  # v4.3.0
+│   │   ├── wrangler.toml       # Cloudflare Workers 配置
 │   │   └── package.json
-│   └── web/                        # 前端应用
+│   │
+│   └── web/                    # 前端应用
 │       ├── src/
-│       │   ├── components/         # UI 组件
-│       │   │   ├── ai/             # AI 组件 (v3.7.0, v4.1.0, v4.2.0 增强)
-│       │   │   │   ├── AIChatWidget.tsx # 全局悬浮聊天 (v4.2.0)
-│       │   │   │   ├── chat/      # 对话组件 (v4.1.0 新增)
-│       │   │   │   │   ├── ChatMessageBubble.tsx
-│       │   │   │   │   ├── ChatInputBox.tsx
-│       │   │   │   │   └── SuggestedQuestions.tsx
-│       │   │   │   └── settings/  # 设置组件 (v4.1.0 新增)
-│       │   │   │       ├── ModelCard.tsx
-│       │   │   │       ├── TaskProgress.tsx
-│       │   │   │       └── StatsCard.tsx
-│       │   │   ├── editor/         # 文件编辑器 (v3.5.0)
-│       │   │   ├── notes/          # 文件笔记 (v3.5.0)
-│       │   │   ├── groups/         # 用户组 (v3.6.0)
-│       │   │   ├── webhooks/       # Webhook (v3.6.0)
-│       │   │   ├── permissions/    # 权限管理 (v3.6.0)
-│       │   │   ├── analytics/      # 存储分析 (v3.8.0)
-│       │   │   ├── notifications/  # 通知系统 (v3.8.0)
-│       │   │   ├── files/          # 文件组件
-│       │   │   │   ├── filepreview/ # 预览组件 (v3.7.0 拆分)
-│       │   │   └── settings/       # 设置组件
-│       │   ├── hooks/              # 自定义 Hooks
-│       │   ├── pages/              # 页面组件
-│       │   │   ├── AIChat.tsx      # AI 对话页面 (v4.1.0 新增)
-│       │   │   ├── AISettings.tsx    # AI 设置页面 (v4.1.0 新增)
-│       │   ├── services/           # API 服务
-│       │   ├── stores/             # Zustand 状态
-│       │   └── main.tsx
-│       ├── vite.config.ts
-│       ├── tailwind.config.js
+│       │   ├── main.tsx        # 入口文件
+│       │   ├── App.tsx         # 应用组件
+│       │   ├── pages/          # 页面组件
+│       │   │   ├── AIChat.tsx  # AI 对话页面 (v4.3.0)
+│       │   │   ├── AISettings.tsx # AI 设置页面 (v4.3.0)
+│       │   │   ├── Files.tsx   # 文件管理页面
+│       │   │   └── ...
+│       │   ├── components/     # 组件
+│       │   │   ├── ai/         # AI 相关组件
+│       │   │   │   ├── chat/   # 对话组件
+│       │   │   │   └── settings/  # 设置组件
+│       │   │   ├── files/      # 文件相关组件
+│       │   │   └── ui/         # 通用 UI 组件
+│       │   ├── hooks/          # 自定义 Hooks
+│       │   ├── stores/         # Zustand 状态
+│       │   ├── services/       # API 服务
+│       │   └── utils/          # 工具函数
+│       ├── vite.config.ts      # Vite 配置
 │       └── package.json
-├── packages/
-│   └── shared/                     # 共享代码
+│
+├── packages/                   # 共享包
+│   └── shared/                 # 共享类型和工具
 │       ├── src/
-│       │   ├── constants/
-│       │   │   ├── index.ts        # 常量定义
-│       │   │   ├── errorCodes.ts   # 错误码定义
-│       │   │   └── previewTypes.ts # 预览类型配置
-│       │   ├── types/
-│       │   │   └── index.ts        # 类型定义
-│       │   └── utils/
-│       │       └── mimeTypes.ts    # MIME 类型工具
-│       ├── tsup.config.ts
+│       │   └── constants/
+│       │       └── index.ts    # 共享常量
 │       └── package.json
-└── docs/
-    ├── api.md
-    ├── API_AI.md                  # AI API 文档 (v4.1.0 新增)
-    ├── AI_FEATURES.md             # AI 功能说明 (v4.1.0 新增)
-    ├── api-key-guide.md            # API Key 使用指南 (v3.5.0)
-    ├── architecture.md
-    └── deployment.md
+│
+├── docs/                       # 文档
+│   ├── AI_FEATURES.md          # AI 功能说明 (v4.3.0)
+│   ├── API_AI.md               # AI API 文档 (v4.3.0)
+│   └── architecture.md         # 架构文档（本文件）
+│
+├── package.json                # 根 package.json
+├── turbo.json                  # Turborepo 配置
+└── README.md
 ```
 
 ---
 
-## 数据库设计
+## 核心模块
 
-### 表结构（定义于 `apps/api/src/db/schema.ts`）
-
-#### users (用户表)
-
-| 字段                | 类型    | 默认值      | 说明                         |
-| ------------------- | ------- | ----------- | ---------------------------- |
-| `id`                | TEXT    | -           | 主键                         |
-| `email`             | TEXT    | -           | 邮箱 (唯一)                  |
-| `passwordHash`      | TEXT    | -           | 密码哈希                     |
-| `name`              | TEXT    | -           | 昵称                         |
-| `role`              | TEXT    | 'user'      | 角色 (user/admin)            |
-| `storageQuota`      | INTEGER | 10737418240 | 存储配额 (10GB)              |
-| `storageUsed`       | INTEGER | 0           | 已用空间                     |
-| `emailVerified`     | BOOLEAN | false       | 邮箱验证状态 (v4.0.0)        |
-| `emailPreferences`  | TEXT    | '{}'        | 邮件偏好设置 (JSON) (v4.0.0) |
-| `passwordChangedAt` | TEXT    | -           | 密码变更时间 (v4.0.0)        |
-| `createdAt`         | TEXT    | -           | 创建时间                     |
-| `updatedAt`         | TEXT    | -           | 更新时间                     |
-
-**索引**: `idx_users_role`, `idx_users_created`
-
-#### email_tokens (邮件Token表) - v4.0.0
-
-| 字段        | 类型 | 默认值 | 说明                                                 |
-| ----------- | ---- | ------ | ---------------------------------------------------- |
-| `id`        | TEXT | -      | 主键                                                 |
-| `userId`    | TEXT | -      | 用户ID (外键 → users)                                |
-| `email`     | TEXT | -      | 关联邮箱                                             |
-| `type`      | TEXT | -      | Token类型 (verify_email/reset_password/change_email) |
-| `tokenHash` | TEXT | -      | Token哈希 (SHA-256)                                  |
-| `expiresAt` | TEXT | -      | 过期时间                                             |
-| `usedAt`    | TEXT | -      | 使用时间 (可空)                                      |
-| `createdAt` | TEXT | -      | 创建时间                                             |
-
-**索引**: `idx_email_tokens_hash`, `idx_email_tokens_user`
-
-#### files (文件表)
-
-| 字段                  | 类型    | 默认值 | 说明                    |
-| --------------------- | ------- | ------ | ----------------------- |
-| `id`                  | TEXT    | -      | 主键                    |
-| `userId`              | TEXT    | -      | 所属用户 (外键 → users) |
-| `parentId`            | TEXT    | -      | 父文件夹 ID             |
-| `name`                | TEXT    | -      | 文件名                  |
-| `path`                | TEXT    | -      | 文件路径                |
-| `type`                | TEXT    | -      | 文件类型                |
-| `size`                | INTEGER | 0      | 文件大小                |
-| `r2Key`               | TEXT    | -      | 对象存储键              |
-| `mimeType`            | TEXT    | -      | MIME 类型               |
-| `hash`                | TEXT    | -      | 文件哈希（去重用）      |
-| `isFolder`            | BOOLEAN | false  | 是否为文件夹            |
-| `allowedMimeTypes`    | TEXT    | -      | 文件夹允许的上传类型    |
-| `refCount`            | INTEGER | 1      | 引用计数（去重机制）    |
-| `bucketId`            | TEXT    | -      | 所属存储桶 ID           |
-| `directLinkToken`     | TEXT    | -      | 直链访问令牌（唯一）    |
-| `directLinkExpiresAt` | TEXT    | -      | 直链过期时间            |
-| `aiSummary`           | TEXT    | -      | AI 生成的摘要 (v3.7.0)  |
-| `aiSummaryAt`         | TEXT    | -      | 摘要生成时间 (v3.7.0)   |
-| `aiTags`              | TEXT    | -      | AI 生成的标签 (v3.7.0)  |
-| `aiTagsAt`            | TEXT    | -      | 标签生成时间 (v3.7.0)   |
-| `vectorIndexedAt`     | TEXT    | -      | 向量索引时间 (v3.7.0)   |
-| `isStarred`           | BOOLEAN | false  | 是否收藏 (v3.7.0)       |
-| `createdAt`           | TEXT    | -      | 创建时间                |
-| `updatedAt`           | TEXT    | -      | 更新时间                |
-| `deletedAt`           | TEXT    | -      | 删除时间 (回收站)       |
-
-**索引**: `idx_files_user_parent_active`, `idx_files_user_deleted`, `idx_files_user_type`, `idx_files_user_mime`, `idx_files_user_created`, `idx_files_user_updated`, `idx_files_user_size`, `idx_files_hash`, `idx_files_direct_link_token`, `idx_files_vector_indexed`, `idx_files_ai_summary`, `idx_files_ai_tags`, `idx_files_is_starred`
-
-#### storage_buckets (存储桶表)
-
-| 字段              | 类型    | 默认值 | 说明                                                |
-| ----------------- | ------- | ------ | --------------------------------------------------- |
-| `id`              | TEXT    | -      | 主键                                                |
-| `userId`          | TEXT    | -      | 所属用户 (外键 → users)                             |
-| `name`            | TEXT    | -      | 显示名称                                            |
-| `provider`        | TEXT    | -      | 提供商 (r2/s3/oss/cos/obs/b2/minio/custom/telegram) |
-| `bucketName`      | TEXT    | -      | 存储桶名称                                          |
-| `endpoint`        | TEXT    | -      | 端点 URL                                            |
-| `region`          | TEXT    | -      | 区域                                                |
-| `accessKeyId`     | TEXT    | -      | Access Key ID (加密存储)                            |
-| `secretAccessKey` | TEXT    | -      | Secret Access Key (加密存储)                        |
-| `pathStyle`       | BOOLEAN | false  | 是否使用路径样式                                    |
-| `isDefault`       | BOOLEAN | false  | 是否为默认存储桶                                    |
-| `isActive`        | BOOLEAN | true   | 是否启用                                            |
-| `storageUsed`     | INTEGER | 0      | 已用空间                                            |
-| `fileCount`       | INTEGER | 0      | 文件数量                                            |
-| `storageQuota`    | INTEGER | -      | 存储配额                                            |
-| `notes`           | TEXT    | -      | 备注                                                |
-| `createdAt`       | TEXT    | -      | 创建时间                                            |
-| `updatedAt`       | TEXT    | -      | 更新时间                                            |
-
-**索引**: `idx_buckets_user_active`, `idx_buckets_provider`, `idx_storage_buckets_user_default`
-
-#### shares (分享表)
-
-| 字段                     | 类型    | 默认值 | 说明                       |
-| ------------------------ | ------- | ------ | -------------------------- |
-| `id`                     | TEXT    | -      | 主键                       |
-| `fileId`                 | TEXT    | -      | 关联文件 ID (外键 → files) |
-| `userId`                 | TEXT    | -      | 创建者 ID (外键 → users)   |
-| `password`               | TEXT    | -      | 访问密码 (可选)            |
-| `expiresAt`              | TEXT    | -      | 过期时间                   |
-| `downloadLimit`          | INTEGER | -      | 下载次数限制               |
-| `downloadCount`          | INTEGER | 0      | 已下载次数                 |
-| `isUploadLink`           | BOOLEAN | false  | 是否为上传链接             |
-| `uploadToken`            | TEXT    | -      | 上传令牌（唯一）           |
-| `maxUploadSize`          | INTEGER | -      | 单文件大小上限             |
-| `uploadAllowedMimeTypes` | TEXT    | -      | 允许的 MIME 类型 (JSON)    |
-| `maxUploadCount`         | INTEGER | -      | 最多上传文件数             |
-| `uploadCount`            | INTEGER | 0      | 已上传文件数               |
-| `createdAt`              | TEXT    | -      | 创建时间                   |
-
-**索引**: `idx_shares_expires`, `idx_shares_user_created`, `idx_shares_file_active`, `idx_shares_upload_token`, `idx_shares_upload_link`
-
-#### telegram_file_refs (Telegram 文件引用表)
-
-| 字段         | 类型    | 默认值 | 说明                       |
-| ------------ | ------- | ------ | -------------------------- |
-| `id`         | TEXT    | -      | 主键                       |
-| `fileId`     | TEXT    | -      | OSSshelf 内部文件 ID       |
-| `r2Key`      | TEXT    | -      | 与 files.r2Key 对应 (唯一) |
-| `tgFileId`   | TEXT    | -      | Telegram 返回的 file_id    |
-| `tgFileSize` | INTEGER | -      | Telegram 报告的文件大小    |
-| `bucketId`   | TEXT    | -      | 所属存储桶 ID              |
-| `createdAt`  | TEXT    | -      | 创建时间                   |
-
-**索引**: `idx_tg_refs_r2key`, `idx_tg_refs_file_id`, `idx_tg_refs_bucket`
-
-#### telegram_file_chunks (Telegram 分片表)
-
-| 字段         | 类型    | 默认值 | 说明                        |
-| ------------ | ------- | ------ | --------------------------- |
-| `id`         | TEXT    | -      | 主键                        |
-| `groupId`    | TEXT    | -      | 同一文件所有分片共享的 UUID |
-| `chunkIndex` | INTEGER | -      | 0-based 分片序号            |
-| `tgFileId`   | TEXT    | -      | Telegram file_id（此分片）  |
-| `chunkSize`  | INTEGER | -      | 此块字节数                  |
-| `bucketId`   | TEXT    | -      | 所属存储桶                  |
-| `createdAt`  | TEXT    | -      | 创建时间                    |
-
-**索引**: `idx_tg_chunks_group`
-
-#### file_permissions (文件权限表) - v3.6.0 扩展
-
-| 字段                 | 类型 | 默认值     | 说明                             |
-| -------------------- | ---- | ---------- | -------------------------------- |
-| `id`                 | TEXT | -          | 主键                             |
-| `fileId`             | TEXT | -          | 文件 ID (外键 → files)           |
-| `userId`             | TEXT | -          | 用户 ID (外键 → users，可空)     |
-| `groupId`            | TEXT | -          | 组 ID (外键 → user_groups，可空) |
-| `subjectType`        | TEXT | 'user'     | 主体类型 (user/group)            |
-| `permission`         | TEXT | 'read'     | 权限 (read/write/admin)          |
-| `grantedBy`          | TEXT | -          | 授权人 ID (外键 → users)         |
-| `expiresAt`          | TEXT | -          | 过期时间（可选）                 |
-| `inheritToChildren`  | BOOL | true       | 是否继承到子文件                 |
-| `scope`              | TEXT | 'explicit' | 权限来源 (explicit/inherited)    |
-| `sourcePermissionId` | TEXT | -          | 来源权限 ID（继承时）            |
-| `createdAt`          | TEXT | -          | 创建时间                         |
-| `updatedAt`          | TEXT | -          | 更新时间                         |
-
-**索引**: `idx_file_permissions_file`, `idx_file_permissions_user`, `idx_file_permissions_group`, `idx_file_permissions_expires`, `idx_file_permissions_scope`, `idx_file_permissions_unique` (唯一)
-
-#### user_groups (用户组表) - v3.6.0
-
-| 字段          | 类型 | 默认值 | 说明                     |
-| ------------- | ---- | ------ | ------------------------ |
-| `id`          | TEXT | -      | 主键                     |
-| `ownerId`     | TEXT | -      | 所有者 ID (外键 → users) |
-| `name`        | TEXT | -      | 组名称                   |
-| `description` | TEXT | -      | 描述                     |
-| `createdAt`   | TEXT | -      | 创建时间                 |
-| `updatedAt`   | TEXT | -      | 更新时间                 |
-
-**索引**: `idx_user_groups_owner`
-
-#### group_members (组成员表) - v3.6.0
-
-| 字段        | 类型 | 默认值   | 说明                       |
-| ----------- | ---- | -------- | -------------------------- |
-| `id`        | TEXT | -        | 主键                       |
-| `groupId`   | TEXT | -        | 组 ID (外键 → user_groups) |
-| `userId`    | TEXT | -        | 用户 ID (外键 → users)     |
-| `role`      | TEXT | 'member' | 角色 (member/admin)        |
-| `addedBy`   | TEXT | -        | 添加人 ID (外键 → users)   |
-| `createdAt` | TEXT | -        | 创建时间                   |
-
-**索引**: `idx_group_members_user`, `idx_group_members_group`, `idx_group_members_unique` (唯一)
-
-#### webhooks (Webhook 表) - v3.6.0
-
-| 字段         | 类型 | 默认值 | 说明                   |
-| ------------ | ---- | ------ | ---------------------- |
-| `id`         | TEXT | -      | 主键                   |
-| `userId`     | TEXT | -      | 用户 ID (外键 → users) |
-| `url`        | TEXT | -      | Webhook URL            |
-| `secret`     | TEXT | -      | 签名密钥               |
-| `events`     | TEXT | -      | 订阅事件 (JSON 数组)   |
-| `isActive`   | BOOL | true   | 是否启用               |
-| `lastStatus` | INT  | -      | 最后响应状态码         |
-| `createdAt`  | TEXT | -      | 创建时间               |
-
-**索引**: `idx_webhooks_user`, `idx_webhooks_active`
-
-#### file_tags (文件标签表)
-
-| 字段        | 类型 | 默认值    | 说明                   |
-| ----------- | ---- | --------- | ---------------------- |
-| `id`        | TEXT | -         | 主键                   |
-| `fileId`    | TEXT | -         | 文件 ID (外键 → files) |
-| `userId`    | TEXT | -         | 用户 ID (外键 → users) |
-| `name`      | TEXT | -         | 标签名称               |
-| `color`     | TEXT | '#6366f1' | 标签颜色               |
-| `createdAt` | TEXT | -         | 创建时间               |
-
-**索引**: `idx_file_tags_file`, `idx_file_tags_user_name`, `idx_file_tags_unique` (唯一)
-
-#### upload_tasks (上传任务表)
-
-| 字段            | 类型    | 默认值    | 说明                   |
-| --------------- | ------- | --------- | ---------------------- |
-| `id`            | TEXT    | -         | 主键                   |
-| `userId`        | TEXT    | -         | 用户 ID (外键 → users) |
-| `fileName`      | TEXT    | -         | 文件名                 |
-| `fileSize`      | INTEGER | -         | 文件大小               |
-| `mimeType`      | TEXT    | -         | MIME 类型              |
-| `parentId`      | TEXT    | -         | 父文件夹 ID            |
-| `bucketId`      | TEXT    | -         | 存储桶 ID              |
-| `r2Key`         | TEXT    | -         | 对象存储键             |
-| `uploadId`      | TEXT    | -         | 分片上传 ID            |
-| `totalParts`    | INTEGER | -         | 总分片数               |
-| `uploadedParts` | TEXT    | '[]'      | 已上传分片 (JSON)      |
-| `status`        | TEXT    | 'pending' | 状态                   |
-| `progress`      | INTEGER | 0         | 进度百分比             |
-| `errorMessage`  | TEXT    | -         | 错误信息               |
-| `createdAt`     | TEXT    | -         | 创建时间               |
-| `updatedAt`     | TEXT    | -         | 更新时间               |
-| `expiresAt`     | TEXT    | -         | 过期时间               |
-
-**索引**: `idx_upload_tasks_user`, `idx_upload_tasks_expires`
-
-#### download_tasks (离线下载任务表)
-
-| 字段           | 类型    | 默认值    | 说明                   |
-| -------------- | ------- | --------- | ---------------------- |
-| `id`           | TEXT    | -         | 主键                   |
-| `userId`       | TEXT    | -         | 用户 ID (外键 → users) |
-| `url`          | TEXT    | -         | 下载 URL               |
-| `fileName`     | TEXT    | -         | 文件名                 |
-| `fileSize`     | INTEGER | -         | 文件大小               |
-| `parentId`     | TEXT    | -         | 父文件夹 ID            |
-| `bucketId`     | TEXT    | -         | 存储桶 ID              |
-| `status`       | TEXT    | 'pending' | 状态                   |
-| `progress`     | INTEGER | 0         | 进度百分比             |
-| `errorMessage` | TEXT    | -         | 错误信息               |
-| `createdAt`    | TEXT    | -         | 创建时间               |
-| `updatedAt`    | TEXT    | -         | 更新时间               |
-| `completedAt`  | TEXT    | -         | 完成时间               |
-
-**索引**: `idx_download_tasks_user`, `idx_download_tasks_status`
-
-#### user_devices (用户设备表)
-
-| 字段         | 类型 | 默认值 | 说明                   |
-| ------------ | ---- | ------ | ---------------------- |
-| `id`         | TEXT | -      | 主键                   |
-| `userId`     | TEXT | -      | 用户 ID (外键 → users) |
-| `deviceId`   | TEXT | -      | 设备 ID                |
-| `deviceName` | TEXT | -      | 设备名称               |
-| `deviceType` | TEXT | -      | 设备类型               |
-| `ipAddress`  | TEXT | -      | IP 地址                |
-| `userAgent`  | TEXT | -      | User Agent             |
-| `lastActive` | TEXT | -      | 最后活跃时间           |
-| `createdAt`  | TEXT | -      | 创建时间               |
-
-**索引**: `idx_user_devices_user`, `idx_user_devices_unique` (唯一)
-
-#### login_attempts (登录尝试表)
-
-| 字段        | 类型    | 默认值 | 说明       |
-| ----------- | ------- | ------ | ---------- |
-| `id`        | TEXT    | -      | 主键       |
-| `email`     | TEXT    | -      | 邮箱       |
-| `ipAddress` | TEXT    | -      | IP 地址    |
-| `success`   | BOOLEAN | false  | 是否成功   |
-| `userAgent` | TEXT    | -      | User Agent |
-| `createdAt` | TEXT    | -      | 创建时间   |
-
-**索引**: `idx_login_attempts_email`, `idx_login_attempts_ip`
-
-#### audit_logs (审计日志表)
-
-| 字段           | 类型 | 默认值    | 说明                 |
-| -------------- | ---- | --------- | -------------------- |
-| `id`           | TEXT | -         | 主键                 |
-| `userId`       | TEXT | -         | 用户 ID (外键, 可空) |
-| `action`       | TEXT | -         | 操作类型             |
-| `resourceType` | TEXT | -         | 资源类型             |
-| `resourceId`   | TEXT | -         | 资源 ID              |
-| `details`      | TEXT | -         | 详情 (JSON)          |
-| `ipAddress`    | TEXT | -         | IP 地址              |
-| `userAgent`    | TEXT | -         | User Agent           |
-| `status`       | TEXT | 'success' | 状态                 |
-| `errorMessage` | TEXT | -         | 错误信息             |
-| `createdAt`    | TEXT | -         | 创建时间             |
-
-**索引**: `idx_audit_logs_user`, `idx_audit_logs_action`, `idx_audit_logs_resource`, `idx_audit_logs_created`
-
-#### search_history (搜索历史表)
-
-| 字段        | 类型 | 默认值 | 说明                   |
-| ----------- | ---- | ------ | ---------------------- |
-| `id`        | TEXT | -      | 主键                   |
-| `userId`    | TEXT | -      | 用户 ID (外键 → users) |
-| `query`     | TEXT | -      | 搜索关键词             |
-| `createdAt` | TEXT | -      | 创建时间               |
-
-**索引**: `idx_search_history_user`
-
-#### file_versions (文件版本表) - v3.3.0
-
-| 字段            | 类型    | 默认值 | 说明                   |
-| --------------- | ------- | ------ | ---------------------- |
-| `id`            | TEXT    | -      | 主键                   |
-| `fileId`        | TEXT    | -      | 文件 ID (外键 → files) |
-| `userId`        | TEXT    | -      | 用户 ID (外键 → users) |
-| `versionNumber` | INTEGER | -      | 版本号                 |
-| `r2Key`         | TEXT    | -      | 对象存储键             |
-| `size`          | INTEGER | -      | 文件大小               |
-| `hash`          | TEXT    | -      | 文件哈希               |
-| `note`          | TEXT    | -      | 版本备注               |
-| `tags`          | TEXT    | -      | 版本标签 (JSON)        |
-| `createdAt`     | TEXT    | -      | 创建时间               |
-
-**索引**: `idx_file_versions_file`, `idx_file_versions_user`, `idx_file_versions_number`
-
-#### ai_models (AI 模型配置表) - v4.1.0
-
-| 字段               | 类型    | 默认值 | 说明                    |
-| ------------------ | ------- | ------ | ----------------------- |
-| `id`               | TEXT    | -      | 主键                    |
-| `userId`           | TEXT    | -      | 用户 ID (外键 → users)  |
-| `name`             | TEXT    | -      | 模型显示名称            |
-| `provider`         | TEXT    | -      | providers (workers_ai/openai_compatible) |
-| `modelId`          | TEXT    | -      | 模型 ID                |
-| `apiEndpoint`      | TEXT    | -      | API 端点（可选）        |
-| `apiKeyEncrypted`   | TEXT    | -      | 加密的 API Key          |
-| `isActive`         | INTEGER | false  | 是否激活 (0/1)          |
-| `capabilities`     | TEXT    | '[]'   | 能力 JSON 数组          |
-| `maxTokens`        | INTEGER | 4096   | 最大 Token 数           |
-| `temperature`      | REAL    | 0.7    | 温度参数                |
-| `systemPrompt`     | TEXT    | -      | 系统提示词（可选）       |
-| `configJson`       | TEXT    | '{}'   | 扩展配置 JSON           |
-| `createdAt`        | TEXT    | -      | 创建时间                |
-| `updatedAt`        | TEXT    | -      | 更新时间                |
-
-**索引**: `idx_ai_models_user_active`
-
-#### ai_chat_sessions (AI 对话会话表) - v4.1.0
-
-| 字段        | 类型 | 说明                   |
-| ----------- | ---- | ---------------------- |
-| `id`        | TEXT | 主键                   |
-| `userId`    | TEXT | 用户 ID (外键 → users) |
-| `title`     | TEXT | 会话标题               |
-| `createdAt` | TEXT | 创建时间               |
-| `updatedAt` | TEXT | 更新时间               |
-
-**索引**: `idx_ai_chat_sessions_user`
-
-#### ai_chat_messages (AI 对话消息表) - v4.1.0
-
-| 字段        | 类型 | 说明                       |
-| ----------- | ---- | -------------------------- |
-| `id`        | TEXT | 主键                       |
-| `sessionId` | TEXT | 会话 ID (外键 → ai_chat_sessions) |
-| `role`      | TEXT | 角色: user/assistant/system |
-| `content`   | TEXT | 消息内容                   |
-| `sources`   | TEXT | 来源文件 JSON（可选）       |
-| `createdAt` | TEXT | 创建时间                   |
-
-**索引**: `idx_ai_chat_messages_session`
-
----
-
-## 系统常量
-
-### 文件限制（定义于 `packages/shared/src/constants/index.ts`）
-
-| 常量                    | 值     | 说明                  |
-| ----------------------- | ------ | --------------------- |
-| `MAX_FILE_SIZE`         | 5 GB   | S3 兼容存储单文件最大 |
-| `DEFAULT_STORAGE_QUOTA` | 10 GB  | 默认存储配额          |
-| `UPLOAD_CHUNK_SIZE`     | 10 MB  | S3 分片大小           |
-| `MULTIPART_THRESHOLD`   | 100 MB | S3 分片上传阈值       |
-| `MAX_CONCURRENT_PARTS`  | 3      | 最大并发分片数        |
-
-### Telegram 限制（定义于 `apps/api/src/lib/telegramClient.ts` 和 `telegramChunked.ts`）
-
-| 常量                       | 值    | 说明              |
-| -------------------------- | ----- | ----------------- |
-| `TG_MAX_FILE_SIZE`         | 50 MB | Telegram 直传上限 |
-| `TG_CHUNKED_THRESHOLD`     | 49 MB | Telegram 分片阈值 |
-| `TG_CHUNK_SIZE`            | 30 MB | Telegram 分片大小 |
-| `TG_MAX_CHUNKED_FILE_SIZE` | 2 GB  | Telegram 最大文件 |
-
-### 时间限制
-
-| 常量                    | 值      | 说明              |
-| ----------------------- | ------- | ----------------- |
-| `JWT_EXPIRY`            | 7 天    | JWT 有效期        |
-| `WEBDAV_SESSION_EXPIRY` | 30 天   | WebDAV 会话有效期 |
-| `SHARE_DEFAULT_EXPIRY`  | 7 天    | 分享默认有效期    |
-| `TRASH_RETENTION_DAYS`  | 30 天   | 回收站保留天数    |
-| `DEVICE_SESSION_EXPIRY` | 30 天   | 设备会话有效期    |
-| `UPLOAD_TASK_EXPIRY`    | 24 小时 | 上传任务有效期    |
-
-### 安全限制
-
-| 常量                     | 值      | 说明             |
-| ------------------------ | ------- | ---------------- |
-| `LOGIN_MAX_ATTEMPTS`     | 5       | 最大登录尝试次数 |
-| `LOGIN_LOCKOUT_DURATION` | 15 分钟 | 登录锁定时长     |
-
-### 支持的存储提供商（定义于 `apps/api/src/routes/buckets.ts`）
-
-| Provider   | 名称           | 默认端点                                       | 路径样式 |
-| ---------- | -------------- | ---------------------------------------------- | -------- |
-| `r2`       | Cloudflare R2  | `https://<accountId>.r2.cloudflarestorage.com` | false    |
-| `s3`       | Amazon S3      | -                                              | false    |
-| `oss`      | Aliyun OSS     | `https://oss-cn-hangzhou.aliyuncs.com`         | false    |
-| `cos`      | Tencent COS    | `https://cos.ap-guangzhou.myqcloud.com`        | false    |
-| `obs`      | Huawei OBS     | `https://obs.cn-north-4.myhuaweicloud.com`     | false    |
-| `b2`       | Backblaze B2   | `https://s3.us-west-004.backblazeb2.com`       | true     |
-| `minio`    | MinIO          | `http://localhost:9000`                        | true     |
-| `custom`   | 自定义 S3 兼容 | -                                              | false    |
-| `telegram` | Telegram       | -                                              | false    |
-
----
-
-## API 路由（定义于 `apps/api/src/index.ts`）
-
-| 路由前缀             | 模块             | 说明                                      |
-| -------------------- | ---------------- | ----------------------------------------- |
-| `/api/auth`          | auth.ts          | 用户认证、邮箱验证、密码重置 (v4.0.0增强) |
-| `/api/files`         | files.ts         | 文件管理                                  |
-| `/api/buckets`       | buckets.ts       | 存储桶管理                                |
-| `/api/share`         | share.ts         | 文件分享                                  |
-| `/api/direct`        | directLink.ts    | 文件直链                                  |
-| `/api/presign`       | presign.ts       | 预签名 URL                                |
-| `/api/tasks`         | tasks.ts         | 上传任务                                  |
-| `/api/downloads`     | downloads.ts     | 离线下载                                  |
-| `/api/batch`         | batch.ts         | 批量操作                                  |
-| `/api/search`        | search.ts        | 文件搜索                                  |
-| `/api/permissions`   | permissions.ts   | 权限与标签                                |
-| `/api/preview`       | preview.ts       | 文件预览                                  |
-| `/api/versions`      | versions.ts      | 版本控制 (v3.3.0)                         |
-| `/api/notes`         | notes.ts         | 文件笔记 (v3.5.0)                         |
-| `/api/api-keys`      | apiKeys.ts       | API Keys (v3.5.0)                         |
-| `/api/groups`        | groups.ts        | 用户组管理 (v3.6.0)                       |
-| `/api/webhooks`      | webhooks.ts      | Webhook 管理 (v3.6.0)                     |
-| `/api/ai`            | ai.ts            | AI 文件处理功能 (v3.7.0, v4.2.0 增强) |
-| `/api/ai-config`     | aiConfigRoutes.ts | AI 配置管理、系统配置 (v4.1.0, v4.2.0 增强) |
-| `/api/ai-chat`       | aiChatRoutes.ts   | AI 对话系统 (v4.1.0) |
-| `/api/analytics`     | analytics.ts     | 存储分析 (v3.8.0)                         |
-| `/api/notifications` | notifications.ts | 通知系统 (v3.8.0)                         |
-| `/api/v1`            | v1/index.ts      | RESTful v1 (v3.6.0)                       |
-| `/api/admin`         | admin.ts         | 管理员接口、邮件配置 (v4.0.0增强)         |
-| `/api/migrate`       | migrate.ts       | 存储桶迁移                                |
-| `/api/telegram`      | telegram.ts      | Telegram 存储                             |
-| `/cron`              | cron.ts          | 定时任务                                  |
-| `/dav`               | webdav.ts        | WebDAV 协议                               |
-
----
-
-## AI 系统架构 (v4.2.0)
-
-### 架构概览
+### 1. 文件管理模块
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     AI 系统架构 (v4.2.0)                      │
-├─────────────────────────────────────────────────────────────┤
-│                                                               │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │                  Model Gateway (核心)                 │   │
-│  │                                                     │   │
-│  │  ┌─────────────┐    ┌──────────────┐               │   │
-│  │  │ getActiveModel│    │ getModelById │              │   │
-│  │  │ chatCompletion│    │ chatCompletionStream       │   │
-│  │  │ getAdapter   │    │ getDefaultWorkersAiModel    │   │
-│  │  └─────────────┘    └──────────────┘               │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                          │                                  │
-│          ┌───────────────┼───────────────┐                │
-│          ▼               ▼               ▼                │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐     │
-│  │ WorkersAI    │ │ OpenAI        │ │ Features     │     │
-│  │ Adapter      │ │ Compatible   │ │ (文件处理)   │     │
-│  │              │ │ Adapter      │ │              │     │
-│  │ - Llama 3.x  │ │ - GPT-4o     │ │ - 摘要生成   │     │
-│  │ - DeepSeek   │ │ - Claude     │ │ - 图片标签   │     │
-│  │ - Qwen       │ │ - Gemini     │ │ - 智能重命名 │     │
-│  │ - LLaVA      │ │ - Ollama     │ │ - 向量索引   │     │
-│  └──────────────┘ └──────────────┘ └──────────────┘     │
-│                                                               │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │                   Agent Engine (v4.2.0)              │   │
-│  │                                                     │   │
-│  │  用户提问 → 工具调用 → 推理内容 → 流式返回答案       │   │
-│  │                                                     │   │
-│  │  内置工具: search_files, get_file_content,          │   │
-│  │          list_files, get_file_info                  │   │
-│  │                                                     │   │
-│  │  推理支持: DeepSeek R1, 智谱 GLM, 阿里 QwQ          │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                                                               │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │                   RAG Engine                        │   │
-│  │                                                     │   │
-│  │  用户提问 → 向量搜索 → 组装上下文 → 发送给模型      │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                                                               │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │                AI Config Service (v4.2.0)            │   │
-│  │                                                     │   │
-│  │  系统配置: 默认模型、参数、限制、重试策略、提示词    │   │
-│  │  功能开关: 推理内容显示                              │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                                                               │
-│  三层回退机制:                                              │
-│  功能级模型 → 用户默认活跃模型 → Workers AI 默认模型         │
-│                                                               │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 目录结构
-
-```
-apps/api/src/lib/ai/
-├── index.ts                    # 模块导出
-├── types.ts                    # 类型定义 (IModelAdapter, ModelConfig, etc.)
-├── modelGateway.ts             # 模型网关（核心）
-├── agentEngine.ts              # Agent 引擎 (v4.2.0)
-├── aiConfigService.ts          # AI 配置服务 (v4.2.0)
-├── ragEngine.ts                # RAG 引擎
-├── agentTools.ts               # Agent 工具集 (v4.2.0)
-├── features.ts                 # 文件处理功能（重构版）
-├── utils.ts                    # AI 工具函数 (v4.2.0)
-└── adapters/
-    ├── workersAiAdapter.ts     # Workers AI 适配器
-    └── openAiCompatibleAdapter.ts # OpenAI 兼容适配器
-
-apps/web/src/
-├── pages/
-│   ├── AIChat.tsx              # AI 对话页面
-│   └── AISettings.tsx           # AI 设置页面
-└── components/ai/
-    ├── AIChatWidget.tsx        # 全局悬浮聊天 (v4.2.0)
-    ├── chat/                   # 对话组件
-    │   ├── ChatMessageBubble.tsx
-    │   ├── ChatInputBox.tsx
-    │   └── SuggestedQuestions.tsx
-    └── settings/               # 设置组件
-        ├── ModelCard.tsx
-        ├── TaskProgress.tsx
-        └── StatsCard.tsx
-```
-
-### 核心类：ModelGateway
-
-```typescript
-class ModelGateway {
-  // 获取当前活跃模型
-  async getActiveModel(userId: string): Promise<ModelConfig | null>
-
-  // 根据 ID 获取模型
-  async getModelById(modelId: string, userId: string): Promise<ModelConfig | null>
-
-  // 聊天补全（非流式）
-  async chatCompletion(
-    userId: string,
-    request: ChatCompletionRequest,
-    modelId?: string
-  ): Promise<ChatCompletionResponse>
-
-  // 聊天补全（SSE 流式）
-  async chatCompletionStream(
-    userId: string,
-    request: ChatCompletionRequest,
-    onChunk: (chunk: StreamChunk) => void,
-    options?: { modelId?: string; signal?: AbortSignal }
-  ): Promise<void>
-
-  // 获取适配器实例
-  getAdapter(config: ModelConfig): IModelAdapter
-
-  // 获取默认 Workers AI 模型配置
-  private getDefaultWorkersAiModel(): ModelConfig
-}
-```
-
-### 核心类：AgentEngine (v4.2.0)
-
-```typescript
-class AgentEngine {
-  // 运行 Agent
-  async run(
-    userId: string,
-    query: string,
-    history: ChatMessage[],
-    modelId?: string,
-    onChunk?: (chunk: AgentChunk) => void,
-    signal?: AbortSignal
-  ): Promise<AgentResult>
-
-  // 内置工具
-  tools: ToolDefinition[]
-
-  // 工具执行
-  private async executeTool(toolName: string, args: Record<string, unknown>): Promise<ToolResult>
-}
-
-// SSE 事件类型
-interface AgentChunk {
-  content?: string           // 文本内容
-  reasoning?: boolean        // 是否为推理内容
-  toolStart?: boolean        // 工具调用开始
-  toolResult?: boolean       // 工具调用结果
-  toolName?: string          // 工具名称
-  toolCallId?: string        // 工具调用 ID
-  args?: Record<string, unknown>  // 工具参数
-  result?: unknown           // 工具结果
-  done: boolean              // 是否完成
-  sources?: SourceFile[]     // 来源文件
-}
-```
-
-### 核心类：AiConfigService (v4.2.0)
-
-```typescript
-class AiConfigService {
-  // 获取所有系统配置
-  async getAllConfigs(env: Env): Promise<AiSystemConfigItem[]>
-
-  // 获取单个配置
-  async getConfig(env: Env, key: string): Promise<ConfigValue | null>
-
-  // 更新配置
-  async setConfig(env: Env, key: string, value: ConfigValue): Promise<void>
-
-  // 重置为默认值
-  async resetConfig(env: Env, key: string): Promise<void>
-}
-
-// 配置分类
-type ConfigCategory = 'model' | 'parameter' | 'limit' | 'retry' | 'prompt' | 'feature'
-
-// 配置项示例
-interface AiSystemConfigItem {
-  key: string
-  label: string
-  description: string
-  category: ConfigCategory
-  valueType: 'string' | 'number' | 'boolean' | 'json'
-  defaultValue: string | number | boolean
-  isEditable: boolean
-}
-```
-
-### 适配器接口
-
-```typescript
-interface IModelAdapter {
-  readonly provider: ModelProvider;
-
-  // 非流式聊天补全
-  chatCompletion(request: ChatCompletionRequest): Promise<ChatCompletionResponse>;
-
-  // SSE 流式聊天补全
-  chatCompletionStream(
-    request: ChatCompletionRequest,
-    onChunk: (chunk: StreamChunk) => void,
-    signal?: AbortSignal
-  ): Promise<void>;
-
-  // 验证配置有效性
-  validateConfig(config: ModelConfig): { valid: boolean; error?: string };
-}
-```
-
-### 功能级模型配置
-
-可以为每个 AI 功能单独指定使用的模型：
-
-| 功能 | 配置键 | 所需能力 | 默认模型 |
-|------|--------|---------|---------|
-| 文件摘要 | `summary` | `chat` | `@cf/meta/llama-3.1-8b-instruct` |
-| 图片描述 | `imageCaption` | `vision` | `@cf/llava-hf/llava-1.5-7b-hf` |
-| 图片标签 | `imageTag` | `classify` | `@cf/microsoft/resnet-50` |
-| 智能重命名 | `rename` | `chat` | `@cf/meta/llama-3.1-8b-instruct` |
-
-**配置存储**: KV (`ai:feature-model-config:{userId}`)，30天过期
-
-### 数据库表
-
-#### ai_models（模型配置表）
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | text | 主键 UUID |
-| user_id | text | 用户 ID |
-| name | text | 模型显示名称 |
-| provider | text | providers: workers_ai / openai_compatible |
-| model_id | text | 模型 ID |
-| api_endpoint | text? | API 端点（OpenAI 兼容） |
-| api_key_encrypted | text? | 加密的 API Key |
-| is_active | integer | 是否激活 (0/1) |
-| capabilities | text | 能力 JSON 数组 |
-| max_tokens | integer | 最大 Token 数 |
-| temperature | real | 温度参数 |
-| system_prompt | text? | 系统提示词 |
-| config_json | text | 扩展配置 JSON |
-| created_at | text | 创建时间 |
-| updated_at | text | 更新时间 |
-
-#### ai_chat_sessions（对话会话表）
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | text | 主键 UUID |
-| user_id | text | 用户 ID |
-| title | text | 会话标题 |
-| created_at | text | 创建时间 |
-| updated_at | text | 更新时间 |
-
-#### ai_chat_messages（对话消息表）
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | text | 主键 UUID |
-| session_id | text | 会话 ID |
-| role | text | 角色: user / assistant / system |
-| content | text | 消息内容 |
-| sources | text? | 来源文件 JSON |
-| created_at | text | 创建时间 |
-
----
-
-## 核心功能架构
-
-### S3 兼容存储上传流程
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      文件上传请求                                │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-                    ┌─────────────────┐
-                    │  文件大小判断    │
-                    │  (100MB 阈值)   │
-                    └─────────────────┘
-                              │
-              ┌───────────────┴───────────────┐
-              │                               │
-              ▼                               ▼
-    ┌─────────────────┐             ┌─────────────────┐
-    │  ≤ 100 MB       │             │  > 100 MB       │
-    │  小文件模式      │             │  分片上传模式    │
-    └─────────────────┘             └─────────────────┘
-              │                               │
-              ▼                               ▼
-    ┌─────────────────┐             ┌─────────────────┐
-    │ POST /presign/  │             │ POST /presign/  │
-    │ upload          │             │ multipart/init  │
-    │                 │             │                 │
-    │ 返回预签名URL   │             │ 返回 uploadId   │
-    └─────────────────┘             └─────────────────┘
-              │                               │
-              ▼                               ▼
-    ┌─────────────────┐             ┌─────────────────┐
-    │ PUT 直传到 S3   │             │ 循环上传分片    │
-    │                 │             │ POST /presign/  │
-    │                 │             │ multipart/part  │
-    └─────────────────┘             └─────────────────┘
-              │                               │
-              ▼                               ▼
-    ┌─────────────────┐             ┌─────────────────┐
-    │ POST /presign/  │             │ POST /presign/  │
-    │ confirm         │             │ multipart/      │
-    │                 │             │ complete        │
-    └─────────────────┘             └─────────────────┘
-```
-
-### Telegram 存储上传流程
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      文件上传请求                                │
-│                  (bucketId 指向 Telegram 桶)                   │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-                    ┌─────────────────┐
-                    │  文件大小判断    │
-                    │  (49MB 阈值)    │
-                    └─────────────────┘
-                              │
-              ┌───────────────┴───────────────┐
-              │                               │
-              ▼                               ▼
-    ┌─────────────────┐             ┌─────────────────┐
-    │  ≤ 49 MB        │             │  > 49 MB        │
-    │  小文件模式      │             │  分片上传模式    │
-    └─────────────────┘             └─────────────────┘
-              │                               │
-              ▼                               ▼
-    ┌─────────────────┐             ┌─────────────────┐
-    │ POST /tasks/    │             │ POST /tasks/    │
-    │ create          │             │ create          │
-    │ isSmallFile     │             │ isTelegramChunk │
-    │ = true          │             │ = true          │
-    └─────────────────┘             └─────────────────┘
-              │                               │
-              ▼                               ▼
-    ┌─────────────────┐             ┌─────────────────┐
-    │ POST /tasks/    │             │ 循环上传分片    │
-    │ telegram-part   │             │ POST /tasks/    │
-    │ (整个文件)      │             │ telegram-part   │
-    │                 │             │ (每片≤30MB)    │
-    └─────────────────┘             └─────────────────┘
-              │                               │
-              ▼                               ▼
-    ┌─────────────────┐             ┌─────────────────┐
-    │ POST /tasks/    │             │ POST /tasks/    │
-    │ complete        │             │ complete        │
-    │                 │             │                 │
-    │ 写入文件记录    │             │ 写入文件记录    │
-    │ + TG引用        │             │ + TG引用        │
-    │                 │             │ + 分片记录      │
-    └─────────────────┘             └─────────────────┘
-```
-
-### 存储桶迁移
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Migration Flow                            │
+│                      文件管理流程                             │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
-│  POST /api/migrate/start                                     │
-│  ├─ 验证 sourceBucketId / targetBucketId                     │
-│  ├─ 收集需要迁移的文件 ID（支持文件夹递归）                    │
-│  ├─ 创建 MigrationStatus 存入 KV                             │
-│  └─ waitUntil(runMigration) 异步执行                         │
+│  用户上传 → R2 存储 → 元数据入库 → AI 处理（可选）             │
 │                                                              │
-│  runMigration (后台执行)                                      │
-│  ├─ 逐文件处理                                               │
-│  │   ├─ 从来源读取 (S3/Telegram/R2)                          │
-│  │   ├─ 写入目标 (S3/Telegram)                               │
-│  │   ├─ 更新 files 表                                        │
-│  │   └─ 更新 bucket stats                                    │
-│  ├─ 每完成一个文件更新 KV 状态                                │
-│  └─ 支持取消（检查 KV status）                                │
-│                                                              │
-│  GET /api/migrate/:migrationId                               │
-│  └─ 返回 KV 中的 MigrationStatus                             │
+│  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐  │
+│  │  上传   │───→│  R2     │───→│  D1     │───→│   AI    │  │
+│  │  请求   │    │  存储   │    │  元数据  │    │  处理   │  │
+│  └─────────┘    └─────────┘    └─────────┘    └─────────┘  │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 文件去重（Copy-on-Write）
+**核心功能**：
+
+- 文件上传（分片上传、断点续传）
+- 文件下载（直链、签名 URL）
+- 文件预览（图片、视频、PDF、代码）
+- 文件版本管理
+- 文件夹管理
+- 文件标签
+- 文件搜索（关键词、语义搜索）
+
+### 2. 用户认证模块
+
+使用 Clerk 进行用户认证：
+
+- 用户注册/登录
+- 会话管理
+- 用户配置
+- API Key 管理
+
+### 3. 分享系统模块
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                   Dedup Flow                                 │
+│                      分享类型                                 │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
-│  上传前检查                                                   │
-│  checkAndClaimDedup(hash, bucketId, userId)                  │
-│  ├─ 查找同 hash + bucketId 的活跃文件                        │
-│  ├─ 若存在：ref_count += 1，返回 existingR2Key               │
-│  └─ 若不存在：返回 isDuplicate: false                        │
-│                                                              │
-│  删除文件                                                     │
-│  releaseFileRef(fileId)                                      │
-│  ├─ ref_count -= 1                                           │
-│  └─ 若 ref_count == 0，才删除存储对象                        │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 文件版本控制（v3.3.0）
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   Version Control Flow                       │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  上传新版本                                                   │
-│  POST /api/versions/create                                   │
-│  ├─ 获取当前文件信息                                          │
-│  ├─ 保存当前版本到 file_versions 表                          │
-│  │   ├─ 记录 r2Key、size、hash                               │
-│  │   ├─ 自动递增 versionNumber                               │
-│  │   └─ 可选添加备注和标签                                    │
-│  ├─ 上传新文件内容                                            │
-│  └─ 更新 files 表的 r2Key、size、hash                        │
-│                                                              │
-│  版本回滚                                                     │
-│  POST /api/versions/<versionId>/restore                      │
-│  ├─ 获取目标版本信息                                          │
-│  ├─ 保存当前版本到历史                                        │
-│  └─ 恢复目标版本的 r2Key、size、hash                         │
-│                                                              │
-│  版本对比                                                     │
-│  GET /api/versions/compare?v1=x&v2=y                         │
-│  └─ 返回两个版本的元数据差异                                  │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 错误码管理（v3.3.0）
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   Error Code System                          │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  错误码定义 (packages/shared/src/constants/errorCodes.ts)    │
-│  ├─ AUTH_* : 认证相关错误                                    │
-│  │   ├─ AUTH_UNAUTHORIZED (1001)                             │
-│  │   ├─ AUTH_TOKEN_EXPIRED (1002)                            │
-│  │   └─ AUTH_PERMISSION_DENIED (1003)                        │
-│  ├─ FILE_* : 文件相关错误                                    │
-│  │   ├─ FILE_NOT_FOUND (2001)                                │
-│  │   ├─ FILE_TOO_LARGE (2002)                                │
-│  │   └─ FILE_TYPE_NOT_ALLOWED (2003)                         │
-│  ├─ STORAGE_* : 存储相关错误                                 │
-│  │   ├─ STORAGE_EXCEEDED (3001)                              │
-│  │   └─ STORAGE_BUCKET_ERROR (3002)                          │
-│  ├─ SHARE_* : 分享相关错误                                   │
-│  │   ├─ SHARE_EXPIRED (4001)                                 │
-│  │   ├─ SHARE_PASSWORD_REQUIRED (4002)                       │
-│  │   └─ SHARE_DOWNLOAD_LIMIT_EXCEEDED (4003)                 │
-│  └─ SYSTEM_* : 系统相关错误                                  │
-│      ├─ SYSTEM_INTERNAL_ERROR (5001)                         │
-│      └─ SYSTEM_VALIDATION_ERROR (5002)                       │
-│                                                              │
-│  统一响应格式                                                 │
-│  {                                                           │
-│    "success": false,                                         │
-│    "error": {                                                │
-│      "code": "FILE_TOO_LARGE",                               │
-│      "codeNumber": 2002,                                     │
-│      "message": "文件大小超过限制",                           │
-│      "details": { "maxSize": 5368709120 }                    │
-│    }                                                         │
-│  }                                                           │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 文件预览架构（v3.4.0）
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   File Preview System                        │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  预览类型配置 (packages/shared/src/constants/previewTypes.ts)│
-│  ├─ IMAGE_MIME_PREFIX: 'image/'                              │
-│  ├─ VIDEO_MIME_PREFIX: 'video/'                              │
-│  ├─ AUDIO_MIME_PREFIX: 'audio/'                              │
-│  ├─ PDF_MIME_TYPE: 'application/pdf'                         │
-│  ├─ MARKDOWN_MIME_TYPE: 'text/markdown'                      │
-│  ├─ CSV_MIME_TYPE: 'text/csv'                                │
-│  ├─ EPUB_MIME_TYPES: ['application/epub+zip', ...]          │
-│  ├─ FONT_MIME_TYPES: ['font/ttf', 'font/otf', ...]          │
-│  ├─ ARCHIVE_PREVIEW_MIME_TYPES: ['application/zip', ...]    │
-│  └─ OFFICE_MIME_TYPES: { word, excel, powerpoint }          │
-│                                                              │
-│  前端预览组件 (apps/web/src/components/files/FilePreview.tsx)│
-│  ├─ 图片预览: <img> 原生 + 缩放                              │
-│  ├─ 视频预览: <video> 原生 + 流式播放                        │
-│  ├─ 音频预览: <audio> 原生                                   │
-│  ├─ PDF 预览: pdf.js 分页渲染 + 缩放控制                     │
-│  ├─ Markdown: react-markdown + GFM + KaTeX                   │
-│  ├─ 代码预览: highlight.js 语法高亮                          │
-│  ├─ Word 预览: docx-preview 本地渲染                         │
-│  ├─ Excel 预览: xlsx 库 + 样式保留 + 多工作表                │
-│  ├─ PowerPoint: pptx-preview 本地渲染                        │
-│  ├─ EPUB 预览: epub.js 电子书阅读器 + 目录导航               │
-│  ├─ 字体预览: FontFace API 字符展示                          │
-│  ├─ ZIP 预览: JSZip 文件树 + 压缩统计                        │
-│  └─ CSV 预览: PapaParse 表格 + 搜索/排序/分页                │
-│                                                              │
-│  预览窗口控制                                                │
-│  ├─ 窗口大小: small (60%) / medium (80%) / large (90%) / 全屏│
-│  ├─ 缩放控制: 50% - 200%                                     │
-│  └─ 键盘快捷键: ESC 关闭 / 左右箭头翻页(EPUB)                │
-│                                                              │
-│  后端预览接口 (apps/api/src/routes/preview.ts)               │
-│  ├─ GET /api/preview/:fileId/info - 预览信息                 │
-│  ├─ GET /api/preview/:fileId/raw - 原始内容 (≤30MB)          │
-│  ├─ GET /api/preview/:fileId/stream - 流式预览               │
-│  └─ GET /api/preview/:fileId/thumbnail - 缩略图              │
-│                                                              │
-│  预览依赖库                                                  │
-│  ├─ pdfjs-dist: PDF 渲染                                     │
-│  ├─ docx-preview: Word 文档                                  │
-│  ├─ xlsx: Excel 表格                                         │
-│  ├─ pptx-preview: PowerPoint                                 │
-│  ├─ epubjs: EPUB 电子书                                      │
-│  ├─ jszip: ZIP 解析                                          │
-│  ├─ papaparse: CSV 解析                                      │
-│  ├─ highlight.js: 代码高亮                                   │
-│  ├─ react-markdown: Markdown 渲染                            │
-│  └─ remark-gfm/rehype-highlight: Markdown 插件               │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐ │
+│  │    公开分享     │  │     直链        │  │   上传链接   │ │
+│  │  (share_link)   │  │ (direct_link)   │  │(upload_link)│ │
+│  ├─────────────────┤  ├─────────────────┤  ├─────────────┤ │
+│  │ - 密码保护      │  │ - 永久有效      │  │ - 文件夹上传 │ │
+│  │ - 过期时间      │  │ - 无需认证      │  │ - 有效期限制 │ │
+│  │ - 访问统计      │  │ - 带宽限制      │  │ - 数量限制   │ │
+│  └─────────────────┘  └─────────────────┘  └─────────────┘ │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 认证机制
+## AI 模块架构
 
-### JWT 认证
+v4.3.0 AI 模块采用分层架构，核心是 Agent 引擎和工具系统。
 
-- 用户登录后获取 JWT Token
-- Token 有效期 7 天
-- Token 存储在客户端，通过 `Authorization: Bearer <token>` 头传递
-- 支持多设备登录，每个设备有独立的设备 ID
+### 架构图
 
-### WebDAV 认证
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            AI 模块架构 v4.3.0                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                          API 层 (routes/ai.ts)                        │    │
+│  │  /api/ai/agent/chat  │  /api/ai/models  │  /api/ai/config  │  ...    │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                      │                                       │
+│                                      ▼                                       │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                         Agent 引擎 (agentEngine.ts)                   │    │
+│  │  ┌─────────────────────────────────────────────────────────────┐    │    │
+│  │  │                    ReAct 循环                                 │    │    │
+│  │  │  Reason → Act → Observe → Reason → Act → Observe → ...      │    │    │
+│  │  └─────────────────────────────────────────────────────────────┘    │    │
+│  │                                                                      │    │
+│  │  功能：                                                              │    │
+│  │  - 意图识别与工具选择                                                │    │
+│  │  - 链式推理与自动规划                                                │    │
+│  │  - 循环防护与去重                                                    │    │
+│  │  - 写操作确认机制                                                    │    │
+│  │  - SSE 流式响应                                                      │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                      │                                       │
+│          ┌───────────────────────────┼───────────────────────────┐          │
+│          ▼                           ▼                           ▼          │
+│  ┌───────────────┐         ┌───────────────┐         ┌───────────────┐    │
+│  │  工具执行器   │         │  模型网关     │         │  RAG 引擎     │    │
+│  │ (agentTools/) │         │(modelGateway) │         │ (ragEngine)   │    │
+│  └───────────────┘         └───────────────┘         └───────────────┘    │
+│          │                           │                           │          │
+│          ▼                           ▼                           ▼          │
+│  ┌───────────────┐         ┌───────────────┐         ┌───────────────┐    │
+│  │  95 个工具    │         │  模型适配器   │         │  Vectorize    │    │
+│  │  13 个模块    │         │  Workers AI   │         │  向量搜索     │    │
+│  │              │         │  OpenAI 兼容  │         │              │    │
+│  └───────────────┘         └───────────────┘         └───────────────┘    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-- 使用 Basic Auth 认证
-- 用户名：注册邮箱
-- 密码：账户密码
-- 认证成功后创建 WebDAV 会话，有效期 30 天
+### Agent 引擎核心流程
 
-### 登录保护
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        Agent 引擎执行流程                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  用户消息                                                                    │
+│      │                                                                       │
+│      ▼                                                                       │
+│  ┌─────────────────┐                                                        │
+│  │  意图识别       │  ← 模式匹配 + 关键词提取                                │
+│  └────────┬────────┘                                                        │
+│           │                                                                  │
+│           ▼                                                                  │
+│  ┌─────────────────┐     ┌─────────────────┐                               │
+│  │  模型调用       │────→│  工具选择       │                               │
+│  │  (Native/Prompt)│     │  (95 个工具)    │                               │
+│  └────────┬────────┘     └────────┬────────┘                               │
+│           │                       │                                          │
+│           │                       ▼                                          │
+│           │              ┌─────────────────┐                                │
+│           │              │  是写操作？     │                                │
+│           │              └────────┬────────┘                                │
+│           │                       │                                          │
+│           │              ┌────────┴────────┐                                │
+│           │              ▼                 ▼                                │
+│           │       ┌───────────┐     ┌───────────┐                          │
+│           │       │  返回确认 │     │  直接执行 │                          │
+│           │       │  请求     │     │  工具     │                          │
+│           │       └─────┬─────┘     └─────┬─────┘                          │
+│           │             │                 │                                 │
+│           │             ▼                 │                                 │
+│           │       ┌───────────┐           │                                 │
+│           │       │  用户确认 │           │                                 │
+│           │       └─────┬─────┘           │                                 │
+│           │             │                 │                                 │
+│           └─────────────┴─────────────────┘                                 │
+│                         │                                                    │
+│                         ▼                                                    │
+│                ┌─────────────────┐                                          │
+│                │  工具结果       │                                          │
+│                │  + _next_actions│                                          │
+│                └────────┬────────┘                                          │
+│                         │                                                    │
+│                         ▼                                                    │
+│                ┌─────────────────┐                                          │
+│                │  需要继续？     │                                          │
+│                │  (循环检测)     │                                          │
+│                └────────┬────────┘                                          │
+│                         │                                                    │
+│              ┌──────────┴──────────┐                                        │
+│              ▼                     ▼                                        │
+│       ┌───────────┐         ┌───────────┐                                  │
+│       │  继续循环 │         │  结束响应 │                                  │
+│       │  (Reason) │         │  (Done)   │                                  │
+│       └───────────┘         └───────────┘                                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-- 连续 5 次登录失败后锁定账户
-- 锁定时长 15 分钟
-- 记录所有登录尝试
+### 工具系统架构
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          工具系统架构                                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                    agentTools/index.ts (统一入口)                     │    │
+│  │                                                                      │    │
+│  │  - getAllToolDefinitions(): 获取所有工具定义                          │    │
+│  │  - getToolsByCategory(category): 按类别获取工具                       │    │
+│  │  - executeTool(name, args, context): 执行工具                         │    │
+│  │  - findSimilarTool(name): 相似度匹配                                  │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                      │                                       │
+│           ┌──────────────────────────┼──────────────────────────┐           │
+│           ▼                          ▼                          ▼           │
+│  ┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐   │
+│  │  搜索工具       │       │  内容工具       │       │  导航工具       │   │
+│  │  (search.ts)    │       │  (content.ts)   │       │  (navigation.ts)│   │
+│  │  6 个工具       │       │  7 个工具       │       │  4 个工具       │   │
+│  └─────────────────┘       └─────────────────┘       └─────────────────┘   │
+│           │                          │                          │           │
+│           ▼                          ▼                          ▼           │
+│  ┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐   │
+│  │  统计工具       │       │  文件操作工具   │       │  标签工具       │   │
+│  │  (stats.ts)     │       │  (fileops.ts)   │       │  (tags.ts)      │   │
+│  │  5 个工具       │       │  15 个工具 ⭐   │       │  6 个工具       │   │
+│  └─────────────────┘       └─────────────────┘       └─────────────────┘   │
+│           │                          │                          │           │
+│           ▼                          ▼                          ▼           │
+│  ┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐   │
+│  │  分享工具       │       │  版本工具       │       │  笔记工具       │   │
+│  │  (share.ts)     │       │  (version.ts)   │       │  (notes.ts)     │   │
+│  │  10 个工具 ⭐   │       │  4 个工具       │       │  5 个工具       │   │
+│  └─────────────────┘       └─────────────────┘       └─────────────────┘   │
+│           │                          │                          │           │
+│           ▼                          ▼                          ▼           │
+│  ┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐   │
+│  │  权限工具       │       │  存储工具       │       │  系统工具       │   │
+│  │  (permission.ts)│       │  (storage.ts)   │       │  (system.ts)    │   │
+│  │  6 个工具 ⭐    │       │  8 个工具       │       │  11 个工具      │   │
+│  └─────────────────┘       └─────────────────┘       └─────────────────┘   │
+│           │                                                                  │
+│           ▼                                                                  │
+│  ┌─────────────────┐                                                        │
+│  │  AI 增强工具    │                                                        │
+│  │  (ai-enhance.ts)│                                                        │
+│  │  5 个工具       │                                                        │
+│  └─────────────────┘                                                        │
+│                                                                              │
+│  ⭐ = 包含写操作，需要用户确认                                               │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 模型网关架构
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          模型网关架构                                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                      ModelGateway (modelGateway.ts)                   │    │
+│  │                                                                      │    │
+│  │  职责：                                                              │    │
+│  │  - 模型配置管理                                                      │    │
+│  │  - 请求路由                                                          │    │
+│  │  - 流式响应处理                                                      │    │
+│  │  - 错误处理与重试                                                    │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                      │                                       │
+│              ┌───────────────────────┴───────────────────────┐              │
+│              ▼                                               ▼              │
+│  ┌─────────────────────────┐                   ┌─────────────────────────┐  │
+│  │  Workers AI 适配器      │                   │  OpenAI 兼容适配器      │  │
+│  │  (workersAiAdapter.ts)  │                   │(openAiCompatibleAdapter)│  │
+│  │                         │                   │                         │  │
+│  │  - 内置模型列表         │                   │ - 自定义端点            │  │
+│  │  - 自动能力检测         │                   │ - API Key 管理          │  │
+│  │  - Workers AI API       │                   │ - OpenAI API 格式       │  │
+│  └─────────────────────────┘                   └─────────────────────────┘  │
+│                                                                              │
+│  三层回退机制：                                                              │
+│  1. 功能级模型配置（如摘要专用模型）                                          │
+│  2. 用户默认活跃模型                                                         │
+│  3. Workers AI 默认模型（Llama 3.1 8B）                                      │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## 邮件通知系统
+## 数据模型
 
-### 系统架构
+### 核心表结构
 
-v4.0.0 新增的邮件通知系统基于 Resend API 实现，支持多种邮件场景。
+#### 用户相关
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      邮件通知系统架构                          │
-├─────────────────────────────────────────────────────────────┤
-│                                                               │
-│  ┌──────────────┐      ┌──────────────┐      ┌────────────┐ │
-│  │  触发场景     │─────→│  偏好检查     │─────→│  发送邮件   │ │
-│  └──────────────┘      └──────────────┘      └────────────┘ │
-│         │                      │                     │       │
-│         ▼                      ▼                     ▼       │
-│  ┌──────────────┐      ┌──────────────┐      ┌────────────┐ │
-│  │ 注册验证      │      │ 用户偏好设置  │      │ Resend API │ │
-│  │ 密码重置      │      │ mention      │      │            │ │
-│  │ 邮箱更换      │      │ share_received│     │ KV配置存储 │ │
-│  │ 系统通知      │      │ quota_warning│      │            │ │
-│  │ @提及        │      │ ai_complete  │      │ 模板渲染    │ │
-│  │ 分享接收      │      │ system       │      │            │ │
-│  └──────────────┘      └──────────────┘      └────────────┘ │
-│                                                               │
-└─────────────────────────────────────────────────────────────┘
-```
+```sql
+-- 用户配置表
+CREATE TABLE user_settings (
+    id TEXT PRIMARY KEY,
+    user_id TEXT UNIQUE NOT NULL,
+    default_bucket TEXT,
+    storage_quota INTEGER DEFAULT 10737418240,  -- 10GB
+    created_at TEXT,
+    updated_at TEXT
+);
 
-### 核心组件
-
-#### 1. 邮件服务层 (`emailService.ts`)
-
-```typescript
-// 主要功能
--getResendConfig(env) - // 从KV获取Resend配置
-  saveResendConfig(env, config) - // 保存配置到KV
-  sendEmail(env, to, subject, html) - // 发送邮件
-  emailTemplates - // 邮件模板集合
-  parseEmailPreferences(json) - // 解析邮件偏好
-  shouldSendEmail(type, preferences); // 判断是否发送
+-- API Key 表
+CREATE TABLE api_keys (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    key_hash TEXT NOT NULL,
+    permissions TEXT,  -- JSON
+    last_used_at TEXT,
+    expires_at TEXT,
+    created_at TEXT
+);
 ```
 
-#### 2. Token管理 (`email_tokens` 表)
+#### 文件相关
 
-| Token类型        | 有效期 | 用途         |
-| ---------------- | ------ | ------------ |
-| `verify_email`   | 24小时 | 注册邮箱验证 |
-| `reset_password` | 1小时  | 密码重置     |
-| `change_email`   | 1小时  | 邮箱更换确认 |
+```sql
+-- 文件表
+CREATE TABLE files (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    bucket TEXT NOT NULL,
+    key TEXT NOT NULL,  -- R2 object key
+    name TEXT NOT NULL,
+    mime_type TEXT,
+    size INTEGER,
+    folder_id TEXT,
+    summary TEXT,
+    description TEXT,
+    tags TEXT,  -- JSON array
+    is_starred INTEGER DEFAULT 0,
+    is_deleted INTEGER DEFAULT 0,
+    created_at TEXT,
+    updated_at TEXT
+);
 
-**安全措施**：
+-- 文件夹表
+CREATE TABLE folders (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    parent_id TEXT,
+    path TEXT NOT NULL,
+    created_at TEXT,
+    updated_at TEXT
+);
 
-- Token使用SHA-256哈希存储
-- Token一次性使用
-- 使用后标记 `usedAt`
+-- 文件版本表
+CREATE TABLE file_versions (
+    id TEXT PRIMARY KEY,
+    file_id TEXT NOT NULL,
+    version_number INTEGER NOT NULL,
+    key TEXT NOT NULL,
+    size INTEGER,
+    created_at TEXT
+);
 
-#### 3. 邮件模板
+-- 文件标签表
+CREATE TABLE file_tags (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL UNIQUE,
+    color TEXT,
+    created_at TEXT
+);
 
-| 模板名称          | 用途         | 包含内容             |
-| ----------------- | ------------ | -------------------- |
-| `verifyEmail`     | 注册验证     | 验证链接、有效期     |
-| `resetPassword`   | 密码重置     | 重置链接、有效期     |
-| `changeEmail`     | 邮箱更换     | 确认链接、新邮箱     |
-| `passwordChanged` | 密码变更通知 | 变更时间、IP地址     |
-| `systemNotify`    | 系统通知     | 标题、内容、可选链接 |
-
-### 邮件发送流程
-
-#### 必须发送的邮件（不检查偏好）
-
-```
-用户注册
-    ↓
-生成6位验证码 (随机数字)
-    ↓
-存储到 email_tokens 表 (code字段)
-    ↓
-发送验证码邮件 (Resend API)
-    ↓
-用户输入6位验证码
-    ↓
-验证码有效性检查
-    ↓
-更新 users.email_verified = true
-    ↓
-标记验证码已使用
-```
-
-#### 受偏好控制的邮件
-
-```
-触发邮件通知
-    ↓
-读取用户 email_preferences
-    ↓
-解析偏好设置
-    ↓
-判断通知类型映射
-  - password_changed → system
-  - mention → mention
-  - share_received → share_received
-    ↓
-检查对应偏好是否开启
-    ↓
-如果开启 → 发送邮件
-如果关闭 → 跳过发送
+-- 文件-标签关联表
+CREATE TABLE file_tag_relations (
+    file_id TEXT NOT NULL,
+    tag_id TEXT NOT NULL,
+    PRIMARY KEY (file_id, tag_id)
+);
 ```
 
-### 管理员功能
+#### 分享相关
 
-#### 邮件配置管理
-
-```typescript
-// API端点
-GET / api / admin / email / config; // 获取配置（API Key脱敏）
-PUT / api / admin / email / config; // 保存配置
-POST / api / admin / email / test; // 发送测试邮件
-POST / api / admin / email / broadcast; // 群发系统公告
+```sql
+-- 分享链接表
+CREATE TABLE shares (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    file_id TEXT,
+    folder_id TEXT,
+    share_type TEXT NOT NULL,  -- 'public', 'direct', 'upload'
+    password_hash TEXT,
+    expires_at TEXT,
+    max_downloads INTEGER,
+    download_count INTEGER DEFAULT 0,
+    created_at TEXT
+);
 ```
 
-#### 群发系统公告
+#### AI 相关
 
-```typescript
-// 请求参数
+```sql
+-- AI 模型配置表
+CREATE TABLE ai_models (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    provider TEXT NOT NULL,  -- 'workers_ai', 'openai_compatible'
+    model_id TEXT NOT NULL,
+    api_endpoint TEXT,
+    api_key_encrypted TEXT,
+    is_active INTEGER DEFAULT 0,
+    capabilities TEXT,  -- JSON array
+    max_tokens INTEGER,
+    temperature REAL,
+    system_prompt TEXT,
+    config_json TEXT,
+    created_at TEXT,
+    updated_at TEXT
+);
+
+-- AI 对话会话表
+CREATE TABLE ai_chat_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    title TEXT,
+    model_id TEXT,
+    created_at TEXT,
+    updated_at TEXT
+);
+
+-- AI 对话消息表
+CREATE TABLE ai_chat_messages (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL,  -- 'user', 'assistant', 'system'
+    content TEXT NOT NULL,
+    sources TEXT,  -- JSON
+    model_used TEXT,
+    latency_ms INTEGER,
+    created_at TEXT
+);
+
+-- AI 确认请求表 (v4.3.0 新增)
+CREATE TABLE ai_confirm_requests (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    session_id TEXT,
+    tool_name TEXT NOT NULL,
+    args TEXT NOT NULL,  -- JSON
+    summary TEXT NOT NULL,
+    status TEXT DEFAULT 'pending',  -- 'pending', 'consumed'
+    created_at TEXT,
+    expires_at TEXT
+);
+
+-- AI 系统配置表
+CREATE TABLE ai_system_config (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    description TEXT,
+    category TEXT,
+    created_at TEXT,
+    updated_at TEXT
+);
+```
+
+---
+
+## API 设计
+
+### RESTful API 规范
+
+```
+GET    /api/resource          # 列表
+GET    /api/resource/:id      # 详情
+POST   /api/resource          # 创建
+PATCH  /api/resource/:id      # 更新
+DELETE /api/resource/:id      # 删除
+```
+
+### API 模块
+
+| 模块 | 路径前缀 | 说明 |
+| --- | --- | --- |
+| 认证 | `/api/auth` | 用户认证、会话管理 |
+| 文件 | `/api/files` | 文件上传、下载、管理 |
+| 文件夹 | `/api/folders` | 文件夹管理 |
+| 分享 | `/api/shares` | 分享链接管理 |
+| AI | `/api/ai` | AI 功能 |
+| 用户 | `/api/user` | 用户配置 |
+
+### 响应格式
+
+**成功响应**:
+
+```json
 {
-  subject: "系统公告标题",
-  body: "公告内容",
-  userFilter: {
-    role: "admin" | "user"  // 可选：按角色筛选
-  }
+  "data": { ... },
+  "message": "操作成功"
 }
+```
 
-// 响应
+**错误响应**:
+
+```json
 {
-  success: true,
-  data: {
-    total: 100,        // 总发送数
-    successCount: 98,  // 成功数
-    failCount: 2       // 失败数
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "错误描述",
+    "details": { ... }
   }
 }
 ```
 
-### 数据库设计
+---
 
-#### email_tokens 表
+## 安全架构
 
-| 字段        | 类型 | 说明                |
-| ----------- | ---- | ------------------- |
-| `id`        | TEXT | 主键                |
-| `userId`    | TEXT | 用户ID (外键)       |
-| `email`     | TEXT | 关联邮箱            |
-| `type`      | TEXT | Token类型           |
-| `tokenHash` | TEXT | Token哈希 (SHA-256) |
-| `expiresAt` | TEXT | 过期时间            |
-| `usedAt`    | TEXT | 使用时间 (可空)     |
-| `createdAt` | TEXT | 创建时间            |
+### 认证与授权
 
-**索引**: `idx_email_tokens_hash`, `idx_email_tokens_user`
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      认证流程                                │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  请求 → Clerk 中间件 → 用户验证 → 权限检查 → 业务处理        │
+│                                                              │
+│  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐  │
+│  │  请求   │───→│  Clerk  │───→│  权限   │───→│  业务   │  │
+│  │         │    │  验证   │    │  检查   │    │  处理   │  │
+│  └─────────┘    └─────────┘    └─────────┘    └─────────┘  │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
 
-#### users 表扩展字段
+### 数据安全
 
-| 字段                  | 类型    | 默认值 | 说明            |
-| --------------------- | ------- | ------ | --------------- |
-| `email_verified`      | BOOLEAN | false  | 邮箱验证状态    |
-| `email_preferences`   | TEXT    | '{}'   | 邮件偏好 (JSON) |
-| `password_changed_at` | TEXT    | null   | 密码变更时间    |
+- **API Key 加密**：使用 AES-256-GCM 加密存储
+- **密码哈希**：使用 bcrypt 进行哈希
+- **敏感数据**：不记录日志，不返回给前端
+
+### 访问控制
+
+- **文件访问**：检查文件所有者
+- **分享访问**：验证分享密码和有效期
+- **API 访问**：验证 API Key 权限
+
+---
+
+## 部署架构
+
+### Cloudflare 部署
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Cloudflare 部署架构                       │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │                    Cloudflare                        │    │
+│  │                                                      │    │
+│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────┐ │    │
+│  │  │   Pages     │    │   Workers   │    │   R2    │ │    │
+│  │  │  (前端)     │    │  (后端 API) │    │ (存储)  │ │    │
+│  │  └─────────────┘    └─────────────┘    └─────────┘ │    │
+│  │         │                  │                │       │    │
+│  │         │                  ▼                │       │    │
+│  │         │          ┌─────────────┐          │       │    │
+│  │         │          │     D1      │          │       │    │
+│  │         │          │  (数据库)   │──────────┘       │    │
+│  │         │          └─────────────┘                  │    │
+│  │         │                  │                        │    │
+│  │         │                  ▼                        │    │
+│  │         │          ┌─────────────┐                  │    │
+│  │         │          │ Vectorize   │                  │    │
+│  │         │          │  (向量库)   │                  │    │
+│  │         │          └─────────────┘                  │    │
+│  │         │                  │                        │    │
+│  │         │                  ▼                        │    │
+│  │         │          ┌─────────────┐                  │    │
+│  │         │          │ Workers AI  │                  │    │
+│  │         │          │  (AI 服务)  │                  │    │
+│  │         │          └─────────────┘                  │    │
+│  │         │                                           │    │
+│  │         └───────────────────────────────────────────┘    │
+│  │                          │                               │    │
+│  └──────────────────────────┼───────────────────────────────┘    │
+│                             │                                    │
+│                             ▼                                    │
+│                    ┌─────────────────┐                          │
+│                    │     用户        │                          │
+│                    └─────────────────┘                          │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ### 环境变量
 
-| 变量名       | 必填 | 说明                                           |
-| ------------ | ---- | ---------------------------------------------- |
-| `PUBLIC_URL` | ⚪   | 应用公网地址，用于生成文件直接访问链接（可选） |
-
-**注意**: 邮件验证使用6位验证码方式，无需配置 `PUBLIC_URL`。
-
-### 前端集成
-
-#### 页面组件
-
-| 组件                      | 路由                      | 功能               |
-| ------------------------- | ------------------------- | ------------------ |
-| `VerifyEmail`             | `/verify-email`           | 邮箱验证码输入页   |
-| `ForgotPassword`          | `/forgot-password`        | 忘记密码页面       |
-| `ResetPassword`           | `/reset-password`         | 重置密码页面       |
-| `EmailConfig`             | `/admin` (邮件配置选项卡) | 管理员邮件配置     |
-| `EmailVerificationBanner` | -                         | 未验证用户提示横幅 |
-
-#### 设置页面集成
-
-- **邮箱设置选项卡**
-  - 显示当前邮箱和验证状态
-  - 重发验证邮件
-  - 更换邮箱功能
-  - 邮件偏好设置
-
-### 安全机制
-
-#### JWT失效机制
-
-```typescript
-// 密码修改/重置后更新
-await db.update(users).set({
-  passwordHash: newPasswordHash,
-  passwordChangedAt: now, // 记录变更时间
-});
-
-// 登录时检查
-if (user.passwordChangedAt && decoded.iat) {
-  const passwordChangedAt = new Date(user.passwordChangedAt).getTime() / 1000;
-  if (passwordChangedAt > decoded.iat) {
-    // JWT已失效，要求重新登录
-    return c.json({ error: '密码已更改，请重新登录' }, 401);
-  }
-}
-```
-
-#### 防邮箱枚举攻击
-
-```typescript
-// 忘记密码无论邮箱是否存在都返回200
-app.post('/forgot-password', async (c) => {
-  const user = await db.select().from(users).where(eq(users.email, email)).get();
-
-  if (!user) {
-    // 不透露邮箱是否存在
-    return c.json({ success: true, message: '如果邮箱存在，您将收到重置邮件' });
-  }
-
-  // 发送重置邮件...
-  return c.json({ success: true, message: '如果邮箱存在，您将收到重置邮件' });
-});
-```
-
-#### 限流机制
-
-```typescript
-// 重发验证邮件限流
-const rateKey = `rate:resend:${email}`;
-const exists = await c.env.KV.get(rateKey);
-if (exists) {
-  throwAppError('RATE_LIMIT_EXCEEDED', '请等待1分钟后重试');
-}
-await c.env.KV.put(rateKey, '1', { expirationTtl: 60 });
-```
-
----
-
-## 定时任务
-
-系统通过 Cloudflare Cron Triggers 执行定时任务（定义于 `apps/api/src/routes/cron.ts`）：
-
-| 任务       | 触发时间      | 说明                       |
-| ---------- | ------------- | -------------------------- |
-| 回收站清理 | 每天凌晨 3 点 | 清理超过 30 天的回收站文件 |
-| 会话清理   | 每天凌晨 3 点 | 清理过期的会话和任务       |
-| 分享清理   | 每天凌晨 3 点 | 清理过期的分享链接         |
-
-**配置方式** (wrangler.toml):
-
 ```toml
-[triggers]
-crons = ["0 3 * * *"]
+# wrangler.toml
+[vars]
+ENVIRONMENT = "production"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ossshelf"
+database_id = "xxx"
+
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "ossshelf"
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "ossshelf"
+
+[ai]
+binding = "AI"
 ```
 
 ---
 
-## 安全措施
+## 相关文档
 
-### 1. 密码存储
-
-使用 bcrypt 哈希存储密码，自动加盐。
-
-### 2. JWT 签名
-
-使用 `JWT_SECRET` 环境变量签名，建议 32+ 字符随机字符串。
-
-### 3. 密钥加密
-
-存储桶密钥使用 AES-GCM 加密存储，密钥为 `ENCRYPTION_KEY`。
-
-### 4. CORS
-
-通过环境变量 `CORS_ORIGINS` 配置允许的域名，多个域名用逗号分隔。本地开发地址默认已允许。
-
-### 5. 安全头
-
-使用 Hono secure-headers 中间件添加安全响应头。
-
-### 6. 输入验证
-
-使用 Zod 进行请求参数验证，防止注入攻击。
-
-### 7. 审计日志
-
-记录所有关键操作，便于追溯和安全审计。
+- [AI 功能说明](./AI_FEATURES.md)
+- [AI API 文档](./API_AI.md)
+- [更新日志](../CHANGELOG.md)

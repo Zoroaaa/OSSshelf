@@ -11,10 +11,11 @@
 
 import type { Env } from '../../types/env';
 import { searchAndFetchFiles, buildFileTextForVector } from '../vectorIndex';
-import { getDb, files } from '../../db';
-import { eq, and, isNull, desc, sql } from 'drizzle-orm';
+import { getDb, files, searchHistory } from '../../db';
+import { eq, and, isNull, desc, sql, gte } from 'drizzle-orm';
 import { logger } from '@osshelf/shared';
 import { getMimeTypeCategory } from './utils';
+import { getAiConfigNumber } from './aiConfigService';
 
 export interface FileContext {
   id: string;
@@ -48,9 +49,148 @@ export interface ChatRagRequest {
 
 const DEFAULT_MAX_FILES = 5;
 const DEFAULT_MAX_CONTEXT_LENGTH = 8000;
-const ESTIMATED_TOKENS_PER_CHAR = 0.5;
+const PREFERENCE_CACHE_TTL_MS = 5 * 60 * 1000;
 
+interface UserSearchPreferences {
+  topQueries: string[];
+  topMimeTypes: string[];
+}
+
+export type QueryIntent = 'file_stats' | 'file_search' | 'content_qa' | 'image_visual' | 'general';
+
+const VISUAL_PATTERNS = [/照片|图片.*(找|搜)|找.*照片|photo|image/i, /描述|外观|颜色|样子|scene/i];
+
+const VALID_INTENTS: QueryIntent[] = ['file_stats', 'file_search', 'content_qa', 'image_visual', 'general'];
+
+const intentCache = new Map<string, { intent: QueryIntent; expiresAt: number }>();
+const INTENT_CACHE_TTL_MS = 10 * 60 * 1000;
+
+const preferenceCache = new Map<string, { data: UserSearchPreferences; expiresAt: number }>();
+
+async function getUserSearchPreferences(env: Env, userId: string): Promise<UserSearchPreferences> {
+  const cacheKey = userId;
+  const cached = preferenceCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+
+  const db = getDb(env.DB);
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400_000).toISOString();
+
+  try {
+    const recent = await db
+      .select({ query: searchHistory.query })
+      .from(searchHistory)
+      .where(and(eq(searchHistory.userId, userId), gte(searchHistory.createdAt, thirtyDaysAgo)))
+      .orderBy(desc(searchHistory.createdAt))
+      .limit(50)
+      .all();
+
+    const freq = new Map<string, number>();
+    for (const r of recent) {
+      const words = r.query.split(/[\s，。、,.\-_]+/).filter((w) => w.length >= 2);
+      for (const w of words) {
+        freq.set(w, (freq.get(w) || 0) + 1);
+      }
+    }
+    const topQueries = [...freq.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([w]) => w);
+
+    const recentFiles = await db
+      .select({ mimeType: files.mimeType })
+      .from(files)
+      .where(and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false)))
+      .orderBy(desc(files.updatedAt))
+      .limit(30)
+      .all();
+
+    const mimeFreq = new Map<string, number>();
+    for (const f of recentFiles) {
+      if (f.mimeType) {
+        const cat = getMimeTypeCategory(f.mimeType);
+        mimeFreq.set(cat, (mimeFreq.get(cat) || 0) + 1);
+      }
+    }
+    const topMimeTypes = [...mimeFreq.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([t]) => t);
+
+    const prefs: UserSearchPreferences = { topQueries, topMimeTypes };
+    preferenceCache.set(cacheKey, { data: prefs, expiresAt: Date.now() + PREFERENCE_CACHE_TTL_MS });
+    return prefs;
+  } catch (error) {
+    logger.error('RAG', 'Failed to get user search preferences', { userId }, error);
+    return { topQueries: [], topMimeTypes: [] };
+  }
+}
+
+async function classifyIntent(env: Env, query: string): Promise<QueryIntent> {
+  const cacheKey = query.trim().toLowerCase();
+  const cached = intentCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.intent;
+  }
+
+  let intent: QueryIntent;
+
+  if (FILE_LIST_PATTERNS.some((p) => p.test(query))) {
+    intent = 'file_stats';
+  } else if (VISUAL_PATTERNS.some((p) => p.test(query))) {
+    intent = 'image_visual';
+  } else if (!env.AI) {
+    intent = 'file_search';
+  } else {
+    try {
+      const result = await Promise.race([
+        (env.AI as any).run('@cf/meta/llama-3.1-8b-instruct', {
+          messages: [
+            {
+              role: 'system',
+              content: `将用户问题分类为以下之一，只输出分类词，不输出其他内容：
+file_stats（询问文件数量/存储统计）
+file_search（寻找特定文件）
+content_qa（基于文件内容的问答）
+image_visual（通过图片视觉内容找图）
+general（与文件无关的通用问题）`,
+            },
+            { role: 'user', content: query },
+          ],
+          max_tokens: 10,
+        }),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 500)),
+      ]);
+
+      const label = ((result as any)?.response || '').trim().toLowerCase() as QueryIntent;
+      intent = VALID_INTENTS.includes(label) ? label : 'file_search';
+    } catch {
+      intent = 'file_search';
+    }
+  }
+
+  intentCache.set(cacheKey, { intent, expiresAt: Date.now() + INTENT_CACHE_TTL_MS });
+  return intent;
+}
+
+/**
+ * 语言感知 token 估算
+ * 英文: 1 token ≈ 4 chars (0.25 tokens/char)
+ * 中文: 1 token ≈ 1.5 chars (0.67 tokens/char)
+ * 中文字符占比超 30% 时用中文系数，避免低估导致超窗口
+ */
+function estimateTokens(text: string): number {
+  if (!text) return 0;
+  const chineseChars = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length;
+  const chineseRatio = chineseChars / text.length;
+  const tokensPerChar = chineseRatio > 0.3 ? 0.67 : 0.25;
+  return Math.ceil(text.length * tokensPerChar);
+}
+
+// 中英文双语文件列表意图模式
 const FILE_LIST_PATTERNS = [
+  // 中文
   /我有(多少|哪些|什么)文件/,
   /文件(列表|清单|目录)/,
   /(列出|显示|查看)(所有|全部)?文件/,
@@ -62,6 +202,15 @@ const FILE_LIST_PATTERNS = [
   /总共.*文件/,
   /全部.*文件/,
   /所有.*文件/,
+  // 英文
+  /how many files/i,
+  /list (all |my )?files/i,
+  /show (all |my )?files/i,
+  /what files (do i have|are there)/i,
+  /file (list|count|statistics|stats|overview)/i,
+  /storage (usage|space|stats|status)/i,
+  /recent(ly)? (uploaded|added|modified)/i,
+  /all my files/i,
 ];
 
 const SYSTEM_PROMPTS = {
@@ -99,6 +248,7 @@ const SYSTEM_PROMPTS = {
 
 export class RagEngine {
   private env: Env;
+  private currentUserPreferences: UserSearchPreferences | null = null;
 
   constructor(env: Env) {
     this.env = env;
@@ -162,12 +312,50 @@ export class RagEngine {
   async buildContext(request: ChatRagRequest): Promise<RagContext> {
     const startTime = Date.now();
 
+    const maxFiles = request.maxFiles || (await getAiConfigNumber(this.env, 'ai.rag.max_files', DEFAULT_MAX_FILES));
+    const maxContextLength =
+      request.maxContextLength ||
+      (await getAiConfigNumber(this.env, 'ai.rag.max_context_length', DEFAULT_MAX_CONTEXT_LENGTH));
+
     try {
-      const isFileList = this.isFileListQuery(request.query);
+      const prefs = await getUserSearchPreferences(this.env, request.userId);
+      this.currentUserPreferences = prefs;
+      const prefHint =
+        prefs.topQueries.length > 0
+          ? `\n\n[用户偏好参考] 该用户近期常用搜索词：${prefs.topQueries.join('、')}；常用文件类型：${prefs.topMimeTypes.join('、')}。搜索结果匹配以上偏好时适当提升排序。`
+          : '';
+
+      const intent = await classifyIntent(this.env, request.query);
+      const isFileList = intent === 'file_stats';
       let relevantFiles: FileContext[] = [];
       let statsContext = '';
 
-      if (isFileList) {
+      logger.info('RAG', 'Intent classified', { query: request.query.slice(0, 50), intent });
+
+      if (intent === 'general') {
+        const emptyPrompt = this.buildEmptyResponsePrompt(request.query);
+        return {
+          query: request.query,
+          relevantFiles: [],
+          assembledPrompt: emptyPrompt,
+          messages: [
+            {
+              role: 'system',
+              content: `${SYSTEM_PROMPTS.default}${prefHint}\n\n注意：这是一个通用问题，不涉及特定文件。请根据你的知识回答。`,
+            },
+            { role: 'user', content: request.query },
+          ],
+          totalTokens: 0,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      if (intent === 'image_visual') {
+        relevantFiles = await this.searchRelevantFiles(request.query, request.userId, maxFiles);
+        if (relevantFiles.length > 0) {
+          relevantFiles = relevantFiles.filter((f) => f.mimeType?.startsWith('image/'));
+        }
+      } else if (isFileList) {
         const stats = await this.getFileStats(request.userId);
         statsContext = this.formatStatsContext(stats);
 
@@ -177,7 +365,7 @@ export class RagEngine {
           .from(files)
           .where(and(eq(files.userId, request.userId), isNull(files.deletedAt), eq(files.isFolder, false)))
           .orderBy(desc(files.createdAt))
-          .limit(request.maxFiles || 10)
+          .limit(maxFiles + 5)
           .all();
 
         relevantFiles = recentFiles.map((f) => ({
@@ -189,11 +377,7 @@ export class RagEngine {
           description: f.description || undefined,
         }));
       } else {
-        relevantFiles = await this.searchRelevantFiles(
-          request.query,
-          request.userId,
-          request.maxFiles || DEFAULT_MAX_FILES
-        );
+        relevantFiles = await this.searchRelevantFiles(request.query, request.userId, maxFiles);
 
         if (relevantFiles.length === 0) {
           // No relevant files found — let the empty context handler deal with it
@@ -224,7 +408,7 @@ export class RagEngine {
       const contextText = await this.assembleFileContext(
         relevantFiles,
         request.includeFileContent ?? false,
-        request.maxContextLength || DEFAULT_MAX_CONTEXT_LENGTH
+        maxContextLength
       );
 
       const fullContextText = statsContext ? `${statsContext}\n\n${contextText}` : contextText;
@@ -232,7 +416,7 @@ export class RagEngine {
         ? `\n重要提示：用户询问的是文件统计信息，请优先根据上方的"用户文件统计信息"部分回答，那里包含了准确的文件总数、类型分布等统计数据。不要根据下方列出的示例文件数量来回答统计问题。`
         : '';
 
-      const systemContent = `${SYSTEM_PROMPTS.default}\n\n== 相关文件信息 ==\n${fullContextText}\n== 文件信息结束 ==${statsGuidance}\n\n请根据以上文件信息回答用户的问题。`;
+      const systemContent = `${SYSTEM_PROMPTS.default}${prefHint}\n\n== 相关文件信息 ==\n${fullContextText}\n== 文件信息结束 ==${statsGuidance}\n\n请根据以上文件信息回答用户的问题。`;
 
       // Build structured messages: system → history → current user query
       const structuredMessages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
@@ -252,7 +436,7 @@ export class RagEngine {
 
       // Keep assembledPrompt for backward compat (non-structured callers)
       const assembledPrompt = `${systemContent}\n\n用户问题：${request.query}`;
-      const totalTokens = Math.ceil(assembledPrompt.length * ESTIMATED_TOKENS_PER_CHAR);
+      const totalTokens = estimateTokens(assembledPrompt);
 
       logger.info('RAG', 'Context built', {
         query: request.query.slice(0, 50),
@@ -313,7 +497,7 @@ export class RagEngine {
         threshold: 0.3,
       });
 
-      return searchResults.map((file) => ({
+      const results = searchResults.map((file) => ({
         id: file.id,
         name: file.name,
         mimeType: file.mimeType,
@@ -321,6 +505,22 @@ export class RagEngine {
         summary: file.aiSummary || undefined,
         description: file.description || undefined,
       }));
+
+      if (this.currentUserPreferences && this.currentUserPreferences.topQueries.length > 0) {
+        for (const result of results) {
+          const isMatch = this.currentUserPreferences.topQueries.some(
+            (keyword) =>
+              result.name?.toLowerCase().includes(keyword.toLowerCase()) ||
+              result.summary?.toLowerCase().includes(keyword.toLowerCase())
+          );
+          if (isMatch) {
+            result.similarityScore = Math.min(1.0, result.similarityScore + 0.15);
+          }
+        }
+        results.sort((a, b) => b.similarityScore - a.similarityScore);
+      }
+
+      return results;
     } catch (error) {
       logger.error('RAG', 'File search failed', { query, userId }, error);
       return [];
@@ -353,8 +553,7 @@ export class RagEngine {
         try {
           const content = await buildFileTextForVector(this.env, file.id);
           if (content && content.length > 0) {
-            const truncatedContent = content.slice(0, 1000);
-            fileParts.push(`内容预览：\n${truncatedContent}`);
+            fileParts.push(`内容预览：\n${content}`);
           }
         } catch {
           continue;
