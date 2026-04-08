@@ -25,7 +25,6 @@ import { cn } from '@/utils';
 import {
   User,
   Lock,
-  Trash2,
   Server,
   Eye,
   EyeOff,
@@ -34,50 +33,12 @@ import {
   Copy,
   Globe,
   Shield,
-  Monitor,
-  Smartphone,
-  Tablet,
-  Laptop,
-  Trash2 as TrashIcon,
-  Clock,
-  MapPin,
   Loader2,
   Mail,
   RefreshCw,
 } from 'lucide-react';
 
 type SettingsTab = 'profile' | 'email' | 'security';
-
-function getDeviceIcon(userAgent: string): typeof Monitor {
-  const ua = userAgent.toLowerCase();
-  if (/mobile|android|iphone|ipod|blackberry|iemobile|opera mini/i.test(ua)) {
-    if (/tablet|ipad/i.test(ua)) return Tablet;
-    return Smartphone;
-  }
-  if (/tablet|ipad/i.test(ua)) return Tablet;
-  if (/laptop|notebook/i.test(ua)) return Laptop;
-  return Monitor;
-}
-
-function getBrowserName(userAgent: string): string {
-  const ua = userAgent.toLowerCase();
-  if (ua.includes('edg/')) return 'Edge';
-  if (ua.includes('chrome/')) return 'Chrome';
-  if (ua.includes('firefox/')) return 'Firefox';
-  if (ua.includes('safari/') && !ua.includes('chrome')) return 'Safari';
-  if (ua.includes('opera') || ua.includes('opr/')) return 'Opera';
-  return '浏览器';
-}
-
-function getOSName(userAgent: string): string {
-  const ua = userAgent.toLowerCase();
-  if (ua.includes('windows')) return 'Windows';
-  if (ua.includes('mac os')) return 'macOS';
-  if (ua.includes('linux')) return 'Linux';
-  if (ua.includes('android')) return 'Android';
-  if (ua.includes('iphone') || ua.includes('ipad')) return 'iOS';
-  return '未知系统';
-}
 
 function EmailChangeForm() {
   const { toast } = useToast();
@@ -384,21 +345,9 @@ export default function Settings() {
   const [confirmPw, setConfirmPw] = useState('');
   const [showCurrentPw, setShowCurrentPw] = useState(false);
   const [showNewPw, setShowNewPw] = useState(false);
-  const [deletePw, setDeletePw] = useState('');
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const apiBase = import.meta.env.VITE_API_URL || '';
   const webdavUrl = `${apiBase}/dav`;
-
-  const {
-    data: devices = [],
-    isLoading: devicesLoading,
-    refetch: refetchDevices,
-  } = useQuery({
-    queryKey: ['devices'],
-    queryFn: () => authApi.devices().then((r) => r.data.data ?? []),
-    select: (data) => data.slice(0, 10),
-  });
 
   const updateNameMutation = useMutation({
     mutationFn: () => authApi.patchMe({ name: name.trim() || undefined }),
@@ -433,34 +382,6 @@ export default function Settings() {
       }),
   });
 
-  const deleteAccountMutation = useMutation({
-    mutationFn: () => authApi.deleteMe(deletePw),
-    onSuccess: () => {
-      toast({ title: '账户已注销' });
-      logout();
-    },
-    onError: (e: unknown) =>
-      toast({
-        title: '注销失败',
-        description: (e as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message,
-        variant: 'destructive',
-      }),
-  });
-
-  const deleteDeviceMutation = useMutation({
-    mutationFn: (deviceId: string) => authApi.deleteDevice(deviceId),
-    onSuccess: () => {
-      toast({ title: '设备已注销' });
-      refetchDevices();
-    },
-    onError: (e: unknown) =>
-      toast({
-        title: '注销失败',
-        description: (e as { response?: { data?: { error?: { message?: string } } } }).response?.data?.error?.message,
-        variant: 'destructive',
-      }),
-  });
-
   const pwStrength = (pw: string): { level: 0 | 1 | 2 | 3; label: string; color: string } => {
     if (!pw) return { level: 0, label: '', color: '' };
     let score = 0;
@@ -478,11 +399,6 @@ export default function Settings() {
   const copyToClipboard = (text: string, msg: string) => {
     navigator.clipboard.writeText(text).then(() => toast({ title: msg }));
   };
-
-  const currentDeviceId = devices.find(
-    (d) =>
-      d.lastActive === devices.reduce((a, b) => (new Date(a.lastActive) > new Date(b.lastActive) ? a : b)).lastActive
-  )?.id;
 
   const tabs: { id: SettingsTab; label: string; icon: typeof User }[] = [
     { id: 'profile', label: '个人信息', icon: User },

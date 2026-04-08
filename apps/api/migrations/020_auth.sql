@@ -1,5 +1,4 @@
--- 0002_users_auth.sql
--- 用户认证与安全相关表
+-- 020_auth.sql - 认证与安全：邮件验证、登录安全、设备、API Keys、Webhooks
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 邮件验证码表（注册验证、密码重置、邮箱更换）
@@ -73,7 +72,7 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(key_prefix);
 CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- Webhooks 表（预留）
+-- Webhooks 表
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS webhooks (
   id TEXT PRIMARY KEY,

@@ -88,7 +88,6 @@ interface FilePreviewProps {
 }
 
 export function FilePreview({ file, token, onClose, onDownload, onShare, onEdit, onVersionHistory }: FilePreviewProps) {
-  const isMobile = useIsMobile();
   const [textContent, setTextContent] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);

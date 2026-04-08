@@ -1,5 +1,4 @@
--- 0003_files_extended.sql
--- 文件扩展功能：版本控制、笔记、收藏、标签
+-- 030_files_extended.sql - 文件扩展：版本控制、笔记、标签、收藏
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 文件版本表
@@ -14,6 +13,7 @@ CREATE TABLE IF NOT EXISTS file_versions (
   hash TEXT,
   ref_count INTEGER NOT NULL DEFAULT 1,
   change_summary TEXT,
+  ai_change_summary TEXT,
   created_by TEXT REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   

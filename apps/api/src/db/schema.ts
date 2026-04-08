@@ -593,6 +593,32 @@ export const userStars = sqliteTable(
   })
 );
 
+export const aiProviders = sqliteTable(
+  'ai_providers',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    nameEn: text('name_en'),
+    type: text('type').notNull().default('openai_compatible'),
+    apiEndpoint: text('api_endpoint'),
+    description: text('description'),
+    thinkingConfig: text('thinking_config'),
+    features: text('features').default('{"thinking":false,"functionCalling":true,"streaming":true,"vision":false}'),
+    isSystem: integer('is_system', { mode: 'boolean' }).notNull().default(false),
+    isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    userActiveIdx: index('idx_ai_providers_user_active').on(table.userId, table.isActive),
+    userDefaultIdx: index('idx_ai_providers_user_default').on(table.userId, table.isDefault),
+    systemIdx: index('idx_ai_providers_system').on(table.isSystem),
+  })
+);
+
 export const aiModels = sqliteTable(
   'ai_models',
   {
@@ -600,6 +626,7 @@ export const aiModels = sqliteTable(
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    providerId: text('provider_id').references(() => aiProviders.id, { onDelete: 'set null' }),
     name: text('name').notNull(),
     provider: text('provider').notNull().default('workers_ai'),
     modelId: text('model_id').notNull(),
@@ -620,12 +647,14 @@ export const aiModels = sqliteTable(
       '["image_caption","image_tag","image_analysis","file_summary"]'
     ),
     isReadonly: integer('is_readonly', { mode: 'boolean' }).default(false),
+    sortOrder: integer('sort_order').notNull().default(0),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
   (table) => ({
     userActiveIdx: index('idx_ai_models_user_active').on(table.userId, table.isActive),
     userProviderIdx: index('idx_ai_models_user_provider').on(table.userId, table.provider),
+    providerIdx: index('idx_ai_models_provider').on(table.providerId),
   })
 );
 
@@ -658,6 +687,8 @@ export const aiChatMessages = sqliteTable(
     sources: text('sources'),
     modelUsed: text('model_used'),
     latencyMs: integer('latency_ms'),
+    toolCalls: text('tool_calls'),
+    reasoning: text('reasoning'),
     createdAt: text('created_at').notNull(),
   },
   (table) => ({

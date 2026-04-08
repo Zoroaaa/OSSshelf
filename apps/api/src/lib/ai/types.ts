@@ -59,6 +59,7 @@ export interface ModelConfig {
   userId: string;
   name: string;
   provider: ModelProvider;
+  providerId?: string;
   modelId: string;
   apiEndpoint?: string;
   apiKeyEncrypted?: string;
@@ -78,6 +79,7 @@ export interface ModelConfig {
   thinkingNestedKey?: string;
   disableThinkingForFeatures?: string;
   isReadonly?: boolean;
+  sortOrder?: number;
 }
 
 export type AiFeatureType =
@@ -107,6 +109,7 @@ export interface ChatCompletionResponse {
   role: 'assistant';
   model: string;
   finishReason?: 'stop' | 'length' | 'content_filter' | 'tool_calls';
+  reasoningContent?: string;
   toolCalls?: Array<{
     id: string;
     name: string;

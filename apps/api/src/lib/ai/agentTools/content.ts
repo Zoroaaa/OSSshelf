@@ -645,7 +645,7 @@ export class ContentTools {
       }
 
       const previewLines = vectorText.split('\n').slice(0, lines);
-      let preview = previewLines.join('\n');
+      const preview = previewLines.join('\n');
 
       return {
         fileId,

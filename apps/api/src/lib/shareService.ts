@@ -5,12 +5,12 @@
  * 供 API 路由和 AI AgentTools 共同调用。
  */
 
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDb, files, shares } from '../db';
 import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';
 import { checkFilePermission } from '../routes/permissions';
-import { getEncryptionKey, hashPassword } from './crypto';
+import { hashPassword } from './crypto';
 
 export interface CreateShareInput {
   fileId: string;

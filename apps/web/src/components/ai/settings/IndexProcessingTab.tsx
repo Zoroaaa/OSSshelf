@@ -10,7 +10,6 @@
  * - 一键索引区域（使用 TaskProgress）
  */
 
-import { useState } from 'react';
 import {
   AlertCircle,
   Settings2,
@@ -62,7 +61,7 @@ export function IndexProcessingTab({
   stats,
   featureConfig,
   models,
-  visionModels,
+  visionModels: _visionModels,
   providersData,
   configLoading,
   isSavingConfig,

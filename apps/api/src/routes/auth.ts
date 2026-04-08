@@ -11,7 +11,7 @@
 
 import { Hono } from 'hono';
 import { getDb, users, loginAttempts, userDevices, files, storageBuckets, emailTokens } from '../db';
-import { eq, and, gt, desc, isNull, isNotNull, inArray } from 'drizzle-orm';
+import { eq, and, gt, desc, isNull, isNotNull } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth';
 import { signJWT, hashPassword, verifyPassword } from '../lib/crypto';
 import {
@@ -19,14 +19,13 @@ import {
   ERROR_CODES,
   LOGIN_MAX_ATTEMPTS,
   LOGIN_LOCKOUT_DURATION,
-  DEVICE_SESSION_EXPIRY,
 } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getRegConfig } from '../lib/utils';
 import { throwAppError } from '../middleware/error';
-import { createNotification, sendNotification } from '../lib/notificationUtils';
+import { sendNotification } from '../lib/notificationUtils';
 import {
   sendEmail,
   emailTemplates,

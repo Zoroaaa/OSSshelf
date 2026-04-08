@@ -34,9 +34,9 @@ export function ImagePreview({
   aiSummary,
   aiSummaryAt,
   aiTags,
-  onGenerateSummary,
+  onGenerateSummary: _onGenerateSummary,
   onGenerateTags,
-  isGeneratingSummary,
+  isGeneratingSummary: _isGeneratingSummary,
   isGeneratingTags,
 }: ImagePreviewProps) {
   return (

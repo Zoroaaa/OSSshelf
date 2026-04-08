@@ -210,13 +210,7 @@ export class NotesTools {
       })
       .from(fileNotes)
       .innerJoin(files, eq(fileNotes.fileId, files.id))
-      .where(
-        and(
-          eq(fileNotes.userId, userId),
-          isNull(fileNotes.deletedAt),
-          like(fileNotes.content, `%${query}%`)
-        )
-      )
+      .where(and(eq(fileNotes.userId, userId), isNull(fileNotes.deletedAt), like(fileNotes.content, `%${query}%`)))
       .orderBy(desc(fileNotes.createdAt))
       .limit(limit)
       .all();

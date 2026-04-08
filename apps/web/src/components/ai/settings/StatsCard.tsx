@@ -7,8 +7,6 @@
  * - 支持自定义操作按钮
  */
 
-import { FileText, Image, File, Play } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
 import type { ReactNode } from 'react';
 
 interface StatItem {

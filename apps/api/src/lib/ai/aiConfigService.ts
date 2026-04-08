@@ -36,8 +36,7 @@ export type AiConfigValue = string | number | boolean | object | null;
 
 const CONFIG_CACHE_TTL_MS = 60_000;
 
-let configCache: Map<string, AiConfigItem> | null = null;
-let cacheTimestamp = 0;
+const envCacheMap = new WeakMap<object, { cache: Map<string, AiConfigItem>; timestamp: number }>();
 
 export async function initializeAiConfig(env: Env): Promise<void> {
   const db = getDb(env.DB);
@@ -167,6 +166,16 @@ export async function initializeAiConfig(env: Env): Promise<void> {
       defaultValue: '25000',
       isEditable: true,
       sortOrder: 20,
+    },
+    {
+      key: 'ai.agent.max_context_tokens',
+      category: 'agent',
+      label: '最大上下文Token数',
+      description: 'Agent对话历史的最大Token预算，超出时裁剪最早的消息',
+      valueType: 'number',
+      defaultValue: '100000',
+      isEditable: true,
+      sortOrder: 21,
     },
     {
       key: 'ai.tool.max_image_size_bytes',
@@ -315,26 +324,26 @@ export async function initializeAiConfig(env: Env): Promise<void> {
   }
 
   logger.info('AiConfig', `成功初始化 ${defaultConfigs.length} 条默认配置`);
-  clearCache();
+  clearCache(env);
 }
 
 async function loadAllConfigs(env: Env): Promise<Map<string, AiConfigItem>> {
   const now = Date.now();
-  if (configCache && now - cacheTimestamp < CONFIG_CACHE_TTL_MS) {
-    return configCache;
+  const cached = envCacheMap.get(env);
+  if (cached && now - cached.timestamp < CONFIG_CACHE_TTL_MS) {
+    return cached.cache;
   }
 
   const db = getDb(env.DB);
   const configs = await db.select().from(aiConfig).orderBy(aiConfig.sortOrder).all();
-  configCache = new Map(configs.map((c) => [c.key, c as AiConfigItem]));
-  cacheTimestamp = now;
+  const cache = new Map(configs.map((c) => [c.key, c as AiConfigItem]));
+  envCacheMap.set(env, { cache, timestamp: now });
 
-  return configCache;
+  return cache;
 }
 
-function clearCache(): void {
-  configCache = null;
-  cacheTimestamp = 0;
+function clearCache(env: Env): void {
+  envCacheMap.delete(env);
 }
 
 export async function getAiConfig(env: Env, key: string): Promise<AiConfigValue> {
@@ -424,7 +433,7 @@ export async function updateAiConfig(env: Env, key: string, value: AiConfigValue
 
   try {
     await db.update(aiConfig).set(updateData).where(eq(aiConfig.key, key));
-    clearCache();
+    clearCache(env);
     logger.info('AiConfig', `配置已更新: ${key}`);
     return true;
   } catch (error) {
@@ -459,7 +468,7 @@ export async function resetAiConfigToDefault(env: Env, key: string): Promise<boo
 
   try {
     await db.update(aiConfig).set(resetData).where(eq(aiConfig.key, key));
-    clearCache();
+    clearCache(env);
     logger.info('AiConfig', `配置已重置为默认值: ${key}`);
     return true;
   } catch (error) {

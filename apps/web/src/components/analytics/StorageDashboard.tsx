@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { HardDrive, Activity, FileText, Image, Video, Music, Archive, File, Loader2, RefreshCw } from 'lucide-react';
+import { HardDrive, Activity, File, Loader2 } from 'lucide-react';
 import { analyticsApi, type StorageBreakdown, type ActivityHeatmap, type LargeFileItem } from '../../services/api';
 import { formatBytes, cn } from '../../utils';
 import { StorageBreakdownChart } from './StorageBreakdownChart';

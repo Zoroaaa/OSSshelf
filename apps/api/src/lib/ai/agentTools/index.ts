@@ -204,7 +204,8 @@ const TOOL_EXECUTOR_MAP: Record<string, (env: Env, userId: string, args: Record<
     get_share_stats: (env, userId, args) => ShareTools.executeGetShareDetails(env, userId, args),
     create_direct_link: (env, userId, args) => ShareTools.executeCreateDirectLink(env, userId, args),
     revoke_direct_link: (env, userId, args) => ShareTools.executeRevokeDirectLink(env, userId, args),
-    create_upload_link_for_folder: (env, userId, args) => ShareTools.executeCreateUploadLinkForFolder(env, userId, args),
+    create_upload_link_for_folder: (env, userId, args) =>
+      ShareTools.executeCreateUploadLinkForFolder(env, userId, args),
 
     // ════════════════════════════════════════════════════════════════
     // 📜 版本管理 (version.ts)
@@ -304,7 +305,8 @@ export class AgentToolExecutor {
         const similarTools = findSimilarTools(toolName, allTools);
         return {
           error: `未知工具: ${toolName}`,
-          hint: similarTools.length > 0 ? `您是否想使用: ${similarTools.join(', ')}?` : `可用工具共 ${allTools.length} 个`,
+          hint:
+            similarTools.length > 0 ? `您是否想使用: ${similarTools.join(', ')}?` : `可用工具共 ${allTools.length} 个`,
           similarTools,
         };
       }
@@ -414,7 +416,10 @@ function findSimilarTools(toolName: string, allTools: string[], maxResults: numb
       score = 100;
     } else if (lowerTarget.includes(lowerName) || lowerName.includes(lowerTarget)) {
       score = 80;
-    } else if (lowerTarget.split('_').some((part) => lowerName.includes(part)) || lowerName.split('_').some((part) => lowerTarget.includes(part))) {
+    } else if (
+      lowerTarget.split('_').some((part) => lowerName.includes(part)) ||
+      lowerName.split('_').some((part) => lowerTarget.includes(part))
+    ) {
       score = 60;
     } else {
       const commonChars = [...lowerName].filter((c) => lowerTarget.includes(c)).length;
@@ -426,7 +431,10 @@ function findSimilarTools(toolName: string, allTools: string[], maxResults: numb
     }
   }
 
-  return scores.sort((a, b) => b.score - a.score).slice(0, maxResults).map((s) => s.name);
+  return scores
+    .sort((a, b) => b.score - a.score)
+    .slice(0, maxResults)
+    .map((s) => s.name);
 }
 
 export function getAvailableToolNames(): string[] {
@@ -445,7 +453,8 @@ export function getToolsByCategory(): Record<string, string[]> {
       'search_by_tag',
       'search_duplicates',
       'smart_search',
-      'list_all_tags',
+      'get_similar_files',
+      'get_file_details',
     ],
     '📄 内容理解': [
       'read_file_text',
@@ -456,7 +465,15 @@ export function getToolsByCategory(): Record<string, string[]> {
       'generate_tags',
       'content_preview',
     ],
-    '📂 目录导航': ['list_folder', 'get_folder_tree', 'navigate_path', 'get_storage_overview'],
+    '📂 目录导航': [
+      'navigate_path',
+      'list_folder',
+      'get_recent_files',
+      'get_starred_files',
+      'get_parent_chain',
+      'get_folder_tree',
+      'get_storage_overview',
+    ],
     '📊 统计分析': [
       'get_storage_stats',
       'get_activity_stats',
@@ -484,23 +501,24 @@ export function getToolsByCategory(): Record<string, string[]> {
     '🏷️ 标签管理': [
       'add_tag',
       'remove_tag',
+      'get_file_tags',
       'list_all_tags_for_management',
       'merge_tags',
       'auto_tag_files',
       'tag_folder',
     ],
     '🔗 分享链接': [
-      'create_share',
+      'create_share_link',
       'list_shares',
-      'update_share',
+      'update_share_settings',
       'revoke_share',
-      'get_share_details',
+      'get_share_stats',
       'create_direct_link',
       'revoke_direct_link',
       'create_upload_link_for_folder',
     ],
     '📜 版本管理': ['get_file_versions', 'restore_version', 'compare_versions', 'set_version_retention'],
-    '📝 笔记备注': ['write_note', 'getFileNotes', 'update_note', 'delete_note'],
+    '📝 笔记备注': ['add_note', 'get_notes', 'update_note', 'delete_note', 'search_notes'],
     '🔐 权限管理': [
       'get_file_permissions',
       'grant_permission',
@@ -509,8 +527,21 @@ export function getToolsByCategory(): Record<string, string[]> {
       'list_user_groups',
       'manage_group_members',
     ],
-    '💾 存储管理': ['list_buckets', 'get_bucket_info', 'set_default_bucket', 'migrate_file_to_bucket'],
+    '💾 存储管理': [
+      'get_storage_usage',
+      'get_large_files',
+      'get_folder_sizes',
+      'get_cleanup_suggestions',
+      'list_buckets',
+      'get_bucket_info',
+      'set_default_bucket',
+      'migrate_file_to_bucket',
+    ],
     '⚙️ 系统管理': [
+      'get_system_status',
+      'get_help',
+      'get_version_info',
+      'get_faq',
       'get_user_profile',
       'list_api_keys',
       'create_api_key',

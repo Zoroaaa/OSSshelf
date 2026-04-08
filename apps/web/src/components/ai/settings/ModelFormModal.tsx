@@ -11,10 +11,17 @@
  * - 能力标签选择
  */
 
-import { useState } from 'react';
-import { X, Key, Loader2, Save, Brain } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, Key, Loader2, Brain } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import type { AiModel, AiProvider, AiWorkersAiModel, AiOpenAiModel } from '@/services/api';
+import {
+  aiApi,
+  type AiModel,
+  type AiProvider,
+  type AiWorkersAiModel,
+  type AiOpenAiModel,
+  type AiProviderItem,
+} from '@/services/api';
 
 interface ModelFormModalProps {
   model: AiModel | null;
@@ -29,9 +36,11 @@ interface ModelFormModalProps {
 }
 
 export function ModelFormModal({ model, providersData, onClose, onSubmit, isLoading }: ModelFormModalProps) {
+  const [allProviders, setAllProviders] = useState<AiProviderItem[]>([]);
   const [formData, setFormData] = useState({
     name: model?.name || '',
     provider: model?.provider || 'workers_ai',
+    providerId: model?.providerId || (null as string | null),
     modelId: model?.modelId || '',
     customModelId: undefined as string | undefined,
     apiEndpoint: model?.apiEndpoint || '',
@@ -49,7 +58,80 @@ export function ModelFormModal({ model, providersData, onClose, onSubmit, isLoad
     disableThinkingForFeatures:
       model?.disableThinkingForFeatures || '["image_caption","image_tag","image_analysis","file_summary"]',
     isReadonly: model?.isReadonly || false,
+    sortOrder: model?.sortOrder ?? 0,
   });
+
+  useEffect(() => {
+    loadAllProviders();
+  }, []);
+
+  const loadAllProviders = async () => {
+    try {
+      const res = await aiApi.config.getAiProviders();
+      if (res.data.success && res.data.data) {
+        setAllProviders(res.data.data);
+      }
+    } catch (error) {
+      console.error('Failed to load providers:', error);
+    }
+  };
+
+  const systemProviders = allProviders.filter((p) => p.isSystem);
+  const customProviders = allProviders.filter((p) => !p.isSystem);
+
+  const handleProviderChange = (providerValue: string) => {
+    if (providerValue.startsWith('provider_')) {
+      const providerId = providerValue.replace('provider_', '');
+      const selectedProvider = allProviders.find((p) => p.id === providerId);
+
+      let thinkingConfig: {
+        supportsThinking?: boolean;
+        thinkingParamFormat?: string;
+        thinkingParamName?: string;
+        thinkingEnabledValue?: string;
+        thinkingDisabledValue?: string;
+        thinkingNestedKey?: string;
+      } = {};
+
+      if (selectedProvider?.thinkingConfig) {
+        try {
+          const config = JSON.parse(selectedProvider.thinkingConfig);
+          thinkingConfig = {
+            supportsThinking: true,
+            thinkingParamFormat: config.paramFormat || '',
+            thinkingParamName: config.paramName || '',
+            thinkingEnabledValue: config.enabledValue?.toString() || '',
+            thinkingDisabledValue: config.disabledValue?.toString() || '',
+            thinkingNestedKey: config.nestedKey || '',
+          };
+        } catch (e) {
+          console.error('Failed to parse thinking config:', e);
+        }
+      }
+
+      setFormData({
+        ...formData,
+        provider: 'openai_compatible',
+        providerId: providerId,
+        apiEndpoint: selectedProvider?.apiEndpoint || '',
+        ...thinkingConfig,
+      });
+    } else if (providerValue === 'workers_ai') {
+      setFormData({
+        ...formData,
+        provider: 'workers_ai',
+        providerId: null,
+        apiEndpoint: '',
+      });
+    } else {
+      setFormData({
+        ...formData,
+        provider: 'openai_compatible',
+        providerId: null,
+        apiEndpoint: '',
+      });
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,6 +140,7 @@ export function ModelFormModal({ model, providersData, onClose, onSubmit, isLoad
       submitData.modelId = formData.customModelId;
       submitData.name = formData.customModelId.split('/').pop() || formData.name;
     }
+    submitData.providerId = formData.providerId || null;
     onSubmit(submitData);
   };
 
@@ -92,13 +175,32 @@ export function ModelFormModal({ model, providersData, onClose, onSubmit, isLoad
               <div>
                 <label className="block text-sm font-medium mb-1">提供商 *</label>
                 <select
-                  value={formData.provider}
-                  onChange={(e) => setFormData({ ...formData, provider: e.target.value as any })}
+                  value={formData.providerId ? `provider_${formData.providerId}` : formData.provider}
+                  onChange={(e) => handleProviderChange(e.target.value)}
                   className="w-full px-3 py-2 border rounded-lg bg-background text-sm"
                 >
                   <option value="workers_ai">Cloudflare Workers AI</option>
-                  <option value="openai_compatible">OpenAI 兼容 API</option>
+                  {systemProviders.length > 0 && (
+                    <optgroup label="系统内置提供商 (OpenAI 兼容)">
+                      {systemProviders.map((p) => (
+                        <option key={p.id} value={`provider_${p.id}`}>
+                          {p.name} {p.isDefault ? '(默认)' : ''}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {customProviders.length > 0 && (
+                    <optgroup label="自定义提供商 (OpenAI 兼容)">
+                      {customProviders.map((p) => (
+                        <option key={p.id} value={`provider_${p.id}`}>
+                          {p.name} {p.isDefault ? '(默认)' : ''}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  <option value="openai_compatible">其他 (OpenAI 兼容 API)</option>
                 </select>
+                <p className="mt-1 text-xs text-muted-foreground">选择提供商将自动填入对应的API端点和思考模式配置</p>
               </div>
             </div>
 
@@ -130,7 +232,7 @@ export function ModelFormModal({ model, providersData, onClose, onSubmit, isLoad
 
                 {formData.modelId === '__custom__' && (
                   <div className="mt-2">
-                    <label className="block block-xs text-muted mb-1">自定义模型 ID（@cf/ 开头）</label>
+                    <label className="block text-sm font-medium mb-1">自定义模型 ID（@cf/ 开头）</label>
                     <input
                       type="text"
                       value={formData.customModelId || ''}
@@ -139,7 +241,7 @@ export function ModelFormModal({ model, providersData, onClose, onSubmit, isLoad
                       placeholder="@cf/deepseek/deepseek-r1 或 @cf/black-forest-labs/flux-2-klein-4b"
                       required
                     />
-                    <p className="mt-1 text-xs text-muted">
+                    <p className="mt-1 text-xs">
                       可在{' '}
                       <a
                         href="https://developers.cloudflare.com/workers-ai/models/"
@@ -240,6 +342,18 @@ export function ModelFormModal({ model, providersData, onClose, onSubmit, isLoad
                   step={0.1}
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">排序值</label>
+                <input
+                  type="number"
+                  value={formData.sortOrder}
+                  onChange={(e) => setFormData({ ...formData, sortOrder: parseInt(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border rounded-lg bg-background text-sm"
+                  min={0}
+                  step={1}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">数值越小越靠前</p>
+              </div>
             </div>
 
             <div>
@@ -257,9 +371,7 @@ export function ModelFormModal({ model, providersData, onClose, onSubmit, isLoad
               <h3 className="font-medium text-sm sm:text-base">模型特性</h3>
 
               <div className="grid grid-cols-2 gap-3">
-                {[
-                  { key: 'supportsThinking', label: '思考模式', desc: '支持深度推理' },
-                ].map((item) => (
+                {[{ key: 'supportsThinking', label: '思考模式', desc: '支持深度推理' }].map((item) => (
                   <label
                     key={item.key}
                     className="flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-accent/50 transition-colors"
@@ -277,9 +389,7 @@ export function ModelFormModal({ model, providersData, onClose, onSubmit, isLoad
                   </label>
                 ))}
               </div>
-              <p className="text-xs text-muted-foreground mt-2">
-                💡 视觉能力和函数调用能力请在下方「模型能力」中选择
-              </p>
+              <p className="text-xs text-muted-foreground mt-2">💡 视觉能力和函数调用能力请在下方「模型能力」中选择</p>
             </div>
 
             {formData.supportsThinking && (
@@ -289,26 +399,78 @@ export function ModelFormModal({ model, providersData, onClose, onSubmit, isLoad
                   思考模式配置
                 </h3>
 
+                <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg text-xs">
+                  <p className="font-medium text-amber-800 dark:text-amber-200 mb-2">💡 什么是思考模式？</p>
+                  <p className="text-amber-700 dark:text-amber-300">
+                    思考模式（也称推理模式、深度思考）让模型在回答前先进行内部推理，适合复杂问题。
+                    不同平台的API参数格式不同，请根据您的模型提供商选择正确的格式。
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">参数格式 *</label>
+                  <select
+                    value={formData.thinkingParamFormat}
+                    onChange={(e) => setFormData({ ...formData, thinkingParamFormat: e.target.value as any })}
+                    className="w-full px-3 py-1.5 border rounded bg-background text-sm"
+                  >
+                    <option value="">请选择参数格式</option>
+                    <option value="object">Object (嵌套对象)</option>
+                    <option value="boolean">Boolean (布尔值)</option>
+                    <option value="string">String (字符串)</option>
+                  </select>
+                </div>
+
+                {formData.thinkingParamFormat && (
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800/50 border rounded-lg text-xs space-y-2">
+                    <p className="font-medium">格式说明：</p>
+                    {formData.thinkingParamFormat === 'object' && (
+                      <div className="space-y-2">
+                        <p>参数值为嵌套对象，需要在请求体中添加类似以下的参数：</p>
+                        <pre className="bg-slate-100 dark:bg-slate-900 p-2 rounded text-xs overflow-x-auto">
+                          {`{
+  "model": "your-model",
+  "messages": [...],
+  "thinking": {
+    "type": "enabled"  // 或 "disabled"
+  }
+}`}
+                        </pre>
+                        <p className="text-muted-foreground">适用于：火山引擎豆包、智谱GLM、DeepSeek R1 等</p>
+                      </div>
+                    )}
+                    {formData.thinkingParamFormat === 'boolean' && (
+                      <div className="space-y-2">
+                        <p>参数值为布尔值 true/false：</p>
+                        <pre className="bg-slate-100 dark:bg-slate-900 p-2 rounded text-xs overflow-x-auto">
+                          {`{
+  "model": "your-model",
+  "messages": [...],
+  "enable_thinking": true  // 或 false
+}`}
+                        </pre>
+                        <p className="text-muted-foreground">适用于：阿里通义千问、SiliconFlow 等</p>
+                      </div>
+                    )}
+                    {formData.thinkingParamFormat === 'string' && (
+                      <div className="space-y-2">
+                        <p>参数值为字符串：</p>
+                        <pre className="bg-slate-100 dark:bg-slate-900 p-2 rounded text-xs overflow-x-auto">
+                          {`{
+  "model": "your-model",
+  "messages": [...],
+  "reasoning_effort": "medium"  // "low" / "medium" / "high"
+}`}
+                        </pre>
+                        <p className="text-muted-foreground">适用于：OpenAI o1/o3 系列模型</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium mb-1">参数格式</label>
-                    <select
-                      value={formData.thinkingParamFormat}
-                      onChange={(e) => setFormData({ ...formData, thinkingParamFormat: e.target.value as any })}
-                      className="w-full px-3 py-1.5 border rounded bg-background text-sm"
-                    >
-                      <option value="">请选择</option>
-                      <option value="object">Object (嵌套对象)</option>
-                      <option value="boolean">Boolean (布尔值)</option>
-                      <option value="string">String (字符串)</option>
-                    </select>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      如: thinking: {"{ type: 'enabled' }"} 选择 Object
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-1">参数名称</label>
+                    <label className="block text-sm font-medium mb-1">参数名称 *</label>
                     <input
                       type="text"
                       value={formData.thinkingParamName}
@@ -316,48 +478,66 @@ export function ModelFormModal({ model, providersData, onClose, onSubmit, isLoad
                       className="w-full px-3 py-1.5 border rounded bg-background text-sm font-mono"
                       placeholder="如: thinking, enable_thinking"
                     />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      发送到API的参数名，如 <code className="text-primary">thinking</code> 或{' '}
+                      <code className="text-primary">enable_thinking</code>
+                    </p>
                   </div>
+
+                  {formData.thinkingParamFormat === 'object' && (
+                    <div>
+                      <label className="block text-sm font-medium mb-1">嵌套键名 *</label>
+                      <input
+                        type="text"
+                        value={formData.thinkingNestedKey}
+                        onChange={(e) => setFormData({ ...formData, thinkingNestedKey: e.target.value })}
+                        className="w-full px-3 py-1.5 border rounded bg-background text-sm font-mono"
+                        placeholder="如: type, enabled"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        对象内的键名，如 <code className="text-primary">type</code>
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium mb-1">启用思考值</label>
+                    <label className="block text-sm font-medium mb-1">启用思考值 *</label>
                     <input
                       type="text"
                       value={formData.thinkingEnabledValue}
                       onChange={(e) => setFormData({ ...formData, thinkingEnabledValue: e.target.value })}
                       className="w-full px-3 py-1.5 border rounded bg-background text-sm font-mono"
-                      placeholder="如: enabled, true"
+                      placeholder={
+                        formData.thinkingParamFormat === 'boolean'
+                          ? 'true'
+                          : formData.thinkingParamFormat === 'string'
+                            ? 'medium'
+                            : 'enabled'
+                      }
                     />
+                    <p className="text-xs text-muted-foreground mt-1">启用思考时传递的值</p>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium mb-1">禁用思考值</label>
+                    <label className="block text-sm font-medium mb-1">禁用思考值 *</label>
                     <input
                       type="text"
                       value={formData.thinkingDisabledValue}
                       onChange={(e) => setFormData({ ...formData, thinkingDisabledValue: e.target.value })}
                       className="w-full px-3 py-1.5 border rounded bg-background text-sm font-mono"
-                      placeholder="如: disabled, false"
+                      placeholder={
+                        formData.thinkingParamFormat === 'boolean'
+                          ? 'false'
+                          : formData.thinkingParamFormat === 'string'
+                            ? 'low'
+                            : 'disabled'
+                      }
                     />
+                    <p className="text-xs text-muted-foreground mt-1">禁用思考时传递的值</p>
                   </div>
                 </div>
-
-                {formData.thinkingParamFormat === 'object' && (
-                  <div>
-                    <label className="block text-sm font-medium mb-1">嵌套键名</label>
-                    <input
-                      type="text"
-                      value={formData.thinkingNestedKey}
-                      onChange={(e) => setFormData({ ...formData, thinkingNestedKey: e.target.value })}
-                      className="w-full px-3 py-1.5 border rounded bg-background text-sm font-mono"
-                      placeholder="如: type, enabled"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      当参数格式为 Object 时，嵌套的键名。如 thinking: {"{ type: 'enabled' }"} 中的 type
-                    </p>
-                  </div>
-                )}
 
                 <div>
                   <label className="block text-sm font-medium mb-1">禁用思考的功能</label>
@@ -373,14 +553,241 @@ export function ModelFormModal({ model, providersData, onClose, onSubmit, isLoad
                   </p>
                 </div>
 
-                <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg text-xs text-muted-foreground">
-                  💡 <strong>提示：</strong>
-                  <ul className="mt-1 space-y-1 list-disc list-inside">
-                    <li>火山引擎豆包: thinking.type = enabled/disabled</li>
-                    <li>阿里通义千问: enable_thinking = true/false</li>
-                    <li>OpenAI o1/o3: reasoning_effort = low/medium/high</li>
-                    <li>智谱GLM: thinking.type = enabled/disabled</li>
-                  </ul>
+                <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg text-xs">
+                  <p className="font-medium text-blue-800 dark:text-blue-200 mb-2">📋 各平台配置示例：</p>
+                  <div className="space-y-3 text-blue-700 dark:text-blue-300 max-h-64 overflow-y-auto">
+                    <div>
+                      <p className="font-medium">火山引擎豆包 / 字节跳动：</p>
+                      <ul className="list-disc list-inside ml-2 space-y-0.5">
+                        <li>参数格式: Object</li>
+                        <li>
+                          参数名称:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">thinking</code>
+                        </li>
+                        <li>
+                          嵌套键名:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">type</code>
+                        </li>
+                        <li>
+                          启用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">enabled</code>
+                        </li>
+                        <li>
+                          禁用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">disabled</code>
+                        </li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-medium">阿里通义千问 / Qwen：</p>
+                      <ul className="list-disc list-inside ml-2 space-y-0.5">
+                        <li>参数格式: Boolean</li>
+                        <li>
+                          参数名称:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">
+                            enable_thinking
+                          </code>
+                        </li>
+                        <li>
+                          启用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">true</code>
+                        </li>
+                        <li>
+                          禁用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">false</code>
+                        </li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-medium">百度文心一言：</p>
+                      <ul className="list-disc list-inside ml-2 space-y-0.5">
+                        <li>参数格式: Boolean</li>
+                        <li>
+                          参数名称:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">
+                            enable_thinking
+                          </code>
+                        </li>
+                        <li>
+                          启用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">true</code>
+                        </li>
+                        <li>
+                          禁用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">false</code>
+                        </li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-medium">腾讯混元：</p>
+                      <ul className="list-disc list-inside ml-2 space-y-0.5">
+                        <li>参数格式: Object</li>
+                        <li>
+                          参数名称:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">thinking</code>
+                        </li>
+                        <li>
+                          嵌套键名:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">type</code>
+                        </li>
+                        <li>
+                          启用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">enabled</code>
+                        </li>
+                        <li>
+                          禁用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">disabled</code>
+                        </li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-medium">智谱GLM / ChatGLM：</p>
+                      <ul className="list-disc list-inside ml-2 space-y-0.5">
+                        <li>参数格式: Object</li>
+                        <li>
+                          参数名称:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">thinking</code>
+                        </li>
+                        <li>
+                          嵌套键名:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">type</code>
+                        </li>
+                        <li>
+                          启用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">enabled</code>
+                        </li>
+                        <li>
+                          禁用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">disabled</code>
+                        </li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-medium">DeepSeek R1：</p>
+                      <ul className="list-disc list-inside ml-2 space-y-0.5">
+                        <li>参数格式: Object</li>
+                        <li>
+                          参数名称:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">thinking</code>
+                        </li>
+                        <li>
+                          嵌套键名:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">type</code>
+                        </li>
+                        <li>
+                          启用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">enabled</code>
+                        </li>
+                        <li>
+                          禁用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">disabled</code>
+                        </li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-medium">月之暗面 Kimi：</p>
+                      <ul className="list-disc list-inside ml-2 space-y-0.5">
+                        <li>参数格式: Object</li>
+                        <li>
+                          参数名称:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">thinking</code>
+                        </li>
+                        <li>
+                          嵌套键名:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">type</code>
+                        </li>
+                        <li>
+                          启用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">enabled</code>
+                        </li>
+                        <li>
+                          禁用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">disabled</code>
+                        </li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-medium">xAI Grok：</p>
+                      <ul className="list-disc list-inside ml-2 space-y-0.5">
+                        <li>参数格式: Object</li>
+                        <li>
+                          参数名称:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">thinking</code>
+                        </li>
+                        <li>
+                          嵌套键名:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">type</code>
+                        </li>
+                        <li>
+                          启用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">enabled</code>
+                        </li>
+                        <li>
+                          禁用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">disabled</code>
+                        </li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-medium">OpenAI o1/o3 系列：</p>
+                      <ul className="list-disc list-inside ml-2 space-y-0.5">
+                        <li>参数格式: String</li>
+                        <li>
+                          参数名称:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">
+                            reasoning_effort
+                          </code>
+                        </li>
+                        <li>
+                          启用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">medium</code> 或{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">high</code>
+                        </li>
+                        <li>
+                          禁用值: <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">low</code>
+                        </li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-medium">Google Gemini：</p>
+                      <ul className="list-disc list-inside ml-2 space-y-0.5">
+                        <li>参数格式: String</li>
+                        <li>
+                          参数名称:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">
+                            thinking_level
+                          </code>
+                        </li>
+                        <li>
+                          启用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">high</code>
+                        </li>
+                        <li>
+                          禁用值: <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">low</code>
+                        </li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-medium">SiliconFlow：</p>
+                      <ul className="list-disc list-inside ml-2 space-y-0.5">
+                        <li>参数格式: Boolean</li>
+                        <li>
+                          参数名称:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">
+                            enable_thinking
+                          </code>
+                        </li>
+                        <li>
+                          启用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">true</code>
+                        </li>
+                        <li>
+                          禁用值:{' '}
+                          <code className="text-primary bg-blue-100 dark:bg-blue-900/50 px-1 rounded">false</code>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

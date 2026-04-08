@@ -10,13 +10,13 @@
 
 import { Hono } from 'hono';
 import { eq, and, desc } from 'drizzle-orm';
-import { getDb, apiKeys, users } from '../db';
+import { getDb, apiKeys } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
-import { createNotification, sendNotification } from '../lib/notificationUtils';
+import { sendNotification } from '../lib/notificationUtils';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 

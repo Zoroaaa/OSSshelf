@@ -239,13 +239,7 @@ export class SystemTools {
         .from(files)
         .where(and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false)))
         .get(),
-      db
-        .select()
-        .from(auditLogs)
-        .where(eq(auditLogs.userId, userId))
-        .orderBy(desc(auditLogs.createdAt))
-        .limit(5)
-        .all(),
+      db.select().from(auditLogs).where(eq(auditLogs.userId, userId)).orderBy(desc(auditLogs.createdAt)).limit(5).all(),
     ]);
 
     return {
@@ -312,9 +306,7 @@ export class SystemTools {
       version: '1.0.0',
       releaseDate: '2025-01-01',
       features: ['AI智能助手', '向量搜索', '多存储桶支持', '版本管理'],
-      changelog: [
-        { version: '1.0.0', date: '2025-01-01', changes: '初始版本发布' },
-      ],
+      changelog: [{ version: '1.0.0', date: '2025-01-01', changes: '初始版本发布' }],
     };
   }
 

@@ -12,7 +12,7 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, isNull, isNotNull, desc, sql, gte, lte } from 'drizzle-orm';
+import { eq, and, isNull, desc, sql, gte, lte } from 'drizzle-orm';
 import { getDb, users, files, storageBuckets, auditLogs } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES, logger } from '@osshelf/shared';
@@ -22,7 +22,7 @@ import { z } from 'zod';
 import { hashPassword } from '../lib/crypto';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getRegConfig, type RegConfig } from '../lib/utils';
-import { createNotification, sendNotification } from '../lib/notificationUtils';
+import { sendNotification } from '../lib/notificationUtils';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -104,7 +104,7 @@ app.get('/users/:id', async (c) => {
   const db = getDb(c.env.DB);
   const user = await db.select().from(users).where(eq(users.id, id)).get();
   if (!user) throwAppError('USER_NOT_FOUND');
-  const { passwordHash: _pw, ...safe } = user;
+  const { passwordHash, ...safe } = user;
   return c.json({ success: true, data: safe });
 });
 

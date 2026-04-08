@@ -13,7 +13,7 @@
  * 3. X-API-Key: osk_live_xxxx header
  */
 
-import type { Context, MiddlewareHandler } from 'hono';
+import type { MiddlewareHandler } from 'hono';
 import { eq, and } from 'drizzle-orm';
 import { verifyJWT } from '../lib/crypto';
 import { getDb, apiKeys, users } from '../db';

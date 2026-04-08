@@ -57,7 +57,7 @@ async function getSummaryPromptFromConfig(env: Env): Promise<Record<string, stri
   }
 }
 
-function getSummaryPrompt(mimeType: string | null, fileName: string): string {
+function getSummaryPrompt(mimeType: string | null, fileName: string, customPrompts?: Record<string, string>): string {
   const ext = fileName.split('.').pop()?.toLowerCase() || '';
 
   const codeExts = [
@@ -94,16 +94,18 @@ function getSummaryPrompt(mimeType: string | null, fileName: string): string {
 
   const dataExts = ['json', 'xml', 'yaml', 'yml', 'toml', 'ini', 'env'];
 
+  const prompts = customPrompts || SUMMARY_PROMPTS;
+
   if (ext === 'md' || ext === 'markdown') {
-    return SUMMARY_PROMPTS.markdown;
+    return prompts.markdown;
   }
 
   if (codeExts.includes(ext)) {
-    return SUMMARY_PROMPTS.code;
+    return prompts.code;
   }
 
   if (dataExts.includes(ext)) {
-    return SUMMARY_PROMPTS.data;
+    return prompts.data;
   }
 
   if (
@@ -112,14 +114,14 @@ function getSummaryPrompt(mimeType: string | null, fileName: string): string {
     mimeType === 'application/javascript' ||
     mimeType?.includes('yaml')
   ) {
-    return SUMMARY_PROMPTS.data;
+    return prompts.data;
   }
 
   if (mimeType?.startsWith('text/') && mimeType !== 'text/plain') {
-    return SUMMARY_PROMPTS.code;
+    return prompts.code;
   }
 
-  return SUMMARY_PROMPTS.default;
+  return prompts.default;
 }
 
 // 默认模型 ID（当用户未配置时使用）- 现在从配置表读取
@@ -281,8 +283,7 @@ async function callVisionModel(
   const featureConfig = await getFeatureModelConfig(env, userId);
   const effectiveModelId = featureConfig.imageCaption || defaultModelId;
 
-  const visionGateway = new ModelGateway(env);
-  const resolved = await visionGateway.resolveModelForCall(userId, effectiveModelId);
+  const resolved = await gateway.resolveModelForCall(userId, effectiveModelId);
 
   try {
     if (resolved.type === 'custom') {
@@ -428,6 +429,15 @@ async function callWorkersAiVisionForTags(env: Env, modelId: string, imageData: 
 /**
  * 从文本中解析标签
  */
+function safeParseTags(aiTagsJson: string): string {
+  try {
+    const tags: string[] = JSON.parse(aiTagsJson);
+    return tags.join(', ');
+  } catch {
+    return aiTagsJson;
+  }
+}
+
 function parseTagsFromText(text: string): string[] {
   if (!text) return [];
 
@@ -480,6 +490,7 @@ export async function generateFileSummary(
   }
 
   try {
+    const customPrompts = await getSummaryPromptFromConfig(env);
     const summary = await callChatModel(
       env,
       userId || file.userId || 'default',
@@ -488,7 +499,7 @@ export async function generateFileSummary(
         messages: [
           {
             role: 'system',
-            content: getSummaryPrompt(file.mimeType, file.name),
+            content: getSummaryPrompt(file.mimeType, file.name, customPrompts),
           },
           {
             role: 'user',
@@ -619,7 +630,7 @@ export async function suggestFileName(
     const hints = [
       `文件类型：${file.mimeType || '未知'}`,
       file.aiSummary ? `AI描述：${file.aiSummary}` : '',
-      file.aiTags ? `AI标签：${JSON.parse(file.aiTags).join(', ')}` : '',
+      file.aiTags ? `AI标签：${safeParseTags(file.aiTags)}` : '',
     ]
       .filter(Boolean)
       .join('\n');
@@ -795,7 +806,6 @@ export async function enqueueAutoProcessFile(env: Env, fileId: string, userId?: 
   }
 
   const effectiveUserId = userId || file.userId || 'default';
-  const taskId = crypto.randomUUID();
 
   const taskTypes: Array<'index' | 'summary' | 'tags'> = [];
 

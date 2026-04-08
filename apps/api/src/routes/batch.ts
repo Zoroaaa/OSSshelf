@@ -13,7 +13,7 @@
 
 import { Hono } from 'hono';
 import { eq, and, isNull, isNotNull, inArray } from 'drizzle-orm';
-import { getDb, files, users, storageBuckets } from '../db';
+import { getDb, files, users } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';

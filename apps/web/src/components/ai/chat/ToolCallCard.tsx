@@ -17,10 +17,21 @@ interface ToolCallCardProps {
   tc: ToolCallEvent;
   onFileClick: (id: string) => void;
   onConfirm?: (toolName: string, args: Record<string, unknown>) => void;
+  onConfirmAction?: (msgId: string, confirmId: string) => void;
+  onCancelConfirm?: (msgId: string) => void;
+  msgId?: string;
   toolMeta?: Record<string, { label: string; icon: React.ReactNode }>;
 }
 
-export function ToolCallCard({ tc, onFileClick, onConfirm, toolMeta = {} }: ToolCallCardProps) {
+export function ToolCallCard({
+  tc,
+  onFileClick,
+  onConfirm,
+  onConfirmAction,
+  onCancelConfirm,
+  msgId,
+  toolMeta = {},
+}: ToolCallCardProps) {
   const [expanded, setExpanded] = useState(false);
 
   const meta = toolMeta[tc.toolName] || {
@@ -31,6 +42,7 @@ export function ToolCallCard({ tc, onFileClick, onConfirm, toolMeta = {} }: Tool
   const resultObj = tc.result && typeof tc.result === 'object' ? (tc.result as Record<string, unknown>) : null;
   const isPendingConfirm = resultObj?.status === 'pending_confirm';
   const confirmMessage = resultObj?.message as string | undefined;
+  const confirmId = resultObj?.confirmId as string | undefined;
 
   const resultFiles: AgentFile[] = (() => {
     if (!tc.result || typeof tc.result !== 'object') return [];
@@ -189,13 +201,24 @@ export function ToolCallCard({ tc, onFileClick, onConfirm, toolMeta = {} }: Tool
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => onConfirm?.(tc.toolName, tc.args)}
+                  onClick={() => {
+                    if (onConfirmAction && msgId && confirmId) {
+                      onConfirmAction(msgId, confirmId);
+                    } else if (onConfirm) {
+                      onConfirm(tc.toolName, tc.args);
+                    }
+                  }}
                   className="flex-1 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium transition-colors"
                 >
                   确认执行
                 </button>
                 <button
-                  onClick={() => setExpanded(false)}
+                  onClick={() => {
+                    if (onCancelConfirm && msgId) {
+                      onCancelConfirm(msgId);
+                    }
+                    setExpanded(false);
+                  }}
                   className="flex-1 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 text-xs font-medium transition-colors"
                 >
                   取消

@@ -813,7 +813,7 @@ services:
       };
     }
 
-    let currentContent = readResult.content;
+    const currentContent = readResult.content;
 
     let matchCount = 0;
     let newContent: string;
@@ -936,7 +936,9 @@ services:
       }
     } catch (error) {
       logger.error('FileOpsTool', 'Failed to copy file in R2', { sourceId: fileId, newFileId }, error);
-      try { await env.FILES?.delete(newR2Key); } catch {}
+      try {
+        await env.FILES?.delete(newR2Key);
+      } catch {}
       await db.delete(files).where(eq(files.id, newFileId));
       return { error: '文件复制失败: 存储服务异常' };
     }
@@ -1066,9 +1068,7 @@ services:
         const parentPath = row.parentId
           ? (await db.select({ path: files.path }).from(files).where(eq(files.id, row.parentId)).get())?.path
           : undefined;
-        const newPath = parentPath
-          ? parentPath + '/' + preview.newName
-          : preview.newName;
+        const newPath = parentPath ? parentPath + '/' + preview.newName : preview.newName;
 
         await db
           .update(files)
@@ -1205,7 +1205,9 @@ services:
       const folder = await db
         .select()
         .from(files)
-        .where(and(eq(files.userId, userId), eq(files.path, currentPath), eq(files.isFolder, true), isNull(files.deletedAt)))
+        .where(
+          and(eq(files.userId, userId), eq(files.path, currentPath), eq(files.isFolder, true), isNull(files.deletedAt))
+        )
         .get();
 
       if (folder) {

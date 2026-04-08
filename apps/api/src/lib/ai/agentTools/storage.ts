@@ -209,7 +209,14 @@ export class StorageTools {
     const rows = await db
       .select()
       .from(files)
-      .where(and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false), sql`${files.size} >= ${minSize}`))
+      .where(
+        and(
+          eq(files.userId, userId),
+          isNull(files.deletedAt),
+          eq(files.isFolder, false),
+          sql`${files.size} >= ${minSize}`
+        )
+      )
       .orderBy(desc(files.size))
       .limit(limit)
       .all();
@@ -241,7 +248,11 @@ export class StorageTools {
       })
       .from(files)
       .where(and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, true)))
-      .orderBy(desc(sql`(SELECT COALESCE(SUM(f2.size), 0) FROM files f2 WHERE f2.parent_id = files.id AND f2.deleted_at IS NULL)`))
+      .orderBy(
+        desc(
+          sql`(SELECT COALESCE(SUM(f2.size), 0) FROM files f2 WHERE f2.parent_id = files.id AND f2.deleted_at IS NULL)`
+        )
+      )
       .limit(topN)
       .all();
 

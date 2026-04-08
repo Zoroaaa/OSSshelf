@@ -30,7 +30,6 @@ import {
   HardDrive,
   Star,
   BarChart3,
-  MessageSquare,
   Cpu,
 } from 'lucide-react';
 import { cn } from '@/utils';

@@ -7,7 +7,7 @@
  * - 支持取消操作
  */
 
-import { RefreshCw, CheckCircle, XCircle, Square, Loader2 } from 'lucide-react';
+import { RefreshCw, CheckCircle, XCircle, Square } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import type { AIIndexTask, AISummarizeTask, AITagsTask } from '@/services/api';
 

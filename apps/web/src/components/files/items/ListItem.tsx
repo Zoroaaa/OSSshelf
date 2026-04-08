@@ -30,12 +30,10 @@ import {
   Upload,
   FolderOpen,
   Link,
-  History as HistoryIcon,
   MoreVertical,
   Filter,
 } from 'lucide-react';
 import type { ItemProps } from '@/types/files';
-import { useState, useRef } from 'react';
 
 export function ListItem({
   file,
@@ -53,12 +51,10 @@ export function ListItem({
   onTagClick,
   onUploadLink,
   onDirectLink,
-  onVersionHistory,
+  onVersionHistory: _onVersionHistory,
 }: ItemProps) {
   const canPreview = !file.isFolder && isPreviewable(file.mimeType);
   const { isMobile } = useResponsive();
-  const [showActions, setShowActions] = useState(false);
-  const actionBtnRef = useRef<HTMLDivElement>(null);
   const allowedTypes = file.isFolder ? formatAllowedMimeTypes((file as any).allowedMimeTypes) : null;
 
   if (isMobile) {

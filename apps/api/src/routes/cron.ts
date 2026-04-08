@@ -10,22 +10,20 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, or, isNotNull, isNull, lt, sql } from 'drizzle-orm';
+import { eq, and, or, isNotNull, lt } from 'drizzle-orm';
 import {
   getDb,
   files,
-  users,
   shares,
   uploadTasks,
   loginAttempts,
   userDevices,
-  fileVersions,
   emailTokens,
   searchHistory,
   notifications,
   aiTasks,
 } from '../db';
-import { TRASH_RETENTION_DAYS, DEVICE_SESSION_EXPIRY, ERROR_CODES, logger } from '@osshelf/shared';
+import { TRASH_RETENTION_DAYS, DEVICE_SESSION_EXPIRY, logger } from '@osshelf/shared';
 import type { Env } from '../types/env';
 import { s3Delete } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats, updateUserStorage } from '../lib/bucketResolver';

@@ -49,7 +49,6 @@ export function ActivityHeatmapChart({ data }: ActivityHeatmapChartProps) {
           {data.heatmap.map((day) => {
             const total = day.uploads + day.downloads + day.deletes;
             const date = new Date(day.date);
-            const dayName = date.toLocaleDateString('zh-CN', { weekday: 'short' });
             const dateStr = date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
 
             return (

@@ -29,16 +29,6 @@ function renderMarkdown(content: string): string {
   return html;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// @提及提取（简化版）
-// ─────────────────────────────────────────────────────────────────────────────
-
-function extractMentions(content: string): string[] {
-  const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
-  const matches = content.match(emailPattern) || [];
-  return [...new Set(matches)];
-}
-
 export interface CreateNoteInput {
   fileId: string;
   content: string;

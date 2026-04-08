@@ -75,7 +75,8 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
       };
 
       const choice = data.choices[0];
-      const responseContent = choice?.message?.reasoning_content || choice?.message?.content || '';
+      const responseContent = choice?.message?.content || '';
+      const reasoningContent = choice?.message?.reasoning_content || '';
       const toolCalls = choice?.message?.tool_calls?.map((tc) => ({
         id: tc.id,
         name: tc.function.name,
@@ -92,6 +93,7 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
           | 'length'
           | 'content_filter'
           | 'tool_calls',
+        reasoningContent: reasoningContent || undefined,
         toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
       };
     } catch (error) {

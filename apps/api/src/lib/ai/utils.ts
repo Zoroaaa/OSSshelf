@@ -6,12 +6,12 @@ import { getFileContent } from '../utils';
 import { resolveTgConfig } from './features';
 import { tgDownloadFile } from '../telegramClient';
 import { tgDownloadChunked, isChunkedFileId } from '../telegramChunked';
-import type { AiFeatureType } from './types';
+import type { AiFeatureType, ThinkingParamFormat } from './types';
 import { getVendorConfig, getModelConfig } from './vendorConfig';
 
 export interface ModelThinkingConfig {
   supportsThinking?: boolean;
-  thinkingParamFormat?: 'object' | 'boolean' | 'string';
+  thinkingParamFormat?: ThinkingParamFormat;
   thinkingParamName?: string;
   thinkingEnabledValue?: string;
   thinkingDisabledValue?: string;

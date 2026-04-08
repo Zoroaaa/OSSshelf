@@ -60,7 +60,6 @@ export function GridItem({
   const canPreview = !file.isFolder && isPreviewable(file.mimeType);
   const isImage = file.mimeType?.startsWith('image/');
   const { isMobile } = useResponsive();
-  const [showActions, setShowActions] = useState(false);
   const allowedTypes = file.isFolder ? formatAllowedMimeTypes((file as any).allowedMimeTypes) : null;
 
   if (isMobile) {

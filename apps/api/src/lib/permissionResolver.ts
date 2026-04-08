@@ -10,7 +10,7 @@
  */
 
 import { eq, and, sql, inArray, isNull } from 'drizzle-orm';
-import { getDb, files, filePermissions, groupMembers, userGroups } from '../db';
+import { files, filePermissions, groupMembers, userGroups } from '../db';
 import type { DrizzleDb } from '../db';
 import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';
@@ -249,7 +249,6 @@ async function findInheritedPermission(
   }
 
   const now = new Date().toISOString();
-  const ancestorIds = ancestors.map((a) => a.id);
 
   for (const ancestor of ancestors) {
     const userPermission = await db

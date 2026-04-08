@@ -10,10 +10,9 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, isNull, sql, desc, gte, lte } from 'drizzle-orm';
+import { eq, and, isNull, sql, desc, gte } from 'drizzle-orm';
 import { getDb, files, users, storageBuckets, auditLogs } from '../db';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();

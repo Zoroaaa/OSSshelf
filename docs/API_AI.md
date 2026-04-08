@@ -1,6 +1,6 @@
 # OSSshelf AI API 文档
 
-**版本**: v4.3.0
+**版本**: v4.4.0
 **更新日期**: 2026-04-08
 
 ---
@@ -9,6 +9,7 @@
 
 - [API 概述](#api-概述)
 - [认证](#认证)
+- [AI 提供商 API](#ai-提供商-api)
 - [AI 对话 API](#ai-对话-api)
 - [Agent API](#agent-api)
 - [模型管理 API](#模型管理-api)
@@ -26,6 +27,7 @@
 
 | 模块 | 路径前缀 | 功能 |
 | --- | --- | --- |
+| AI 提供商 | `/api/ai-config/providers` | 提供商管理（v4.4.0 新增） |
 | AI 对话 | `/api/ai/chat` | 会话管理、消息发送 |
 | Agent | `/api/ai/agent` | Agent 引擎、工具调用、确认操作 |
 | 模型管理 | `/api/ai/models` | 模型配置、激活、测试 |
@@ -44,6 +46,92 @@ Authorization: Bearer <session_token>
 ```
 
 或使用 Cookie 认证。
+
+---
+
+## AI 提供商 API
+
+v4.4.0 新增提供商管理功能。
+
+### 获取系统内置提供商列表
+
+```http
+GET /api/ai-config/providers
+```
+
+**响应**:
+
+```json
+{
+  "workersAiModels": [
+    {
+      "id": "@cf/meta/llama-3.1-8b-instruct",
+      "name": "Llama 3.1 8B",
+      "capabilities": ["chat"]
+    }
+  ]
+}
+```
+
+### 获取所有提供商
+
+```http
+GET /api/ai-config/ai-providers
+```
+
+**响应**:
+
+```json
+{
+  "data": [
+    {
+      "id": "vendor-deepseek",
+      "name": "DeepSeek",
+      "apiEndpoint": "https://api.deepseek.com/v1",
+      "description": "DeepSeek深度求索大模型",
+      "thinkingConfig": "{\"paramFormat\":\"object\",\"paramName\":\"thinking\",\"nestedKey\":\"type\",\"enabledValue\":\"enabled\",\"disabledValue\":\"disabled\"}",
+      "isSystem": true,
+      "isDefault": false,
+      "isActive": true,
+      "sortOrder": 91
+    }
+  ]
+}
+```
+
+### 创建自定义提供商
+
+```http
+POST /api/ai-config/ai-providers
+Content-Type: application/json
+
+{
+  "name": "我的自定义提供商",
+  "apiEndpoint": "https://api.example.com/v1",
+  "description": "自定义 OpenAI 兼容 API",
+  "thinkingConfig": "{\"paramFormat\":\"boolean\",\"paramName\":\"enable_thinking\",\"enabledValue\":true,\"disabledValue\":false}"
+}
+```
+
+### 更新提供商
+
+```http
+PUT /api/ai-config/ai-providers/:id
+Content-Type: application/json
+
+{
+  "name": "新名称",
+  "isDefault": true
+}
+```
+
+### 删除提供商
+
+```http
+DELETE /api/ai-config/ai-providers/:id
+```
+
+> 注意：系统内置提供商无法删除
 
 ---
 

@@ -29,18 +29,24 @@ import {
   Sliders,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { ModelCard, ModelFormModal, ProvidersSection, IndexProcessingTab, VectorsTable, TasksCenter, AdvancedConfigPanel } from '@/components/ai/settings';
+import {
+  ModelCard,
+  ModelFormModal,
+  ProvidersSection,
+  IndexProcessingTab,
+  VectorsTable,
+  TasksCenter,
+  AdvancedConfigPanel,
+  ProviderManageModal,
+} from '@/components/ai/settings';
 import {
   aiApi,
   type AiModel,
-  type AiProvider,
-  type AiWorkersAiModel,
-  type AiOpenAiModel,
+  type AiProviderItem,
   type AiSystemConfigItem,
 } from '@/services/api';
 import type { AIIndexTask, AISummarizeTask, AITagsTask, AIIndexStats } from '@/services/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { cn } from '@/utils';
 
 type TabType = 'models' | 'providers' | 'index' | 'vectors' | 'tasks' | 'advanced';
 
@@ -50,6 +56,7 @@ export function AISettings() {
 
   const [activeTab, setActiveTab] = useState<TabType>('models');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showProviderModal, setShowProviderModal] = useState(false);
   const [editingModel, setEditingModel] = useState<AiModel | null>(null);
   const [expandedModelId, setExpandedModelId] = useState<string | null>(null);
 
@@ -106,6 +113,12 @@ export function AISettings() {
   const { data: providersData } = useQuery({
     queryKey: ['ai-providers'],
     queryFn: () => aiApi.config.getProviders().then((r) => r.data.data),
+    staleTime: 300000,
+  });
+
+  const { data: allProviders = [] } = useQuery<AiProviderItem[]>({
+    queryKey: ['ai-all-providers'],
+    queryFn: () => aiApi.config.getAiProviders().then((r) => r.data.data ?? []),
     staleTime: 300000,
   });
 
@@ -497,10 +510,20 @@ export function AISettings() {
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <h2 className="text-lg sm:text-xl font-semibold">已配置的模型</h2>
-              <Button onClick={() => setShowAddModal(true)} className="gap-2 w-full sm:w-auto">
-                <Plus className="h-4 w-4" />
-                添加模型
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowProviderModal(true)}
+                  className="gap-2 flex-1 sm:flex-initial"
+                >
+                  <Sliders className="h-4 w-4" />
+                  管理提供商
+                </Button>
+                <Button onClick={() => setShowAddModal(true)} className="gap-2 flex-1 sm:flex-initial">
+                  <Plus className="h-4 w-4" />
+                  添加模型
+                </Button>
+              </div>
             </div>
 
             {modelsLoading ? (
@@ -520,24 +543,104 @@ export function AISettings() {
                 </Button>
               </div>
             ) : (
-              <div className="space-y-3">
-                {models.map((model) => (
-                  <ModelCard
-                    key={model.id}
-                    model={model}
-                    isExpanded={expandedModelId === model.id}
-                    onToggleExpand={() => setExpandedModelId(expandedModelId === model.id ? null : model.id)}
-                    onEdit={() => setEditingModel(model)}
-                    onDelete={() => {
-                      if (confirm('确定要删除这个模型吗？')) deleteMutation.mutate(model.id);
-                    }}
-                    onActivate={() => activateMutation.mutate(model.id)}
-                    isActivating={activateMutation.isPending}
-                    onTest={(modelId) => testModelMutation.mutate({ modelId })}
-                    testResult={testResult}
-                    isTesting={testModelMutation.isPending && testModelMutation.variables?.modelId === model.id}
-                  />
-                ))}
+              <div className="space-y-8">
+                {(() => {
+                  // 按 providerId 分组：workers_ai 单独组，有 providerId 的归属对应提供商，其余归 ungrouped
+                  const groups: Record<string, AiModel[]> = {};
+                  models.forEach((model) => {
+                    let key: string;
+                    if (model.provider === 'workers_ai') {
+                      key = 'workers_ai';
+                    } else if (model.providerId) {
+                      key = `provider_${model.providerId}`;
+                    } else {
+                      key = 'openai_compatible_ungrouped';
+                    }
+                    if (!groups[key]) groups[key] = [];
+                    (groups[key] as AiModel[]).push(model);
+                  });
+
+                  const getGroupMeta = (key: string): { name: string; description?: string; isSystem?: boolean } => {
+                    if (key === 'workers_ai')
+                      return { name: 'Cloudflare Workers AI', description: '免费额度，零配置', isSystem: true };
+                    if (key === 'openai_compatible_ungrouped')
+                      return { name: '其他 OpenAI 兼容 API', description: '手动配置端点' };
+                    const providerId = key.replace('provider_', '');
+                    const found = allProviders.find((p) => p.id === providerId);
+                    return found
+                      ? {
+                          name: found.name,
+                          description: found.description || found.apiEndpoint,
+                          isSystem: found.isSystem,
+                        }
+                      : { name: '未知提供商' };
+                  };
+
+                  const sortedKeys = Object.keys(groups).sort((a, b) => {
+                    if (a === 'workers_ai') return -1;
+                    if (b === 'workers_ai') return 1;
+                    if (a === 'openai_compatible_ungrouped') return 1;
+                    if (b === 'openai_compatible_ungrouped') return -1;
+                    return getGroupMeta(a).name.localeCompare(getGroupMeta(b).name);
+                  });
+
+                  return sortedKeys.map((key) => {
+                    const groupModels = (groups[key] as AiModel[]).sort(
+                      (a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)
+                    );
+                    const meta = getGroupMeta(key);
+                    const activeCount = groupModels.filter((m) => m.isActive).length;
+
+                    return (
+                      <div key={key}>
+                        <div className="flex items-center gap-3 mb-3 pb-2 border-b">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="text-sm font-semibold">{meta.name}</h3>
+                              {meta.isSystem && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500">
+                                  系统
+                                </span>
+                              )}
+                              {activeCount > 0 && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] bg-primary/10 text-primary font-medium">
+                                  {activeCount} 个激活
+                                </span>
+                              )}
+                            </div>
+                            {meta.description && (
+                              <p className="text-xs text-muted-foreground mt-0.5 truncate">{meta.description}</p>
+                            )}
+                          </div>
+                          <span className="text-xs text-muted-foreground flex-shrink-0">
+                            {groupModels.length} 个模型
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {groupModels.map((model) => (
+                            <ModelCard
+                              key={model.id}
+                              model={model}
+                              isExpanded={expandedModelId === model.id}
+                              onToggleExpand={() => setExpandedModelId(expandedModelId === model.id ? null : model.id)}
+                              onEdit={() => setEditingModel(model)}
+                              onDelete={() => {
+                                if (confirm('确定要删除这个模型吗？')) deleteMutation.mutate(model.id);
+                              }}
+                              onActivate={() => activateMutation.mutate(model.id)}
+                              isActivating={activateMutation.isPending}
+                              onTest={(modelId) => testModelMutation.mutate({ modelId })}
+                              testResult={testResult}
+                              isTesting={
+                                testModelMutation.isPending && testModelMutation.variables?.modelId === model.id
+                              }
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             )}
           </div>
@@ -675,6 +778,16 @@ export function AISettings() {
             </div>
           </div>
         </div>
+      )}
+
+      {showProviderModal && (
+        <ProviderManageModal
+          onClose={() => setShowProviderModal(false)}
+          onProviderChange={() => {
+            queryClient.invalidateQueries({ queryKey: ['ai-models'] });
+            queryClient.invalidateQueries({ queryKey: ['ai-providers'] });
+          }}
+        />
       )}
     </div>
   );

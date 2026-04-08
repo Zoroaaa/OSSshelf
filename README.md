@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-green.svg)](https://nodejs.org)
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers-orange.svg)](https://workers.cloudflare.com)
-[![Version](https://img.shields.io/badge/version-4.3.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.4.0-blue.svg)](CHANGELOG.md)
 [![zread](https://img.shields.io/badge/Ask_Zread-_.svg?style=flat&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS4zMTM1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff)](https://zread.ai/Zoroaaa/OSSshelf)
 
 [功能特性](#-功能特性) • [快速开始](#-快速开始) • [部署指南](#-部署指南) • [API文档](#-api-文档)
@@ -49,50 +49,38 @@
 
 详细的版本更新日志请参阅 [CHANGELOG.md](CHANGELOG.md)。
 
-### 最新版本 v4.3.0 - AI Agent 全面升级 🚀
+### 最新版本 v4.4.0 - AI 模块全面优化 🚀
 
-**核心功能**：
+**核心更新**：
 
-- 🤖 **Agent 引擎重构**：采用 ReAct 架构（Reason → Act → Observe），支持多轮推理
-- 🛠️ **95 个智能工具**：从 4 个工具扩展到 95 个，覆盖文件操作、权限管理、分享链接等 13 个模块
-- 🧠 **智能意图识别**：自动识别搜索、视觉、内容理解、统计等意图，精准选择工具
-- 🔗 **链式推理**：工具结果驱动下一步行动，自动完成复杂任务
-- 👁️ **视觉分析增强**：图片搜索结果自动触发视觉分析链路
-- ✅ **写操作确认机制**：文件删除、移动等敏感操作需用户确认后执行
+- 🔧 **AI 提供商配置**：新增提供商管理功能，支持 16 个系统内置提供商（国内厂商 + 国际厂商）
+- 💬 **AI 对话全环节优化**：消息记录支持工具调用和推理内容存储，对话体验更流畅
+- ⚙️ **模型配置深度优化**：模型可归属特定提供商，支持排序和分组展示
+- 📱 **移动端适配优化**：AI 设置页面响应式布局优化，触控交互更友好
 
-**工具模块（95 个工具）**：
+**提供商支持（16 个系统内置）**：
 
-| 模块 | 工具数 | 功能示例 |
-|------|--------|----------|
-| 🔍 搜索与发现 | 7 | search_files, filter_files, smart_search, get_file_details |
-| 📄 内容理解 | 7 | read_file_text, analyze_image, compare_files |
-| 📂 目录导航 | 7 | list_folder, get_folder_tree, navigate_path, get_storage_overview |
-| 📊 统计分析 | 5 | get_storage_stats, get_activity_stats |
-| 📁 文件操作 | 15 | create_text_file, edit_file_content, rename_file |
-| 🏷️ 标签管理 | 7 | add_tag, remove_tag, auto_tag_files, list_all_tags_for_management |
-| 🔗 分享链接 | 8 | create_share_link, create_direct_link, create_upload_link_for_folder |
-| 📜 版本管理 | 4 | get_file_versions, restore_version |
-| 📝 笔记备注 | 5 | add_note, get_notes, search_notes |
-| 🔐 权限管理 | 6 | grant_permission, revoke_permission |
-| 💾 存储管理 | 8 | list_buckets, migrate_file_to_bucket |
-| ⚙️ 系统管理 | 11 | create_api_key, create_webhook, get_audit_logs, get_faq |
-| 🤖 AI 增强 | 5 | trigger_ai_summary, ask_rag_question |
+| 类型 | 提供商 |
+|------|--------|
+| 国内厂商 | 百度文心一言、腾讯混元、阿里通义千问、字节火山引擎、智谱AI、MiniMax、月之暗面、硅基流动、DeepSeek |
+| 国际厂商 | OpenAI、Anthropic Claude、Google Gemini、Mistral AI、xAI Grok、Groq、Perplexity、OpenRouter |
 
-**推理内容支持**：
+**推理模式支持**：
 
 - DeepSeek R1 系列：显示完整推理过程
 - 智谱 GLM-4.5/4.6/4.7/5：支持 thinking 模式
 - 阿里 QwQ 系列：显示推理过程
+- 各提供商独立 thinking_config 配置
 
 详细说明请参阅 [docs/AI_FEATURES.md](docs/AI_FEATURES.md) 和 [docs/API_AI.md](docs/API_AI.md)。
 
-### 历史版本 v4.2.0 - AI Agent 引擎与系统配置
+### 历史版本 v4.3.0 - AI Agent 全面升级
 
-- 🤖 **Agent 引擎**：支持 Function Calling 工具调用、推理内容显示
-- ⚙️ **AI 系统配置**：可配置默认模型、参数、限制、重试策略、提示词模板
-- 📊 **向量库管理**：查看和删除向量索引，支持分页和搜索
-- 📈 **任务中心**：统一显示所有任务状态，实时进度监控
-- 💬 **全局 AI 聊天**：悬浮式 AI 聊天组件，支持会话切换
+- 🤖 **Agent 引擎重构**：采用 ReAct 架构，支持多轮推理
+- 🛠️ **95 个智能工具**：覆盖文件操作、权限管理、分享链接等 13 个模块
+- 🧠 **智能意图识别**：自动识别搜索、视觉、内容理解等意图
+- 🔗 **链式推理**：工具结果驱动下一步行动
+- ✅ **写操作确认机制**：敏感操作需用户确认后执行
 
 更多历史版本请参阅 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -484,189 +472,26 @@ ossshelf/
 ├── apps/
 │   ├── api/                    # 后端 API 服务
 │   │   ├── src/
-│   │   │   ├── db/             # 数据库
-│   │   │   │   ├── index.ts    # 数据库连接
-│   │   │   │   └── schema.ts   # 表结构定义
-│   │   │   ├── lib/            # 核心库
-│   │   │   │   ├── ai/         # AI 模块 (v4.3.0 重点)
-│   │   │   │   │   ├── adapters/           # 模型适配器
-│   │   │   │   │   │   ├── workersAiAdapter.ts
-│   │   │   │   │   │   └── openAiCompatibleAdapter.ts
-│   │   │   │   │   ├── agentTools/         # Agent 工具集 (v4.3.0)
-│   │   │   │   │   │   ├── index.ts        # 工具统一入口
-│   │   │   │   │   │   ├── types.ts        # 工具类型定义
-│   │   │   │   │   │   ├── agentToolUtils.ts
-│   │   │   │   │   │   ├── search.ts       # 搜索工具 (7个)
-│   │   │   │   │   │   ├── content.ts      # 内容理解工具 (7个)
-│   │   │   │   │   │   ├── navigation.ts   # 导航工具 (7个)
-│   │   │   │   │   │   ├── stats.ts        # 统计工具 (5个)
-│   │   │   │   │   │   ├── fileops.ts      # 文件操作工具 (15个)
-│   │   │   │   │   │   ├── tags.ts         # 标签管理工具 (7个)
-│   │   │   │   │   │   ├── share.ts        # 分享链接工具 (8个)
-│   │   │   │   │   │   ├── version.ts      # 版本管理工具 (4个)
-│   │   │   │   │   │   ├── notes.ts        # 笔记备注工具 (5个)
-│   │   │   │   │   │   ├── permission.ts   # 权限管理工具 (6个)
-│   │   │   │   │   │   ├── storage.ts      # 存储管理工具 (8个)
-│   │   │   │   │   │   ├── system.ts       # 系统管理工具 (11个)
-│   │   │   │   │   │   └── ai-enhance.ts   # AI 增强工具 (5个)
-│   │   │   │   │   ├── agentEngine.ts      # Agent 引擎 (v4.3.0)
-│   │   │   │   │   ├── modelGateway.ts     # 模型网关
-│   │   │   │   │   ├── ragEngine.ts        # RAG 引擎
-│   │   │   │   │   ├── aiConfigService.ts  # AI 配置服务
-│   │   │   │   │   ├── features.ts         # AI 功能
-│   │   │   │   │   ├── vendorConfig.ts     # 供应商配置
-│   │   │   │   │   ├── utils.ts
-│   │   │   │   │   ├── types.ts
-│   │   │   │   │   └── index.ts
-│   │   │   │   ├── s3client.ts             # S3 客户端
-│   │   │   │   ├── telegramClient.ts       # Telegram 客户端
-│   │   │   │   ├── telegramChunked.ts      # Telegram 分片上传
-│   │   │   │   ├── crypto.ts               # 加密工具
-│   │   │   │   ├── dedup.ts                # 文件去重
-│   │   │   │   ├── versionManager.ts       # 版本管理
-│   │   │   │   ├── permissionResolver.ts   # 权限解析
-│   │   │   │   ├── webhook.ts              # Webhook 分发
-│   │   │   │   ├── vectorIndex.ts          # 向量索引
-│   │   │   │   ├── emailService.ts         # 邮件服务
-│   │   │   │   ├── fileService.ts          # 文件服务
-│   │   │   │   ├── fileContentHelper.ts    # 文件内容读取
-│   │   │   │   ├── shareService.ts         # 分享服务
-│   │   │   │   ├── noteService.ts          # 笔记服务
-│   │   │   │   ├── bucketResolver.ts       # 存储桶解析
-│   │   │   │   ├── folderPolicy.ts         # 文件夹策略
-│   │   │   │   ├── keywordSplitter.ts      # 关键词分词
-│   │   │   │   ├── aiTaskQueue.ts          # AI 任务队列
-│   │   │   │   ├── audit.ts                # 审计日志
-│   │   │   │   ├── notificationUtils.ts    # 通知工具
-│   │   │   │   ├── zipStream.ts            # ZIP 流处理
-│   │   │   │   ├── cleanup.ts              # 清理任务
-│   │   │   │   └── utils.ts
+│   │   │   ├── db/             # 数据库连接与 Schema
+│   │   │   ├── lib/            # 核心库（AI、存储、权限等）
 │   │   │   ├── middleware/     # 中间件
 │   │   │   ├── routes/         # API 路由
-│   │   │   │   ├── auth.ts              # 认证
-│   │   │   │   ├── files.ts             # 文件管理
-│   │   │   │   ├── buckets.ts           # 存储桶
-│   │   │   │   ├── share.ts             # 分享
-│   │   │   │   ├── directLink.ts        # 文件直链
-│   │   │   │   ├── tasks.ts             # 上传任务
-│   │   │   │   ├── presign.ts           # 预签名
-│   │   │   │   ├── search.ts            # 搜索（支持 FTS5）
-│   │   │   │   ├── permissions.ts       # 权限与标签
-│   │   │   │   ├── batch.ts             # 批量操作
-│   │   │   │   ├── downloads.ts         # 离线下载
-│   │   │   │   ├── preview.ts           # 预览
-│   │   │   │   ├── versions.ts          # 版本控制
-│   │   │   │   ├── notes.ts             # 文件笔记
-│   │   │   │   ├── apiKeys.ts           # API Keys 管理
-│   │   │   │   ├── groups.ts            # 用户组管理
-│   │   │   │   ├── webhooks.ts          # Webhook 管理
-│   │   │   │   ├── ai.ts                # AI 功能
-│   │   │   │   ├── aiChatRoutes.ts      # AI 对话 (v4.3.0)
-│   │   │   │   ├── aiConfigRoutes.ts    # AI 配置 (v4.3.0)
-│   │   │   │   ├── analytics.ts         # 存储分析
-│   │   │   │   ├── notifications.ts     # 通知系统
-│   │   │   │   ├── admin.ts             # 管理员
-│   │   │   │   ├── migrate.ts           # 迁移
-│   │   │   │   ├── telegram.ts          # Telegram
-│   │   │   │   ├── cron.ts              # 定时任务
-│   │   │   │   ├── webdav.ts            # WebDAV
-│   │   │   │   └── v1/                  # RESTful v1 API
-│   │   │   │       ├── index.ts
-│   │   │   │       ├── files.ts
-│   │   │   │       ├── folders.ts
-│   │   │   │       ├── shares.ts
-│   │   │   │       ├── search.ts
-│   │   │   │       └── me.ts
 │   │   │   └── index.ts        # 入口
-│   │   ├── migrations/         # 数据库迁移
-│   │   │   ├── 0001_init.sql
-│   │   │   ├── 0002_users_auth.sql
-│   │   │   ├── 0003_files_extended.sql
-│   │   │   ├── 0004_storage_upload.sql
-│   │   │   ├── 0005_permissions.sql
-│   │   │   ├── 0006_ai_features.sql
-│   │   │   ├── 0007_system.sql
-│   │   │   ├── 0008_optimizations.sql
-│   │   │   ├── 0009_ai_config_extended.sql
-│   │   │   ├── 0010_ai_version_summary.sql
-│   │   │   └── 0011_ai_confirm_requests.sql  # 写操作确认 (v4.3.0)
+│   │   ├── migrations/         # 数据库迁移（按功能模块分类）
 │   │   └── wrangler.toml       # Cloudflare 配置
 │   └── web/                    # 前端应用
-│       ├── src/
-│       │   ├── components/     # UI 组件
-│       │   │   ├── ai/         # AI 组件 (v4.3.0 增强)
-│       │   │   │   ├── chat/   # 对话组件
-│       │   │   │   │   ├── AssistantContent.tsx
-│       │   │   │   │   ├── ChatHeader.tsx
-│       │   │   │   │   ├── ChatSidebar.tsx
-│       │   │   │   │   ├── ToolCallCard.tsx
-│       │   │   │   │   ├── ReasoningSection.tsx
-│       │   │   │   │   └── WelcomeScreen.tsx
-│       │   │   │   ├── settings/  # AI 设置组件
-│       │   │   │   │   ├── AdvancedConfigPanel.tsx
-│       │   │   │   │   ├── ModelCard.tsx
-│       │   │   │   │   ├── TasksCenter.tsx
-│       │   │   │   │   └── VectorsTable.tsx
-│       │   │   │   ├── AIChatWidget.tsx
-│       │   │   │   ├── AISummaryCard.tsx
-│       │   │   │   └── SmartRenameDialog.tsx
-│       │   │   ├── files/      # 文件组件
-│       │   │   │   ├── dialogs/    # 对话框
-│       │   │   │   ├── filepreview/  # 预览组件
-│       │   │   │   ├── items/      # 列表项
-│       │   │   │   ├── permissions/  # 权限
-│       │   │   │   └── tags/       # 标签
-│       │   │   ├── admin/      # 管理组件
-│       │   │   ├── analytics/  # 存储分析组件
-│       │   │   ├── auth/       # 认证组件
-│       │   │   ├── editor/     # 编辑器组件
-│       │   │   ├── groups/     # 用户组组件
-│       │   │   ├── layouts/    # 布局组件
-│       │   │   ├── notes/      # 笔记组件
-│       │   │   ├── notifications/  # 通知组件
-│       │   │   ├── permissions/    # 权限组件
-│       │   │   ├── settings/   # 设置组件
-│       │   │   ├── share/      # 分享组件
-│       │   │   ├── ui/         # 通用 UI 组件
-│       │   │   └── webhooks/   # Webhook 组件
-│       │   ├── pages/          # 页面组件
-│       │   │   ├── Dashboard.tsx
-│       │   │   ├── Files.tsx
-│       │   │   ├── AIChat.tsx      # AI 对话 (v4.3.0)
-│       │   │   ├── AISettings.tsx  # AI 设置 (v4.3.0)
-│       │   │   ├── Analytics.tsx
-│       │   │   ├── Buckets.tsx
-│       │   │   ├── Downloads.tsx
-│       │   │   ├── Shares.tsx
-│       │   │   ├── SharePage.tsx
-│       │   │   ├── Starred.tsx
-│       │   │   ├── Trash.tsx
-│       │   │   ├── Tasks.tsx
-│       │   │   ├── Settings.tsx
-│       │   │   ├── Permissions.tsx
-│       │   │   ├── Admin.tsx
-│       │   │   ├── Login.tsx
-│       │   │   ├── Register.tsx
-│       │   │   ├── ForgotPassword.tsx
-│       │   │   ├── ResetPassword.tsx
-│       │   │   └── VerifyEmail.tsx
-│       │   ├── hooks/          # 自定义 Hooks
-│       │   ├── services/       # API 服务
-│       │   └── stores/         # 状态管理
-│       └── vite.config.ts
-├── packages/
-│   └── shared/                 # 共享代码
 │       └── src/
-│           └── constants/
-│               └── index.ts    # 常量定义
+│           ├── components/     # UI 组件
+│           ├── pages/          # 页面组件
+│           ├── hooks/          # 自定义 Hooks
+│           ├── services/       # API 服务
+│           └── stores/         # 状态管理
+├── packages/
+│   └── shared/                 # 共享代码（常量、类型等）
 └── docs/                       # 文档
-    ├── api.md                  # API 文档
-    ├── api-key-guide.md        # API Key 使用指南
-    ├── AI_FEATURES.md          # AI 功能说明 (v4.3.0)
-    ├── API_AI.md               # AI API 文档 (v4.3.0)
-    ├── architecture.md         # 架构文档 (v4.3.0)
-    └── deployment.md           # 部署文档
 ```
+
+详细架构请参阅 [docs/architecture.md](docs/architecture.md)。
 
 ---
 

@@ -1,14 +1,57 @@
--- 0006_ai_features.sql
--- AI 功能相关表
+-- 060_ai.sql - AI 功能：模型配置、对话系统、任务队列、配置中心、提供商
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- AI模型配置表
+-- AI 提供商表 (v4.4.0)
+-- ═══════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS ai_providers (
+  id TEXT PRIMARY KEY,
+  user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  api_endpoint TEXT,
+  description TEXT,
+  thinking_config TEXT,
+  is_system INTEGER NOT NULL DEFAULT 0,
+  is_default INTEGER NOT NULL DEFAULT 0,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_providers_user_active ON ai_providers(user_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_ai_providers_user_default ON ai_providers(user_id, is_default);
+CREATE INDEX IF NOT EXISTS idx_ai_providers_system ON ai_providers(is_system);
+
+-- 系统内置提供商数据
+INSERT OR IGNORE INTO ai_providers (id, user_id, name, api_endpoint, description, thinking_config, is_system, is_default, is_active, sort_order, created_at, updated_at)
+VALUES 
+  ('vendor-baidu', NULL, '百度文心一言', 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop', '百度文心一言大模型', '{"paramFormat":"boolean","paramName":"enable_thinking","enabledValue":true,"disabledValue":false}', 1, 0, 1, 100, datetime('now', 'localtime'), datetime('now', 'localtime')),
+  ('vendor-tencent', NULL, '腾讯混元', 'https://api.hunyuan.cloud.tencent.com/v1', '腾讯混元大模型', '{"paramFormat":"object","paramName":"thinking","nestedKey":"type","enabledValue":"enabled","disabledValue":"disabled"}', 1, 0, 1, 99, datetime('now', 'localtime'), datetime('now', 'localtime')),
+  ('vendor-alibaba', NULL, '阿里通义千问', 'https://dashscope.aliyuncs.com/compatible-mode/v1', '阿里通义千问大模型', '{"paramFormat":"boolean","paramName":"enable_thinking","enabledValue":true,"disabledValue":false}', 1, 0, 1, 98, datetime('now', 'localtime'), datetime('now', 'localtime')),
+  ('vendor-volcengine', NULL, '字节火山引擎', 'https://ark.cn-beijing.volces.com/api/v3', '字节跳动火山引擎豆包大模型', '{"paramFormat":"object","paramName":"thinking","nestedKey":"type","enabledValue":"enabled","disabledValue":"disabled"}', 1, 0, 1, 97, datetime('now', 'localtime'), datetime('now', 'localtime')),
+  ('vendor-zhipu', NULL, '智谱AI', 'https://open.bigmodel.cn/api/paas/v4', '智谱GLM大模型', '{"paramFormat":"object","paramName":"thinking","nestedKey":"type","enabledValue":"enabled","disabledValue":"disabled"}', 1, 0, 1, 96, datetime('now', 'localtime'), datetime('now', 'localtime')),
+  ('vendor-minimax', NULL, 'MiniMax', 'https://api.minimax.chat/v1', 'MiniMax大模型', NULL, 1, 0, 1, 95, datetime('now', 'localtime'), datetime('now', 'localtime')),
+  ('vendor-moonshot', NULL, '月之暗面', 'https://api.moonshot.cn/v1', '月之暗面Kimi大模型', '{"paramFormat":"object","paramName":"thinking","nestedKey":"type","enabledValue":"enabled","disabledValue":"disabled"}', 1, 0, 1, 94, datetime('now', 'localtime'), datetime('now', 'localtime')),
+  ('vendor-siliconflow', NULL, '硅基流动', 'https://api.siliconflow.cn/v1', '硅基流动模型聚合平台', '{"paramFormat":"boolean","paramName":"enable_thinking","enabledValue":true,"disabledValue":false}', 1, 0, 1, 93, datetime('now', 'localtime'), datetime('now', 'localtime')),
+  ('vendor-deepseek', NULL, 'DeepSeek', 'https://api.deepseek.com/v1', 'DeepSeek深度求索大模型', '{"paramFormat":"object","paramName":"thinking","nestedKey":"type","enabledValue":"enabled","disabledValue":"disabled"}', 1, 0, 1, 91, datetime('now', 'localtime'), datetime('now', 'localtime')),
+  ('vendor-openai', NULL, 'OpenAI', 'https://api.openai.com/v1', 'OpenAI GPT系列模型', '{"paramFormat":"string","paramName":"reasoning_effort","enabledValue":"medium","disabledValue":"low"}', 1, 0, 1, 90, datetime('now', 'localtime'), datetime('now', 'localtime')),
+  ('vendor-anthropic', NULL, 'Anthropic Claude', 'https://api.anthropic.com/v1', 'Anthropic Claude系列模型', '{"paramFormat":"object","paramName":"thinking","nestedKey":"type","enabledValue":"enabled","disabledValue":"disabled"}', 1, 0, 1, 89, datetime('now', 'localtime'), datetime('now', 'localtime')),
+  ('vendor-google', NULL, 'Google Gemini', 'https://generativelanguage.googleapis.com/v1beta', 'Google Gemini系列模型', '{"paramFormat":"string","paramName":"thinking_level","enabledValue":"high","disabledValue":"low"}', 1, 0, 1, 88, datetime('now', 'localtime'), datetime('now', 'localtime')),
+  ('vendor-mistral', NULL, 'Mistral AI', 'https://api.mistral.ai/v1', 'Mistral AI大模型', NULL, 1, 0, 1, 87, datetime('now', 'localtime'), datetime('now', 'localtime')),
+  ('vendor-xai', NULL, 'xAI Grok', 'https://api.x.ai/v1', 'xAI Grok系列模型', '{"paramFormat":"object","paramName":"thinking","nestedKey":"type","enabledValue":"enabled","disabledValue":"disabled"}', 1, 0, 1, 86, datetime('now', 'localtime'), datetime('now', 'localtime')),
+  ('vendor-groq', NULL, 'Groq', 'https://api.groq.com/openai/v1', 'Groq高速推理平台', NULL, 1, 0, 1, 85, datetime('now', 'localtime'), datetime('now', 'localtime')),
+  ('vendor-perplexity', NULL, 'Perplexity', 'https://api.perplexity.ai', 'Perplexity联网搜索模型', NULL, 1, 0, 1, 84, datetime('now', 'localtime'), datetime('now', 'localtime')),
+  ('vendor-openrouter', NULL, 'OpenRouter', 'https://openrouter.ai/api/v1', 'OpenRouter模型聚合平台', NULL, 1, 0, 1, 83, datetime('now', 'localtime'), datetime('now', 'localtime'));
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- AI 模型配置表
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS ai_models (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     name TEXT NOT NULL,
     provider TEXT NOT NULL DEFAULT 'workers_ai',
+    provider_id TEXT REFERENCES ai_providers(id) ON DELETE SET NULL,
     model_id TEXT NOT NULL,
     api_endpoint TEXT,
     api_key_encrypted TEXT,
@@ -17,6 +60,7 @@ CREATE TABLE IF NOT EXISTS ai_models (
     temperature REAL DEFAULT 0.7,
     system_prompt TEXT DEFAULT '你是OSSshelf文件管理系统的智能助手。你可以帮助用户查询、分析和管理他们的文件。',
     config_json TEXT DEFAULT '{}',
+    sort_order INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -24,9 +68,10 @@ CREATE TABLE IF NOT EXISTS ai_models (
 
 CREATE INDEX IF NOT EXISTS idx_ai_models_user_active ON ai_models(user_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_ai_models_user_provider ON ai_models(user_id, provider);
+CREATE INDEX IF NOT EXISTS idx_ai_models_provider ON ai_models(provider_id);
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- AI会话历史表
+-- AI 会话历史表
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS ai_chat_sessions (
     id TEXT PRIMARY KEY,
@@ -42,13 +87,15 @@ CREATE TABLE IF NOT EXISTS ai_chat_sessions (
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated ON ai_chat_sessions(user_id, updated_at DESC);
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- AI消息记录表
+-- AI 消息记录表
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS ai_chat_messages (
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
     role TEXT NOT NULL CHECK(role IN ('user','assistant','system')),
     content TEXT NOT NULL,
+    tool_calls TEXT,
+    reasoning TEXT,
     sources TEXT,
     model_used TEXT,
     latency_ms INTEGER,
@@ -77,12 +124,14 @@ CREATE TABLE IF NOT EXISTS ai_tasks (
 
 CREATE INDEX IF NOT EXISTS idx_ai_tasks_user_type ON ai_tasks (user_id, type);
 CREATE INDEX IF NOT EXISTS idx_ai_tasks_status ON ai_tasks (status);
+CREATE INDEX IF NOT EXISTS idx_ai_tasks_completed ON ai_tasks(completed_at) WHERE completed_at IS NOT NULL;
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- AI功能配置表
+-- AI 功能配置表
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS ai_config (
     id TEXT PRIMARY KEY,
+    user_id TEXT,
     key TEXT NOT NULL UNIQUE,
     category TEXT NOT NULL,
     label TEXT NOT NULL,
@@ -92,6 +141,7 @@ CREATE TABLE IF NOT EXISTS ai_config (
     number_value REAL,
     boolean_value INTEGER DEFAULT 0,
     json_value TEXT,
+    value TEXT,
     default_value TEXT NOT NULL,
     is_system INTEGER NOT NULL DEFAULT 1,
     is_editable INTEGER NOT NULL DEFAULT 1,
@@ -116,6 +166,35 @@ INSERT INTO ai_config (id, key, category, label, description, value_type, string
 INSERT INTO ai_config (id, key, category, label, description, value_type, number_value, default_value, is_editable, sort_order) VALUES
     ('cfg-param-temperature', 'ai.model.temperature', 'parameter', '温度参数', '控制模型输出的随机性（0-2之间，越高越随机）', 'number', 0.7, '0.7', 1, 11);
 
+-- Agent 配置
+INSERT INTO ai_config (id, key, category, label, description, value_type, number_value, default_value, is_editable, sort_order) VALUES
+    ('cfg-agent-temperature', 'ai.agent.temperature', 'agent', 'Agent温度参数', 'Agent对话时的温度参数（0-2之间，越低越确定）', 'number', 0.3, '0.3', 1, 14),
+    ('cfg-agent-max-tool-calls', 'ai.agent.max_tool_calls', 'agent', '最大工具调用次数', '单次Agent响应中最大工具调用次数', 'number', 20, '20', 1, 15),
+    ('cfg-agent-max-idle-rounds', 'ai.agent.max_idle_rounds', 'agent', '最大空转轮数', '连续无新文件信息后自动退出的轮数', 'number', 3, '3', 1, 16),
+    ('cfg-agent-image-timeout-ms', 'ai.agent.image_timeout_ms', 'agent', '图片分析超时(ms)', '单张图片分析的超时时间（毫秒）', 'number', 25000, '25000', 1, 20);
+
+-- Agent 最大上下文 Token 数配置 (v4.4.0)
+INSERT INTO ai_config (id, user_id, key, value, description, created_at, updated_at)
+SELECT 
+  lower(hex(randomblob(16))),
+  NULL,
+  'ai.agent.max_context_tokens',
+  '100000',
+  'Agent 最大上下文 Token 数，用于裁剪历史消息',
+  strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now'),
+  strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now')
+WHERE NOT EXISTS (SELECT 1 FROM ai_config WHERE key = 'ai.agent.max_context_tokens');
+
+-- Tool 配置
+INSERT INTO ai_config (id, key, category, label, description, value_type, number_value, default_value, is_editable, sort_order) VALUES
+    ('cfg-tool-max-image-size', 'ai.tool.max_image_size_bytes', 'tool', '图片最大大小(字节)', '允许AI分析的图片最大字节数（超过则跳过分析）', 'number', 5242880, '5242880', 1, 21),
+    ('cfg-tool-text-chunk-size', 'ai.tool.text_chunk_size', 'tool', '文本分段大小', '读取文件内容时每段的字符数', 'number', 1500, '1500', 1, 22);
+
+-- RAG 配置
+INSERT INTO ai_config (id, key, category, label, description, value_type, number_value, default_value, is_editable, sort_order) VALUES
+    ('cfg-rag-max-files', 'ai.rag.max_files', 'rag', 'RAG最大文件数', 'RAG检索时返回的最大文件数', 'number', 5, '5', 1, 27),
+    ('cfg-rag-max-context-length', 'ai.rag.max_context_length', 'rag', 'RAG最大上下文长度', 'RAG上下文的最大字符数', 'number', 8000, '8000', 1, 28);
+
 -- 重试策略配置
 INSERT INTO ai_config (id, key, category, label, description, value_type, number_value, default_value, is_editable, sort_order) VALUES
     ('cfg-retry-max-retries', 'ai.request.max_retries', 'retry', '最大重试次数', 'API请求失败后的最大重试次数', 'number', 3, '3', 0, 30),
@@ -133,3 +212,21 @@ INSERT INTO ai_config (id, key, category, label, description, value_type, string
 INSERT INTO ai_config (id, key, category, label, description, value_type, boolean_value, default_value, is_editable, sort_order) VALUES
     ('cfg-feature-auto-process', 'ai.feature.auto_process_enabled', 'feature', '启用自动处理', '上传文件后是否自动执行AI处理（摘要、标签等）', 'boolean', 1, 'true', 1, 50),
     ('cfg-feature-vector-index', 'ai.feature.vector_index_enabled', 'feature', '启用向量索引', '是否为文件建立向量索引用于语义搜索', 'boolean', 1, 'true', 1, 51);
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- AI 工具确认请求表 (v4.3.0)
+-- ═══════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS ai_confirm_requests (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    session_id TEXT,
+    tool_name TEXT NOT NULL,
+    args TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_confirm_user_status ON ai_confirm_requests(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_confirm_expires ON ai_confirm_requests(expires_at);

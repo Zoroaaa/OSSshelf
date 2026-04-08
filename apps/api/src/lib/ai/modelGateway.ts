@@ -215,7 +215,7 @@ export class ModelGateway {
     const adapter = this.getAdapter(modelConfig);
     this.injectSystemPrompt(request, modelConfig);
 
-    const thinkingConfig = buildThinkingConfig(modelConfig.modelId, request.featureType);
+    const thinkingConfig = buildThinkingConfig(modelConfig.modelId, request.featureType, modelConfig);
     if (thinkingConfig && !request.extraBody) {
       request.extraBody = thinkingConfig;
     } else if (thinkingConfig && request.extraBody) {
@@ -247,7 +247,7 @@ export class ModelGateway {
     const adapter = this.getAdapter(modelConfig);
     this.injectSystemPrompt(request, modelConfig);
 
-    const thinkingConfig = buildThinkingConfig(modelConfig.modelId, request.featureType);
+    const thinkingConfig = buildThinkingConfig(modelConfig.modelId, request.featureType, modelConfig);
     if (thinkingConfig && !request.extraBody) {
       request.extraBody = thinkingConfig;
     } else if (thinkingConfig && request.extraBody) {
@@ -405,6 +405,7 @@ export class ModelGateway {
       userId: raw.userId as string,
       name: raw.name as string,
       provider: raw.provider as ModelProvider,
+      providerId: raw.providerId as string | undefined,
       modelId: raw.modelId as string,
       apiEndpoint: raw.apiEndpoint as string | undefined,
       apiKeyEncrypted: raw.apiKeyEncrypted as string | undefined,
@@ -423,6 +424,7 @@ export class ModelGateway {
       thinkingNestedKey: raw.thinkingNestedKey as string | undefined,
       disableThinkingForFeatures: raw.disableThinkingForFeatures as string | undefined,
       isReadonly: Boolean(raw.isReadonly),
+      sortOrder: (raw.sortOrder as number) ?? 0,
     };
   }
 

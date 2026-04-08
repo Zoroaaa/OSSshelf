@@ -14,9 +14,8 @@
  */
 
 import { eq } from 'drizzle-orm';
-import type { Env } from '../types/env';
 import type { storageBuckets } from '../db/schema';
-import { encryptCredential, decryptCredential, getEncryptionKey, isAesGcmFormat } from './crypto';
+import { encryptCredential, decryptCredential, isAesGcmFormat } from './crypto';
 import { logger } from '@osshelf/shared';
 
 export interface S3BucketConfig {

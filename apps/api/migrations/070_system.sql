@@ -1,5 +1,4 @@
--- 0007_system.sql
--- 系统相关表：搜索历史、通知、审计日志、全文搜索
+-- 070_system.sql - 系统功能：搜索历史、通知、审计日志、全文搜索
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 搜索历史表
@@ -65,14 +64,12 @@ CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
   tokenize='unicode61'
 );
 
--- 同步触发器：插入
 CREATE TRIGGER IF NOT EXISTS files_fts_insert AFTER INSERT ON files 
 BEGIN 
   INSERT INTO files_fts(rowid,id,name,description,ai_summary) 
   VALUES (NEW.rowid,NEW.id,NEW.name,NEW.description,NEW.ai_summary); 
 END;
 
--- 同步触发器：更新
 CREATE TRIGGER IF NOT EXISTS files_fts_update AFTER UPDATE ON files 
 BEGIN 
   UPDATE files_fts 
@@ -80,7 +77,6 @@ BEGIN
   WHERE rowid=NEW.rowid; 
 END;
 
--- 同步触发器：删除
 CREATE TRIGGER IF NOT EXISTS files_fts_delete AFTER DELETE ON files 
 BEGIN 
   DELETE FROM files_fts WHERE rowid=OLD.rowid; 

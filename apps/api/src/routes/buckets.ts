@@ -18,7 +18,7 @@ import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { getEncryptionKey } from '../lib/crypto';
-import { createNotification, sendNotification } from '../lib/notificationUtils';
+import { sendNotification } from '../lib/notificationUtils';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);

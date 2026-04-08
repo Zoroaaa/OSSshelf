@@ -10,7 +10,6 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { bucketsApi, PROVIDER_META, type StorageBucket } from '@/services/api';
-import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { MobileDialog, MobileDialogFooter, MobileDialogAction } from '@/components/ui/MobileDialog';
 import { cn } from '@/utils';

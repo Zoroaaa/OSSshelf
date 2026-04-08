@@ -1,6 +1,6 @@
 # OSSshelf 架构文档
 
-**版本**: v4.3.0
+**版本**: v4.4.0
 **更新日期**: 2026-04-08
 
 ---
@@ -210,13 +210,13 @@ OSSshelf/
 
 ## AI 模块架构
 
-v4.3.0 AI 模块采用分层架构，核心是 Agent 引擎和工具系统。
+v4.4.0 AI 模块采用分层架构，核心是 Agent 引擎、工具系统和提供商管理。
 
 ### 架构图
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                            AI 模块架构 v4.3.0                                 │
+│                            AI 模块架构 v4.4.0                                 │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
@@ -249,12 +249,120 @@ v4.3.0 AI 模块采用分层架构，核心是 Agent 引擎和工具系统。
 │          │                           │                           │          │
 │          ▼                           ▼                           ▼          │
 │  ┌───────────────┐         ┌───────────────┐         ┌───────────────┐    │
-│  │  95 个工具    │         │  模型适配器   │         │  Vectorize    │    │
-│  │  13 个模块    │         │  Workers AI   │         │  向量搜索     │    │
-│  │              │         │  OpenAI 兼容  │         │              │    │
+│  │  95 个工具    │         │  提供商管理   │         │  Vectorize    │    │
+│  │  13 个模块    │         │ (aiProviders) │         │  向量搜索     │    │
+│  │              │         │  16 个内置    │         │              │    │
 │  └───────────────┘         └───────────────┘         └───────────────┘    │
+│                                      │                                       │
+│                                      ▼                                       │
+│                      ┌───────────────────────────────┐                      │
+│                      │        模型适配器             │                      │
+│                      ├───────────────────────────────┤                      │
+│                      │  Workers AI  │ OpenAI 兼容   │                      │
+│                      └───────────────────────────────┘                      │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### AI 提供商管理架构 (v4.4.0 新增)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        AI 提供商管理架构                                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                    ai_providers 表                                    │    │
+│  │                                                                      │    │
+│  │  字段：                                                              │    │
+│  │  - id: 提供商唯一标识                                                │    │
+│  │  - name: 提供商名称                                                  │    │
+│  │  - api_endpoint: API 端点                                            │    │
+│  │  - thinking_config: 推理模式配置 (JSON)                              │    │
+│  │  - is_system: 是否系统内置                                           │    │
+│  │  - is_default: 是否默认                                              │    │
+│  │  - sort_order: 排序顺序                                              │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                      │                                       │
+│                                      ▼                                       │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                    16 个系统内置提供商                                 │    │
+│  │                                                                      │    │
+│  │  国内厂商 (9 个)：                                                   │    │
+│  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐   │    │
+│  │  │ 百度文心    │ │ 腾讯混元    │ │ 阿里通义    │ │ 字节火山    │   │    │
+│  │  │ 一言       │ │            │ │ 千问       │ │ 引擎       │   │    │
+│  │  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘   │    │
+│  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐   │    │
+│  │  │ 智谱AI     │ │ MiniMax    │ │ 月之暗面    │ │ 硅基流动    │   │    │
+│  │  │            │ │            │ │ Kimi       │ │            │   │    │
+│  │  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘   │    │
+│  │  ┌─────────────┐                                                     │    │
+│  │  │ DeepSeek   │  ← 推理模型支持 (thinking_config)                   │    │
+│  │  │            │                                                     │    │
+│  │  └─────────────┘                                                     │    │
+│  │                                                                      │    │
+│  │  国际厂商 (7 个)：                                                   │    │
+│  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐   │    │
+│  │  │ OpenAI     │ │ Anthropic   │ │ Google      │ │ Mistral AI  │   │    │
+│  │  │ GPT 系列   │ │ Claude      │ │ Gemini      │ │            │   │    │
+│  │  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘   │    │
+│  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐                   │    │
+│  │  │ xAI Grok   │ │ Groq       │ │ Perplexity  │                   │    │
+│  │  │            │ │ 高速推理   │ │ 联网搜索   │                   │    │
+│  │  └─────────────┘ └─────────────┘ └─────────────┘                   │    │
+│  │  ┌─────────────┐                                                     │    │
+│  │  │ OpenRouter │  ← 模型聚合平台                                     │    │
+│  │  │            │                                                     │    │
+│  │  └─────────────┘                                                     │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                      │                                       │
+│                                      ▼                                       │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │                    ai_models 表 (关联提供商)                          │    │
+│  │                                                                      │    │
+│  │  新增字段 (v4.4.0)：                                                 │    │
+│  │  - provider_id: 关联 ai_providers.id                                │    │
+│  │  - sort_order: 模型排序                                              │    │
+│  │                                                                      │    │
+│  │  模型分组展示：                                                      │    │
+│  │  - Workers AI 模型单独一组                                           │    │
+│  │  - 有 provider_id 的归属对应提供商                                   │    │
+│  │  - 其他归入"其他 OpenAI 兼容 API"组                                  │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### thinking_config 配置格式
+
+不同提供商的推理模式配置格式不同：
+
+```typescript
+// 布尔类型 (百度、阿里、硅基流动)
+{
+  "paramFormat": "boolean",
+  "paramName": "enable_thinking",
+  "enabledValue": true,
+  "disabledValue": false
+}
+
+// 对象类型 (腾讯、字节、智谱、月之暗面、DeepSeek、Anthropic、xAI)
+{
+  "paramFormat": "object",
+  "paramName": "thinking",
+  "nestedKey": "type",
+  "enabledValue": "enabled",
+  "disabledValue": "disabled"
+}
+
+// 字符串类型 (OpenAI、Google)
+{
+  "paramFormat": "string",
+  "paramName": "reasoning_effort",  // 或 "thinking_level"
+  "enabledValue": "medium",
+  "disabledValue": "low"
+}
 ```
 
 ### Agent 引擎核心流程
@@ -524,12 +632,29 @@ CREATE TABLE shares (
 #### AI 相关
 
 ```sql
+-- AI 提供商表 (v4.4.0 新增)
+CREATE TABLE ai_providers (
+    id TEXT PRIMARY KEY,
+    user_id TEXT,
+    name TEXT NOT NULL,
+    api_endpoint TEXT,
+    description TEXT,
+    thinking_config TEXT,  -- JSON: 推理模式配置
+    is_system INTEGER NOT NULL DEFAULT 0,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 -- AI 模型配置表
 CREATE TABLE ai_models (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     name TEXT NOT NULL,
     provider TEXT NOT NULL,  -- 'workers_ai', 'openai_compatible'
+    provider_id TEXT,  -- v4.4.0 新增: 关联 ai_providers.id
     model_id TEXT NOT NULL,
     api_endpoint TEXT,
     api_key_encrypted TEXT,
@@ -539,8 +664,12 @@ CREATE TABLE ai_models (
     temperature REAL,
     system_prompt TEXT,
     config_json TEXT,
+    sort_order INTEGER DEFAULT 0,  -- v4.4.0 新增: 模型排序
+    supports_thinking INTEGER DEFAULT 0,  -- v4.4.0 新增: 是否支持推理
+    thinking_param_format TEXT,  -- v4.4.0 新增: 推理参数格式
     created_at TEXT,
-    updated_at TEXT
+    updated_at TEXT,
+    FOREIGN KEY (provider_id) REFERENCES ai_providers(id) ON DELETE SET NULL
 );
 
 -- AI 对话会话表

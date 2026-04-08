@@ -11,14 +11,13 @@
 
 import { Hono } from 'hono';
 import { eq, and, desc, sql, count } from 'drizzle-orm';
-import { getDb, aiChatSessions, aiChatMessages, files } from '../db';
+import { getDb, aiChatSessions, aiChatMessages } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { ModelGateway, RagEngine } from '../lib/ai';
 import { AgentEngine, type AgentChunk } from '../lib/ai/agentEngine';
-import type { StreamChunk } from '../lib/ai/types';
 import { logger } from '@osshelf/shared';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -127,6 +126,8 @@ app.get('/sessions/:sessionId', async (c) => {
       messages: messages.map((m) => ({
         ...m,
         sources: m.sources ? JSON.parse(m.sources) : undefined,
+        toolCalls: m.toolCalls ? JSON.parse(m.toolCalls) : undefined,
+        reasoning: m.reasoning || undefined,
       })),
     },
   });
@@ -182,6 +183,7 @@ app.delete('/sessions/:sessionId', async (c) => {
   }
 
   try {
+    await db.delete(aiChatMessages).where(eq(aiChatMessages.sessionId, sessionId));
     await db.delete(aiChatSessions).where(eq(aiChatSessions.id, sessionId));
 
     return c.json({ success: true, data: { message: '会话已删除' } });
@@ -289,6 +291,7 @@ async function handleNormalChat(
       .from(aiChatMessages)
       .where(eq(aiChatMessages.sessionId, actualSessionId))
       .orderBy(aiChatMessages.createdAt)
+      .limit(50)
       .all();
 
     const conversationHistory = existingMessages.map((m) => ({
@@ -439,6 +442,14 @@ async function handleStreamChat(c: any, userId: string, query: string, sessionId
 
     let fullText = '';
     let finalSources: Array<{ id: string; name: string; mimeType: string | null; score: number }> = [];
+    const collectedToolCalls: Array<{
+      id: string;
+      toolName: string;
+      args: Record<string, unknown>;
+      result?: unknown;
+      status: 'running' | 'done' | 'error';
+    }> = [];
+    let collectedReasoning = '';
     let resolveStream!: () => void;
     let doneEmitted = false;
     const streamDone = new Promise<void>((r) => {
@@ -498,8 +509,15 @@ async function handleStreamChat(c: any, userId: string, query: string, sessionId
                   fullText += chunk.content;
                   enqueue({ content: chunk.content, done: false });
                 } else if (chunk.type === 'reasoning') {
+                  collectedReasoning += chunk.content;
                   enqueue({ reasoning: true, content: chunk.content, done: false });
                 } else if (chunk.type === 'tool_start') {
+                  collectedToolCalls.push({
+                    id: chunk.toolCallId,
+                    toolName: chunk.toolName,
+                    args: chunk.args || {},
+                    status: 'running',
+                  });
                   enqueue({
                     toolStart: true,
                     toolName: chunk.toolName,
@@ -508,6 +526,11 @@ async function handleStreamChat(c: any, userId: string, query: string, sessionId
                     done: false,
                   });
                 } else if (chunk.type === 'tool_result') {
+                  const tc = collectedToolCalls.find((t) => t.id === chunk.toolCallId);
+                  if (tc) {
+                    tc.result = chunk.result;
+                    tc.status = 'done';
+                  }
                   enqueue({
                     toolResult: true,
                     toolCallId: chunk.toolCallId,
@@ -529,11 +552,30 @@ async function handleStreamChat(c: any, userId: string, query: string, sessionId
           }
         } catch (error) {
           logger.error('AI Agent', 'Stream failed', { userId }, error);
-          enqueue({ done: true, error: 'AI 响应出错', sessionId: actualSessionId, sources: [] });
+          const errorMessage = error instanceof Error ? error.message : 'AI 响应出错';
+          enqueue({ done: true, error: errorMessage, sessionId: actualSessionId, sources: finalSources });
           try {
             controller.close();
           } catch {}
           resolveStream();
+          if (actualSessionId && (fullText.trim() || collectedToolCalls.length > 0 || finalSources.length > 0)) {
+            try {
+              await db.insert(aiChatMessages).values({
+                id: crypto.randomUUID(),
+                sessionId: actualSessionId,
+                role: 'assistant',
+                content: fullText || '(响应中断)',
+                sources: JSON.stringify(finalSources),
+                toolCalls: collectedToolCalls.length > 0 ? JSON.stringify(collectedToolCalls) : null,
+                reasoning: collectedReasoning || null,
+                latencyMs: Date.now() - startTime,
+                createdAt: new Date().toISOString(),
+              });
+              logger.info('AI Agent', 'Partial message saved after error', { sessionId: actualSessionId });
+            } catch (saveError) {
+              logger.error('AI Agent', 'Failed to save partial message', { userId }, saveError);
+            }
+          }
         }
       },
     });
@@ -543,18 +585,24 @@ async function handleStreamChat(c: any, userId: string, query: string, sessionId
       (async () => {
         await streamDone;
         try {
-          if (!fullText.trim()) return;
+          const hasContent = fullText.trim().length > 0;
+          const hasToolCalls = collectedToolCalls.length > 0;
+          const hasSources = finalSources.length > 0;
+          const hasReasoning = collectedReasoning.trim().length > 0;
+          if (!hasContent && !hasToolCalls && !hasSources && !hasReasoning) return;
           const latencyMs = Date.now() - startTime;
           await db.insert(aiChatMessages).values({
             id: crypto.randomUUID(),
             sessionId: actualSessionId!,
             role: 'assistant',
-            content: fullText,
+            content: fullText || '(执行了工具操作)',
             sources: JSON.stringify(finalSources),
+            toolCalls: hasToolCalls ? JSON.stringify(collectedToolCalls) : null,
+            reasoning: collectedReasoning || null,
             latencyMs,
             createdAt: new Date().toISOString(),
           });
-          logger.info('AI Agent', 'Message saved', { sessionId: actualSessionId, latencyMs });
+          logger.info('AI Agent', 'Message saved', { sessionId: actualSessionId, latencyMs, hasToolCalls, hasSources });
         } catch (error) {
           logger.error('AI Agent', 'Failed to save message', { userId }, error);
         }

@@ -12,7 +12,7 @@
 
 import type { Env } from '../types/env';
 import { getDb, files, fileNotes } from '../db';
-import { eq, and, inArray, isNull } from 'drizzle-orm';
+import { eq, and, inArray, isNull, sql } from 'drizzle-orm';
 import { logger } from '@osshelf/shared';
 import { readFileContent } from './fileContentHelper';
 
@@ -347,19 +347,17 @@ async function keywordSearch(env: Env, query: string, userId: string, limit: num
   const db = getDb(env.DB);
 
   try {
-    const rows = await db
-      .select({ id: files.id, name: files.name })
+    const queryLower = query.toLowerCase();
+    const matched = await db
+      .select({ id: files.id })
       .from(files)
-      .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
+      .where(
+        and(eq(files.userId, userId), isNull(files.deletedAt), sql`lower(${files.name}) like ${'%' + queryLower + '%'}`)
+      )
+      .limit(limit)
       .all();
 
-    const queryLower = query.toLowerCase();
-    const matched = rows
-      .filter((r) => r.name.toLowerCase().includes(queryLower))
-      .slice(0, limit)
-      .map((r) => ({ fileId: r.id, score: 0.8 }));
-
-    return matched;
+    return matched.map((r) => ({ fileId: r.id, score: 0.8 }));
   } catch {
     return [];
   }

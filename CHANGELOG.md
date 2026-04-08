@@ -2,6 +2,132 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v4.4.0] - 2026-04-08
+
+### Added - AI 模块全面优化 🚀
+
+**核心功能 - AI 提供商配置**
+
+- **提供商管理功能（ai_providers 表）**
+  - 新增 `ai_providers` 表用于管理自定义提供商（OpenAI 兼容 API）
+  - 支持 16 个系统内置提供商（国内厂商 + 国际厂商）
+  - 每个提供商包含独立的 `thinking_config` 配置用于推理模式
+  - 支持用户自定义添加私有提供商
+
+- **系统内置提供商（16 个）**
+  - 国内厂商（9 个）：
+    - 百度文心一言、腾讯混元、阿里通义千问、字节火山引擎
+    - 智谱AI、MiniMax、月之暗面（Kimi）、硅基流动、DeepSeek
+  - 国际厂商（7 个）：
+    - OpenAI、Anthropic Claude、Google Gemini、Mistral AI
+    - xAI Grok、Groq、Perplexity、OpenRouter
+
+- **thinking_config 配置格式**
+  - 布尔类型：百度、阿里、硅基流动
+  - 对象类型：腾讯、字节、智谱、月之暗面、DeepSeek、Anthropic、xAI
+  - 字符串类型：OpenAI、Google
+
+**AI 对话全环节优化**
+
+- **消息记录增强（ai_chat_messages 表）**
+  - 新增 `tool_calls` 字段：存储工具调用记录
+  - 新增 `reasoning` 字段：存储推理内容
+  - 完整记录 Agent 对话过程
+
+- **Agent 上下文管理优化**
+  - 新增 `ai.agent.max_context_tokens` 配置项
+  - 支持动态裁剪历史消息，避免超出上下文限制
+  - 默认最大上下文 Token 数：100000
+
+**模型配置深度优化**
+
+- **模型与提供商关联**
+  - `ai_models` 表新增 `provider_id` 字段
+  - 模型可归属到特定提供商进行分组展示
+  - 支持按提供商筛选和管理模型
+
+- **模型排序功能**
+  - `ai_models` 表新增 `sort_order` 字段
+  - 支持自定义模型显示顺序
+  - 前端按提供商分组展示模型
+
+- **推理模式支持增强**
+  - `ai_models` 表新增 `supports_thinking` 字段
+  - 新增 `thinking_param_format`、`thinking_param_name` 等字段
+  - 支持各提供商独立的推理配置
+
+**移动端适配优化**
+
+- **AI 设置页面响应式优化**
+  - 标签页横向滚动优化
+  - 模型卡片堆叠排列
+  - 操作按钮触控友好
+  - 表单布局自适应
+
+**前端改进**
+
+- AISettings.tsx 增强
+  - 新增「管理提供商」按钮和模态框
+  - 模型按提供商分组展示
+  - 显示提供商名称、描述、系统标识
+  - 显示每个提供商下的激活模型数量
+
+- ProviderManageModal 组件
+  - 提供商列表展示
+  - 支持添加自定义提供商
+  - 支持编辑和删除提供商
+
+**后端改进**
+
+- aiConfigRoutes.ts 增强
+  - 新增 GET /api/ai-config/providers - 获取系统内置提供商列表
+  - 新增 GET /api/ai-config/ai-providers - 获取所有提供商（含用户自定义）
+  - 新增 POST /api/ai-config/ai-providers - 创建自定义提供商
+  - 新增 PUT /api/ai-config/ai-providers/:id - 更新提供商
+  - 新增 DELETE /api/ai-config/ai-providers/:id - 删除提供商
+
+- modelGateway.ts 增强
+  - 支持 provider_id 关联
+  - 支持 sort_order 排序
+  - parseModelConfig 解析新增字段
+
+**数据库变更**
+
+- 新增迁移文件 `0012_ai_providers.sql`
+  - ai_providers 表：AI 提供商管理
+  - ai_models 表新增字段：provider_id、sort_order
+
+- 新增迁移文件 `0012_ai_chat_messages_tool_calls.sql`
+  - ai_chat_messages 表新增字段：tool_calls、reasoning
+  - ai_config 表新增配置项：ai.agent.max_context_tokens
+
+**新文件**
+
+后端：
+
+- 迁移文件：
+  - `apps/api/migrations/0012_ai_providers.sql`
+  - `apps/api/migrations/0012_ai_chat_messages_tool_calls.sql`
+
+前端：
+
+- `apps/web/src/components/ai/settings/ProviderManageModal.tsx` - 提供商管理模态框
+
+### Changed
+
+- AI_FEATURES.md 文档更新至 v4.4.0
+- API_AI.md 文档更新至 v4.4.0
+- README.md 版本号更新至 v4.4.0
+- architecture.md 架构文档更新，新增提供商管理架构
+
+### Fixed
+
+- 修复模型列表分组展示逻辑
+- 优化提供商配置加载性能
+- 改进移动端 AI 设置页面布局
+
+---
+
 ## [v4.3.0] - 2026-04-08
 
 ### Added - AI Agent 全面升级 🚀

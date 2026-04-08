@@ -40,7 +40,7 @@ export function StorageBreakdownChart({ data }: StorageBreakdownChartProps) {
       <div className="flex flex-col md:flex-row gap-6">
         <div className="flex-1">
           <div className="h-8 rounded-full overflow-hidden flex">
-            {data.byType.map((type, index) => {
+            {data.byType.map((type) => {
               const percent = totalSize > 0 ? (type.size / totalSize) * 100 : 0;
               if (percent < 1) return null;
               return (

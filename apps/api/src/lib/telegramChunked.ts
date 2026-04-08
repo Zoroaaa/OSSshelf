@@ -8,7 +8,7 @@
  */
 
 import { eq, asc } from 'drizzle-orm';
-import { telegramFileRefs, telegramFileChunks } from '../db/schema';
+import { telegramFileChunks } from '../db/schema';
 import type { DrizzleDb } from '../db';
 import { tgUploadFile, tgGetFileInfo, tgGetDownloadUrl, type TelegramBotConfig } from './telegramClient';
 import { logger } from '@osshelf/shared';

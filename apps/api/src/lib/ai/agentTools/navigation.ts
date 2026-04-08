@@ -469,7 +469,14 @@ export class NavigationTools {
     const rows = await db
       .select()
       .from(files)
-      .where(and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false), sql`${files.updatedAt} >= ${since}`))
+      .where(
+        and(
+          eq(files.userId, userId),
+          isNull(files.deletedAt),
+          eq(files.isFolder, false),
+          sql`${files.updatedAt} >= ${since}`
+        )
+      )
       .orderBy(desc(files.updatedAt))
       .limit(limit)
       .all();
@@ -521,11 +528,7 @@ export class NavigationTools {
     let currentId: string | null = file.parentId;
 
     while (currentId) {
-      const parent = await db
-        .select()
-        .from(files)
-        .where(eq(files.id, currentId))
-        .get();
+      const parent = await db.select().from(files).where(eq(files.id, currentId)).get();
       if (!parent) break;
       chain.unshift(toAgentFile(parent));
       currentId = parent.parentId;

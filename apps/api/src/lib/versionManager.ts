@@ -15,7 +15,7 @@
  */
 
 import { eq, and, desc, lt } from 'drizzle-orm';
-import { getDb, files, fileVersions } from '../db';
+import { files, fileVersions } from '../db';
 import type { DrizzleDb } from '../db';
 import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';

@@ -49,7 +49,6 @@ export interface ChatRagRequest {
 
 const DEFAULT_MAX_FILES = 5;
 const DEFAULT_MAX_CONTEXT_LENGTH = 8000;
-const PREFERENCE_CACHE_TTL_MS = 5 * 60 * 1000;
 
 interface UserSearchPreferences {
   topQueries: string[];
@@ -62,16 +61,71 @@ const VISUAL_PATTERNS = [/照片|图片.*(找|搜)|找.*照片|photo|image/i, /�
 
 const VALID_INTENTS: QueryIntent[] = ['file_stats', 'file_search', 'content_qa', 'image_visual', 'general'];
 
-const intentCache = new Map<string, { intent: QueryIntent; expiresAt: number }>();
 const INTENT_CACHE_TTL_MS = 10 * 60 * 1000;
+const PREFERENCE_CACHE_TTL_MS = 5 * 60 * 1000;
+const MAX_CACHE_ENTRIES = 200;
 
-const preferenceCache = new Map<string, { data: UserSearchPreferences; expiresAt: number }>();
+interface CacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+
+class BoundedCache<T> {
+  private map = new Map<string, CacheEntry<T>>();
+  private readonly maxSize: number;
+  private readonly ttlMs: number;
+
+  constructor(maxSize: number, ttlMs: number) {
+    this.maxSize = maxSize;
+    this.ttlMs = ttlMs;
+  }
+
+  get(key: string): T | undefined {
+    const entry = this.map.get(key);
+    if (!entry) return undefined;
+    if (Date.now() > entry.expiresAt) {
+      this.map.delete(key);
+      return undefined;
+    }
+    return entry.data;
+  }
+
+  set(key: string, data: T): void {
+    if (this.map.size >= this.maxSize) {
+      const firstKey = this.map.keys().next().value;
+      if (firstKey !== undefined) this.map.delete(firstKey);
+    }
+    this.map.set(key, { data, expiresAt: Date.now() + this.ttlMs });
+  }
+}
+
+const envIntentCacheMap = new WeakMap<object, BoundedCache<QueryIntent>>();
+const envPreferenceCacheMap = new WeakMap<object, BoundedCache<UserSearchPreferences>>();
+
+function getIntentCache(env: Env): BoundedCache<QueryIntent> {
+  let cache = envIntentCacheMap.get(env);
+  if (!cache) {
+    cache = new BoundedCache<QueryIntent>(MAX_CACHE_ENTRIES, INTENT_CACHE_TTL_MS);
+    envIntentCacheMap.set(env, cache);
+  }
+  return cache;
+}
+
+function getPreferenceCache(env: Env): BoundedCache<UserSearchPreferences> {
+  let cache = envPreferenceCacheMap.get(env);
+  if (!cache) {
+    cache = new BoundedCache<UserSearchPreferences>(MAX_CACHE_ENTRIES, PREFERENCE_CACHE_TTL_MS);
+    envPreferenceCacheMap.set(env, cache);
+  }
+  return cache;
+}
 
 async function getUserSearchPreferences(env: Env, userId: string): Promise<UserSearchPreferences> {
   const cacheKey = userId;
+  const preferenceCache = getPreferenceCache(env);
   const cached = preferenceCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.data;
+  if (cached) {
+    return cached;
   }
 
   const db = getDb(env.DB);
@@ -119,7 +173,7 @@ async function getUserSearchPreferences(env: Env, userId: string): Promise<UserS
       .map(([t]) => t);
 
     const prefs: UserSearchPreferences = { topQueries, topMimeTypes };
-    preferenceCache.set(cacheKey, { data: prefs, expiresAt: Date.now() + PREFERENCE_CACHE_TTL_MS });
+    preferenceCache.set(cacheKey, prefs);
     return prefs;
   } catch (error) {
     logger.error('RAG', 'Failed to get user search preferences', { userId }, error);
@@ -129,9 +183,10 @@ async function getUserSearchPreferences(env: Env, userId: string): Promise<UserS
 
 async function classifyIntent(env: Env, query: string): Promise<QueryIntent> {
   const cacheKey = query.trim().toLowerCase();
+  const intentCache = getIntentCache(env);
   const cached = intentCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.intent;
+  if (cached) {
+    return cached;
   }
 
   let intent: QueryIntent;
@@ -160,7 +215,7 @@ general（与文件无关的通用问题）`,
           ],
           max_tokens: 10,
         }),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 500)),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000)),
       ]);
 
       const label = ((result as any)?.response || '').trim().toLowerCase() as QueryIntent;
@@ -170,7 +225,7 @@ general（与文件无关的通用问题）`,
     }
   }
 
-  intentCache.set(cacheKey, { intent, expiresAt: Date.now() + INTENT_CACHE_TTL_MS });
+  intentCache.set(cacheKey, intent);
   return intent;
 }
 
@@ -266,38 +321,58 @@ export class RagEngine {
   }> {
     const db = getDb(this.env.DB);
 
-    const allFiles = await db
-      .select()
+    const statsRow = await db
+      .select({
+        totalFiles: sql<number>`count(*)`,
+        totalSize: sql<number>`coalesce(sum(${files.size}), 0)`,
+      })
       .from(files)
       .where(and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false)))
+      .get();
+
+    const totalFiles = statsRow?.totalFiles ?? 0;
+    const totalSize = statsRow?.totalSize ?? 0;
+
+    const typeRows = await db
+      .select({
+        mimeType: files.mimeType,
+        count: sql<number>`count(*)`,
+        size: sql<number>`coalesce(sum(${files.size}), 0)`,
+      })
+      .from(files)
+      .where(and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false)))
+      .groupBy(files.mimeType)
       .all();
 
-    const totalFiles = allFiles.length;
-    const totalSize = allFiles.reduce((sum, f) => sum + (f.size || 0), 0);
-
-    const typeMap = new Map<string, { count: number; size: number }>();
-    for (const file of allFiles) {
-      const type = getMimeTypeCategory(file.mimeType);
-      const existing = typeMap.get(type) || { count: 0, size: 0 };
-      typeMap.set(type, {
-        count: existing.count + 1,
-        size: existing.size + (file.size || 0),
-      });
-    }
-
-    const byType = Array.from(typeMap.entries())
-      .map(([type, data]) => ({ type, count: data.count, size: data.size }))
+    const byType = typeRows
+      .map((r) => ({ type: getMimeTypeCategory(r.mimeType), count: r.count, size: r.size }))
+      .reduce(
+        (acc, item) => {
+          const existing = acc.find((a) => a.type === item.type);
+          if (existing) {
+            existing.count += item.count;
+            existing.size += item.size;
+          } else {
+            acc.push({ ...item });
+          }
+          return acc;
+        },
+        [] as Array<{ type: string; count: number; size: number }>
+      )
       .sort((a, b) => b.count - a.count);
 
-    const recentFiles = allFiles
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, 10)
-      .map((f) => ({
-        name: f.name,
-        mimeType: f.mimeType,
-        size: f.size || 0,
-        createdAt: f.createdAt,
-      }));
+    const recentFiles = await db
+      .select({
+        name: files.name,
+        mimeType: files.mimeType,
+        size: files.size,
+        createdAt: files.createdAt,
+      })
+      .from(files)
+      .where(and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false)))
+      .orderBy(desc(files.createdAt))
+      .limit(10)
+      .all();
 
     return { totalFiles, totalSize, byType, recentFiles };
   }

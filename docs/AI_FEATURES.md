@@ -1,6 +1,6 @@
 # OSSshelf AI 功能说明文档
 
-**版本**: v4.3.0
+**版本**: v4.4.0
 **更新日期**: 2026-04-08
 
 ---
@@ -8,6 +8,7 @@
 ## 📋 目录
 
 - [功能概述](#功能概述)
+- [AI 提供商管理](#ai-提供商管理)
 - [AI 对话系统](#ai-对话系统)
 - [Agent 引擎](#agent-引擎)
 - [智能工具集](#智能工具集)
@@ -25,10 +26,14 @@
 
 ## 功能概述
 
-v4.3.0 版本对 AI 功能进行了全面升级，核心变化如下：
+v4.4.0 版本对 AI 模块进行了全面优化，核心变化如下：
 
 | 功能 | 说明 | 版本 |
 | --- | --- | --- |
+| **AI 提供商管理** | 16 个系统内置提供商，支持自定义提供商 | v4.4.0 新增 |
+| **Thinking Config** | 各提供商独立推理模式配置 | v4.4.0 新增 |
+| **模型分组展示** | 按提供商分组，支持排序 | v4.4.0 新增 |
+| **对话记录增强** | 支持工具调用和推理内容存储 | v4.4.0 新增 |
 | **Agent 引擎重构** | ReAct 架构，多轮推理，链式调用 | v4.3.0 重构 |
 | **95 个智能工具** | 覆盖文件操作、权限管理、分享链接等 13 个模块 | v4.3.0 新增 |
 | **智能意图识别** | 自动识别搜索、视觉、内容理解等意图 | v4.3.0 新增 |
@@ -47,6 +52,80 @@ v4.3.0 版本对 AI 功能进行了全面升级，核心变化如下：
 | **图片标签** | 自动识别图片内容标签 | v3.7.0, v4.1.0 增强 |
 | **语义搜索** | 基于向量索引的相似度搜索 | v3.7.0 |
 | **智能重命名** | 根据文件内容推荐文件名 | v3.7.0, v4.1.0 增强 |
+
+---
+
+## AI 提供商管理
+
+v4.4.0 新增提供商管理功能，支持 16 个系统内置提供商和用户自定义提供商。
+
+### 系统内置提供商
+
+#### 国内厂商（9 个）
+
+| 提供商 | API 端点 | Thinking Config |
+| --- | --- | --- |
+| 百度文心一言 | aip.baidubce.com | 布尔类型 (enable_thinking) |
+| 腾讯混元 | api.hunyuan.cloud.tencent.com | 对象类型 (thinking.type) |
+| 阿里通义千问 | dashscope.aliyuncs.com | 布尔类型 (enable_thinking) |
+| 字节火山引擎 | ark.cn-beijing.volces.com | 对象类型 (thinking.type) |
+| 智谱AI | open.bigmodel.cn | 对象类型 (thinking.type) |
+| MiniMax | api.minimax.chat | - |
+| 月之暗面 (Kimi) | api.moonshot.cn | 对象类型 (thinking.type) |
+| 硅基流动 | api.siliconflow.cn | 布尔类型 (enable_thinking) |
+| DeepSeek | api.deepseek.com | 对象类型 (thinking.type) |
+
+#### 国际厂商（7 个）
+
+| 提供商 | API 端点 | Thinking Config |
+| --- | --- | --- |
+| OpenAI | api.openai.com | 字符串类型 (reasoning_effort) |
+| Anthropic Claude | api.anthropic.com | 对象类型 (thinking.type) |
+| Google Gemini | generativelanguage.googleapis.com | 字符串类型 (thinking_level) |
+| Mistral AI | api.mistral.ai | - |
+| xAI Grok | api.x.ai | 对象类型 (thinking.type) |
+| Groq | api.groq.com | - |
+| Perplexity | api.perplexity.ai | - |
+| OpenRouter | openrouter.ai | - |
+
+### Thinking Config 配置
+
+不同提供商的推理模式配置格式：
+
+```typescript
+// 布尔类型 (百度、阿里、硅基流动)
+{
+  "paramFormat": "boolean",
+  "paramName": "enable_thinking",
+  "enabledValue": true,
+  "disabledValue": false
+}
+
+// 对象类型 (腾讯、字节、智谱、月之暗面、DeepSeek、Anthropic、xAI)
+{
+  "paramFormat": "object",
+  "paramName": "thinking",
+  "nestedKey": "type",
+  "enabledValue": "enabled",
+  "disabledValue": "disabled"
+}
+
+// 字符串类型 (OpenAI、Google)
+{
+  "paramFormat": "string",
+  "paramName": "reasoning_effort",  // 或 "thinking_level"
+  "enabledValue": "medium",
+  "disabledValue": "low"
+}
+```
+
+### 提供商管理功能
+
+- **查看提供商列表**：显示所有系统内置和自定义提供商
+- **添加自定义提供商**：支持用户添加自己的 OpenAI 兼容 API
+- **编辑提供商**：修改名称、端点、描述等
+- **删除提供商**：仅支持删除自定义提供商
+- **设置默认提供商**：快速切换默认提供商
 
 ---
 

@@ -241,13 +241,7 @@ export class TagsTools {
       if (!tagName) continue;
       const result = await db
         .delete(fileTags)
-        .where(
-          and(
-            eq(fileTags.fileId, fileId),
-            eq(fileTags.name, tagName),
-            eq(fileTags.userId, userId)
-          )
-        )
+        .where(and(eq(fileTags.fileId, fileId), eq(fileTags.name, tagName), eq(fileTags.userId, userId)))
         .run();
       if ((result as any).meta?.changes > 0) removedCount++;
     }

@@ -32,10 +32,10 @@ import {
   suggestFileNameFromContent,
   canGenerateSummary,
 } from '../lib/ai/features';
-import { createNotification, sendNotification } from '../lib/notificationUtils';
+import { sendNotification } from '../lib/notificationUtils';
 import { enqueueAiTasks, createTaskRecord, cancelTask, getLatestTaskByUserType } from '../lib/aiTaskQueue';
 import { ModelGateway } from '../lib/ai/modelGateway';
-import { getAiConfigString, getAiConfigNumber } from '../lib/ai/aiConfigService';
+import { getAiConfigString } from '../lib/ai/aiConfigService';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);

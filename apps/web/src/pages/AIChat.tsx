@@ -32,10 +32,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatDate } from '@/utils';
 import { FilePreview } from '@/components/files/FilePreview';
 import { useAuthStore } from '@/stores/auth';
+import { useToast } from '@/components/ui/useToast';
 import type { FileItem } from '@osshelf/shared';
 import {
   ToolCallCard,
-  FileChip,
   ReasoningSection,
   AssistantContent,
   ToolInfoModal,
@@ -118,7 +118,11 @@ const TOOL_META: Record<string, { label: string; icon: React.ReactNode; category
   get_share_stats: { label: '分享统计', icon: <Copy className="h-3 w-3" />, category: '分享链接' },
   create_direct_link: { label: '创建直链', icon: <Code className="h-3 w-3" />, category: '分享链接' },
   revoke_direct_link: { label: '撤销直链', icon: <Code className="h-3 w-3" />, category: '分享链接' },
-  create_upload_link_for_folder: { label: '创建上传链接', icon: <Download className="h-3 w-3" />, category: '分享链接' },
+  create_upload_link_for_folder: {
+    label: '创建上传链接',
+    icon: <Download className="h-3 w-3" />,
+    category: '分享链接',
+  },
 
   // 版本管理
   get_file_versions: { label: '版本历史', icon: <RefreshCw className="h-3 w-3" />, category: '版本管理' },
@@ -188,6 +192,7 @@ export function AIChat() {
   const { sessionId: urlSessionId } = useParams<{ sessionId: string }>();
   const queryClient = useQueryClient();
   const { token } = useAuthStore();
+  const { toast } = useToast();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -286,20 +291,44 @@ export function AIChat() {
             role: m.role as 'user' | 'assistant',
             content: m.content,
             sources: m.sources,
+            toolCalls: m.toolCalls || [],
+            reasoning: m.reasoning || undefined,
             timestamp: new Date(m.createdAt),
           }))
         );
+      } else {
+        toast({
+          title: '加载失败',
+          description: '无法加载会话内容',
+          variant: 'destructive',
+        });
       }
     } catch (e) {
       console.error(e);
+      toast({
+        title: '加载会话出错',
+        description: e instanceof Error ? e.message : '网络错误，请重试',
+        variant: 'destructive',
+      });
     } finally {
       setIsLoading(false);
     }
   };
 
+  const MAX_QUERY_LENGTH = 2000;
+
   const sendMessage = useCallback(
     async (query: string, regenerateFromId?: string) => {
       if (!query.trim() || isLoading) return;
+
+      if (query.length > MAX_QUERY_LENGTH) {
+        toast({
+          title: '输入过长',
+          description: `消息长度不能超过 ${MAX_QUERY_LENGTH} 字符，当前 ${query.length} 字符`,
+          variant: 'destructive',
+        });
+        return;
+      }
 
       if (regenerateFromId) {
         setMessages((prev) => {
@@ -412,9 +441,7 @@ export function AIChat() {
                   args: raw.args || {},
                 };
                 setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantId ? { ...m, isLoading: false, pendingConfirm } : m
-                  )
+                  prev.map((m) => (m.id === assistantId ? { ...m, isLoading: false, pendingConfirm } : m))
                 );
               } else {
                 setMessages((prev) =>
@@ -449,62 +476,49 @@ export function AIChat() {
     [isLoading, currentSessionId, urlSessionId, navigate, queryClient]
   );
 
-  const handleToolConfirm = useCallback(
-    (toolName: string, args: Record<string, unknown>) => {
-      const confirmMessage = `确认执行 ${TOOL_META[toolName]?.label || toolName}`;
-      sendMessage(confirmMessage);
-    },
-    [sendMessage]
-  );
-
-  const handleConfirm = useCallback(
-    async (msgId: string, confirmId: string) => {
-      setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, isLoading: true } : m)));
-      try {
-        const res = await aiApi.chatSession.confirmAction(confirmId);
-        if (res.data.success && res.data.data) {
-          const resultData = res.data.data;
-          const resultStr =
-            typeof resultData.result === 'object'
-              ? JSON.stringify(resultData.result, null, 2)
-              : String(resultData.result ?? '操作已完成');
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === msgId
-                ? {
-                    ...m,
-                    isLoading: false,
-                    pendingConfirm: undefined,
-                    content: (m.content || '') + `\n\n✅ 操作执行成功:\n${resultStr}`,
-                    toolCalls: (m.toolCalls || []).map((tc) =>
-                      tc.result && typeof tc.result === 'object' && (tc.result as Record<string, unknown>).status === 'pending_confirm'
-                        ? { ...tc, result: resultData.result }
-                        : tc
-                    ),
-                  }
-                : m
-            )
-          );
-        }
-      } catch (e) {
+  const handleConfirm = useCallback(async (msgId: string, confirmId: string) => {
+    setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, isLoading: true } : m)));
+    try {
+      const res = await aiApi.chatSession.confirmAction(confirmId);
+      if (res.data.success && res.data.data) {
+        const resultData = res.data.data;
+        const resultStr =
+          typeof resultData.result === 'object'
+            ? JSON.stringify(resultData.result, null, 2)
+            : String(resultData.result ?? '操作已完成');
         setMessages((prev) =>
           prev.map((m) =>
             m.id === msgId
-              ? { ...m, isLoading: false, content: (m.content || '') + '\n\n❌ 操作执行失败' }
+              ? {
+                  ...m,
+                  isLoading: false,
+                  pendingConfirm: undefined,
+                  content: (m.content || '') + `\n\n✅ 操作执行成功:\n${resultStr}`,
+                  toolCalls: (m.toolCalls || []).map((tc) =>
+                    tc.result &&
+                    typeof tc.result === 'object' &&
+                    (tc.result as Record<string, unknown>).status === 'pending_confirm'
+                      ? { ...tc, result: resultData.result }
+                      : tc
+                  ),
+                }
               : m
           )
         );
       }
-    },
-    []
-  );
+    } catch (e) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === msgId ? { ...m, isLoading: false, content: (m.content || '') + '\n\n❌ 操作执行失败' } : m
+        )
+      );
+    }
+  }, []);
 
   const handleCancelConfirm = useCallback((msgId: string) => {
     setMessages((prev) =>
       prev.map((m) =>
-        m.id === msgId
-          ? { ...m, pendingConfirm: undefined, content: (m.content || '') + '\n\n⛔ 用户已取消操作' }
-          : m
+        m.id === msgId ? { ...m, pendingConfirm: undefined, content: (m.content || '') + '\n\n⛔ 用户已取消操作' } : m
       )
     );
   }, []);
@@ -531,9 +545,21 @@ export function AIChat() {
 
   const handleDeleteSession = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    await aiApi.chatSession.deleteSession(id);
-    queryClient.invalidateQueries({ queryKey: ['ai-chat-sessions'] });
-    if (currentSessionId === id) handleNewChat();
+    try {
+      await aiApi.chatSession.deleteSession(id);
+      queryClient.invalidateQueries({ queryKey: ['ai-chat-sessions'] });
+      if (currentSessionId === id) handleNewChat();
+      toast({
+        title: '删除成功',
+        description: '会话已删除',
+      });
+    } catch (error) {
+      toast({
+        title: '删除失败',
+        description: error instanceof Error ? error.message : '无法删除会话',
+        variant: 'destructive',
+      });
+    }
   };
 
   const handleConfirmRename = async (id: string) => {
@@ -575,7 +601,12 @@ export function AIChat() {
       />
 
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
-        <ChatHeader toolCount={Object.keys(TOOL_META).length} onShowToolInfo={() => setShowToolInfo(true)} />
+        <ChatHeader
+          toolCount={Object.keys(TOOL_META).length}
+          onShowToolInfo={() => setShowToolInfo(true)}
+          showSidebar={showSidebar}
+          onToggleSidebar={() => setShowSidebar(!showSidebar)}
+        />
 
         <div ref={messagesContainerRef} className="flex-1 overflow-y-auto min-h-0">
           <div className="max-w-3xl mx-auto px-4 py-6 space-y-5">
@@ -600,8 +631,10 @@ export function AIChat() {
                         <ToolCallCard
                           key={tc.id}
                           tc={tc}
+                          msgId={msg.id}
                           onFileClick={handleToolFileClick}
-                          onConfirm={handleToolConfirm}
+                          onConfirmAction={handleConfirm}
+                          onCancelConfirm={handleCancelConfirm}
                           toolMeta={TOOL_META}
                         />
                       ))}
@@ -616,7 +649,9 @@ export function AIChat() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="font-medium text-amber-800 dark:text-amber-200 mb-1">待确认操作</div>
-                          <div className="text-amber-700 dark:text-amber-300 break-words">{msg.pendingConfirm.summary}</div>
+                          <div className="text-amber-700 dark:text-amber-300 break-words">
+                            {msg.pendingConfirm.summary}
+                          </div>
                           <div className="text-xs text-amber-500/70 mt-1 font-mono">{msg.pendingConfirm.toolName}</div>
                         </div>
                       </div>
