@@ -41,6 +41,11 @@ import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createNotification, sendNotification, getUserInfo } from '../lib/notificationUtils';
 import { dispatchWebhook } from '../lib/webhook';
+import {
+  createShareLink as serviceCreateShareLink,
+  revokeShare as serviceRevokeShare,
+  createUploadLink as serviceCreateUploadLink,
+} from '../lib/shareService';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -225,57 +230,34 @@ app.post('/', authMiddleware, async (c) => {
   }
 
   const { fileId, password, expiresAt, downloadLimit } = result.data;
-  const db = getDb(c.env.DB);
-
-  const file = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId)))
-    .get();
-  if (!file) {
-    throwAppError('FILE_NOT_FOUND');
+  const serviceResult = await serviceCreateShareLink(c.env, userId, { fileId, password, expiresAt, maxUses: downloadLimit });
+  if (!serviceResult.success) {
+    if (serviceResult.error === '无权分享此文件') throwAppError('FILE_ACCESS_DENIED', serviceResult.error);
+    if (serviceResult.error === '文件不存在') throwAppError('FILE_NOT_FOUND');
+    return c.json({ success: false, error: serviceResult.error }, 400);
   }
-
-  const shareId = crypto.randomUUID();
-  const now = new Date().toISOString();
-  const expires = expiresAt || new Date(Date.now() + SHARE_DEFAULT_EXPIRY).toISOString();
-  const hashedPassword = password ? await hashPassword(password) : null;
-
-  await db.insert(shares).values({
-    id: shareId,
-    fileId,
-    userId,
-    password: hashedPassword,
-    expiresAt: expires,
-    downloadLimit: downloadLimit || null,
-    downloadCount: 0,
-    isUploadLink: false,
-    uploadToken: null,
-    maxUploadSize: null,
-    uploadAllowedMimeTypes: null,
-    maxUploadCount: null,
-    uploadCount: 0,
-    createdAt: now,
-  });
 
   c.executionCtx.waitUntil(
     dispatchWebhook(c.env, userId, 'share.created', {
-      shareId: shareId,
-      fileId: fileId,
-      expiresAt: expires,
+      shareId: serviceResult.shareId,
+      fileId,
+      expiresAt: serviceResult.share.expiresAt,
     })
   );
+
+  const db = getDb(c.env.DB);
+  const file = await db.select().from(files).where(eq(files.id, fileId)).get();
 
   return c.json({
     success: true,
     data: {
-      id: shareId,
+      id: serviceResult.shareId,
       fileId,
-      isFolder: file.isFolder,
-      expiresAt: expires,
+      isFolder: file?.isFolder ?? false,
+      expiresAt: serviceResult.share.expiresAt,
       downloadLimit,
-      createdAt: now,
-      shareUrl: `/share/${shareId}`,
+      createdAt: serviceResult.share.createdAt,
+      shareUrl: `/share/${serviceResult.shareId}`,
     },
   });
 });
@@ -309,19 +291,13 @@ app.get('/', authMiddleware, async (c) => {
 app.delete('/:id', authMiddleware, async (c) => {
   const userId = c.get('userId')!;
   const shareId = c.req.param('id');
-  const db = getDb(c.env.DB);
 
-  const share = await db
-    .select()
-    .from(shares)
-    .where(and(eq(shares.id, shareId), eq(shares.userId, userId)))
-    .get();
-  if (!share) {
+  const result = await serviceRevokeShare(c.env, userId, shareId);
+  if (!result.success) {
     throwAppError('SHARE_NOT_FOUND');
   }
 
-  await db.delete(shares).where(eq(shares.id, shareId));
-  return c.json({ success: true, data: { message: '已删除分享' } });
+  return c.json({ success: true, data: { message: result.message } });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -341,54 +317,32 @@ app.post('/upload-link', authMiddleware, async (c) => {
   }
 
   const { folderId, password, expiresAt, maxUploadSize, allowedMimeTypes, maxUploadCount } = result.data;
-  const db = getDb(c.env.DB);
 
-  // 验证目标文件夹归属当前用户
-  const folder = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.id, folderId), eq(files.userId, userId), eq(files.isFolder, true), isNull(files.deletedAt)))
-    .get();
-  if (!folder) {
-    throwAppError('FOLDER_NOT_FOUND');
-  }
-
-  const shareId = crypto.randomUUID();
-  const uploadToken = crypto.randomUUID();
-  const now = new Date().toISOString();
-  const expires = expiresAt || new Date(Date.now() + SHARE_DEFAULT_EXPIRY).toISOString();
-  const hashedPassword = password ? await hashPassword(password) : null;
-
-  await db.insert(shares).values({
-    id: shareId,
-    fileId: folderId,
-    userId,
-    password: hashedPassword,
-    expiresAt: expires,
-    downloadLimit: null,
-    downloadCount: 0,
-    isUploadLink: true,
-    uploadToken,
-    maxUploadSize: maxUploadSize ?? null,
-    uploadAllowedMimeTypes: allowedMimeTypes ? JSON.stringify(allowedMimeTypes) : null,
-    maxUploadCount: maxUploadCount ?? null,
-    uploadCount: 0,
-    createdAt: now,
+  const serviceResult = await serviceCreateUploadLink(c.env, userId, {
+    folderId,
+    password,
+    expiresInHours: expiresAt ? Math.round((new Date(expiresAt).getTime() - Date.now()) / (1000 * 60 * 60)) : undefined,
+    maxSizeBytes: maxUploadSize,
+    allowedMimeTypes,
+    maxUploads: maxUploadCount,
   });
+  if (!serviceResult.success) {
+    throwAppError('FOLDER_NOT_FOUND', serviceResult.error);
+  }
 
   return c.json({
     success: true,
     data: {
-      id: shareId,
+      id: serviceResult.uploadLinkId,
       folderId,
-      folderName: folder.name,
-      uploadToken,
-      expiresAt: expires,
+      folderName: serviceResult.folderName,
+      uploadToken: serviceResult.url.replace('/upload/', ''),
+      expiresAt: new Date(Date.now() + (expiresAt ? (new Date(expiresAt).getTime() - Date.now()) : SHARE_DEFAULT_EXPIRY)).toISOString(),
       maxUploadSize,
       allowedMimeTypes: allowedMimeTypes ?? null,
       maxUploadCount: maxUploadCount ?? null,
-      createdAt: now,
-      uploadUrl: `/upload/${uploadToken}`,
+      createdAt: new Date().toISOString(),
+      uploadUrl: serviceResult.url,
     },
   });
 });

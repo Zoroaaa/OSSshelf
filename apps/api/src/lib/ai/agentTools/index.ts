@@ -25,6 +25,9 @@
 
 import type { Env } from '../../../types/env';
 import { logger } from '@osshelf/shared';
+import { getDb, files } from '../../../db';
+import { eq, and, isNull } from 'drizzle-orm';
+import { readFileContent } from '../../../lib/fileContentHelper';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 导入所有子模块
@@ -314,12 +317,78 @@ export class AgentToolExecutor {
       const isWriteOperation = WRITE_TOOLS.has(toolName);
 
       if (isWriteOperation) {
-        return {
+        const pendingResult: Record<string, unknown> = {
           status: 'pending_confirm' as const,
           message: `此操作需要用户确认`,
           toolName,
           args,
         };
+
+        // 对编辑类工具预先计算 diff 预览
+        if (['edit_file_content', 'find_and_replace', 'append_to_file'].includes(toolName)) {
+          try {
+            const fileId = args.fileId as string;
+            if (fileId) {
+              const db = getDb(this.env.DB);
+              const file = await db.select().from(files)
+                .where(and(eq(files.id, fileId), eq(files.userId, this.userId), isNull(files.deletedAt)))
+                .get();
+              if (file) {
+                const readResult = await readFileContent(this.env, file, this.userId);
+                if (readResult.success && readResult.content) {
+                  const originalContent = readResult.content;
+                  let newContent = originalContent;
+                  let changeCount = 0;
+
+                  if (toolName === 'edit_file_content') {
+                    const edits = args.edits as Array<{ operation: string; oldValue?: string; newValue?: string; position?: number }>;
+                    for (const edit of edits || []) {
+                      if (edit.operation === 'replace' && edit.oldValue && edit.newValue !== undefined) {
+                        if (newContent.includes(edit.oldValue)) { changeCount++; }
+                        newContent = newContent.replace(edit.oldValue, edit.newValue);
+                      } else if (edit.operation === 'append' && edit.newValue) {
+                        changeCount++;
+                        newContent += '\n' + edit.newValue;
+                      } else if (edit.operation === 'insert' && edit.newValue !== undefined) {
+                        changeCount++;
+                        newContent = newContent.slice(0, edit.position ?? 0) + edit.newValue + newContent.slice(edit.position ?? 0);
+                      } else if (edit.operation === 'delete' && edit.oldValue) {
+                        changeCount++;
+                        newContent = newContent.replace(edit.oldValue, '');
+                      }
+                    }
+                  } else if (toolName === 'find_and_replace') {
+                    const findStr = args.find as string;
+                    const replaceStr = args.replace as string;
+                    const replaceAll = args.replaceAll !== false;
+                    if (findStr && replaceStr !== undefined) {
+                      const regex = new RegExp(findStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+                      const matches = originalContent.match(regex);
+                      changeCount = matches ? matches.length : 0;
+                      newContent = replaceAll ? originalContent.replace(regex, replaceStr) : originalContent.replace(regex, replaceStr);
+                    }
+                  } else if (toolName === 'append_to_file') {
+                    const content = args.content as string;
+                    if (content) {
+                      changeCount = 1;
+                      newContent = args.addNewline === false ? originalContent + content : originalContent + '\n' + content;
+                    }
+                  }
+
+                  pendingResult.previewDiff = {
+                    before: originalContent.slice(0, 500),
+                    after: newContent.slice(0, 500),
+                    totalChanges: changeCount,
+                  };
+                }
+              }
+            }
+          } catch (diffError) {
+            logger.warn('AgentTool', 'Failed to compute previewDiff', { toolName, error: diffError });
+          }
+        }
+
+        return pendingResult;
       }
 
       const result = await executor(this.env, this.userId, args);

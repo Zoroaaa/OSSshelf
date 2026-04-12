@@ -12,13 +12,12 @@
 import { Hono } from 'hono';
 import { eq, and, desc, sql, count } from 'drizzle-orm';
 import { getDb, aiChatSessions, aiChatMessages } from '../db';
-import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES } from '@osshelf/shared';
+import { authMiddleware } from '../middleware';
+import { ERROR_CODES, logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { ModelGateway, RagEngine } from '../lib/ai';
 import { AgentEngine, type AgentChunk } from '../lib/ai/agentEngine';
-import { logger } from '@osshelf/shared';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
@@ -199,6 +198,8 @@ const chatSchema = z.object({
   maxFiles: z.number().int().min(1).max(10).default(5),
   includeFileContent: z.boolean().default(false),
   stream: z.boolean().default(false),
+  contextFolderId: z.string().optional(),
+  contextFileIds: z.array(z.string()).optional(),
 });
 
 app.post('/chat', async (c) => {
@@ -214,10 +215,10 @@ app.post('/chat', async (c) => {
     );
   }
 
-  const { query, sessionId, modelId, maxFiles, includeFileContent, stream } = result.data;
+  const { query, sessionId, modelId, maxFiles, includeFileContent, stream, contextFolderId, contextFileIds } = result.data;
 
   if (stream) {
-    return handleStreamChat(c, userId, query, sessionId, modelId);
+    return handleStreamChat(c, userId, query, sessionId, modelId, contextFolderId, contextFileIds);
   }
 
   return handleNormalChat(c, userId, query, sessionId, modelId, maxFiles, includeFileContent);
@@ -367,7 +368,15 @@ async function handleNormalChat(
   }
 }
 
-async function handleStreamChat(c: any, userId: string, query: string, sessionId?: string, modelId?: string) {
+async function handleStreamChat(
+  c: any,
+  userId: string,
+  query: string,
+  sessionId?: string,
+  modelId?: string,
+  contextFolderId?: string,
+  contextFileIds?: string[]
+) {
   const startTime = Date.now();
   let actualSessionId = sessionId;
 
@@ -452,6 +461,7 @@ async function handleStreamChat(c: any, userId: string, query: string, sessionId
     let collectedReasoning = '';
     let resolveStream!: () => void;
     let doneEmitted = false;
+    let agentResult: Awaited<ReturnType<typeof agentEngine.run>> | undefined;
     const streamDone = new Promise<void>((r) => {
       resolveStream = r;
     });
@@ -480,7 +490,7 @@ async function handleStreamChat(c: any, userId: string, query: string, sessionId
         };
 
         try {
-          const result = await agentEngine.run(
+          agentResult = await agentEngine.run(
             userId,
             query,
             conversationHistory,
@@ -542,13 +552,15 @@ async function handleStreamChat(c: any, userId: string, query: string, sessionId
               }
             },
             c.req.raw.signal,
-            actualSessionId
+            actualSessionId,
+            contextFolderId,
+            contextFileIds
           );
 
           // Guard: agent finished without emitting done
-          if (!doneEmitted) {
-            finalSources = result.sources;
-            emitDone({ done: true, sessionId: actualSessionId, sources: result.sources });
+          if (!doneEmitted && agentResult) {
+            finalSources = agentResult.sources;
+            emitDone({ done: true, sessionId: actualSessionId, sources: agentResult.sources });
           }
         } catch (error) {
           logger.error('AI Agent', 'Stream failed', { userId }, error);
@@ -568,7 +580,10 @@ async function handleStreamChat(c: any, userId: string, query: string, sessionId
                 sources: JSON.stringify(finalSources),
                 toolCalls: collectedToolCalls.length > 0 ? JSON.stringify(collectedToolCalls) : null,
                 reasoning: collectedReasoning || null,
+                modelUsed: agentResult?.meta?.modelId || modelId || null,
                 latencyMs: Date.now() - startTime,
+                inputTokens: 0,
+                outputTokens: 0,
                 createdAt: new Date().toISOString(),
               });
               logger.info('AI Agent', 'Partial message saved after error', { sessionId: actualSessionId });
@@ -599,10 +614,31 @@ async function handleStreamChat(c: any, userId: string, query: string, sessionId
             sources: JSON.stringify(finalSources),
             toolCalls: hasToolCalls ? JSON.stringify(collectedToolCalls) : null,
             reasoning: collectedReasoning || null,
+            modelUsed: agentResult?.meta?.modelId || modelId || null,
             latencyMs,
+            inputTokens: agentResult?.meta?.inputTokens ?? 0,
+            outputTokens: agentResult?.meta?.outputTokens ?? 0,
             createdAt: new Date().toISOString(),
           });
-          logger.info('AI Agent', 'Message saved', { sessionId: actualSessionId, latencyMs, hasToolCalls, hasSources });
+          logger.info('AI Agent', 'Message saved', {
+            sessionId: actualSessionId,
+            latencyMs,
+            hasToolCalls,
+            hasSources,
+            toolCallCount: agentResult?.meta?.toolCallCount ?? collectedToolCalls.length,
+            inputTokens: agentResult?.meta?.inputTokens ?? 0,
+            outputTokens: agentResult?.meta?.outputTokens ?? 0,
+            modelId: agentResult?.meta?.modelId || modelId,
+          });
+
+          if (actualSessionId && agentResult?.meta) {
+            await db.update(aiChatSessions).set({
+              modelId: agentResult.meta.modelId || modelId || null,
+              lastToolCallCount: agentResult.meta.toolCallCount,
+              totalTokensUsed: sql`total_tokens_used + ${agentResult.meta.inputTokens + agentResult.meta.outputTokens}`,
+              updatedAt: new Date().toISOString(),
+            }).where(eq(aiChatSessions.id, actualSessionId));
+          }
         } catch (error) {
           logger.error('AI Agent', 'Failed to save message', { userId }, error);
         }

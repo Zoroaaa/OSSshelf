@@ -15,6 +15,7 @@ import { getDb, files, userGroups, groupMembers } from '../../../db';
 import type { Env } from '../../../types/env';
 import { logger } from '@osshelf/shared';
 import type { ToolDefinition } from './types';
+import { setFolderAccessLevel as serviceSetFolderAccessLevel, manageGroupMembers as serviceManageGroupMembers } from '../../../lib/permissionService';
 
 export const definitions: ToolDefinition[] = [
   {
@@ -237,38 +238,21 @@ export class PermissionTools {
   static async executeSetFolderAccessLevel(env: Env, userId: string, args: Record<string, unknown>) {
     const folderId = args.folderId as string;
     const accessLevel = args.accessLevel as string;
-    const db = getDb(env.DB);
 
-    const folder = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.id, folderId), eq(files.userId, userId), eq(files.isFolder, true), isNull(files.deletedAt)))
-      .get();
-    if (!folder) return { error: '文件夹不存在或已被删除' };
-
-    const levelDescriptions: Record<string, string> = {
-      private: '仅自己可访问',
-      team: '团队成员可访问',
-      public_read: '所有人可读',
-      public_write: '所有人可读写',
-    };
-
-    await db
-      .update(files)
-      .set({
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(files.id, folderId));
-
-    logger.info('AgentTool', 'Set folder access level', { folderId, folderName: folder.name, accessLevel });
+    const result = await serviceSetFolderAccessLevel(env, userId, folderId, {
+      accessLevel: accessLevel as any,
+    });
+    if (!result.success) return { error: result.error };
 
     return {
       success: true,
-      message: `文件夹 "${folder.name}" 访问级别已设置为 ${accessLevel}（${levelDescriptions[accessLevel]}）`,
+      message: result.message,
       folderId,
-      folderName: folder.name,
-      accessLevel,
-      description: levelDescriptions[accessLevel],
+      folderName: result.folderName,
+      accessLevel: result.accessLevel,
+      description: result.accessLevel === 'private' ? '仅自己可访问' :
+        result.accessLevel === 'team' ? '团队成员可访问' :
+        result.accessLevel === 'public_read' ? '所有人可读' : '所有人可读写',
     };
   }
 
@@ -332,79 +316,15 @@ export class PermissionTools {
     const action = args.action as string;
     const targetUserId = args.userId as string;
     const role = args.role as string | undefined;
-    const db = getDb(env.DB);
 
-    const group = await db
-      .select()
-      .from(userGroups)
-      .where(and(eq(userGroups.id, groupId), eq(userGroups.ownerId, userId)))
-      .get();
-    if (!group) return { error: '用户组不存在或无权管理' };
+    const result = await serviceManageGroupMembers(env, userId, groupId, {
+      action: action as any,
+      targetUserId,
+      role,
+    });
 
-    const now = new Date().toISOString();
+    if ('success' in result && result.success === false) return { error: (result as { error: string }).error };
 
-    switch (action) {
-      case 'add': {
-        const existing = await db
-          .select()
-          .from(groupMembers)
-          .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, targetUserId)))
-          .get();
-
-        if (existing) {
-          return { message: '用户已在组中', alreadyMember: true };
-        }
-
-        await db.insert(groupMembers).values({
-          id: crypto.randomUUID(),
-          groupId,
-          userId: targetUserId,
-          role: role || 'member',
-          addedBy: userId,
-          createdAt: now,
-        });
-
-        return {
-          success: true,
-          message: `已将用户添加到 "${group.name}"`,
-          groupId,
-          groupName: group.name,
-          addedUserId: targetUserId,
-          role: role || 'member',
-        };
-      }
-      case 'remove': {
-        await db
-          .delete(groupMembers)
-          .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, targetUserId)));
-
-        return {
-          success: true,
-          message: `已从 "${group.name}" 移除用户`,
-          groupId,
-          groupName: group.name,
-          removedUserId: targetUserId,
-        };
-      }
-      case 'change_role': {
-        if (!role) return { error: '更改角色时必须提供 role 参数' };
-
-        await db
-          .update(groupMembers)
-          .set({ role })
-          .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, targetUserId)));
-
-        return {
-          success: true,
-          message: `已将用户角色更改为 ${role}`,
-          groupId,
-          groupName: group.name,
-          userId: targetUserId,
-          newRole: role,
-        };
-      }
-      default:
-        return { error: `未知操作: ${action}` };
-    }
+    return result;
   }
 }

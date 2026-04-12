@@ -55,6 +55,7 @@ import {
   Star,
   Download,
   Wand2,
+  MessageSquare,
 } from 'lucide-react';
 import type { FileItem } from '@osshelf/shared';
 import { cn, decodeFileName } from '@/utils';
@@ -1077,6 +1078,19 @@ export default function Files() {
             <FolderPlus className="h-4 w-4 mr-1.5" />
             新建文件夹
           </Button>
+
+          {aiConfigured && folderId && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate(`/ai-chat?folderId=${folderId}`)}
+              className="hidden sm:flex"
+              title="对此文件夹提问，AI 将优先在此目录内搜索和操作"
+            >
+              <MessageSquare className="h-4 w-4 mr-1.5" />
+              AI 提问
+            </Button>
+          )}
 
           <label className="inline-flex">
             <Button

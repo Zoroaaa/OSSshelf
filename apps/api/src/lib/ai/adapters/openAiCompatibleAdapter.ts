@@ -6,6 +6,7 @@
  * - 支持所有 OpenAI 兼容的 API（OpenAI、Azure、Ollama、本地模型等）
  * - 支持流式输出（SSE）
  * - 支持 API Key 认证
+ * - 安全的 API Key 处理：即时解密，不存储明文
  */
 
 import type {
@@ -18,14 +19,19 @@ import type {
   EmbeddingResponse,
   ChatContentPart,
 } from '../types';
+import type { Env } from '../../../types/env';
 import { logger } from '@osshelf/shared';
+import { decryptCredential, getEncryptionKey, isAesGcmFormat } from '../../crypto';
+import { AI_LOG_MODULE } from '../constants';
 
 export class OpenAiCompatibleAdapter implements IModelAdapter {
   readonly provider = 'openai_compatible' as const;
   readonly modelName = 'OpenAI Compatible';
   private config: ModelConfig;
+  private env: Env;
 
-  constructor(config: ModelConfig) {
+  constructor(env: Env, config: ModelConfig) {
+    this.env = env;
     this.config = config;
   }
 
@@ -51,7 +57,7 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
 
       const response = await fetch(`${this.config.apiEndpoint}/chat/completions`, {
         method: 'POST',
-        headers: this.getHeaders(),
+        headers: await this.getHeadersAsync(),
         body: JSON.stringify(body),
         signal,
       });
@@ -97,7 +103,7 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
         toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
       };
     } catch (error) {
-      logger.error('AI', 'OpenAI compatible chat completion failed', {}, error);
+      logger.error(AI_LOG_MODULE, 'OpenAI compatible chat completion failed', {}, error);
       throw error;
     }
   }
@@ -126,12 +132,12 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
         Object.assign(streamBody, request.extraBody);
       }
 
+      const streamHeaders = await this.getHeadersAsync();
+      streamHeaders['Accept'] = 'text/event-stream';
+
       const response = await fetch(`${this.config.apiEndpoint}/chat/completions`, {
         method: 'POST',
-        headers: {
-          ...this.getHeaders(),
-          Accept: 'text/event-stream',
-        },
+        headers: streamHeaders,
         body: JSON.stringify(streamBody),
         signal,
       });
@@ -255,7 +261,7 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
       }
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
-        logger.error('AI', 'OpenAI compatible stream failed', {}, error);
+        logger.error(AI_LOG_MODULE, 'OpenAI compatible stream failed', {}, error);
       }
       throw error;
     }
@@ -267,7 +273,7 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
     try {
       const response = await fetch(`${this.config.apiEndpoint}/embeddings`, {
         method: 'POST',
-        headers: this.getHeaders(),
+        headers: await this.getHeadersAsync(),
         body: JSON.stringify({
           model: this.config.modelId,
           input: request.input,
@@ -289,7 +295,7 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
         model: data.model,
       };
     } catch (error) {
-      logger.error('AI', 'OpenAI compatible embedding failed', {}, error);
+      logger.error(AI_LOG_MODULE, 'OpenAI compatible embedding failed', {}, error);
       throw error;
     }
   }
@@ -312,17 +318,33 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
     return { valid: true };
   }
 
-  private getHeaders(): Record<string, string> {
+  private async getHeadersAsync(): Promise<Record<string, string>> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
 
-    const apiKey = this.config.apiKeyDecrypted || this.config.apiKeyEncrypted;
+    const apiKey = await this.resolveApiKey();
     if (apiKey) {
       headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
     return headers;
+  }
+
+  private async resolveApiKey(): Promise<string | null> {
+    if (this.config.apiKeyEncrypted) {
+      if (isAesGcmFormat(this.config.apiKeyEncrypted)) {
+        try {
+          const secret = getEncryptionKey(this.env);
+          return await decryptCredential(this.config.apiKeyEncrypted, secret);
+        } catch (error) {
+          logger.error(AI_LOG_MODULE, 'Failed to decrypt API key', { modelId: this.config.id }, error);
+          return null;
+        }
+      }
+      return this.config.apiKeyEncrypted;
+    }
+    return null;
   }
 
   private validateConnection(): void {

@@ -7,13 +7,13 @@
  * - 任务状态持久化，不依赖 KV TTL
  */
 
-import type { Env, AiTaskMessage } from '../types/env';
-import { getDb, aiTasks, files } from '../db';
+import type { Env, AiTaskMessage } from '../../types/env';
+import { getDb, aiTasks, files } from '../../db';
 import { eq, and, sql } from 'drizzle-orm';
 import { logger } from '@osshelf/shared';
 import { indexFileVector, buildFileTextForVector } from './vectorIndex';
-import { generateFileSummary, generateImageTags } from './ai/features';
-import { dispatchWebhook } from './webhook';
+import { generateFileSummary, generateImageTags } from './features';
+import { dispatchWebhook } from '../webhook';
 
 export type TaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 

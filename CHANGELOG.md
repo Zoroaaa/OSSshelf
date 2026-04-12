@@ -2,6 +2,136 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v4.5.0] - 2026-04-12
+
+### Added - AI 模型库大幅扩展与引擎优化 🚀
+
+**核心功能 - AI 模型库扩展（80+ 模型）**
+
+- **模型库大幅扩展**
+  - 从 16 个厂商约 50 个模型扩展到 **80+ 个模型**
+  - 覆盖 2025 年最新推理模型、视觉多模态模型、长上下文模型
+  - 新增多个主流厂商的最新旗舰模型
+
+- **新增 OpenAI 模型**
+  - `o3 Mini`：轻量级推理模型，支持 function calling
+  - `GPT-5`：最新旗舰模型，支持推理和视觉
+
+- **新增 Anthropic Claude 模型**
+  - `Claude Sonnet 4`：新一代平衡模型，支持 extended thinking
+  - `Claude Opus 4.1`：最强大的推理模型，支持 budget_tokens 配置
+
+- **新增 Google Gemini 模型**
+  - `Gemini 2.5 Pro`：支持 thinking_level 配置
+  - `Gemini 3`：最新一代，200 万 token 上下文
+
+- **新增百度文心一言模型**
+  - `ERNIE X1 (深度思考)`：32K 上下文，支持视觉和推理
+  - `ERNIE 4.5 Turbo`：128K 上下文，支持视觉
+
+- **新增阿里通义千问模型**
+  - `QwQ 32B (推理模型)`：支持 thinking_budget 配置
+  - `Qwen3 235B`：256K 上下文，支持推理和视觉
+
+- **新增字节火山引擎模型**
+  - `豆包 Seed 1.6 (深度思考)`：支持 reasoning_effort 配置
+  - `豆包 Seed 2.0 Pro`：128K 输出，支持深度思考
+
+- **新增 MiniMax 模型**
+  - `MiniMax M1 (推理模型)`
+  - `MiniMax M2.5`：192K 输出
+  - `MiniMax M2.7`：204K 上下文，131K 输出
+
+- **新增月之暗面 Kimi 模型**
+  - `Kimi K2 Thinking`：支持 thinking 配置
+  - `Kimi K2.5`：支持视觉和思考
+
+- **新增智谱 GLM 模型**
+  - `GLM-5`：200K 上下文，最新旗舰推理模型
+
+- **新增 xAI Grok 模型**
+  - `Grok 4` / `Grok 4.1`：标准模型
+  - `Grok 4 Thinking` / `Grok 4.1 Thinking`：深度思考模型
+
+- **新增 OpenRouter 模型**
+  - `Claude Sonnet 4 (via OpenRouter)`
+  - `Claude Opus 4 (via OpenRouter)`
+  - `o1 Preview (via OpenRouter)`
+  - `Gemini 2.5 Pro Preview (via OpenRouter)`
+  - `DeepSeek R1 (via OpenRouter)`
+
+**Agent 引擎增强**
+
+- **上下文 Token 预算管理**
+  - 新增 `ai.agent.max_context_tokens` 配置项（默认 100000）
+  - 支持动态裁剪历史消息，避免超出上下文限制
+  - 智能 Token 估算算法（中文 0.67 tokens/char，英文 0.25 tokens/char）
+
+- **降级机制改进**
+  - Native Function Calling → Prompt-Based Fallback 容错性更强
+  - 第一轮无工具调用时自动注入强制提示重试
+  - 最大降级重试次数限制（防止无限循环）
+
+- **Token 统计增强**
+  - 实时统计 inputTokens 和 outputTokens
+  - 返回 AgentRunMeta 元数据供前端展示
+
+**模型网关增强**
+
+- **providerId 关联**
+  - 模型可归属到特定提供商（`provider_id` 字段）
+  - 支持按提供商筛选和管理模型
+
+- **排序功能**
+  - 支持 `sort_order` 字段自定义模型显示顺序
+  - 前端按提供商分组并按排序展示
+
+- **只读模式**
+  - 新增 `is_readonly` 字段标记只读模型
+  - 系统内置模型或特殊模型可标记为不可编辑
+
+- **Thinking 配置完善**
+  - 完整解析所有 thinking 相关字段：
+    - `supports_thinking`
+    - `thinking_param_format` (object/boolean/string)
+    - `thinking_param_name`
+    - `thinking_enabled_value` / `thinking_disabled_value`
+    - `thinking_nested_key`
+    - `disable_thinking_for_features`
+
+**API 完善**
+
+- **提供商管理 API 增强**
+  - 新增 `POST /api/ai-config/ai-providers/:id/set-default` - 设置默认提供商
+  - 提供商支持 `sort_order` 排序字段
+  - 提供商支持 `is_active` 激活状态字段
+
+- **模型管理 API 增强**
+  - 创建/更新模型支持所有新字段
+  - 模型列表返回包含 providerId 和 sortOrder
+
+**数据库变更**
+
+- 无需新的迁移文件（新字段已在 v4.4.0 迁移中预留）
+
+### Changed
+
+- vendorConfig.ts 大幅更新，新增 30+ 个模型定义
+- modelGateway.ts 解析逻辑增强，支持所有新字段
+- agentEngine.ts 上下文管理和降级机制优化
+- aiConfigRoutes.ts API 接口完善
+- AI_FEATURES.md 文档更新至 v4.5.0
+- API_AI.md 文档更新至 v4.5.0
+- README.md 版本号更新至 v4.5.0
+
+### Improved
+
+- 模型选择体验优化：更丰富的预设模型库
+- Agent 引擎稳定性提升：更好的错误恢复机制
+- Token 使用效率优化：智能裁剪避免浪费
+
+---
+
 ## [v4.4.0] - 2026-04-08
 
 ### Added - AI 模块全面优化 🚀

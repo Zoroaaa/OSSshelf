@@ -29,6 +29,9 @@ import {
   softDeleteFile,
   toggleStar,
   createFolder,
+  copyFile as serviceCopyFile,
+  restoreFile as serviceRestoreFile,
+  findOrCreateFolder as serviceFindOrCreateFolder,
 } from '../../../lib/fileService';
 import { readFileContent } from '../../../lib/fileContentHelper';
 
@@ -886,71 +889,16 @@ services:
     const fileId = args.fileId as string;
     const targetFolderId = args.targetFolderId as string;
     const newName = args.newName as string | undefined;
-    const db = getDb(env.DB);
 
-    const [file, targetFolder] = await Promise.all([
-      db
-        .select()
-        .from(files)
-        .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
-        .get(),
-      db
-        .select()
-        .from(files)
-        .where(and(eq(files.id, targetFolderId), eq(files.userId, userId)))
-        .get(),
-    ]);
-
-    if (!file) return { error: '源文件不存在或无权访问' };
-    if (!targetFolder) return { error: '目标文件夹不存在' };
-    if (file.isFolder) return { error: '暂不支持复制文件夹' };
-
-    const finalName = newName || file.name;
-    const newFileId = crypto.randomUUID();
-    const now = new Date().toISOString();
-    const parentPath = targetFolder.path || '';
-    const newPath = `${parentPath}/${finalName}`.replace('//', '/');
-
-    const r2KeyPrefix = file.r2Key?.substring(0, file.r2Key.lastIndexOf('/')) || `uploads/${userId}`;
-    const newR2Key = `${r2KeyPrefix}/${newFileId}/${finalName}`;
-
-    await db.insert(files).values({
-      id: newFileId,
-      userId,
-      parentId: targetFolderId,
-      name: finalName,
-      path: newPath,
-      size: file.size,
-      r2Key: newR2Key,
-      mimeType: file.mimeType,
-      isFolder: false,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    try {
-      const sourceObject = await env.FILES?.get(file.r2Key!);
-      if (sourceObject) {
-        const body = await sourceObject.arrayBuffer();
-        await env.FILES?.put(newR2Key, new Uint8Array(body));
-      }
-    } catch (error) {
-      logger.error('FileOpsTool', 'Failed to copy file in R2', { sourceId: fileId, newFileId }, error);
-      try {
-        await env.FILES?.delete(newR2Key);
-      } catch {}
-      await db.delete(files).where(eq(files.id, newFileId));
-      return { error: '文件复制失败: 存储服务异常' };
-    }
+    const result = await serviceCopyFile(env, userId, fileId, { targetFolderId, newName });
+    if (!result.success) return { error: result.error };
 
     return {
       success: true,
-      message: `"${file.name}" 已复制为 "${finalName}"`,
+      message: result.message,
       originalFileId: fileId,
-      newFileId,
-      originalName: file.name,
-      newName: finalName,
-      targetFolderName: targetFolder.name,
+      newFileId: result.newFileId,
+      newName: result.fileName,
     };
   }
 
@@ -977,29 +925,15 @@ services:
 
   static async executeRestoreFile(env: Env, userId: string, args: Record<string, unknown>) {
     const fileId = args.fileId as string;
-    const db = getDb(env.DB);
 
-    const file = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.id, fileId), eq(files.userId, userId), isNotNull(files.deletedAt)))
-      .get();
-
-    if (!file) return { error: '该文件不在回收站中或不存在' };
-
-    await db
-      .update(files)
-      .set({
-        deletedAt: null,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(files.id, fileId));
+    const result = await serviceRestoreFile(env, userId, fileId);
+    if (!result.success) return { error: result.error };
 
     return {
       success: true,
-      message: `"${file.name}" 已从回收站恢复`,
+      message: result.message,
       fileId,
-      fileName: file.name,
+      fileName: result.fileName,
       restoredAt: new Date().toISOString(),
     };
   }
@@ -1095,86 +1029,30 @@ services:
   static async executeStarFile(env: Env, userId: string, args: Record<string, unknown>) {
     const fileId = args.fileId as string;
     const reason = args.reason as string | undefined;
-    const db = getDb(env.DB);
 
-    const file = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
-      .get();
+    const result = await toggleStar(env, userId, fileId, true);
+    if (!result.success) return { error: result.error };
 
-    if (!file) {
-      return { error: '文件不存在或无权访问' };
-    }
-
-    const isAlreadyStarred = file.isStarred ?? false;
-
-    if (isAlreadyStarred) {
-      return {
-        success: true,
-        message: `"${file.name}" 已经在收藏夹中`,
-        alreadyStarred: true,
-        fileId,
-        fileName: file.name,
-      };
-    }
-
-    await db
-      .update(files)
-      .set({
-        isStarred: true,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(files.id, fileId));
-
-    logger.info('AgentTool', 'Starred file', { fileId, fileName: file.name, reason: reason || '(none)' });
+    logger.info('AgentTool', 'Starred file', { fileId, reason: reason || '(none)' });
 
     return {
       success: true,
-      message: `已收藏 "${file.name}"${reason ? ` (${reason})` : ''}`,
+      message: result.message + (reason ? ` (${reason})` : ''),
       fileId,
-      fileName: file.name,
       _next_actions: ['✅ 收藏成功', '可通过 filter_files(isStarred=true) 查看所有收藏的文件'],
     };
   }
 
   static async executeUnstarFile(env: Env, userId: string, args: Record<string, unknown>) {
     const fileId = args.fileId as string;
-    const db = getDb(env.DB);
 
-    const file = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
-      .get();
-
-    if (!file) {
-      return { error: '文件不存在或无权访问' };
-    }
-
-    if (!(file.isStarred ?? false)) {
-      return {
-        success: true,
-        message: `"${file.name}" 未被收藏`,
-        alreadyUnstarred: true,
-        fileId,
-        fileName: file.name,
-      };
-    }
-
-    await db
-      .update(files)
-      .set({
-        isStarred: false,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(files.id, fileId));
+    const result = await toggleStar(env, userId, fileId, false);
+    if (!result.success) return { error: result.error };
 
     return {
       success: true,
-      message: `已取消收藏 "${file.name}"`,
+      message: result.message,
       fileId,
-      fileName: file.name,
     };
   }
 
@@ -1183,58 +1061,7 @@ services:
   // ─────────────────────────────────────────────────────────────────────────
 
   private static async findOrCreateFolder(env: Env, userId: string, path: string): Promise<string | null> {
-    const db = getDb(env.DB);
-
-    const existing = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.userId, userId), eq(files.path, path), eq(files.isFolder, true), isNull(files.deletedAt)))
-      .get();
-
-    if (existing) {
-      return existing.id;
-    }
-
-    const parts = path.replace(/^\/+/, '').split('/');
-    let parentId: string | null = null;
-    let currentPath = '';
-
-    for (const part of parts) {
-      currentPath = currentPath ? `${currentPath}/${part}` : part;
-
-      const folder = await db
-        .select()
-        .from(files)
-        .where(
-          and(eq(files.userId, userId), eq(files.path, currentPath), eq(files.isFolder, true), isNull(files.deletedAt))
-        )
-        .get();
-
-      if (folder) {
-        parentId = folder.id;
-      } else {
-        const newFolderId = crypto.randomUUID();
-        const now = new Date().toISOString();
-
-        await db.insert(files).values({
-          id: newFolderId,
-          userId,
-          parentId,
-          name: part,
-          path: currentPath,
-          size: 0,
-          r2Key: '',
-          mimeType: null,
-          isFolder: true,
-          createdAt: now,
-          updatedAt: now,
-        });
-
-        parentId = newFolderId;
-      }
-    }
-
-    return parentId;
+    return serviceFindOrCreateFolder(env, userId, path);
   }
 }
 

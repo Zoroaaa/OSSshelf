@@ -22,6 +22,7 @@ import {
   searchHistory,
   notifications,
   aiTasks,
+  aiConfirmRequests,
 } from '../db';
 import { TRASH_RETENTION_DAYS, DEVICE_SESSION_EXPIRY, logger } from '@osshelf/shared';
 import type { Env } from '../types/env';
@@ -211,6 +212,34 @@ app.post('/cron/version-cleanup', async (c) => {
   }
 });
 
+// ── AI Confirm Requests cleanup ─────────────────────────────────────────────
+app.post('/cron/ai-confirm-cleanup', async (c) => {
+  const db = getDb(c.env.DB);
+
+  // 清理 7 天前的已处理记录（expired 和 consumed 状态）
+  const retentionDays = 7;
+  const threshold = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
+
+  const cleanedRecords = await db
+    .delete(aiConfirmRequests)
+    .where(
+      and(
+        or(eq(aiConfirmRequests.status, 'expired'), eq(aiConfirmRequests.status, 'consumed')),
+        lt(aiConfirmRequests.createdAt, threshold)
+      )
+    )
+    .returning({ id: aiConfirmRequests.id });
+
+  logger.info('CRON', `AI确认请求清理完成: ${cleanedRecords.length} 条记录`);
+
+  return c.json({
+    success: true,
+    data: {
+      cleanedCount: cleanedRecords.length,
+    },
+  });
+});
+
 app.post('/cron/data-cleanup', async (c) => {
   const db = getDb(c.env.DB);
   const now = new Date().toISOString();
@@ -263,6 +292,7 @@ app.post('/cron/all', async (c) => {
     shares: null as unknown,
     versions: null as unknown,
     data: null as unknown,
+    aiConfirm: null as unknown,
   };
 
   try {
@@ -313,6 +343,16 @@ app.post('/cron/all', async (c) => {
     results.data = await dataRes.json();
   } catch (e) {
     results.data = { error: String(e) };
+  }
+
+  try {
+    const aiConfirmRes = await fetch(new URL('/cron/ai-confirm-cleanup', c.req.url), {
+      method: 'POST',
+      headers: c.req.raw.headers,
+    });
+    results.aiConfirm = await aiConfirmRes.json();
+  } catch (e) {
+    results.aiConfirm = { error: String(e) };
   }
 
   return c.json({

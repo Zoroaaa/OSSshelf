@@ -9,6 +9,5 @@ export { ModelFormModal } from './ModelFormModal';
 export { ProvidersSection } from './ProvidersSection';
 export { IndexProcessingTab } from './IndexProcessingTab';
 export { VectorsTable } from './VectorsTable';
-export { TasksCenter } from './TasksCenter';
 export { AdvancedConfigPanel } from './AdvancedConfigPanel';
 export { ProviderManageModal } from './ProviderManageModal';

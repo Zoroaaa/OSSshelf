@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-green.svg)](https://nodejs.org)
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers-orange.svg)](https://workers.cloudflare.com)
-[![Version](https://img.shields.io/badge/version-4.4.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.5.0-blue.svg)](CHANGELOG.md)
 [![zread](https://img.shields.io/badge/Ask_Zread-_.svg?style=flat&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS4zMTM1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff)](https://zread.ai/Zoroaaa/OSSshelf)
 
 [功能特性](#-功能特性) • [快速开始](#-快速开始) • [部署指南](#-部署指南) • [API文档](#-api-文档)
@@ -49,32 +49,48 @@
 
 详细的版本更新日志请参阅 [CHANGELOG.md](CHANGELOG.md)。
 
-### 最新版本 v4.4.0 - AI 模块全面优化 🚀
+### 最新版本 v4.5.0 - AI 模型库大幅扩展与引擎优化 🚀
 
 **核心更新**：
 
-- 🔧 **AI 提供商配置**：新增提供商管理功能，支持 16 个系统内置提供商（国内厂商 + 国际厂商）
-- 💬 **AI 对话全环节优化**：消息记录支持工具调用和推理内容存储，对话体验更流畅
-- ⚙️ **模型配置深度优化**：模型可归属特定提供商，支持排序和分组展示
-- 📱 **移动端适配优化**：AI 设置页面响应式布局优化，触控交互更友好
+- 🤖 **AI 模型库大幅扩展**：从 16 个厂商约 50 个模型扩展到 **80+ 个模型**，覆盖 2025 年最新推理模型
+- 🧠 **新增主流推理模型**：
+  - OpenAI: o3 Mini、GPT-5
+  - Anthropic: Claude Sonnet 4、Claude Opus 4.1
+  - Google: Gemini 2.5 Pro、Gemini 3
+  - 百度: ERNIE X1 (深度思考)、ERNIE 4.5 Turbo
+  - 阿里: Qwen3 235B (256K上下文)
+  - 字节: 豆包 Seed 1.6/2.0 Pro (深度思考)
+  - MiniMax: M1/M2.5/M2.7 推理模型系列
+  - 月之暗面: Kimi K2 Thinking/K2.5
+  - 智谱: GLM-5 (200K上下文)
+- ⚡ **Agent 引擎增强**：
+  - 新增 `maxContextTokens` 配置（默认 100K tokens）
+  - 智能 Token 预算管理，动态裁剪历史消息
+  - 改进 Native → Prompt-Based 降级机制，容错性更强
+  - 完善的 Token 估算（中英文自适应）
+- 🔧 **模型网关增强**：
+  - 支持 `providerId` 字段，模型可归属特定提供商
+  - 支持 `sortOrder` 字段，自定义模型显示顺序
+  - 新增 `isReadonly` 只读模式标记
+  - 完整的 thinking 配置字段解析
+- 🌐 **API 完善**：
+  - 新增设置默认提供商接口
+  - 提供商管理支持排序和激活状态
 
-**提供商支持（16 个系统内置）**：
+**模型能力统计**：
 
-| 类型 | 提供商 |
-|------|--------|
-| 国内厂商 | 百度文心一言、腾讯混元、阿里通义千问、字节火山引擎、智谱AI、MiniMax、月之暗面、硅基流动、DeepSeek |
-| 国际厂商 | OpenAI、Anthropic Claude、Google Gemini、Mistral AI、xAI Grok、Groq、Perplexity、OpenRouter |
-
-**推理模式支持**：
-
-- DeepSeek R1 系列：显示完整推理过程
-- 智谱 GLM-4.5/4.6/4.7/5：支持 thinking 模式
-- 阿里 QwQ 系列：显示推理过程
-- 各提供商独立 thinking_config 配置
+| 能力类型       | 模型数量 | 代表模型                                                                 |
+| -------------- | -------- | ------------------------------------------------------------------------ |
+| **推理/思考**  | 25+      | GPT-5, o3 Mini, Claude Opus 4.1, Gemini 3, DeepSeek R1, GLM-5, Qwen3 235B |
+| **视觉多模态** | 20+      | GPT-4o, Claude Sonnet 4, Gemini 2.5 Pro, Qwen3 235B, ERNIE 4.5 Turbo    |
+| **长上下文**   | 15+      | Gemini 3 (2M), Gemini 2.5 Pro (2M), GLM-5 (200K), Kimi K2.5 (128K)      |
+| **代码专用**   | 5+       | Codestral, QwQ 32B                                                       |
+| **嵌入向量**   | 2        | BGE-M3, Mistral Embed                                                     |
 
 详细说明请参阅 [docs/AI_FEATURES.md](docs/AI_FEATURES.md) 和 [docs/API_AI.md](docs/API_AI.md)。
 
-### 历史版本 v4.3.0 - AI Agent 全面升级
+### 历史版本 v4.4.0 - AI 提供商配置全面优化
 
 - 🤖 **Agent 引擎重构**：采用 ReAct 架构，支持多轮推理
 - 🛠️ **95 个智能工具**：覆盖文件操作、权限管理、分享链接等 13 个模块
@@ -155,13 +171,18 @@
 
 </details>
 
-- 🤖 **AI 功能 v4.3.0 全面升级**:
-  - Agent 引擎：ReAct 架构，支持多轮推理、链式调用
+- 🤖 **AI 功能 v4.5.0 全面升级**:
+  - **模型库大幅扩展**：16 个厂商 **80+ 个模型**，覆盖 2025 年最新推理/视觉/长上下文模型
+  - Agent 引擎：ReAct 架构，多轮推理，链式调用，Token 预算管理（v4.5.0 增强）
   - 95 个智能工具：覆盖文件操作、权限管理、分享链接等 13 个模块
   - 智能意图识别：自动识别搜索、视觉、内容理解等意图
   - 视觉分析增强：图片搜索结果自动触发视觉分析链路
   - 写操作确认：敏感操作需用户确认后执行
-  - 多模型支持：Workers AI（9个模型）+ OpenAI 兼容 API
+  - 提供商管理：16 个系统内置提供商 + 用户自定义（v4.4.0）
+  - Thinking Config：各提供商独立推理模式配置（v4.4.0）
+  - 模型分组展示：按提供商分组，支持排序（v4.4.0）
+  - 对话记录增强：支持工具调用和推理内容存储（v4.4.0）
+  - 多模型支持：Workers AI（9个模型）+ OpenAI 兼容 API + 80+ 预设模型
   - AI 对话系统：SSE 流式响应、会话管理、RAG 文件问答
   - 文件摘要生成（可配置专用模型）
   - 图片智能描述 + 标签生成（需 vision 能力模型）
@@ -501,37 +522,37 @@ ossshelf/
 
 ### API 路由概览
 
-| 路由前缀             | 说明                                        |
-| -------------------- | ------------------------------------------- |
-| `/api/auth`          | 用户认证、邮箱验证、密码重置                |
-| `/api/files`         | 文件管理                                    |
-| `/api/buckets`       | 存储桶管理                                  |
-| `/api/share`         | 文件分享                                    |
-| `/api/direct`        | 文件直链                                    |
-| `/api/presign`       | 预签名 URL                                  |
-| `/api/tasks`         | 上传任务                                    |
-| `/api/downloads`     | 离线下载                                    |
-| `/api/batch`         | 批量操作                                    |
-| `/api/search`        | 文件搜索                                    |
-| `/api/permissions`   | 权限与标签                                  |
-| `/api/preview`       | 文件预览                                    |
-| `/api/versions`      | 版本控制                                    |
-| `/api/notes`         | 文件笔记                                    |
-| `/api/api-keys`      | API Keys 管理                               |
-| `/api/groups`        | 用户组管理                                  |
-| `/api/webhooks`      | Webhook 管理                                |
-| `/api/ai`            | AI 文件处理功能 (v4.3.0 增强)               |
-| `/api/ai-config`     | AI 配置管理、系统配置 (v4.3.0 增强)         |
-| `/api/ai-chat`       | AI 对话系统、Agent 引擎 (v4.3.0 增强)       |
-| `/api/analytics`     | 存储分析                                    |
-| `/api/notifications` | 通知系统                                    |
-| `/api/v1`            | RESTful v1 API                              |
-| `/api/v1/docs`       | OpenAPI 文档                                |
-| `/api/admin`         | 管理员接口、邮件配置                        |
-| `/api/migrate`       | 存储桶迁移                                  |
-| `/api/telegram`      | Telegram 存储                               |
-| `/cron`              | 定时任务                                    |
-| `/dav`               | WebDAV                                      |
+| 路由前缀             | 说明                                  |
+| -------------------- | ------------------------------------- |
+| `/api/auth`          | 用户认证、邮箱验证、密码重置          |
+| `/api/files`         | 文件管理                              |
+| `/api/buckets`       | 存储桶管理                            |
+| `/api/share`         | 文件分享                              |
+| `/api/direct`        | 文件直链                              |
+| `/api/presign`       | 预签名 URL                            |
+| `/api/tasks`         | 上传任务                              |
+| `/api/downloads`     | 离线下载                              |
+| `/api/batch`         | 批量操作                              |
+| `/api/search`        | 文件搜索                              |
+| `/api/permissions`   | 权限与标签                            |
+| `/api/preview`       | 文件预览                              |
+| `/api/versions`      | 版本控制                              |
+| `/api/notes`         | 文件笔记                              |
+| `/api/api-keys`      | API Keys 管理                         |
+| `/api/groups`        | 用户组管理                            |
+| `/api/webhooks`      | Webhook 管理                          |
+| `/api/ai`            | AI 文件处理功能 (v4.3.0 增强)         |
+| `/api/ai-config`     | AI 配置管理、系统配置 (v4.3.0 增强)   |
+| `/api/ai-chat`       | AI 对话系统、Agent 引擎 (v4.3.0 增强) |
+| `/api/analytics`     | 存储分析                              |
+| `/api/notifications` | 通知系统                              |
+| `/api/v1`            | RESTful v1 API                        |
+| `/api/v1/docs`       | OpenAPI 文档                          |
+| `/api/admin`         | 管理员接口、邮件配置                  |
+| `/api/migrate`       | 存储桶迁移                            |
+| `/api/telegram`      | Telegram 存储                         |
+| `/cron`              | 定时任务                              |
+| `/dav`               | WebDAV                                |
 
 ---
 

@@ -32,12 +32,26 @@ import { AgentToolExecutor, TOOL_DEFINITIONS } from './agentTools/index';
 import type { StreamChunk } from './types';
 import { logger } from '@osshelf/shared';
 import { getAiConfigNumber } from './aiConfigService';
-import { getDb, aiConfirmRequests } from '../../db';
-import { eq, and, gte } from 'drizzle-orm';
+import { getDb, aiConfirmRequests, files } from '../../db';
+import { eq, and, gte, isNull, inArray } from 'drizzle-orm';
+import { classifyIntent } from './ragEngine';
+import { selectTools, needsWriteTools, TOOL_GROUPS } from './agentTools/toolSelector';
+import { buildFolderPath } from '../../lib/utils';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 默认配置常量（当数据库配置不可用时使用）
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Token 估算（与 ragEngine 相同算法，中文 0.67 tokens/char，英文 0.25 tokens/char）
+// ─────────────────────────────────────────────────────────────────────────────
+function estimateTokens(text: string): number {
+  if (!text) return 0;
+  const chineseChars = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length;
+  const chineseRatio = text.length > 0 ? chineseChars / text.length : 0;
+  const tokensPerChar = chineseRatio > 0.3 ? 0.67 : 0.25;
+  return Math.ceil(text.length * tokensPerChar);
+}
 
 const DEFAULT_MAX_TOOL_CALLS = 20;
 const DEFAULT_MAX_IDLE_ROUNDS = 3;
@@ -45,6 +59,8 @@ const DEFAULT_AGENT_TEMPERATURE = 0.3;
 const DEFAULT_IMAGE_TIMEOUT_MS = 25000;
 const TOKENS_PER_CHAR = 0.5;
 const TOOL_CALL_REGEX = /```tool(?:_call)?\s*([\s\S]*?)```/;
+
+
 
 /**
  * 视觉意图检测模式（中英文）
@@ -85,15 +101,43 @@ interface AgentConfig {
 
 const DEFAULT_MAX_CONTEXT_TOKENS = 100000;
 
+// Agent 配置缓存（进程级，与 ragEngine 的 intentCache 模式一致）
+const agentConfigCacheMap = new WeakMap<object, { data: AgentConfig; expiresAt: number }>();
+const AGENT_CONFIG_TTL_MS = 5 * 60 * 1000; // 5 分钟缓存
+
 async function loadAgentConfig(env: Env): Promise<AgentConfig> {
+  // 检查缓存
+  const cached = agentConfigCacheMap.get(env);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+
   try {
-    return {
-      maxToolCalls: await getAiConfigNumber(env, 'ai.agent.max_tool_calls', DEFAULT_MAX_TOOL_CALLS),
-      maxIdleRounds: await getAiConfigNumber(env, 'ai.agent.max_idle_rounds', DEFAULT_MAX_IDLE_ROUNDS),
-      agentTemperature: await getAiConfigNumber(env, 'ai.agent.temperature', DEFAULT_AGENT_TEMPERATURE),
-      imageTimeoutMs: await getAiConfigNumber(env, 'ai.agent.image_timeout_ms', DEFAULT_IMAGE_TIMEOUT_MS),
-      maxContextTokens: await getAiConfigNumber(env, 'ai.agent.max_context_tokens', DEFAULT_MAX_CONTEXT_TOKENS),
+    // 并发查询所有配置项
+    const [maxToolCalls, maxIdleRounds, agentTemperature, imageTimeoutMs, maxContextTokens] =
+      await Promise.all([
+        getAiConfigNumber(env, 'ai.agent.max_tool_calls', DEFAULT_MAX_TOOL_CALLS),
+        getAiConfigNumber(env, 'ai.agent.max_idle_rounds', DEFAULT_MAX_IDLE_ROUNDS),
+        getAiConfigNumber(env, 'ai.agent.temperature', DEFAULT_AGENT_TEMPERATURE),
+        getAiConfigNumber(env, 'ai.agent.image_timeout_ms', DEFAULT_IMAGE_TIMEOUT_MS),
+        getAiConfigNumber(env, 'ai.agent.max_context_tokens', DEFAULT_MAX_CONTEXT_TOKENS),
+      ]);
+
+    const config: AgentConfig = {
+      maxToolCalls,
+      maxIdleRounds,
+      agentTemperature,
+      imageTimeoutMs,
+      maxContextTokens,
     };
+
+    // 写入缓存
+    agentConfigCacheMap.set(env, {
+      data: config,
+      expiresAt: Date.now() + AGENT_CONFIG_TTL_MS,
+    });
+
+    return config;
   } catch {
     return {
       maxToolCalls: DEFAULT_MAX_TOOL_CALLS,
@@ -197,9 +241,10 @@ async function consumePendingConfirm(
   const db = getDb(env.DB);
   const now = new Date().toISOString();
 
-  const record = await db
-    .select()
-    .from(aiConfirmRequests)
+  // 原子操作：UPDATE + RETURNING，消除 SELECT + UPDATE 的竞态条件
+  const result = await db
+    .update(aiConfirmRequests)
+    .set({ status: 'consumed' })
     .where(
       and(
         eq(aiConfirmRequests.id, confirmId),
@@ -208,40 +253,44 @@ async function consumePendingConfirm(
         gte(aiConfirmRequests.expiresAt, now)
       )
     )
+    .returning();
+
+  // 如果更新成功（返回了记录），则消费成功
+  if (result && result.length > 0) {
+    const record = result[0];
+    let parsedArgs: Record<string, unknown>;
+    try {
+      parsedArgs = JSON.parse(record.args);
+    } catch {
+      parsedArgs = {};
+    }
+    logger.info('AgentEngine', 'Confirm request consumed', { confirmId, toolName: record.toolName });
+    return { toolName: record.toolName, args: parsedArgs };
+  }
+
+  // 消费失败，检查是否已过期（用于日志记录和状态更新）
+  const existingRecord = await db
+    .select()
+    .from(aiConfirmRequests)
+    .where(and(eq(aiConfirmRequests.id, confirmId), eq(aiConfirmRequests.userId, userId)))
     .get();
 
-  if (!record) {
-    const expiredRecord = await db
-      .select()
-      .from(aiConfirmRequests)
-      .where(and(eq(aiConfirmRequests.id, confirmId), eq(aiConfirmRequests.userId, userId)))
-      .get();
-
-    if (expiredRecord && expiredRecord.status === 'pending' && expiredRecord.expiresAt < now) {
+  if (existingRecord) {
+    if (existingRecord.status === 'pending' && existingRecord.expiresAt < now) {
       await db.update(aiConfirmRequests).set({ status: 'expired' }).where(eq(aiConfirmRequests.id, confirmId));
       logger.warn('AgentEngine', 'Confirm request has expired', {
         confirmId,
         userId,
-        expiresAt: expiredRecord.expiresAt,
+        expiresAt: existingRecord.expiresAt,
       });
-      return null;
+    } else if (existingRecord.status === 'consumed') {
+      logger.warn('AgentEngine', 'Confirm request already consumed', { confirmId, userId });
     }
-
-    logger.warn('AgentEngine', 'Confirm request not found or already consumed', { confirmId, userId });
-    return null;
+  } else {
+    logger.warn('AgentEngine', 'Confirm request not found', { confirmId, userId });
   }
 
-  await db.update(aiConfirmRequests).set({ status: 'consumed' }).where(eq(aiConfirmRequests.id, confirmId));
-
-  let parsedArgs: Record<string, unknown>;
-  try {
-    parsedArgs = JSON.parse(record.args);
-  } catch {
-    parsedArgs = {};
-  }
-
-  logger.info('AgentEngine', 'Confirm request consumed', { confirmId, toolName: record.toolName });
-  return { toolName: record.toolName, args: parsedArgs };
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -253,6 +302,7 @@ export type AgentChunk =
   | { type: 'reasoning'; content: string; done: false }
   | { type: 'tool_start'; toolName: string; toolCallId: string; args: Record<string, unknown>; done: false }
   | { type: 'tool_result'; toolCallId: string; toolName: string; result: unknown; done: false }
+  | { type: 'reset'; done: false }
   | {
       type: 'confirm_request';
       confirmId: string;
@@ -269,6 +319,13 @@ export interface AgentSource {
   name: string;
   mimeType: string | null;
   score: number;
+}
+
+export interface AgentRunMeta {
+  toolCallCount: number;
+  modelId: string;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -324,7 +381,7 @@ export const AGENT_SYSTEM_PROMPT = `你是 OSSshelf 的智能文件管家，拥�
 - "最近上传了什么" → list_recent
 - "看看文件夹结构" → get_folder_tree
 - "最近的上传趋势" → get_activity_stats
-- "我收藏了什么" → list_starred
+- "我收藏了什么" → get_starred_files
 - "分享了哪些文件" → list_shares
 
 ---
@@ -382,6 +439,12 @@ export const AGENT_SYSTEM_PROMPT = `你是 OSSshelf 的智能文件管家，拥�
 - 笔记管理：写入/更新/删除备注
 - 收藏：收藏/取消收藏
 
+**写前验证（强制）**：任何涉及路径/文件夹的写操作，执行前必须先确认目标位置真实存在：
+1. 用户提到文件夹名称时（如"资料共享文件夹"、"项目目录"），**先调用 \`search_files\` 或 \`get_folder_tree\` 查找该文件夹**
+2. 找到后，使用返回结果中的真实 \`id\` 作为 \`parentId\`，不得自行创建同名文件夹
+3. 未找到时，告知用户"未找到名为 XXX 的文件夹，是否在根目录创建？"，等待用户确认后再建
+4. 用户提到"根目录"或无路径限定时，\`parentId\` 传 \`null\`
+
 **写操作流程**：调用写工具 → 系统自动暂停并向用户展示确认卡片 → 用户点击"确认执行"后才真正执行。无需你额外询问用户是否确认，系统会处理。
 
 ❌ **不能**：上传新文件（需通过文件管理界面操作）`;
@@ -391,15 +454,40 @@ export const PROMPT_BASED_SYSTEM_PROMPT = `${AGENT_SYSTEM_PROMPT}
 
 ---
 
-## 七、工具调用格式（重要）
+## 七、⚠️ 强制工具调用规则（prompt模式专用）
 
-需要查询数据时，输出以下格式的代码块（每次只调用一个工具）：
+### 核心原则：**数据查询类问题必须调用工具，绝对禁止编造或猜测数据**
+
+**你的能力边界**：
+- ✅ 你可以理解用户意图、分析需求、组织回复格式
+- ❌ 你**没有**持久化记忆，不知道用户的文件、收藏、统计等实时数据
+- ❌ 你**无法**猜测数据库中的任何信息
+
+**必须调用工具的场景**：查询文件列表、收藏/星标、存储统计、最近文件、分享记录、标签信息、文件内容。任何涉及"多少/哪些/列表/统计"的问题都需要工具。
+
+**禁止行为**：编造文件名/数量/存储数字；猜测收藏/标签/分享状态；描述要调用工具但实际不调用。
+
+---
+
+## 八、工具调用格式（⚠️ 强制要求）
+
+**当需要查询数据或执行操作时，你必须输出以下格式的代码块，而不是用文字描述！**
+
+❌ 错误示例（不要这样做）：
+"我应该使用 get_starred_files 工具来查询收藏文件"
+"让我调用 search_files 工具"
+
+✅ 正确做法（必须这样输出）：
 
 \`\`\`tool_call
-{"name": "工具名称", "arguments": {"参数名": "参数值"}}
+{"name": "get_starred_files", "arguments": {}}
 \`\`\`
 
-等待工具结果返回后，再决定下一步行动。`;
+**规则**：
+1. 每次只调用一个工具
+2. 必须用 \`\`\`tool_call 代码块包裹 JSON
+3. 不要解释你要调用什么工具，直接输出代码块
+4. 等待工具结果返回后，再决定下一步行动`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Agent Engine
@@ -420,19 +508,21 @@ export class AgentEngine {
   ): Promise<{
     nativeToolCalling: boolean;
     vision: boolean;
+    resolvedModelId: string | undefined;
   }> {
     try {
       const config = modelId
         ? await this.gateway.getModelById(modelId, userId)
         : await this.gateway.getActiveModel(userId);
-      if (!config) return { nativeToolCalling: false, vision: false };
+      if (!config) return { nativeToolCalling: false, vision: false, resolvedModelId: modelId };
       const caps: string[] = config.capabilities || [];
       return {
         nativeToolCalling: config.provider === 'openai_compatible' && caps.includes('function_calling'),
         vision: caps.includes('vision'),
+        resolvedModelId: config.modelId || modelId,
       };
     } catch {
-      return { nativeToolCalling: false, vision: false };
+      return { nativeToolCalling: false, vision: false, resolvedModelId: modelId };
     }
   }
 
@@ -443,25 +533,98 @@ export class AgentEngine {
     modelId: string | undefined,
     onChunk: (chunk: AgentChunk) => void,
     signal?: AbortSignal,
-    sessionId?: string
-  ): Promise<{ fullText: string; sources: AgentSource[]; pendingConfirmId?: string }> {
+    sessionId?: string,
+    contextFolderId?: string,
+    contextFileIds?: string[]
+  ): Promise<{ fullText: string; sources: AgentSource[]; pendingConfirmId?: string; meta: AgentRunMeta }> {
     this.executor.setUserId(userId);
 
     const [caps, config] = await Promise.all([this.getModelCapabilities(modelId, userId), loadAgentConfig(this.env)]);
 
-    logger.info('AgentEngine', 'Run', {
-      mode: caps.nativeToolCalling ? 'native' : 'prompt',
-      vision: caps.vision,
-      modelId: modelId || 'default',
-      config: {
-        maxToolCalls: config.maxToolCalls,
-      },
-    });
+    // 构建目录上下文（两条路径都需要）
+    let contextPrompt = '';
+    if (contextFolderId || (contextFileIds && contextFileIds.length > 0)) {
+      const db = getDb(this.env.DB);
+      const ctxParts: string[] = [];
+
+      if (contextFolderId) {
+        const folder = await db.select().from(files)
+          .where(and(eq(files.id, contextFolderId), eq(files.userId, userId), isNull(files.deletedAt)))
+          .get();
+        if (folder) {
+          const folderPath = await buildFolderPath(db, userId, folder.parentId);
+          ctxParts.push(`当前工作目录：${folderPath}${folder.name}`);
+        }
+      }
+
+      if (contextFileIds && contextFileIds.length > 0) {
+        const ctxFiles = await db.select({ id: files.id, name: files.name, path: files.path })
+          .from(files)
+          .where(and(
+            inArray(files.id, contextFileIds),
+            eq(files.userId, userId),
+            isNull(files.deletedAt)
+          )).all();
+        if (ctxFiles.length > 0) {
+          const fileList = ctxFiles.map(f => `- ${f.name} (${f.path})`).join('\n');
+          ctxParts.push(`用户选中的文件：\n${fileList}`);
+        }
+      }
+
+      if (ctxParts.length > 0) {
+        contextPrompt = `\n\n[目录上下文]\n${ctxParts.join('\n\n')}\n搜索和列出操作应优先在指定目录内进行，除非用户明确要求全局搜索。`;
+      }
+    }
+
+    const resolvedModelId = caps.resolvedModelId || modelId || 'default';
 
     if (caps.nativeToolCalling) {
-      return this.runNative(userId, query, conversationHistory, modelId, caps, config, onChunk, signal, sessionId);
+      // ── Native 路径：完全信任模型，注入全量工具，不做意图分类和裁剪 ──────
+      logger.info('AgentEngine', 'Run [native]', {
+        modelId: resolvedModelId,
+        vision: caps.vision,
+        toolCount: TOOL_DEFINITIONS.length,
+        hasContext: !!contextPrompt,
+        maxToolCalls: config.maxToolCalls,
+      });
+
+      const result = await this.runNative(
+        userId, query, conversationHistory, modelId,
+        caps, config, onChunk, signal, sessionId,
+        TOOL_DEFINITIONS, // 全量工具，让模型自己选
+        contextPrompt
+      );
+      return {
+        ...result,
+        meta: result.meta ?? { toolCallCount: 0, modelId: resolvedModelId, inputTokens: 0, outputTokens: 0 },
+      };
     }
-    return this.runPromptBased(userId, query, conversationHistory, modelId, config, onChunk, signal, sessionId);
+
+    // ── Prompt-Based 路径：做意图分类 + 工具裁剪，辅助弱模型 ────────────
+    const intent = await classifyIntent(this.env, query);
+    const selectedNames = new Set([
+      ...selectTools(intent, query),
+      ...(needsWriteTools(query) ? [...TOOL_GROUPS.write, ...TOOL_GROUPS.tags, ...TOOL_GROUPS.share] : []),
+    ]);
+    const filteredTools = TOOL_DEFINITIONS.filter((t) => selectedNames.has(t.function.name));
+
+    logger.info('AgentEngine', 'Run [prompt-based]', {
+      modelId: resolvedModelId,
+      intent,
+      toolCount: filteredTools.length,
+      hasContext: !!contextPrompt,
+      maxToolCalls: config.maxToolCalls,
+    });
+
+    const result = await this.runPromptBased(
+      userId, query, conversationHistory, modelId,
+      caps, config, onChunk, signal, sessionId,
+      filteredTools, contextPrompt
+    );
+    return {
+      ...result,
+      meta: result.meta ?? { toolCallCount: 0, modelId: resolvedModelId, inputTokens: 0, outputTokens: 0 },
+    };
   }
 
   // ── Native Function Calling ───────────────────────────────────────────────
@@ -471,14 +634,19 @@ export class AgentEngine {
     query: string,
     conversationHistory: Array<{ role: string; content: string }>,
     modelId: string | undefined,
-    caps: { nativeToolCalling: boolean; vision: boolean },
+    caps: { nativeToolCalling: boolean; vision: boolean; resolvedModelId?: string },
     config: AgentConfig,
     onChunk: (chunk: AgentChunk) => void,
     signal?: AbortSignal,
-    sessionId?: string
-  ): Promise<{ fullText: string; sources: AgentSource[]; pendingConfirmId?: string }> {
+    sessionId?: string,
+    filteredTools: typeof TOOL_DEFINITIONS = TOOL_DEFINITIONS,
+    contextPrompt: string = '',
+    fallbackCount: number = 0
+  ): Promise<{ fullText: string; sources: AgentSource[]; pendingConfirmId?: string; meta: AgentRunMeta }> {
+    const MAX_FALLBACK_ATTEMPTS = 1; // 最大降级重试次数（防止无限循环）
+    const systemContent = AGENT_SYSTEM_PROMPT + contextPrompt;
     const messages: Array<{ role: string; content?: string; toolCalls?: any[]; toolCallId?: string }> = [
-      { role: 'system', content: AGENT_SYSTEM_PROMPT },
+      { role: 'system', content: systemContent },
       ...this.buildHistory(conversationHistory, query, config),
       { role: 'user', content: query },
     ];
@@ -490,6 +658,11 @@ export class AgentEngine {
     const callSignatures = new Set<string>();
     let toolCallCount = 0;
     let idleRounds = 0;
+
+    // token 累计（估算）
+    const resolvedModelId = caps.resolvedModelId || modelId || 'default';
+    let inputTokens = estimateTokens(AGENT_SYSTEM_PROMPT + query);
+    let outputTokens = 0;
 
     while (toolCallCount < config.maxToolCalls) {
       if (signal?.aborted) break;
@@ -513,7 +686,7 @@ export class AgentEngine {
               toolCallId: m.toolCallId,
             })),
             temperature: config.agentTemperature,
-            tools: TOOL_DEFINITIONS,
+            tools: filteredTools,
             toolChoice: 'auto',
           },
           (chunk: StreamChunk) => {
@@ -545,6 +718,7 @@ export class AgentEngine {
               streamContent += chunk.content;
               onChunk({ type: 'text', content: chunk.content, done: false });
               fullText += chunk.content;
+              outputTokens += estimateTokens(chunk.content);
             }
           },
           { modelId, signal: combinedSignal }
@@ -554,9 +728,19 @@ export class AgentEngine {
           /* ok */
         } else if (!isAbortError(err)) {
           logger.error('AgentEngine', 'LLM stream error (native)', {}, err);
-          // native 模式失败时自动 fallback 到 prompt-based，而不是直接报错
-          logger.warn('AgentEngine', 'Native tool calling failed, falling back to prompt-based');
-          return this.runPromptBased(userId, query, conversationHistory, modelId, config, onChunk, signal);
+          // 仅在第 0 轮（尚未产生任何工具调用）才允许 fallback
+          if (toolCallCount === 0) {
+            if (fullText.length > 0) {
+              onChunk({ type: 'reset', done: false }); // 通知前端清空已渲染内容
+              fullText = '';
+            }
+            logger.warn('AgentEngine', 'Native tool calling failed, falling back to prompt-based');
+            return this.runPromptBased(userId, query, conversationHistory, modelId, caps, config, onChunk, signal, sessionId, filteredTools, contextPrompt);
+          } else {
+            // 已有工具调用轮次，不 fallback，直接报错
+            onChunk({ type: 'error', message: 'AI 模型调用失败', done: true });
+            return { fullText, sources, meta: { toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens } };
+          }
         }
       }
 
@@ -564,6 +748,32 @@ export class AgentEngine {
       const collected = Array.from(collectedMap.values()).filter((tc) => tc.name);
 
       if (!hasToolCalls) {
+        // native模式第一轮无工具调用：除非是明确的闲聊，否则直接降级到prompt-based
+        // 原因：native模型有能力调工具，第一轮没调说明模型跳过了，不需要猜测意图
+        if (toolCallCount === 0 && !isPureChitchat(query)) {
+          if (fallbackCount >= MAX_FALLBACK_ATTEMPTS) {
+            logger.warn('AgentEngine', 'Max fallback attempts reached, accepting response without tool call', {
+              modelId: resolvedModelId,
+              query: query.slice(0, 100),
+            });
+            messages.push({ role: 'assistant', content: streamContent });
+            break;
+          }
+
+          logger.warn('AgentEngine', 'Native model skipped tool call, falling back to prompt-based', {
+            modelId: resolvedModelId,
+            query: query.slice(0, 100),
+            responsePreview: streamContent.slice(0, 150),
+          });
+
+          if (fullText.length > 0) {
+            onChunk({ type: 'reset', done: false });
+            fullText = '';
+          }
+
+          return this.runPromptBased(userId, query, conversationHistory, modelId, caps, config, onChunk, signal, sessionId, filteredTools, contextPrompt, fallbackCount + 1);
+        }
+
         messages.push({ role: 'assistant', content: streamContent });
         break;
       }
@@ -632,19 +842,28 @@ export class AgentEngine {
               summary,
               done: true,
             });
-            return { fullText, sources, pendingConfirmId: confirmId };
+            return { fullText, sources, pendingConfirmId: confirmId, meta: { toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens } };
           }
 
           roundNewData = mergeSourcesFromResult(result, sources) || roundNewData;
+          // 工具结果注入估算（工具名 + 结果 JSON）
+          inputTokens += estimateTokens(tc.name + JSON.stringify(result));
         } catch (err) {
           result = { error: err instanceof Error ? err.message : '工具执行失败' };
         }
 
         onChunk({ type: 'tool_result', toolCallId: tc.id, toolName: tc.name, result, done: false });
 
+        // 提取 _next_actions，native 模式同样注入规划提示（与 prompt-based 对齐）
+        const nativeNextActions = (result as any)?._next_actions as string[] | undefined;
+        const nativeResultContent = JSON.stringify(result, null, 2) + INJECTION_GUARD
+          + (nativeNextActions?.length
+            ? `\n\n💡 系统建议下一步：\n${nativeNextActions.map((a) => `- ${a}`).join('\n')}`
+            : '');
+
         messages.push({
           role: 'tool',
-          content: JSON.stringify(result, null, 2) + INJECTION_GUARD,
+          content: nativeResultContent,
           toolCallId: tc.id,
         });
 
@@ -676,7 +895,7 @@ export class AgentEngine {
       }
     }
 
-    return { fullText, sources };
+    return { fullText, sources, meta: { toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens } };
   }
 
   // ── Prompt-Based Fallback ──────────────────────────────────────────────────
@@ -686,13 +905,23 @@ export class AgentEngine {
     query: string,
     conversationHistory: Array<{ role: string; content: string }>,
     modelId: string | undefined,
+    caps: { nativeToolCalling: boolean; vision: boolean; resolvedModelId?: string },
     config: AgentConfig,
     onChunk: (chunk: AgentChunk) => void,
     signal?: AbortSignal,
-    sessionId?: string
-  ): Promise<{ fullText: string; sources: AgentSource[]; pendingConfirmId?: string }> {
+    sessionId?: string,
+    filteredTools: typeof TOOL_DEFINITIONS = TOOL_DEFINITIONS,
+    contextPrompt: string = '',
+    fallbackCount: number = 0
+  ): Promise<{ fullText: string; sources: AgentSource[]; pendingConfirmId?: string; meta: AgentRunMeta }> {
+    const MAX_FALLBACK_ATTEMPTS = 1;
+    // 只注入工具名列表，不加完整描述，避免token暴增导致LLM失效
+    const toolListHint = filteredTools.length > 0
+      ? `\n\n## 当前可用工具（只能调用以下工具名，工具名必须完全匹配）\n${filteredTools.map(t => `- ${t.function.name}`).join('\n')}`
+      : '';
+    const systemContent = PROMPT_BASED_SYSTEM_PROMPT + contextPrompt + toolListHint;
     const messages: Array<{ role: string; content: string }> = [
-      { role: 'system', content: PROMPT_BASED_SYSTEM_PROMPT },
+      { role: 'system', content: systemContent },
       ...this.buildHistory(conversationHistory, query, config),
       { role: 'user', content: query },
     ];
@@ -702,6 +931,12 @@ export class AgentEngine {
     const callSignatures = new Set<string>();
     let toolCallCount = 0;
     let idleRounds = 0;
+    let hasInjectedForcedHint = false; // 防止强制提示重复注入导致循环
+
+    // token 累计（估算）
+    const resolvedModelId = caps.resolvedModelId || modelId || 'default';
+    let inputTokens = estimateTokens(PROMPT_BASED_SYSTEM_PROMPT + query);
+    let outputTokens = 0;
 
     while (toolCallCount < config.maxToolCalls) {
       if (signal?.aborted) break;
@@ -736,6 +971,7 @@ export class AgentEngine {
                 const txt = buffer.slice(forwardedUpTo, safe);
                 onChunk({ type: 'text', content: txt, done: false });
                 fullText += txt;
+                outputTokens += estimateTokens(txt);
                 forwardedUpTo = safe;
               }
             }
@@ -748,16 +984,42 @@ export class AgentEngine {
         } else if (!isAbortError(err)) {
           logger.error('AgentEngine', 'LLM stream error (prompt)', {}, err);
           onChunk({ type: 'error', message: 'AI 模型调用失败，请检查模型配置', done: true });
-          return { fullText, sources };
+          return { fullText, sources, meta: { toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens } };
         }
       }
 
       if (!foundToolCall) {
-        // 最终回答
+        // prompt-based第一轮无工具调用：非闲聊则注入强制提示重试一次
+        if (toolCallCount === 0 && !isPureChitchat(query) && !hasInjectedForcedHint) {
+          logger.warn('AgentEngine', 'Prompt-based model skipped tool call, injecting forced hint', {
+            modelId: resolvedModelId,
+            query: query.slice(0, 100),
+          });
+
+          if (fullText.length > 0) {
+            onChunk({ type: 'reset', done: false });
+            fullText = '';
+            forwardedUpTo = 0;
+          }
+
+          messages.push({ role: 'assistant', content: buffer });
+          messages.push({
+            role: 'user',
+            content: `[系统提示] 这个问题需要查询真实数据，请调用合适的工具获取后再回答。直接输出工具调用代码块，不要解释。`,
+          });
+
+          buffer = '';
+          forwardedUpTo = 0;
+          hasInjectedForcedHint = true;
+          continue;
+        }
+
+        // 真正的最终回答
         if (buffer.length > forwardedUpTo) {
           const tail = buffer.slice(forwardedUpTo);
           onChunk({ type: 'text', content: tail, done: false });
           fullText += tail;
+          outputTokens += estimateTokens(tail);
         }
         messages.push({ role: 'assistant', content: buffer });
         break;
@@ -828,10 +1090,12 @@ export class AgentEngine {
             summary,
             done: true,
           });
-          return { fullText, sources, pendingConfirmId: confirmId };
+          return { fullText, sources, pendingConfirmId: confirmId, meta: { toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens } };
         }
 
         roundNewData = mergeSourcesFromResult(result, sources);
+        // 工具结果注入估算
+        inputTokens += estimateTokens(toolName + JSON.stringify(result));
       } catch (err) {
         result = { error: err instanceof Error ? err.message : '工具执行失败' };
       }
@@ -849,10 +1113,8 @@ export class AgentEngine {
         content: `[工具 ${toolName} 结果]\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\n${INJECTION_GUARD}${hintText}\n\n请根据以上结果继续回答用户问题。`,
       });
 
-      // idleRounds 只在工具结果是 error（无效执行）时累加
-      // 正常执行的工具调用（不管有没有新 source）都不算空转
-      const isErrorResult = (result as any)?.error !== undefined;
-      if (isErrorResult) {
+      // 空转检测：与 Native 模式保持一致，使用 mergeSourcesFromResult 判断是否有新数据
+      if (!roundNewData) {
         idleRounds++;
         if (idleRounds >= config.maxIdleRounds) break;
       } else {
@@ -860,7 +1122,7 @@ export class AgentEngine {
       }
     }
 
-    return { fullText, sources };
+    return { fullText, sources, meta: { toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens } };
   }
 
   // ── 自动链式调用（图片搜索结果 → analyze_image）────────────────────────────
@@ -995,7 +1257,9 @@ export class AgentEngine {
     const last = msgs[msgs.length - 1];
     const deduped = last?.role === 'user' && last.content === currentQuery ? msgs.slice(0, -1) : msgs;
 
-    const maxContextTokens = config.maxContextTokens || 8000;
+    const maxContextTokens = (config.maxContextTokens && config.maxContextTokens > 0)
+      ? config.maxContextTokens
+      : DEFAULT_MAX_CONTEXT_TOKENS;
     let totalTokens = estimateTokens(currentQuery);
     const result: Array<{ role: string; content: string }> = [];
 
@@ -1021,10 +1285,6 @@ export class AgentEngine {
 function callSig(toolName: string, args: Record<string, unknown>): string {
   const sorted = Object.fromEntries(Object.entries(args).sort(([a], [b]) => a.localeCompare(b)));
   return `${toolName}::${JSON.stringify(sorted)}`;
-}
-
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 3.5);
 }
 
 /** 从工具结果中提取文件并合并到 sources，返回是否有新数据 */
@@ -1087,6 +1347,23 @@ function isExpectedAbort(err: unknown, hadToolCalls: boolean): boolean {
 
 function randomId(): string {
   return `tc_${crypto.randomUUID().slice(0, 8)}`;
+}
+
+/**
+ * 判断是否是不需要工具的纯闲聊
+ * 用于 native 模式：第一轮无工具调用时，只有明确是闲聊才放行，否则直接降级
+ */
+function isPureChitchat(query: string): boolean {
+  const q = query.trim();
+  // 极短的问候/感谢/确认
+  if (q.length < 15 && /^(你好|hi|hello|谢谢|感谢|好的|明白|知道了|ok|okay|嗯|哦|是的|对的|没事|不用了)[\s!！。.]*$/i.test(q)) {
+    return true;
+  }
+  // 明确的通用知识问题（不涉及文件系统）
+  if (/^(什么是|怎么理解|帮我解释|介绍一下|讲讲)\S/.test(q) && !/文件|文档|目录|存储|上传|分享|收藏|标签/.test(q)) {
+    return true;
+  }
+  return false;
 }
 
 /** 从回复文本中提取文件引用（前端渲染卡片用） */

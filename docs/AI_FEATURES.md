@@ -1,7 +1,7 @@
 # OSSshelf AI 功能说明文档
 
-**版本**: v4.4.0
-**更新日期**: 2026-04-08
+**版本**: v4.5.0
+**更新日期**: 2026-04-12
 
 ---
 
@@ -26,32 +26,36 @@
 
 ## 功能概述
 
-v4.4.0 版本对 AI 模块进行了全面优化，核心变化如下：
+v4.5.0 版本对 AI 模块进行了重大升级，核心变化如下：
 
-| 功能 | 说明 | 版本 |
-| --- | --- | --- |
-| **AI 提供商管理** | 16 个系统内置提供商，支持自定义提供商 | v4.4.0 新增 |
-| **Thinking Config** | 各提供商独立推理模式配置 | v4.4.0 新增 |
-| **模型分组展示** | 按提供商分组，支持排序 | v4.4.0 新增 |
-| **对话记录增强** | 支持工具调用和推理内容存储 | v4.4.0 新增 |
-| **Agent 引擎重构** | ReAct 架构，多轮推理，链式调用 | v4.3.0 重构 |
-| **95 个智能工具** | 覆盖文件操作、权限管理、分享链接等 13 个模块 | v4.3.0 新增 |
-| **智能意图识别** | 自动识别搜索、视觉、内容理解等意图 | v4.3.0 新增 |
-| **链式推理** | 工具结果驱动下一步行动 | v4.3.0 新增 |
-| **视觉分析增强** | 图片搜索结果自动触发视觉分析 | v4.3.0 新增 |
-| **写操作确认** | 敏感操作需用户确认后执行 | v4.3.0 新增 |
-| **AI 系统配置** | 可配置默认模型、参数、限制、重试策略、提示词模板 | v4.2.0 |
-| **向量库管理** | 查看和删除向量索引，支持分页和搜索 | v4.2.0 |
-| **任务中心** | 统一显示所有任务状态，实时进度监控 | v4.2.0 |
-| **全局 AI 聊天** | 悬浮式 AI 聊天组件，支持会话切换 | v4.2.0 |
-| **自定义模型** | 支持任意 Workers AI 模型 ID | v4.2.0 |
-| **AI 对话** | 基于 RAG 的智能问答，支持文件内容理解 | v4.1.0 |
-| **多模型架构** | 支持 Workers AI + OpenAI 兼容 API | v4.1.0 |
-| **文件摘要** | 自动生成文本文件内容摘要 | v3.7.0, v4.1.0 增强 |
-| **图片描述** | 识别图片内容并生成文字描述 | v3.7.0, v4.1.0 增强 |
-| **图片标签** | 自动识别图片内容标签 | v3.7.0, v4.1.0 增强 |
-| **语义搜索** | 基于向量索引的相似度搜索 | v3.7.0 |
-| **智能重命名** | 根据文件内容推荐文件名 | v3.7.0, v4.1.0 增强 |
+| 功能                | 说明                                             | 版本                |
+| ------------------- | ------------------------------------------------ | ------------------- |
+| **模型库大幅扩展** | 16 个厂商 80+ 个模型，覆盖 2025 年最新推理/视觉模型 | v4.5.0 新增         |
+| **Agent 引擎增强** | Token 预算管理、降级机制改进、统计增强            | v4.5.0 增强         |
+| **模型网关增强**   | providerId 关联、排序、只读模式、Thinking 完善    | v4.5.0 增强         |
+| **API 完善**        | 设置默认提供商接口、排序和激活状态支持             | v4.5.0 增强         |
+| **AI 提供商管理**   | 16 个系统内置提供商，支持自定义提供商            | v4.4.0 新增         |
+| **Thinking Config** | 各提供商独立推理模式配置                         | v4.4.0 新增         |
+| **模型分组展示**    | 按提供商分组，支持排序                           | v4.4.0 新增         |
+| **对话记录增强**    | 支持工具调用和推理内容存储                       | v4.4.0 新增         |
+| **Agent 引擎重构**  | ReAct 架构，多轮推理，链式调用                   | v4.3.0 重构         |
+| **95 个智能工具**   | 覆盖文件操作、权限管理、分享链接等 13 个模块     | v4.3.0 新增         |
+| **智能意图识别**    | 自动识别搜索、视觉、内容理解等意图               | v4.3.0 新增         |
+| **链式推理**        | 工具结果驱动下一步行动                           | v4.3.0 新增         |
+| **视觉分析增强**    | 图片搜索结果自动触发视觉分析                     | v4.3.0 新增         |
+| **写操作确认**      | 敏感操作需用户确认后执行                         | v4.3.0 新增         |
+| **AI 系统配置**     | 可配置默认模型、参数、限制、重试策略、提示词模板 | v4.2.0              |
+| **向量库管理**      | 查看和删除向量索引，支持分页和搜索               | v4.2.0              |
+| **任务中心**        | 统一显示所有任务状态，实时进度监控               | v4.2.0              |
+| **全局 AI 聊天**    | 悬浮式 AI 聊天组件，支持会话切换                 | v4.2.0              |
+| **自定义模型**      | 支持任意 Workers AI 模型 ID                      | v4.2.0              |
+| **AI 对话**         | 基于 RAG 的智能问答，支持文件内容理解            | v4.1.0              |
+| **多模型架构**      | 支持 Workers AI + OpenAI 兼容 API + 80+ 预设模型 | v4.1.0, v4.5.0 增强 |
+| **文件摘要**        | 自动生成文本文件内容摘要                         | v3.7.0, v4.1.0 增强 |
+| **图片描述**        | 识别图片内容并生成文字描述                       | v3.7.0, v4.1.0 增强 |
+| **图片标签**        | 自动识别图片内容标签                             | v3.7.0, v4.1.0 增强 |
+| **语义搜索**        | 基于向量索引的相似度搜索                         | v3.7.0              |
+| **智能重命名**      | 根据文件内容推荐文件名                           | v3.7.0, v4.1.0 增强 |
 
 ---
 
@@ -63,30 +67,30 @@ v4.4.0 新增提供商管理功能，支持 16 个系统内置提供商和用户
 
 #### 国内厂商（9 个）
 
-| 提供商 | API 端点 | Thinking Config |
-| --- | --- | --- |
-| 百度文心一言 | aip.baidubce.com | 布尔类型 (enable_thinking) |
-| 腾讯混元 | api.hunyuan.cloud.tencent.com | 对象类型 (thinking.type) |
-| 阿里通义千问 | dashscope.aliyuncs.com | 布尔类型 (enable_thinking) |
-| 字节火山引擎 | ark.cn-beijing.volces.com | 对象类型 (thinking.type) |
-| 智谱AI | open.bigmodel.cn | 对象类型 (thinking.type) |
-| MiniMax | api.minimax.chat | - |
-| 月之暗面 (Kimi) | api.moonshot.cn | 对象类型 (thinking.type) |
-| 硅基流动 | api.siliconflow.cn | 布尔类型 (enable_thinking) |
-| DeepSeek | api.deepseek.com | 对象类型 (thinking.type) |
+| 提供商          | API 端点                      | Thinking Config            |
+| --------------- | ----------------------------- | -------------------------- |
+| 百度文心一言    | aip.baidubce.com              | 布尔类型 (enable_thinking) |
+| 腾讯混元        | api.hunyuan.cloud.tencent.com | 对象类型 (thinking.type)   |
+| 阿里通义千问    | dashscope.aliyuncs.com        | 布尔类型 (enable_thinking) |
+| 字节火山引擎    | ark.cn-beijing.volces.com     | 对象类型 (thinking.type)   |
+| 智谱AI          | open.bigmodel.cn              | 对象类型 (thinking.type)   |
+| MiniMax         | api.minimax.chat              | -                          |
+| 月之暗面 (Kimi) | api.moonshot.cn               | 对象类型 (thinking.type)   |
+| 硅基流动        | api.siliconflow.cn            | 布尔类型 (enable_thinking) |
+| DeepSeek        | api.deepseek.com              | 对象类型 (thinking.type)   |
 
 #### 国际厂商（7 个）
 
-| 提供商 | API 端点 | Thinking Config |
-| --- | --- | --- |
-| OpenAI | api.openai.com | 字符串类型 (reasoning_effort) |
-| Anthropic Claude | api.anthropic.com | 对象类型 (thinking.type) |
-| Google Gemini | generativelanguage.googleapis.com | 字符串类型 (thinking_level) |
-| Mistral AI | api.mistral.ai | - |
-| xAI Grok | api.x.ai | 对象类型 (thinking.type) |
-| Groq | api.groq.com | - |
-| Perplexity | api.perplexity.ai | - |
-| OpenRouter | openrouter.ai | - |
+| 提供商           | API 端点                          | Thinking Config               |
+| ---------------- | --------------------------------- | ----------------------------- |
+| OpenAI           | api.openai.com                    | 字符串类型 (reasoning_effort) |
+| Anthropic Claude | api.anthropic.com                 | 对象类型 (thinking.type)      |
+| Google Gemini    | generativelanguage.googleapis.com | 字符串类型 (thinking_level)   |
+| Mistral AI       | api.mistral.ai                    | -                             |
+| xAI Grok         | api.x.ai                          | 对象类型 (thinking.type)      |
+| Groq             | api.groq.com                      | -                             |
+| Perplexity       | api.perplexity.ai                 | -                             |
+| OpenRouter       | openrouter.ai                     | -                             |
 
 ### Thinking Config 配置
 
@@ -215,15 +219,15 @@ v4.3.0 采用 **ReAct 架构**（Reason → Act → Observe → Reason...），�
 
 系统自动识别用户意图，精准选择工具：
 
-| 意图类型 | 特征 | 工具选择 |
-| --- | --- | --- |
-| **搜索类** | 提到文件名/内容关键词 | search_files |
-| **过滤类** | 只说文件类型/属性 | filter_files |
-| **标签类** | 提到标签 | search_by_tag |
-| **视觉类** | 涉及图片外观/场景/描述 | filter_files → analyze_image |
-| **内容理解类** | 想了解文件内容 | read_file_text / analyze_image |
-| **统计类** | 问存储/文件数量 | get_storage_stats |
-| **操作类** | 创建/编辑/删除文件 | 对应写操作工具 |
+| 意图类型       | 特征                   | 工具选择                       |
+| -------------- | ---------------------- | ------------------------------ |
+| **搜索类**     | 提到文件名/内容关键词  | search_files                   |
+| **过滤类**     | 只说文件类型/属性      | filter_files                   |
+| **标签类**     | 提到标签               | search_by_tag                  |
+| **视觉类**     | 涉及图片外观/场景/描述 | filter_files → analyze_image   |
+| **内容理解类** | 想了解文件内容         | read_file_text / analyze_image |
+| **统计类**     | 问存储/文件数量        | get_storage_stats              |
+| **操作类**     | 创建/编辑/删除文件     | 对应写操作工具                 |
 
 #### 2. 链式推理
 
@@ -256,6 +260,7 @@ const VISUAL_INTENT_PATTERNS = [
 ```
 
 **标准流程**：
+
 1. 调用 `filter_files(mimeTypePrefix="image/")` 获取图片候选集
 2. 对每张候选图片调用 `analyze_image`
 3. 根据视觉描述结果筛选，汇报符合条件的图片
@@ -314,11 +319,11 @@ Agent 调用 delete_file 工具
 
 以下模型支持显示推理内容：
 
-| 厂商 | 模型 | 说明 |
-| --- | --- | --- |
-| DeepSeek | R1 系列 | 显示完整推理过程 |
-| 智谱 | GLM-4.5/4.6/4.7/5 | 支持 thinking 模式 |
-| 阿里 | QwQ 系列 | 显示推理过程 |
+| 厂商     | 模型              | 说明               |
+| -------- | ----------------- | ------------------ |
+| DeepSeek | R1 系列           | 显示完整推理过程   |
+| 智谱     | GLM-4.5/4.6/4.7/5 | 支持 thinking 模式 |
+| 阿里     | QwQ 系列          | 显示推理过程       |
 
 ---
 
@@ -328,182 +333,182 @@ v4.3.0 提供了 **95 个智能工具**，分为 13 个功能模块：
 
 ### 工具模块总览
 
-| 模块 | 工具数 | 功能描述 |
-| --- | --- | --- |
-| 🔍 搜索与发现 | 7 | 文件搜索、过滤、标签搜索、重复检测、文件详情 |
-| 📄 内容理解 | 7 | 文件读取、图片分析、文件对比、元数据提取 |
-| 📂 目录导航 | 7 | 文件夹浏览、目录树、最近文件、收藏文件、存储概览 |
-| 📊 统计分析 | 5 | 存储统计、活动统计、配额信息、文件分布 |
-| 📁 文件操作 | 15 | 创建、编辑、重命名、移动、复制、删除等 |
-| 🏷️ 标签管理 | 7 | 添加/移除标签、合并标签、自动打标签、标签管理 |
-| 🔗 分享链接 | 8 | 创建分享、直链、上传链接、分享管理 |
-| 📜 版本管理 | 4 | 版本查看、恢复、对比、保留策略 |
-| 📝 笔记备注 | 5 | 添加/获取/更新/删除/搜索笔记 |
-| 🔐 权限管理 | 6 | 权限查看、授权、撤销、用户组管理 |
-| 💾 存储管理 | 8 | 存储桶管理、文件迁移、存储分析 |
-| ⚙️ 系统管理 | 11 | 用户配置、API Key、Webhook、审计日志、FAQ |
-| 🤖 AI 增强 | 5 | AI 摘要、AI 标签、向量索引、RAG 问答 |
+| 模块          | 工具数 | 功能描述                                         |
+| ------------- | ------ | ------------------------------------------------ |
+| 🔍 搜索与发现 | 7      | 文件搜索、过滤、标签搜索、重复检测、文件详情     |
+| 📄 内容理解   | 7      | 文件读取、图片分析、文件对比、元数据提取         |
+| 📂 目录导航   | 7      | 文件夹浏览、目录树、最近文件、收藏文件、存储概览 |
+| 📊 统计分析   | 5      | 存储统计、活动统计、配额信息、文件分布           |
+| 📁 文件操作   | 15     | 创建、编辑、重命名、移动、复制、删除等           |
+| 🏷️ 标签管理   | 7      | 添加/移除标签、合并标签、自动打标签、标签管理    |
+| 🔗 分享链接   | 8      | 创建分享、直链、上传链接、分享管理               |
+| 📜 版本管理   | 4      | 版本查看、恢复、对比、保留策略                   |
+| 📝 笔记备注   | 5      | 添加/获取/更新/删除/搜索笔记                     |
+| 🔐 权限管理   | 6      | 权限查看、授权、撤销、用户组管理                 |
+| 💾 存储管理   | 8      | 存储桶管理、文件迁移、存储分析                   |
+| ⚙️ 系统管理   | 11     | 用户配置、API Key、Webhook、审计日志、FAQ        |
+| 🤖 AI 增强    | 5      | AI 摘要、AI 标签、向量索引、RAG 问答             |
 
 ### 详细工具列表
 
 #### 🔍 搜索与发现（7 个）
 
-| 工具名称 | 功能 | 参数 |
-| --- | --- | --- |
-| `search_files` | 关键词搜索文件 | query, limit, mimeType |
-| `filter_files` | 按条件过滤文件 | mimeTypePrefix, minSize, maxSize, dateRange |
-| `search_by_tag` | 按标签搜索 | tagNames, matchAll |
-| `search_duplicates` | 查找重复文件 | - |
-| `smart_search` | 智能语义搜索 | query, limit |
-| `get_similar_files` | 获取相似文件 | fileId, limit |
-| `get_file_details` | 获取文件详情 | fileId |
+| 工具名称            | 功能           | 参数                                        |
+| ------------------- | -------------- | ------------------------------------------- |
+| `search_files`      | 关键词搜索文件 | query, limit, mimeType                      |
+| `filter_files`      | 按条件过滤文件 | mimeTypePrefix, minSize, maxSize, dateRange |
+| `search_by_tag`     | 按标签搜索     | tagNames, matchAll                          |
+| `search_duplicates` | 查找重复文件   | -                                           |
+| `smart_search`      | 智能语义搜索   | query, limit                                |
+| `get_similar_files` | 获取相似文件   | fileId, limit                               |
+| `get_file_details`  | 获取文件详情   | fileId                                      |
 
 #### 📄 内容理解与分析（7 个）
 
-| 工具名称 | 功能 | 参数 |
-| --- | --- | --- |
-| `read_file_text` | 读取文本文件内容 | fileId, startLine, endLine |
-| `analyze_image` | 分析图片内容 | fileId, question |
-| `compare_files` | 对比两个文件 | fileId1, fileId2 |
-| `extract_metadata` | 提取文件元数据 | fileId |
-| `generate_summary` | 生成文件摘要 | fileId |
-| `generate_tags` | 生成文件标签 | fileId |
-| `content_preview` | 内容预览 | fileId, maxLength |
+| 工具名称           | 功能             | 参数                       |
+| ------------------ | ---------------- | -------------------------- |
+| `read_file_text`   | 读取文本文件内容 | fileId, startLine, endLine |
+| `analyze_image`    | 分析图片内容     | fileId, question           |
+| `compare_files`    | 对比两个文件     | fileId1, fileId2           |
+| `extract_metadata` | 提取文件元数据   | fileId                     |
+| `generate_summary` | 生成文件摘要     | fileId                     |
+| `generate_tags`    | 生成文件标签     | fileId                     |
+| `content_preview`  | 内容预览         | fileId, maxLength          |
 
 #### 📂 目录导航（7 个）
 
-| 工具名称 | 功能 | 参数 |
-| --- | --- | --- |
-| `navigate_path` | 导航到指定路径 | path |
-| `list_folder` | 列出文件夹内容 | folderId, sortBy, sortOrder |
-| `get_recent_files` | 获取最近文件 | limit, mimeType |
-| `get_starred_files` | 获取收藏文件 | limit |
-| `get_parent_chain` | 获取父级路径链 | fileId |
-| `get_folder_tree` | 获取目录树 | folderId, depth |
-| `get_storage_overview` | 获取存储概览 | - |
+| 工具名称               | 功能           | 参数                        |
+| ---------------------- | -------------- | --------------------------- |
+| `navigate_path`        | 导航到指定路径 | path                        |
+| `list_folder`          | 列出文件夹内容 | folderId, sortBy, sortOrder |
+| `get_recent_files`     | 获取最近文件   | limit, mimeType             |
+| `get_starred_files`    | 获取收藏文件   | limit                       |
+| `get_parent_chain`     | 获取父级路径链 | fileId                      |
+| `get_folder_tree`      | 获取目录树     | folderId, depth             |
+| `get_storage_overview` | 获取存储概览   | -                           |
 
 #### 📊 统计与分析（5 个）
 
-| 工具名称 | 功能 | 参数 |
-| --- | --- | --- |
-| `get_storage_stats` | 获取存储统计 | - |
-| `get_activity_stats` | 获取活动统计 | days |
-| `get_user_quota_info` | 获取用户配额 | - |
-| `get_file_type_distribution` | 获取文件类型分布 | - |
-| `get_sharing_stats` | 获取分享统计 | - |
+| 工具名称                     | 功能             | 参数 |
+| ---------------------------- | ---------------- | ---- |
+| `get_storage_stats`          | 获取存储统计     | -    |
+| `get_activity_stats`         | 获取活动统计     | days |
+| `get_user_quota_info`        | 获取用户配额     | -    |
+| `get_file_type_distribution` | 获取文件类型分布 | -    |
+| `get_sharing_stats`          | 获取分享统计     | -    |
 
 #### 📁 文件操作（15 个）⭐ 写操作
 
-| 工具名称 | 功能 | 需确认 |
-| --- | --- | --- |
-| `create_text_file` | 创建文本文件 | ✅ |
-| `create_code_file` | 创建代码文件 | ✅ |
-| `create_file_from_template` | 从模板创建文件 | ✅ |
-| `edit_file_content` | 编辑文件内容 | ✅ |
-| `append_to_file` | 追加内容到文件 | ✅ |
-| `find_and_replace` | 查找替换 | ✅ |
-| `rename_file` | 重命名文件 | ✅ |
-| `move_file` | 移动文件 | ✅ |
-| `copy_file` | 复制文件 | ✅ |
-| `delete_file` | 删除文件 | ✅ |
-| `restore_file` | 恢复文件 | ✅ |
-| `create_folder` | 创建文件夹 | ✅ |
-| `batch_rename` | 批量重命名 | ✅ |
-| `star_file` | 收藏文件 | ✅ |
-| `unstar_file` | 取消收藏 | ✅ |
+| 工具名称                    | 功能           | 需确认 |
+| --------------------------- | -------------- | ------ |
+| `create_text_file`          | 创建文本文件   | ✅     |
+| `create_code_file`          | 创建代码文件   | ✅     |
+| `create_file_from_template` | 从模板创建文件 | ✅     |
+| `edit_file_content`         | 编辑文件内容   | ✅     |
+| `append_to_file`            | 追加内容到文件 | ✅     |
+| `find_and_replace`          | 查找替换       | ✅     |
+| `rename_file`               | 重命名文件     | ✅     |
+| `move_file`                 | 移动文件       | ✅     |
+| `copy_file`                 | 复制文件       | ✅     |
+| `delete_file`               | 删除文件       | ✅     |
+| `restore_file`              | 恢复文件       | ✅     |
+| `create_folder`             | 创建文件夹     | ✅     |
+| `batch_rename`              | 批量重命名     | ✅     |
+| `star_file`                 | 收藏文件       | ✅     |
+| `unstar_file`               | 取消收藏       | ✅     |
 
 #### 🏷️ 标签管理（7 个）
 
-| 工具名称 | 功能 | 需确认 |
-| --- | --- | --- |
-| `add_tag` | 添加标签 | ✅ |
-| `remove_tag` | 移除标签 | ✅ |
-| `get_file_tags` | 获取文件标签 | ❌ |
-| `list_all_tags_for_management` | 列出所有标签（管理用） | ❌ |
-| `merge_tags` | 合并标签 | ✅ |
-| `auto_tag_files` | 自动打标签 | ✅ |
-| `tag_folder` | 为文件夹打标签 | ✅ |
+| 工具名称                       | 功能                   | 需确认 |
+| ------------------------------ | ---------------------- | ------ |
+| `add_tag`                      | 添加标签               | ✅     |
+| `remove_tag`                   | 移除标签               | ✅     |
+| `get_file_tags`                | 获取文件标签           | ❌     |
+| `list_all_tags_for_management` | 列出所有标签（管理用） | ❌     |
+| `merge_tags`                   | 合并标签               | ✅     |
+| `auto_tag_files`               | 自动打标签             | ✅     |
+| `tag_folder`                   | 为文件夹打标签         | ✅     |
 
 #### 🔗 分享链接（8 个）
 
-| 工具名称 | 功能 | 需确认 |
-| --- | --- | --- |
-| `create_share_link` | 创建分享链接 | ✅ |
-| `list_shares` | 列出分享 | ❌ |
-| `update_share_settings` | 更新分享设置 | ✅ |
-| `revoke_share` | 撤销分享 | ✅ |
-| `get_share_stats` | 获取分享详情 | ❌ |
-| `create_direct_link` | 创建直链 | ✅ |
-| `revoke_direct_link` | 撤销直链 | ✅ |
-| `create_upload_link_for_folder` | 创建上传链接 | ✅ |
+| 工具名称                        | 功能         | 需确认 |
+| ------------------------------- | ------------ | ------ |
+| `create_share_link`             | 创建分享链接 | ✅     |
+| `list_shares`                   | 列出分享     | ❌     |
+| `update_share_settings`         | 更新分享设置 | ✅     |
+| `revoke_share`                  | 撤销分享     | ✅     |
+| `get_share_stats`               | 获取分享详情 | ❌     |
+| `create_direct_link`            | 创建直链     | ✅     |
+| `revoke_direct_link`            | 撤销直链     | ✅     |
+| `create_upload_link_for_folder` | 创建上传链接 | ✅     |
 
 #### 📜 版本管理（4 个）
 
-| 工具名称 | 功能 | 需确认 |
-| --- | --- | --- |
-| `get_file_versions` | 获取版本列表 | ❌ |
-| `restore_version` | 恢复版本 | ✅ |
-| `compare_versions` | 对比版本 | ❌ |
-| `set_version_retention` | 设置保留策略 | ✅ |
+| 工具名称                | 功能         | 需确认 |
+| ----------------------- | ------------ | ------ |
+| `get_file_versions`     | 获取版本列表 | ❌     |
+| `restore_version`       | 恢复版本     | ✅     |
+| `compare_versions`      | 对比版本     | ❌     |
+| `set_version_retention` | 设置保留策略 | ✅     |
 
 #### 📝 笔记备注（5 个）
 
-| 工具名称 | 功能 | 需确认 |
-| --- | --- | --- |
-| `add_note` | 添加笔记 | ✅ |
-| `get_notes` | 获取笔记列表 | ❌ |
-| `update_note` | 更新笔记 | ✅ |
-| `delete_note` | 删除笔记 | ✅ |
-| `search_notes` | 搜索笔记 | ❌ |
+| 工具名称       | 功能         | 需确认 |
+| -------------- | ------------ | ------ |
+| `add_note`     | 添加笔记     | ✅     |
+| `get_notes`    | 获取笔记列表 | ❌     |
+| `update_note`  | 更新笔记     | ✅     |
+| `delete_note`  | 删除笔记     | ✅     |
+| `search_notes` | 搜索笔记     | ❌     |
 
 #### 🔐 权限管理（6 个）
 
-| 工具名称 | 功能 | 需确认 |
-| --- | --- | --- |
-| `get_file_permissions` | 获取权限 | ❌ |
-| `grant_permission` | 授权 | ✅ |
-| `revoke_permission` | 撤销权限 | ✅ |
-| `set_folder_access_level` | 设置访问级别 | ✅ |
-| `list_user_groups` | 列出用户组 | ❌ |
-| `manage_group_members` | 管理组成员 | ✅ |
+| 工具名称                  | 功能         | 需确认 |
+| ------------------------- | ------------ | ------ |
+| `get_file_permissions`    | 获取权限     | ❌     |
+| `grant_permission`        | 授权         | ✅     |
+| `revoke_permission`       | 撤销权限     | ✅     |
+| `set_folder_access_level` | 设置访问级别 | ✅     |
+| `list_user_groups`        | 列出用户组   | ❌     |
+| `manage_group_members`    | 管理组成员   | ✅     |
 
 #### 💾 存储管理（8 个）
 
-| 工具名称 | 功能 | 需确认 |
-| --- | --- | --- |
-| `get_storage_usage` | 获取存储使用 | ❌ |
-| `get_large_files` | 获取大文件 | ❌ |
-| `get_folder_sizes` | 获取文件夹大小 | ❌ |
-| `get_cleanup_suggestions` | 清理建议 | ❌ |
-| `list_buckets` | 列出存储桶 | ❌ |
-| `get_bucket_info` | 获取存储桶信息 | ❌ |
-| `set_default_bucket` | 设置默认桶 | ✅ |
-| `migrate_file_to_bucket` | 迁移文件 | ✅ |
+| 工具名称                  | 功能           | 需确认 |
+| ------------------------- | -------------- | ------ |
+| `get_storage_usage`       | 获取存储使用   | ❌     |
+| `get_large_files`         | 获取大文件     | ❌     |
+| `get_folder_sizes`        | 获取文件夹大小 | ❌     |
+| `get_cleanup_suggestions` | 清理建议       | ❌     |
+| `list_buckets`            | 列出存储桶     | ❌     |
+| `get_bucket_info`         | 获取存储桶信息 | ❌     |
+| `set_default_bucket`      | 设置默认桶     | ✅     |
+| `migrate_file_to_bucket`  | 迁移文件       | ✅     |
 
 #### ⚙️ 系统管理（11 个）
 
-| 工具名称 | 功能 | 需确认 |
-| --- | --- | --- |
-| `get_system_status` | 系统状态 | ❌ |
-| `get_help` | 获取帮助 | ❌ |
-| `get_version_info` | 版本信息 | ❌ |
-| `get_user_profile` | 用户配置 | ❌ |
-| `list_api_keys` | 列出 API Key | ❌ |
-| `create_api_key` | 创建 API Key | ✅ |
-| `revoke_api_key` | 撤销 API Key | ✅ |
-| `list_webhooks` | 列出 Webhook | ❌ |
-| `create_webhook` | 创建 Webhook | ✅ |
-| `get_audit_logs` | 审计日志 | ❌ |
+| 工具名称            | 功能         | 需确认 |
+| ------------------- | ------------ | ------ |
+| `get_system_status` | 系统状态     | ❌     |
+| `get_help`          | 获取帮助     | ❌     |
+| `get_version_info`  | 版本信息     | ❌     |
+| `get_user_profile`  | 用户配置     | ❌     |
+| `list_api_keys`     | 列出 API Key | ❌     |
+| `create_api_key`    | 创建 API Key | ✅     |
+| `revoke_api_key`    | 撤销 API Key | ✅     |
+| `list_webhooks`     | 列出 Webhook | ❌     |
+| `create_webhook`    | 创建 Webhook | ✅     |
+| `get_audit_logs`    | 审计日志     | ❌     |
 
 #### 🤖 AI 增强（5 个）
 
-| 工具名称 | 功能 | 需确认 |
-| --- | --- | --- |
-| `trigger_ai_summary` | 触发 AI 摘要 | ❌ |
-| `trigger_ai_tags` | 触发 AI 标签 | ❌ |
-| `rebuild_vector_index` | 重建向量索引 | ❌ |
-| `ask_rag_question` | RAG 问答 | ❌ |
-| `smart_rename_suggest` | 智能重命名建议 | ❌ |
+| 工具名称               | 功能           | 需确认 |
+| ---------------------- | -------------- | ------ |
+| `trigger_ai_summary`   | 触发 AI 摘要   | ❌     |
+| `trigger_ai_tags`      | 触发 AI 标签   | ❌     |
+| `rebuild_vector_index` | 重建向量索引   | ❌     |
+| `ask_rag_question`     | RAG 问答       | ❌     |
+| `smart_rename_suggest` | 智能重命名建议 | ❌     |
 
 ---
 
@@ -605,25 +610,25 @@ v4.3.0 提供了 **95 个智能工具**，分为 13 个功能模块：
 
 #### 聊天模型 (Chat)
 
-| 模型 ID | 名称 | 参数量 | 特点 | 推荐场景 |
-| --- | --- | --- | --- | --- |
-| `@cf/deepseek/deepseek-r1-distill-qwen-32b` | DeepSeek R1 32B | 32B | 推理能力强 | 数学、代码、复杂推理 |
-| `@cf/meta/llama-3.3-70b-instruct-fp8-fast` | Llama 3.3 70B | 70B | Meta 最新 | 复杂任务首选 |
-| `@cf/qwen/qwen1.5-14b-chat-awq` | Qwen 1.5 14B | 14B | 中文优秀 | 中文对话 |
-| `@cf/meta/llama-3.1-8b-instruct` | Llama 3.1 8B | 8B | 通用型 | 默认模型，日常使用 |
-| `@cf/mistral/mistral-7b-instruct-v0.2` | Mistral 7B | 7B | 速度快 | 实时对话 |
-| `@cf/google/gemma-2b-it-lora` | Gemma 2B | 2B | 轻量 | 简单任务 |
+| 模型 ID                                     | 名称            | 参数量 | 特点       | 推荐场景             |
+| ------------------------------------------- | --------------- | ------ | ---------- | -------------------- |
+| `@cf/deepseek/deepseek-r1-distill-qwen-32b` | DeepSeek R1 32B | 32B    | 推理能力强 | 数学、代码、复杂推理 |
+| `@cf/meta/llama-3.3-70b-instruct-fp8-fast`  | Llama 3.3 70B   | 70B    | Meta 最新  | 复杂任务首选         |
+| `@cf/qwen/qwen1.5-14b-chat-awq`             | Qwen 1.5 14B    | 14B    | 中文优秀   | 中文对话             |
+| `@cf/meta/llama-3.1-8b-instruct`            | Llama 3.1 8B    | 8B     | 通用型     | 默认模型，日常使用   |
+| `@cf/mistral/mistral-7b-instruct-v0.2`      | Mistral 7B      | 7B     | 速度快     | 实时对话             |
+| `@cf/google/gemma-2b-it-lora`               | Gemma 2B        | 2B     | 轻量       | 简单任务             |
 
 #### 视觉模型 (Vision)
 
-| 模型 ID | 名称 | 用途 |
-| --- | --- | --- |
+| 模型 ID                        | 名称         | 用途           |
+| ------------------------------ | ------------ | -------------- |
 | `@cf/llava-hf/llava-1.5-7b-hf` | LLaVA 1.5 7B | 图片理解和描述 |
 
 #### 嵌入模型 (Embedding)
 
-| 模型 ID | 名称 | 用途 |
-| --- | --- | --- |
+| 模型 ID           | 名称   | 用途                 |
+| ----------------- | ------ | -------------------- |
 | `@cf/baai/bge-m3` | BGE-M3 | 文本向量化、语义搜索 |
 
 #### 自定义模型
@@ -654,12 +659,12 @@ v4.3.0 提供了 **95 个智能工具**，分为 13 个功能模块：
 
 ### 模型能力
 
-| 能力 | 说明 | 适用功能 |
-| --- | --- | --- |
-| `chat` | 文本对话 | 摘要生成、智能重命名、对话 |
-| `vision` | 图片理解 | 图片描述、图片标签 |
-| `embedding` | 文本向量化 | 语义搜索 |
-| `function_calling` | 工具调用 | Agent 引擎 |
+| 能力               | 说明       | 适用功能                   |
+| ------------------ | ---------- | -------------------------- |
+| `chat`             | 文本对话   | 摘要生成、智能重命名、对话 |
+| `vision`           | 图片理解   | 图片描述、图片标签         |
+| `embedding`        | 文本向量化 | 语义搜索                   |
+| `function_calling` | 工具调用   | Agent 引擎                 |
 
 ---
 
@@ -692,12 +697,12 @@ Workers AI 模型列表，每个模型显示：
 
 为不同 AI 功能选择专用模型：
 
-| 功能 | 可选模型范围 | 说明 |
-| --- | --- | --- |
-| 文件摘要 | chat 模型 | 推荐使用大参数模型 |
-| 图片描述 | vision 模型 | 必须支持图片理解 |
-| 图片标签 | chat 模型 | 使用文本模型生成标签 |
-| 智能重命名 | chat 模型 | 推荐使用轻量快速模型 |
+| 功能       | 可选模型范围 | 说明                 |
+| ---------- | ------------ | -------------------- |
+| 文件摘要   | chat 模型    | 推荐使用大参数模型   |
+| 图片描述   | vision 模型  | 必须支持图片理解     |
+| 图片标签   | chat 模型    | 使用文本模型生成标签 |
+| 智能重命名 | chat 模型    | 推荐使用轻量快速模型 |
 
 #### 📊 向量库（Vectors 标签）
 
@@ -739,12 +744,12 @@ AI 系统配置管理，详见 [AI 系统配置](#ai-系统配置)。
 
 选择模型时会根据功能需求进行过滤：
 
-| 功能 | 要求的能力 | 可选模型示例 |
-| --- | --- | --- |
-| 文件摘要 | `chat` | Llama 3.1 8B, DeepSeek 32B, GPT-4o |
-| 图片描述 | `vision` | LLaVA 1.5 7B, GPT-4 Vision |
-| 图片标签 | `chat` | Llama 3.1 8B, Qwen 14B, GPT-4o |
-| 智能重命名 | `chat` | Llama 3.1 8B, Qwen 14B, GPT-4o |
+| 功能       | 要求的能力 | 可选模型示例                       |
+| ---------- | ---------- | ---------------------------------- |
+| 文件摘要   | `chat`     | Llama 3.1 8B, DeepSeek 32B, GPT-4o |
+| 图片描述   | `vision`   | LLaVA 1.5 7B, GPT-4 Vision         |
+| 图片标签   | `chat`     | Llama 3.1 8B, Qwen 14B, GPT-4o     |
+| 智能重命名 | `chat`     | Llama 3.1 8B, Qwen 14B, GPT-4o     |
 
 ### 配置方法
 
@@ -761,33 +766,33 @@ v4.3.0 AI 系统配置功能，支持细粒度的 AI 参数调整。
 
 ### 配置分类
 
-| 分类 | 说明 | 配置项示例 |
-| --- | --- | --- |
-| 🤖 默认模型 | 各功能的默认模型 | 默认聊天模型、默认视觉模型 |
-| ⚙️ 模型参数 | 模型调用参数 | 默认温度、最大 Token |
-| 📏 内容限制 | 内容生成限制 | 摘要最大长度、标签最大数量 |
-| 🔄 重试策略 | 错误重试配置 | 最大重试次数、重试间隔 |
-| 💬 提示词模板 | 自定义提示词 | 摘要提示词、标签提示词 |
-| ✨ 功能开关 | 功能启用控制 | 启用推理内容显示 |
-| 🤖 Agent 配置 | Agent 行为配置 | 最大工具调用次数、最大空转轮数 |
+| 分类          | 说明             | 配置项示例                     |
+| ------------- | ---------------- | ------------------------------ |
+| 🤖 默认模型   | 各功能的默认模型 | 默认聊天模型、默认视觉模型     |
+| ⚙️ 模型参数   | 模型调用参数     | 默认温度、最大 Token           |
+| 📏 内容限制   | 内容生成限制     | 摘要最大长度、标签最大数量     |
+| 🔄 重试策略   | 错误重试配置     | 最大重试次数、重试间隔         |
+| 💬 提示词模板 | 自定义提示词     | 摘要提示词、标签提示词         |
+| ✨ 功能开关   | 功能启用控制     | 启用推理内容显示               |
+| 🤖 Agent 配置 | Agent 行为配置   | 最大工具调用次数、最大空转轮数 |
 
 ### 配置项示例
 
-| 配置 Key | 说明 | 默认值 |
-| --- | --- | --- |
-| `ai.default_model.chat` | 默认聊天模型 | `@cf/meta/llama-3.1-8b-instruct` |
-| `ai.default_model.vision` | 默认视觉模型 | `@cf/llava-hf/llava-1.5-7b-hf` |
-| `ai.default_model.summary` | 默认摘要模型 | `@cf/meta/llama-3.1-8b-instruct` |
-| `ai.parameter.temperature` | 默认温度 | `0.7` |
-| `ai.parameter.max_tokens` | 默认最大 Token | `4096` |
-| `ai.limit.summary_max_length` | 摘要最大长度 | `500` |
-| `ai.limit.tags_max_count` | 标签最大数量 | `10` |
-| `ai.retry.max_attempts` | 最大重试次数 | `3` |
-| `ai.retry.delay_ms` | 重试间隔（毫秒） | `1000` |
-| `ai.agent.max_tool_calls` | 最大工具调用次数 | `20` |
-| `ai.agent.max_idle_rounds` | 最大空转轮数 | `3` |
-| `ai.agent.temperature` | Agent 温度 | `0.3` |
-| `ai.agent.image_timeout_ms` | 图片分析超时 | `25000` |
+| 配置 Key                      | 说明             | 默认值                           |
+| ----------------------------- | ---------------- | -------------------------------- |
+| `ai.default_model.chat`       | 默认聊天模型     | `@cf/meta/llama-3.1-8b-instruct` |
+| `ai.default_model.vision`     | 默认视觉模型     | `@cf/llava-hf/llava-1.5-7b-hf`   |
+| `ai.default_model.summary`    | 默认摘要模型     | `@cf/meta/llama-3.1-8b-instruct` |
+| `ai.parameter.temperature`    | 默认温度         | `0.7`                            |
+| `ai.parameter.max_tokens`     | 默认最大 Token   | `4096`                           |
+| `ai.limit.summary_max_length` | 摘要最大长度     | `500`                            |
+| `ai.limit.tags_max_count`     | 标签最大数量     | `10`                             |
+| `ai.retry.max_attempts`       | 最大重试次数     | `3`                              |
+| `ai.retry.delay_ms`           | 重试间隔（毫秒） | `1000`                           |
+| `ai.agent.max_tool_calls`     | 最大工具调用次数 | `20`                             |
+| `ai.agent.max_idle_rounds`    | 最大空转轮数     | `3`                              |
+| `ai.agent.temperature`        | Agent 温度       | `0.3`                            |
+| `ai.agent.image_timeout_ms`   | 图片分析超时     | `25000`                          |
 
 ### 配置方法
 
@@ -1012,7 +1017,14 @@ type AgentChunk =
   | { type: 'reasoning'; content: string; done: false }
   | { type: 'tool_start'; toolName: string; toolCallId: string; args: Record<string, unknown>; done: false }
   | { type: 'tool_result'; toolCallId: string; toolName: string; result: unknown; done: false }
-  | { type: 'confirm_request'; confirmId: string; toolName: string; args: Record<string, unknown>; summary: string; done: true }
+  | {
+      type: 'confirm_request';
+      confirmId: string;
+      toolName: string;
+      args: Record<string, unknown>;
+      summary: string;
+      done: true;
+    }
   | { type: 'done'; sessionId: string; sources: AgentSource[]; done: true }
   | { type: 'error'; message: string; done: true };
 ```
@@ -1054,61 +1066,61 @@ interface ToolDefinition {
 
 #### ai_models（模型配置表）
 
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| id | text | 主键 UUID |
-| user_id | text | 用户 ID |
-| name | text | 模型显示名称 |
-| provider | text | providers: workers_ai / openai_compatible |
-| model_id | text | 模型 ID |
-| api_endpoint | text? | API 端点（OpenAI 兼容） |
-| api_key_encrypted | text? | 加密的 API Key |
-| is_active | integer | 是否激活 (0/1) |
-| capabilities | text | 能力 JSON 数组 |
-| max_tokens | integer | 最大 Token 数 |
-| temperature | real | 温度参数 |
-| system_prompt | text? | 系统提示词 |
-| config_json | text | 扩展配置 JSON |
-| created_at | text | 创建时间 |
-| updated_at | text | 更新时间 |
+| 字段              | 类型    | 说明                                      |
+| ----------------- | ------- | ----------------------------------------- |
+| id                | text    | 主键 UUID                                 |
+| user_id           | text    | 用户 ID                                   |
+| name              | text    | 模型显示名称                              |
+| provider          | text    | providers: workers_ai / openai_compatible |
+| model_id          | text    | 模型 ID                                   |
+| api_endpoint      | text?   | API 端点（OpenAI 兼容）                   |
+| api_key_encrypted | text?   | 加密的 API Key                            |
+| is_active         | integer | 是否激活 (0/1)                            |
+| capabilities      | text    | 能力 JSON 数组                            |
+| max_tokens        | integer | 最大 Token 数                             |
+| temperature       | real    | 温度参数                                  |
+| system_prompt     | text?   | 系统提示词                                |
+| config_json       | text    | 扩展配置 JSON                             |
+| created_at        | text    | 创建时间                                  |
+| updated_at        | text    | 更新时间                                  |
 
 #### ai_chat_sessions（对话会话表）
 
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| id | text | 主键 UUID |
-| user_id | text | 用户 ID |
-| title | text | 会话标题 |
-| model_id | text? | 使用的模型 ID |
-| created_at | text | 创建时间 |
-| updated_at | text | 更新时间 |
+| 字段       | 类型  | 说明          |
+| ---------- | ----- | ------------- |
+| id         | text  | 主键 UUID     |
+| user_id    | text  | 用户 ID       |
+| title      | text  | 会话标题      |
+| model_id   | text? | 使用的模型 ID |
+| created_at | text  | 创建时间      |
+| updated_at | text  | 更新时间      |
 
 #### ai_chat_messages（对话消息表）
 
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| id | text | 主键 UUID |
-| session_id | text | 会话 ID |
-| role | text | 角色: user / assistant / system |
-| content | text | 消息内容 |
-| sources | text? | 来源文件 JSON |
-| model_used | text? | 使用的模型 |
-| latency_ms | integer? | 响应延迟（毫秒） |
-| created_at | text | 创建时间 |
+| 字段       | 类型     | 说明                            |
+| ---------- | -------- | ------------------------------- |
+| id         | text     | 主键 UUID                       |
+| session_id | text     | 会话 ID                         |
+| role       | text     | 角色: user / assistant / system |
+| content    | text     | 消息内容                        |
+| sources    | text?    | 来源文件 JSON                   |
+| model_used | text?    | 使用的模型                      |
+| latency_ms | integer? | 响应延迟（毫秒）                |
+| created_at | text     | 创建时间                        |
 
 #### ai_confirm_requests（确认请求表）v4.3.0
 
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| id | text | 主键 UUID |
-| user_id | text | 用户 ID |
-| session_id | text? | 会话 ID |
-| tool_name | text | 工具名称 |
-| args | text | 参数 JSON |
-| summary | text | 操作摘要 |
-| status | text | 状态: pending / consumed |
-| created_at | text | 创建时间 |
-| expires_at | text | 过期时间 |
+| 字段       | 类型  | 说明                     |
+| ---------- | ----- | ------------------------ |
+| id         | text  | 主键 UUID                |
+| user_id    | text  | 用户 ID                  |
+| session_id | text? | 会话 ID                  |
+| tool_name  | text  | 工具名称                 |
+| args       | text  | 参数 JSON                |
+| summary    | text  | 操作摘要                 |
+| status     | text  | 状态: pending / consumed |
+| created_at | text  | 创建时间                 |
+| expires_at | text  | 过期时间                 |
 
 ---
 

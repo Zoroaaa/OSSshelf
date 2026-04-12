@@ -29,7 +29,6 @@ export {
   ProvidersSection,
   IndexProcessingTab,
   VectorsTable,
-  TasksCenter,
   AdvancedConfigPanel,
 } from './settings';
 

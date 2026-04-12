@@ -16,7 +16,7 @@
 import { eq, and, isNull, isNotNull, desc, asc, like, or, inArray, count, gte, lte, sql } from 'drizzle-orm';
 import type { InferSelectModel } from 'drizzle-orm';
 import { getDb, files, fileTags, shares, userStars } from '../../../db';
-import { searchAndFetchFiles } from '../../vectorIndex';
+import { searchAndFetchFiles } from '../vectorIndex';
 import type { Env } from '../../../types/env';
 import { logger } from '@osshelf/shared';
 import type { ToolDefinition, AgentFile, ToolResultBase } from './types';
@@ -65,15 +65,20 @@ export const definitions: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'smart_search',
-      description: `【万能搜索】当不确定用哪个工具时，直接调用此工具即可。
-它会自动判断最佳策略并返回结果。
+      description: `【智能路由搜索】当查询语义复杂、需要跨策略融合时使用。
 
-适合场景：
-• 用户需求模糊时："帮我找点东西"
-• 需要综合多个条件时："找最近的PPT或Word"
-• 快速试探性搜索
+✅ 适合场景：
+• 查询意图混合多个维度："最近上传的超过5MB的视频"
+• 语义模糊难以提炼关键词："帮我找那个关于项目进展的东西"
+• 需要向量语义+全文+过滤三路并行时
 
-⚠️ 此工具会根据 query 内容自动选择最优搜索方式`,
+❌ 不适合（请优先使用更精准的工具）：
+• 有明确关键词 → 用 search_files（更快、更精准）
+• 有明确过滤条件（类型/大小/日期）→ 用 filter_files
+• 按标签查找 → 用 search_by_tag
+• 浏览文件夹内容 → 用 list_folder
+
+⚠️ 此工具资源消耗较多，在上述工具无法满足时再使用`,
       parameters: {
         type: 'object',
         properties: {
@@ -91,17 +96,30 @@ export const definitions: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'filter_files',
-      description: `【高级筛选】按多个条件精确过滤文件列表。
+      description: `【高级筛选】按类型、大小、时间等条件精确过滤文件列表。
 适用场景：
-• "找出所有超过100MB的文件"
-• "本月创建的PDF文档"
-• "未加标签的文件"
-• "已分享的图片"
+• "找出所有图片" → mimeTypePrefix: "image/"
+• "找出超过100MB的文件" → minSize: 104857600
+• "本月创建的PDF" → mimeTypePrefix: "application/pdf", dateFrom: "2024-XX-01"
+• "找未加标签的文件" → isStarred / conditions
 
-适合在已有大量结果后进一步精确筛选`,
+💡 常用类型前缀：image/ | video/ | audio/ | application/pdf | text/`,
       parameters: {
         type: 'object',
         properties: {
+          mimeTypePrefix: {
+            type: 'string',
+            description: '文件类型前缀过滤，如 image/、video/、application/pdf、text/ 等',
+          },
+          minSize: { type: 'number', description: '最小文件大小（字节），如 1048576=1MB' },
+          maxSize: { type: 'number', description: '最大文件大小（字节）' },
+          dateFrom: { type: 'string', description: '创建时间起始（ISO格式：2025-01-01）' },
+          dateTo: { type: 'string', description: '创建时间截止（ISO格式：2025-12-31）' },
+          isStarred: { type: 'boolean', description: '只返回已收藏的文件' },
+          folderId: { type: 'string', description: '限定在某个文件夹内过滤' },
+          limit: { type: 'number', description: '返回数量（默认50）' },
+          sortBy: { type: 'string', enum: ['name', 'size', 'updated_at', 'created_at'], description: '排序字段' },
+          sortOrder: { type: 'string', enum: ['asc', 'desc'], description: '排序方向' },
           conditions: {
             type: 'array',
             items: {
@@ -120,11 +138,8 @@ export const definitions: ToolDefinition[] = [
                 value: { type: 'string', description: '值' },
               },
             },
-            description: '筛选条件数组',
+            description: '高级筛选条件数组（复杂场景使用）',
           },
-          limit: { type: 'number', description: '返回数量（默认50）' },
-          sortBy: { type: 'string', enum: ['name', 'size', 'updated_at', 'created_at'], description: '排序字段' },
-          sortOrder: { type: 'string', enum: ['asc', 'desc'], description: '排序方向' },
         },
       },
     },
@@ -315,10 +330,15 @@ export class SearchTools {
     if (args.hasAiSummary === true) conditions.push(isNotNull(files.aiSummary));
     if (args.hasVectorIndex === true) conditions.push(isNotNull(files.vectorIndexedAt));
     if (args.isStarred === true) conditions.push(eq(files.isStarred, true));
-    if (args.minSizeBytes) conditions.push(gte(files.size, args.minSizeBytes as number));
-    if (args.maxSizeBytes) conditions.push(lte(files.size, args.maxSizeBytes as number));
-    if (args.createdAfter) conditions.push(gte(files.createdAt, args.createdAfter as string));
-    if (args.createdBefore) conditions.push(lte(files.createdAt, args.createdBefore as string));
+    // 支持两套参数名（definition用minSize/maxSize/dateFrom/dateTo，兼容旧的minSizeBytes等）
+    const minSize = (args.minSize ?? args.minSizeBytes) as number | undefined;
+    const maxSize = (args.maxSize ?? args.maxSizeBytes) as number | undefined;
+    const dateFrom = (args.dateFrom ?? args.createdAfter) as string | undefined;
+    const dateTo = (args.dateTo ?? args.createdBefore) as string | undefined;
+    if (minSize) conditions.push(gte(files.size, minSize));
+    if (maxSize) conditions.push(lte(files.size, maxSize));
+    if (dateFrom) conditions.push(gte(files.createdAt, dateFrom));
+    if (dateTo) conditions.push(lte(files.createdAt, dateTo));
     if (args.folderId) conditions.push(eq(files.parentId, args.folderId as string));
 
     const orderMap: Record<string, any> = {
@@ -478,41 +498,100 @@ export class SearchTools {
 
   static async executeSmartSearch(env: Env, userId: string, args: Record<string, unknown>) {
     const query = args.query as string;
-    const intent = (args.intent as string) || 'auto';
-    const limit = (args.limit as number) || 10;
+    const context = (args.context as string) || '';
+    const limit = Math.min((args.limit as number) || 10, 30);
+    const db = getDb(env.DB);
 
-    const detectedIntent = intent === 'auto' ? detectSearchIntent(query) : intent;
+    const effectiveQuery = context ? `${context} ${query}` : query;
+    const splitResult = splitKeywords(query);
+    const keywords = splitResult.keywords.length > 0 ? splitResult.keywords : [query];
 
-    switch (detectedIntent) {
-      case 'filename':
-        return await SearchTools.executeFilterFiles(env, userId, {
-          ...args,
-          namePattern: query,
-          limit,
-        });
-      case 'semantic':
-        return await SearchTools.executeSearchFiles(env, userId, {
-          query,
-          limit,
-        });
-      case 'tag':
-        const tags = extractTagsFromQuery(query);
-        return await SearchTools.executeSearchByTag(env, userId, {
-          tags: tags.length > 0 ? tags : [query],
-          limit,
-        });
-      case 'path':
-        return await SearchTools.executeFilterFiles(env, userId, {
-          ...args,
-          pathPattern: query,
-          limit,
-        });
-      default:
-        return await SearchTools.executeSearchFiles(env, userId, {
-          query,
-          limit,
-        });
+    // ── 方案A：向量 + FTS 双路并行，合并去重 ────────────────────────────
+    const [vectorResults, kwRows] = await Promise.allSettled([
+      // 路径1：向量语义搜索（保持原始查询语义完整性）
+      searchAndFetchFiles(env, effectiveQuery, userId, {
+        limit: limit * 2,
+        threshold: 0.2,
+      }),
+      // 路径2：FTS 关键词搜索
+      db
+        .select()
+        .from(files)
+        .where(
+          and(
+            eq(files.userId, userId),
+            isNull(files.deletedAt),
+            or(
+              ...keywords.flatMap((w) => [
+                like(files.name, `%${w}%`),
+                like(files.description, `%${w}%`),
+                like(files.aiSummary, `%${w}%`),
+                like(files.aiTags, `%${w}%`),
+              ])
+            )
+          )
+        )
+        .orderBy(desc(files.updatedAt))
+        .limit(limit * 2)
+        .all(),
+    ]);
+
+    // 向量结果：按得分加权（权重 1.2）
+    const vectorFiles: Array<AgentFile & { _score: number }> =
+      vectorResults.status === 'fulfilled'
+        ? vectorResults.value.map((f: InferSelectModel<typeof files>) => ({
+            ...toAgentFile(f),
+            _score: 1.2,
+          }))
+        : [];
+
+    // FTS 结果：按时间排序，基础得分 0.8
+    const kwFiles: Array<AgentFile & { _score: number }> =
+      kwRows.status === 'fulfilled'
+        ? kwRows.value.map((f: InferSelectModel<typeof files>) => ({
+            ...toAgentFile(f),
+            _score: 0.8,
+          }))
+        : [];
+
+    if (vectorResults.status === 'rejected') {
+      logger.warn('AgentTool', 'smart_search vector failed', { query }, vectorResults.reason);
     }
+
+    // 合并去重：向量结果优先，FTS 补充不重叠的结果
+    const seen = new Set<string>();
+    const merged: AgentFile[] = [];
+    for (const f of [...vectorFiles, ...kwFiles]) {
+      if (!seen.has(f.id) && merged.length < limit) {
+        seen.add(f.id);
+        const { _score, ...file } = f;
+        merged.push(file);
+      }
+    }
+
+    logger.info('AgentTool', 'smart_search 双路并行完成', {
+      query,
+      vectorCount: vectorFiles.length,
+      kwCount: kwFiles.length,
+      mergedCount: merged.length,
+    });
+
+    const imageCount = merged.filter((f) => f.mimeType?.startsWith('image/')).length;
+    const textCount = merged.filter((f) => isTextFile(f.mimeType) && !f.isFolder).length;
+
+    const nextActions: string[] = [];
+    if (merged.length === 0) nextActions.push('try_different_keywords');
+    if (imageCount > 0) nextActions.push('analyze_images');
+    if (textCount > 0) nextActions.push('read_content');
+
+    return createSuccessResponse({
+      files: merged,
+      total: merged.length,
+      strategy: 'parallel_merge',
+      vectorHits: vectorFiles.length,
+      keywordHits: kwFiles.length,
+      nextActions,
+    });
   }
 
   static async executeGetSimilarFiles(env: Env, userId: string, args: Record<string, unknown>) {
@@ -605,6 +684,8 @@ function toAgentFile(f: InferSelectModel<typeof files>): AgentFile {
   return {
     id: f.id,
     name: f.name,
+    // 直接提供引用格式，AI复制即可，无需自行拼接
+    _ref: f.isFolder ? `[FOLDER:${f.id}:${f.name}]` : `[FILE:${f.id}:${f.name}]`,
     path: f.path,
     isFolder: f.isFolder,
     mimeType: f.mimeType,

@@ -1399,6 +1399,8 @@ export const aiApi = {
         modelId?: string;
         maxFiles?: number;
         includeFileContent?: boolean;
+        contextFolderId?: string;
+        contextFileIds?: string[];
         onChunk: (chunk: {
           content?: string;
           done?: boolean;
@@ -1658,6 +1660,8 @@ export interface AiChatSession {
   createdAt: string;
   updatedAt: string;
   messageCount?: number;
+  lastToolCallCount?: number;
+  totalTokensUsed?: number;
 }
 
 export interface AiChatMessage {

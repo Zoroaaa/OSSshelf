@@ -1,24 +1,28 @@
 /**
- * notes.ts
- * 文件笔记路由
+ * notes.ts — 文件笔记路由（薄包装层）
  *
- * 功能:
- * - 文件笔记 CRUD
- * - 笔记历史版本
- * - @提及 功能
- * - 置顶管理
+ * 所有业务逻辑委托 noteService，本文件仅处理：
+ * - HTTP 层（zod 校验、响应格式化）
+ * - 通知发送（依赖 Hono executionCtx）
  */
 
 import { Hono } from 'hono';
 import { eq, and, desc, isNull, sql } from 'drizzle-orm';
-import { getDb, files, users, fileNotes, fileNoteHistory, noteMentions } from '../db';
+import { getDb, files, users, fileNotes, noteMentions } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createNotification, getUserInfo } from '../lib/notificationUtils';
-import { checkFilePermission } from './permissions';
+import {
+  createNote as serviceCreateNote,
+  updateNote as serviceUpdateNote,
+  deleteNote as serviceDeleteNote,
+  getFileNotes as serviceGetFileNotes,
+  togglePinNote as serviceTogglePinNote,
+  getNoteHistory as serviceGetNoteHistory,
+} from '../lib/noteService';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -33,7 +37,10 @@ const updateNoteSchema = z.object({
 
 app.use('/*', authMiddleware);
 
-// 注意：mentions 路由必须在 /:fileId 路由之前，否则会被错误匹配
+// ─────────────────────────────────────────────────────────────────────────────
+// 提及相关路由（纯 DB 操作，保留在路由层）
+// ─────────────────────────────────────────────────────────────────────────────
+
 app.get('/mentions/unread', async (c) => {
   const userId = c.get('userId')!;
   const db = getDb(c.env.DB);
@@ -50,10 +57,7 @@ app.get('/mentions/unread', async (c) => {
     .limit(50)
     .all();
 
-  return c.json({
-    success: true,
-    data: unreadMentions,
-  });
+  return c.json({ success: true, data: unreadMentions });
 });
 
 app.put('/mentions/:mentionId/read', async (c) => {
@@ -74,23 +78,20 @@ app.put('/mentions/:mentionId/read', async (c) => {
   return c.json({ success: true, data: { message: '已标记为已读' } });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /:fileId — 笔记列表（委托 service + 用户信息富化）
+// ─────────────────────────────────────────────────────────────────────────────
+
 app.get('/:fileId', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('fileId');
   const page = parseInt(c.req.query('page') || '1', 10);
   const limit = parseInt(c.req.query('limit') || '20', 10);
-  const offset = (page - 1) * limit;
+
+  const result = await serviceGetFileNotes(c.env, userId, fileId, limit);
+  if (!result.success) throwAppError('FILE_ACCESS_DENIED', result.error);
 
   const db = getDb(c.env.DB);
-
-  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
-  if (!hasAccess) {
-    throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
-  }
-
-  const file = await db.select().from(files).where(eq(files.id, fileId)).get();
-  if (!file) throwAppError('FILE_NOT_FOUND');
-
   const notesList = await db
     .select({
       id: fileNotes.id,
@@ -107,7 +108,7 @@ app.get('/:fileId', async (c) => {
     .where(and(eq(fileNotes.fileId, fileId), isNull(fileNotes.deletedAt)))
     .orderBy(desc(fileNotes.isPinned), desc(fileNotes.createdAt))
     .limit(limit)
-    .offset(offset)
+    .offset((page - 1) * limit)
     .all();
 
   const userIds = [...new Set(notesList.map((n) => n.userId))];
@@ -121,110 +122,62 @@ app.get('/:fileId', async (c) => {
     for (const u of userRows) userMap[u.id] = u;
   }
 
-  const notesWithUsers = notesList.map((n) => ({
-    ...n,
-    user: userMap[n.userId] ?? null,
-  }));
-
-  const totalResult = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(fileNotes)
-    .where(and(eq(fileNotes.fileId, fileId), isNull(fileNotes.deletedAt)))
-    .get();
-
   return c.json({
     success: true,
     data: {
-      notes: notesWithUsers,
-      total: totalResult?.count ?? 0,
+      notes: notesList.map((n) => ({ ...n, user: userMap[n.userId] ?? null })),
+      total: result.total,
       page,
       limit,
     },
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /:fileId — 创建笔记（委托 service + 通知）
+// ─────────────────────────────────────────────────────────────────────────────
+
 app.post('/:fileId', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('fileId');
   const body = await c.req.json();
-  const result = createNoteSchema.safeParse(body);
-  if (!result.success) {
+  const parsed = createNoteSchema.safeParse(body);
+  if (!parsed.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: parsed.error.errors[0].message } },
       400
     );
   }
 
-  const { content, parentId } = result.data;
-  const db = getDb(c.env.DB);
+  const { content, parentId } = parsed.data;
+  const result = await serviceCreateNote(c.env, userId, { fileId, content, parentId });
 
-  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
-  if (!hasAccess) {
-    throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
+  if (!result.success) {
+    if (result.error === '无权访问此文件') throwAppError('FILE_ACCESS_DENIED', result.error);
+    if (result.error === '文件不存在') throwAppError('FILE_NOT_FOUND');
+    return c.json({ success: false, error: result.error }, 400);
   }
 
-  const file = await db.select().from(files).where(eq(files.id, fileId)).get();
-  if (!file) throwAppError('FILE_NOT_FOUND');
-
-  const noteId = crypto.randomUUID();
-  const now = new Date().toISOString();
-  const contentHtml = renderMarkdown(content);
-
-  await db.insert(fileNotes).values({
-    id: noteId,
-    fileId,
-    userId,
-    content,
-    contentHtml,
-    isPinned: false,
-    version: 1,
-    parentId: parentId || null,
-    createdAt: now,
-    updatedAt: now,
-    deletedAt: null,
-  });
-
-  await db
-    .update(files)
-    .set({
-      noteCount: sql`${files.noteCount} + 1`,
-      updatedAt: now,
-    })
-    .where(eq(files.id, fileId));
-
-  const mentions = extractMentions(content);
-  if (mentions.length > 0) {
-    const mentionedUsers = await db
-      .select({ id: users.id, email: users.email })
-      .from(users)
-      .where(sql`${users.email} IN ${mentions}`)
-      .all();
-
-    for (const u of mentionedUsers) {
-      await db.insert(noteMentions).values({
-        id: crypto.randomUUID(),
-        noteId,
-        userId: u.id,
-        isRead: false,
-        createdAt: now,
-      });
-    }
+  // 发送提及通知
+  if (result.mentions && result.mentions.mentionedUserIds.length > 0) {
+    const db = getDb(c.env.DB);
+    const fileRow = await db.select().from(files).where(eq(files.id, fileId)).get();
 
     c.executionCtx.waitUntil(
       (async () => {
         try {
           const authorInfo = await getUserInfo(c.env, userId);
-          for (const u of mentionedUsers) {
-            if (u.id !== userId) {
+          for (const mentionedUid of result.mentions!.mentionedUserIds) {
+            if (mentionedUid !== userId) {
               await createNotification(c.env, {
-                userId: u.id,
+                userId: mentionedUid,
                 type: 'mention',
                 title: '您在笔记中被提及',
-                body: `${authorInfo?.name || authorInfo?.email || '用户'} 在文件「${file.name}」的笔记中@了您`,
+                body: `${authorInfo?.name || authorInfo?.email || '用户'} 在文件「${fileRow?.name}」的笔记中@了您`,
                 data: {
                   fileId,
-                  fileName: file.name,
-                  noteId,
+                  fileName: fileRow?.name,
+                  noteId: result.noteId,
                   mentionerId: userId,
                   mentionerName: authorInfo?.name || authorInfo?.email,
                 },
@@ -238,7 +191,9 @@ app.post('/:fileId', async (c) => {
     );
   }
 
+  // 发送回复通知
   if (parentId) {
+    const db = getDb(c.env.DB);
     const parentNote = await db
       .select({ id: fileNotes.id, userId: fileNotes.userId })
       .from(fileNotes)
@@ -246,6 +201,8 @@ app.post('/:fileId', async (c) => {
       .get();
 
     if (parentNote && parentNote.userId !== userId) {
+      const fileRow = await db.select().from(files).where(eq(files.id, fileId)).get();
+
       c.executionCtx.waitUntil(
         (async () => {
           try {
@@ -254,11 +211,11 @@ app.post('/:fileId', async (c) => {
               userId: parentNote.userId,
               type: 'reply',
               title: '您的笔记收到了回复',
-              body: `${authorInfo?.name || authorInfo?.email || '用户'} 回复了您在文件「${file.name}」中的笔记`,
+              body: `${authorInfo?.name || authorInfo?.email || '用户'} 回复了您在文件「${fileRow?.name}」中的笔记`,
               data: {
                 fileId,
-                fileName: file.name,
-                noteId,
+                fileName: fileRow?.name,
+                noteId: result.noteId,
                 parentId,
                 replierId: userId,
                 replierName: authorInfo?.name || authorInfo?.email,
@@ -272,239 +229,90 @@ app.post('/:fileId', async (c) => {
     }
   }
 
-  return c.json({
-    success: true,
-    data: {
-      id: noteId,
-      content,
-      contentHtml,
-      isPinned: false,
-      version: 1,
-      createdAt: now,
-    },
-  });
+  return c.json({ success: true, data: result.note });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PUT /:fileId/:noteId — 更新笔记（委托 service）
+// ─────────────────────────────────────────────────────────────────────────────
 
 app.put('/:fileId/:noteId', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('fileId');
   const noteId = c.req.param('noteId');
   const body = await c.req.json();
-  const result = updateNoteSchema.safeParse(body);
-  if (!result.success) {
+  const parsed = updateNoteSchema.safeParse(body);
+  if (!parsed.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: parsed.error.errors[0].message } },
       400
     );
   }
 
-  const { content } = result.data;
-  const db = getDb(c.env.DB);
-
-  const note = await db
-    .select()
-    .from(fileNotes)
-    .where(and(eq(fileNotes.id, noteId), eq(fileNotes.fileId, fileId), isNull(fileNotes.deletedAt)))
-    .get();
-
-  if (!note) throwAppError('NOTE_NOT_FOUND', '笔记不存在');
-
-  if (note.userId !== userId) {
-    throwAppError('NOTE_EDIT_DENIED', '无权编辑此笔记');
-  }
-
-  const now = new Date().toISOString();
-  const contentHtml = renderMarkdown(content);
-
-  await db.insert(fileNoteHistory).values({
-    id: crypto.randomUUID(),
-    noteId,
-    content: note.content,
-    version: note.version,
-    editedBy: userId,
-    createdAt: now,
-  });
-
-  await db
-    .update(fileNotes)
-    .set({
-      content,
-      contentHtml,
-      version: note.version + 1,
-      updatedAt: now,
-    })
-    .where(eq(fileNotes.id, noteId));
-
-  await db.delete(noteMentions).where(eq(noteMentions.noteId, noteId));
-
-  const mentions = extractMentions(content);
-  if (mentions.length > 0) {
-    const mentionedUsers = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(sql`${users.email} IN ${mentions}`)
-      .all();
-
-    for (const u of mentionedUsers) {
-      await db.insert(noteMentions).values({
-        id: crypto.randomUUID(),
-        noteId,
-        userId: u.id,
-        isRead: false,
-        createdAt: now,
-      });
+  const result = await serviceUpdateNote(c.env, userId, fileId, noteId, { content: parsed.data.content });
+  if (!result.success) {
+    if (result.error === '笔记不存在' || result.error === '无权编辑此笔记') {
+      throwAppError(result.error === '无权编辑此笔记' ? 'NOTE_EDIT_DENIED' : 'NOTE_NOT_FOUND', result.error);
     }
+    return c.json({ success: false, error: result.error }, 400);
   }
 
   return c.json({
     success: true,
-    data: {
-      id: noteId,
-      content,
-      contentHtml,
-      version: note.version + 1,
-      updatedAt: now,
-    },
+    data: { id: noteId, content: parsed.data.content, version: (result as any).newVersion || 0 },
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE /:fileId/:noteId — 删除笔记（委托 service）
+// ─────────────────────────────────────────────────────────────────────────────
 
 app.delete('/:fileId/:noteId', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('fileId');
   const noteId = c.req.param('noteId');
-  const db = getDb(c.env.DB);
 
-  const note = await db
-    .select()
-    .from(fileNotes)
-    .where(and(eq(fileNotes.id, noteId), eq(fileNotes.fileId, fileId), isNull(fileNotes.deletedAt)))
-    .get();
-
-  if (!note) throwAppError('NOTE_NOT_FOUND', '笔记不存在');
-
-  if (note.userId !== userId) {
-    throwAppError('NOTE_DELETE_DENIED', '无权删除此笔记');
+  const result = await serviceDeleteNote(c.env, userId, fileId, noteId);
+  if (!result.success) {
+    throwAppError(
+      result.error === '无权删除此笔记' ? 'NOTE_DELETE_DENIED' : 'NOTE_NOT_FOUND',
+      result.error
+    );
   }
 
-  const now = new Date().toISOString();
-
-  const childCountBeforeDelete = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(fileNotes)
-    .where(and(eq(fileNotes.parentId, noteId), isNull(fileNotes.deletedAt)))
-    .get();
-
-  await db
-    .update(fileNotes)
-    .set({ deletedAt: now, updatedAt: now })
-    .where(and(eq(fileNotes.parentId, noteId), isNull(fileNotes.deletedAt)));
-
-  await db.update(fileNotes).set({ deletedAt: now, updatedAt: now }).where(eq(fileNotes.id, noteId));
-
-  const deletedCount = 1 + (childCountBeforeDelete?.count ?? 0);
-
-  await db
-    .update(files)
-    .set({
-      noteCount: sql`CASE WHEN ${files.noteCount} > ${deletedCount} THEN ${files.noteCount} - ${deletedCount} ELSE 0 END`,
-      updatedAt: now,
-    })
-    .where(eq(files.id, fileId));
-
-  return c.json({ success: true, data: { message: '笔记已删除', deletedCount } });
+  return c.json({ success: true, data: { message: result.message, deletedCount: result.deletedCount } });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /:fileId/:noteId/pin — 置顶切换（委托 service）
+// ─────────────────────────────────────────────────────────────────────────────
 
 app.post('/:fileId/:noteId/pin', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('fileId');
   const noteId = c.req.param('noteId');
-  const db = getDb(c.env.DB);
 
-  const note = await db
-    .select()
-    .from(fileNotes)
-    .where(and(eq(fileNotes.id, noteId), eq(fileNotes.fileId, fileId), isNull(fileNotes.deletedAt)))
-    .get();
-
-  if (!note) throwAppError('NOTE_NOT_FOUND', '笔记不存在');
-
-  if (note.userId !== userId) {
-    throwAppError('NOTE_PIN_DENIED', '无权置顶此笔记');
+  const result = await serviceTogglePinNote(c.env, userId, fileId, noteId);
+  if (!result.success) {
+    throwAppError(result.error === '无权置顶此笔记' ? 'NOTE_PIN_DENIED' : 'NOTE_NOT_FOUND', result.error);
   }
 
-  const now = new Date().toISOString();
-  const newPinnedState = !note.isPinned;
-
-  await db.update(fileNotes).set({ isPinned: newPinnedState, updatedAt: now }).where(eq(fileNotes.id, noteId));
-
-  return c.json({
-    success: true,
-    data: {
-      isPinned: newPinnedState,
-      message: newPinnedState ? '已置顶' : '已取消置顶',
-    },
-  });
+  return c.json({ success: true, data: { isPinned: result.isPinned, message: result.message } });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /:fileId/:noteId/history — 历史版本（委托 service）
+// ─────────────────────────────────────────────────────────────────────────────
 
 app.get('/:fileId/:noteId/history', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('fileId');
   const noteId = c.req.param('noteId');
-  const db = getDb(c.env.DB);
 
-  const note = await db
-    .select()
-    .from(fileNotes)
-    .where(and(eq(fileNotes.id, noteId), eq(fileNotes.fileId, fileId), isNull(fileNotes.deletedAt)))
-    .get();
+  const result = await serviceGetNoteHistory(c.env, userId, fileId, noteId);
+  if (!result.success) throwAppError('NOTE_NOT_FOUND', result.error);
 
-  if (!note) throwAppError('NOTE_NOT_FOUND', '笔记不存在');
-
-  const history = await db
-    .select({
-      id: fileNoteHistory.id,
-      content: fileNoteHistory.content,
-      version: fileNoteHistory.version,
-      editedBy: fileNoteHistory.editedBy,
-      createdAt: fileNoteHistory.createdAt,
-    })
-    .from(fileNoteHistory)
-    .where(eq(fileNoteHistory.noteId, noteId))
-    .orderBy(desc(fileNoteHistory.version))
-    .all();
-
-  return c.json({
-    success: true,
-    data: {
-      current: {
-        id: note.id,
-        content: note.content,
-        version: note.version,
-      },
-      history,
-    },
-  });
+  return c.json({ success: true, data: result });
 });
-
-function renderMarkdown(content: string): string {
-  return content
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`(.+?)`/g, '<code>$1</code>')
-    .replace(/~~(.+?)~~/g, '<del>$1</del>')
-    .replace(/\n/g, '<br>');
-}
-
-function extractMentions(content: string): string[] {
-  const mentionRegex = /@([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
-  const mentions: string[] = [];
-  let match;
-  while ((match = mentionRegex.exec(content)) !== null) {
-    mentions.push(match[1]);
-  }
-  return [...new Set(mentions)];
-}
 
 export default app;

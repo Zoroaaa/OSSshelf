@@ -208,6 +208,11 @@ export class StatsTools {
       },
       dimension,
       ...result,
+      _next_actions: [
+        '如需了解大文件占用，调用 get_large_files 获取列表',
+        '如需清理建议，调用 get_cleanup_suggestions',
+        '如需按文件夹查看占用，调用 get_folder_sizes',
+      ],
     };
   }
 
@@ -266,6 +271,10 @@ export class StatsTools {
         size: formatBytes(r.uploadSize || 0),
         sizeBytes: r.uploadSize || 0,
       })),
+      _next_actions: [
+        '如需查看最近上传了哪些文件，调用 get_recent_files',
+        '如需查看存储总量，调用 get_storage_stats',
+      ],
     };
   }
 
@@ -303,6 +312,10 @@ export class StatsTools {
           : '0%',
         tagsRate: stats?.fileCount ? ((Number(stats.withTags) / Number(stats.fileCount)) * 100).toFixed(1) + '%' : '0%',
       },
+      _next_actions: [
+        '如需详细空间分布，调用 get_storage_stats(dimension="mimetype")',
+        '如需查看重复文件，调用 search_duplicates 释放冗余空间',
+      ],
     };
   }
 
@@ -364,6 +377,10 @@ export class StatsTools {
         size: formatBytes(r.totalSize || 0),
         sizePercentage: totalSize > 0 ? (((r.totalSize || 0) / totalSize) * 100).toFixed(1) + '%' : '0%',
       })),
+      _next_actions: [
+        '如需找出某类型的具体文件，调用 filter_files 并传入对应 mimeTypePrefix',
+        '如需查看重复文件，调用 search_duplicates',
+      ],
     };
   }
 
@@ -411,6 +428,10 @@ export class StatsTools {
         isActive: !s.expiresAt || new Date(s.expiresAt) > new Date(),
         createdAt: s.createdAt,
       })),
+      _next_actions: [
+        '如需管理具体分享链接，调用 list_shares 获取完整列表',
+        '如需撤销某条分享，调用 revoke_share 并传入 shareId',
+      ],
     };
   }
 }

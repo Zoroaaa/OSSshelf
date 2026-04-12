@@ -9,14 +9,22 @@
  * - 移动端遮罩
  */
 
-import { Plus, Trash2, Pencil, X, Check } from 'lucide-react';
+import { Plus, Trash2, Pencil, X, Check, Zap, Coins } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { formatDate } from '@/utils';
+
+function formatTokenCount(tokens: number): string {
+  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`;
+  return `${tokens}`;
+}
 
 interface SessionItem {
   id: string;
   title: string;
   updatedAt: string;
+  lastToolCallCount?: number;
+  totalTokensUsed?: number;
+  modelId?: string;
 }
 
 interface ChatSidebarProps {
@@ -151,7 +159,21 @@ export function ChatSidebar({
                         </button>
                       </div>
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-0.5">{formatDate(session.updatedAt)}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <p className="text-[10px] text-slate-400">{formatDate(session.updatedAt)}</p>
+                      {(session.lastToolCallCount ?? 0) > 0 && (
+                        <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-600 dark:text-amber-400">
+                          <Zap className="h-2.5 w-2.5" />
+                          {session.lastToolCallCount}
+                        </span>
+                      )}
+                      {(session.totalTokensUsed ?? 0) > 0 && (
+                        <span className="inline-flex items-center gap-0.5 text-[10px] text-blue-500 dark:text-blue-400">
+                          <Coins className="h-2.5 w-2.5" />
+                          {formatTokenCount(session.totalTokensUsed!)}
+                        </span>
+                      )}
+                    </div>
                   </>
                 )}
               </div>

@@ -176,7 +176,7 @@ export class NotesTools {
     const content = args.content as string;
 
     // 调用公共 service 层（复用 notes.ts PUT /:fileId/:noteId 的核心逻辑：历史版本、权限检查）
-    const result = await serviceUpdateNote(env, userId, noteId, { content });
+    const result = await serviceUpdateNote(env, userId, undefined, noteId, { content });
     if (!result.success) return { error: result.error };
 
     return { success: true, message: result.message, noteId };
@@ -185,7 +185,7 @@ export class NotesTools {
   static async executeDeleteNote(env: Env, userId: string, args: Record<string, unknown>) {
     const noteId = args.noteId as string;
 
-    const result = await serviceDeleteNote(env, userId, noteId);
+    const result = await serviceDeleteNote(env, userId, undefined, noteId);
     if (!result.success) return { error: result.error };
 
     return { success: true, message: result.message, noteId };

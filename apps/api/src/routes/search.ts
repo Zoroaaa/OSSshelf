@@ -20,7 +20,7 @@ import { ERROR_CODES, logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { buildFolderPath, clearFilePathCache } from '../lib/utils';
-import { searchSimilarFiles, isAIConfigured } from '../lib/vectorIndex';
+import { searchSimilarFiles, isAIConfigured } from '../lib/ai/vectorIndex';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);

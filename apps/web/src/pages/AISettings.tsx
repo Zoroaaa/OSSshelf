@@ -21,7 +21,6 @@ import {
   RefreshCw,
   CheckCircle,
   MessageSquare,
-  BarChart3,
   AlertTriangle,
   Zap,
   Database,
@@ -35,20 +34,14 @@ import {
   ProvidersSection,
   IndexProcessingTab,
   VectorsTable,
-  TasksCenter,
   AdvancedConfigPanel,
   ProviderManageModal,
 } from '@/components/ai/settings';
-import {
-  aiApi,
-  type AiModel,
-  type AiProviderItem,
-  type AiSystemConfigItem,
-} from '@/services/api';
+import { aiApi, type AiModel, type AiProviderItem, type AiSystemConfigItem } from '@/services/api';
 import type { AIIndexTask, AISummarizeTask, AITagsTask, AIIndexStats } from '@/services/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
-type TabType = 'models' | 'providers' | 'index' | 'vectors' | 'tasks' | 'advanced';
+type TabType = 'models' | 'providers' | 'index' | 'vectors' | 'advanced';
 
 export function AISettings() {
   const navigate = useNavigate();
@@ -377,17 +370,6 @@ export function AISettings() {
     }
   };
 
-  const handleForceResetTask = async (taskType: 'index' | 'summarize' | 'tags') => {
-    try {
-      if (taskType === 'index') await aiApi.cancelIndexTask();
-      else if (taskType === 'summarize') await aiApi.cancelSummarizeTask();
-      else await aiApi.cancelTagsTask();
-      await fetchAllTaskStatus();
-    } catch (e: any) {
-      console.error('Failed to reset task:', e);
-    }
-  };
-
   const handleSaveConfig = (config: AiSystemConfigItem) => {
     let value: string | number | boolean = configEditValue;
     if (config.valueType === 'number') value = Number(configEditValue);
@@ -402,14 +384,13 @@ export function AISettings() {
     { id: 'providers', label: '可用模型', icon: Zap },
     { id: 'index', label: '索引与处理', icon: Database },
     { id: 'vectors', label: '向量库', icon: Layers },
-    { id: 'tasks', label: '任务中心', icon: BarChart3 },
     { id: 'advanced', label: '高级配置', icon: Sliders },
   ];
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <div className="flex-shrink-0 bg-gradient-to-r from-purple-50 via-white to-pink-50 dark:from-purple-950/30 dark:via-slate-900 dark:to-pink-950/30 border-b shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+    <div className="space-y-6">
+      <div className="-mx-4 lg:-mx-6 px-4 lg:px-6 py-4 sm:py-5 bg-gradient-to-r from-purple-50 via-white to-pink-50 dark:from-purple-950/30 dark:via-slate-900 dark:to-pink-950/30 border-b shadow-sm rounded-t-lg">
+        <div>
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-6">
             <div className="flex items-center gap-3">
               <div className="p-2.5 sm:p-3 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl shadow-lg shadow-purple-500/25">
@@ -418,7 +399,7 @@ export function AISettings() {
               <div>
                 <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold">AI 配置中心</h1>
                 <p className="text-xs sm:text-sm text-muted-foreground hidden sm:block">
-                  模型管理 · 索引配置 · 任务监控
+                  模型管理 · 索引配置 · 向量搜索 · 高级配置
                 </p>
               </div>
             </div>
@@ -472,7 +453,7 @@ export function AISettings() {
             </div>
           )}
 
-          <div className="mt-4 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8">
+          <div className="mt-4">
             <div className="flex gap-1 overflow-x-auto no-scrollbar pb-1">
               {tabs.map((tab) => {
                 const Icon = tab.icon;
@@ -505,7 +486,7 @@ export function AISettings() {
         </div>
       </div>
 
-      <div className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 overflow-y-auto">
+      <div className="py-2">
         {activeTab === 'models' && (
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -691,16 +672,6 @@ export function AISettings() {
             onDeleteVector={handleDeleteVector}
             onRefresh={() => refetchVectors()}
             onPageChange={setVectorPage}
-          />
-        )}
-
-        {activeTab === 'tasks' && (
-          <TasksCenter
-            task={task}
-            summarizeTask={summarizeTask}
-            tagsTask={tagsTask}
-            stats={stats}
-            onCancelTask={handleForceResetTask}
           />
         )}
 

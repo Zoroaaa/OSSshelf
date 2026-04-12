@@ -78,10 +78,11 @@ CREATE TABLE IF NOT EXISTS ai_chat_sessions (
     user_id TEXT NOT NULL,
     title TEXT NOT NULL DEFAULT '新对话',
     model_id TEXT,
+    last_tool_call_count INTEGER NOT NULL DEFAULT 0,
+    total_tokens_used INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (model_id) REFERENCES ai_models(id) ON DELETE SET NULL
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated ON ai_chat_sessions(user_id, updated_at DESC);
@@ -99,6 +100,8 @@ CREATE TABLE IF NOT EXISTS ai_chat_messages (
     sources TEXT,
     model_used TEXT,
     latency_ms INTEGER,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (session_id) REFERENCES ai_chat_sessions(id) ON DELETE CASCADE
 );

@@ -49,6 +49,7 @@ export const ERROR_CODES: Record<string, ErrorInfo> = {
   // 认证模块 A0xx-A5xx
   // ═══════════════════════════════════════════════════════════════
   UNAUTHORIZED: { code: 'A000', httpStatus: 401, message: '未授权，请先登录' },
+  FORBIDDEN: { code: 'A001', httpStatus: 403, message: '禁止访问' },
   TOKEN_EXPIRED: { code: 'A001', httpStatus: 401, message: '登录已过期，请重新登录' },
   TOKEN_INVALID: { code: 'A002', httpStatus: 401, message: '无效的登录凭证' },
   TOKEN_MISSING: { code: 'A003', httpStatus: 401, message: '缺少登录凭证' },

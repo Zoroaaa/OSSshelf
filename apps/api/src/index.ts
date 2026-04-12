@@ -44,7 +44,7 @@ import notificationsRoutes from './routes/notifications';
 import v1Routes from './routes/v1';
 import { errorHandler } from './middleware/error';
 import { runAllCleanupTasks } from './lib/cleanup';
-import { processAiTaskMessage, checkAndCompleteTask } from './lib/aiTaskQueue';
+import { processAiTaskMessage, checkAndCompleteTask } from './lib/ai/aiTaskQueue';
 import type { Env, AiTaskMessage } from './types/env';
 
 const app = new Hono<{ Bindings: Env }>();

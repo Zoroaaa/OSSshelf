@@ -13,7 +13,7 @@
 import { Hono } from 'hono';
 import { eq, and, isNull, sql } from 'drizzle-orm';
 import { getDb, files } from '../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware } from '../middleware';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
@@ -24,7 +24,7 @@ import {
   buildFileTextForVector,
   isAIConfigured,
   searchAndFetchFiles,
-} from '../lib/vectorIndex';
+} from '../lib/ai/vectorIndex';
 import {
   generateFileSummary,
   generateImageTags,
@@ -33,7 +33,7 @@ import {
   canGenerateSummary,
 } from '../lib/ai/features';
 import { sendNotification } from '../lib/notificationUtils';
-import { enqueueAiTasks, createTaskRecord, cancelTask, getLatestTaskByUserType } from '../lib/aiTaskQueue';
+import { enqueueAiTasks, createTaskRecord, cancelTask, getLatestTaskByUserType } from '../lib/ai/aiTaskQueue';
 import { ModelGateway } from '../lib/ai/modelGateway';
 import { getAiConfigString } from '../lib/ai/aiConfigService';
 

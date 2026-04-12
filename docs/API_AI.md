@@ -1,7 +1,7 @@
 # OSSshelf AI API 文档
 
-**版本**: v4.4.0
-**更新日期**: 2026-04-08
+**版本**: v4.5.0
+**更新日期**: 2026-04-12
 
 ---
 
@@ -25,15 +25,15 @@
 
 所有 AI 相关 API 都位于 `/api/ai` 路径下，主要功能包括：
 
-| 模块 | 路径前缀 | 功能 |
-| --- | --- | --- |
-| AI 提供商 | `/api/ai-config/providers` | 提供商管理（v4.4.0 新增） |
-| AI 对话 | `/api/ai/chat` | 会话管理、消息发送 |
-| Agent | `/api/ai/agent` | Agent 引擎、工具调用、确认操作 |
-| 模型管理 | `/api/ai/models` | 模型配置、激活、测试 |
-| AI 功能 | `/api/ai/summarize`, `/api/ai/tags` 等 | 摘要、标签、重命名 |
-| 向量索引 | `/api/ai/index` | 向量索引管理 |
-| AI 配置 | `/api/ai/config` | 系统配置管理 |
+| 模块      | 路径前缀                               | 功能                           |
+| --------- | -------------------------------------- | ------------------------------ |
+| AI 提供商 | `/api/ai-config/providers`             | 提供商管理（v4.4.0 新增）      |
+| AI 对话   | `/api/ai/chat`                         | 会话管理、消息发送             |
+| Agent     | `/api/ai/agent`                        | Agent 引擎、工具调用、确认操作 |
+| 模型管理  | `/api/ai/models`                       | 模型配置、激活、测试           |
+| AI 功能   | `/api/ai/summarize`, `/api/ai/tags` 等 | 摘要、标签、重命名             |
+| 向量索引  | `/api/ai/index`                        | 向量索引管理                   |
+| AI 配置   | `/api/ai/config`                       | 系统配置管理                   |
 
 ---
 
@@ -133,6 +133,26 @@ DELETE /api/ai-config/ai-providers/:id
 
 > 注意：系统内置提供商无法删除
 
+### 设置默认提供商
+
+```http
+POST /api/ai-config/ai-providers/:providerId/set-default
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "message": "已设为默认提供商",
+    "providerId": "uuid"
+  }
+}
+```
+
+> 注意：会将该用户的其他提供商的 isDefault 设为 false
+
 ---
 
 ## AI 对话 API
@@ -202,9 +222,7 @@ GET /api/ai/chat/sessions/:sessionId/messages
       "id": "uuid",
       "role": "assistant",
       "content": "我找到了以下配置文件...",
-      "sources": [
-        { "fileId": "xxx", "fileName": "config.json" }
-      ],
+      "sources": [{ "fileId": "xxx", "fileName": "config.json" }],
       "createdAt": "2026-04-08T10:00:05Z"
     }
   ]
@@ -547,11 +565,7 @@ Content-Type: application/json
 
 ```json
 {
-  "suggestions": [
-    "UserLoginForm.jsx",
-    "LoginFormComponent.tsx",
-    "AuthLoginPage.js"
-  ],
+  "suggestions": ["UserLoginForm.jsx", "LoginFormComponent.tsx", "AuthLoginPage.js"],
   "modelUsed": "@cf/meta/llama-3.1-8b-instruct"
 }
 ```
@@ -844,7 +858,7 @@ data: {
 const eventSource = new EventSource('/api/ai/agent/chat', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ message: '你好' })
+  body: JSON.stringify({ message: '你好' }),
 });
 
 eventSource.addEventListener('text', (e) => {
@@ -900,24 +914,24 @@ eventSource.addEventListener('error', (e) => {
 
 ### 错误码
 
-| 错误码 | 说明 | HTTP 状态码 |
-| --- | --- | --- |
-| `UNAUTHORIZED` | 未认证 | 401 |
-| `FORBIDDEN` | 无权限 | 403 |
-| `NOT_FOUND` | 资源不存在 | 404 |
-| `VALIDATION_ERROR` | 参数验证失败 | 400 |
-| `MODEL_NOT_FOUND` | 模型不存在 | 404 |
-| `MODEL_INACTIVE` | 模型未激活 | 400 |
-| `MODEL_TEST_FAILED` | 模型测试失败 | 500 |
-| `FILE_NOT_FOUND` | 文件不存在 | 404 |
-| `FILE_NOT_TEXT` | 文件不是文本类型 | 400 |
-| `FILE_NOT_IMAGE` | 文件不是图片类型 | 400 |
-| `VECTORIZE_ERROR` | 向量化失败 | 500 |
-| `AI_REQUEST_FAILED` | AI 请求失败 | 500 |
-| `RATE_LIMIT_EXCEEDED` | 请求频率超限 | 429 |
-| `TASK_RUNNING` | 任务正在运行 | 409 |
-| `CONFIRM_EXPIRED` | 确认请求已过期 | 400 |
-| `CONFIRM_CONSUMED` | 确认请求已使用 | 400 |
+| 错误码                | 说明             | HTTP 状态码 |
+| --------------------- | ---------------- | ----------- |
+| `UNAUTHORIZED`        | 未认证           | 401         |
+| `FORBIDDEN`           | 无权限           | 403         |
+| `NOT_FOUND`           | 资源不存在       | 404         |
+| `VALIDATION_ERROR`    | 参数验证失败     | 400         |
+| `MODEL_NOT_FOUND`     | 模型不存在       | 404         |
+| `MODEL_INACTIVE`      | 模型未激活       | 400         |
+| `MODEL_TEST_FAILED`   | 模型测试失败     | 500         |
+| `FILE_NOT_FOUND`      | 文件不存在       | 404         |
+| `FILE_NOT_TEXT`       | 文件不是文本类型 | 400         |
+| `FILE_NOT_IMAGE`      | 文件不是图片类型 | 400         |
+| `VECTORIZE_ERROR`     | 向量化失败       | 500         |
+| `AI_REQUEST_FAILED`   | AI 请求失败      | 500         |
+| `RATE_LIMIT_EXCEEDED` | 请求频率超限     | 429         |
+| `TASK_RUNNING`        | 任务正在运行     | 409         |
+| `CONFIRM_EXPIRED`     | 确认请求已过期   | 400         |
+| `CONFIRM_CONSUMED`    | 确认请求已使用   | 400         |
 
 ### 错误处理最佳实践
 
@@ -925,9 +939,9 @@ eventSource.addEventListener('error', (e) => {
 try {
   const response = await fetch('/api/ai/models', {
     method: 'POST',
-    body: JSON.stringify(modelConfig)
+    body: JSON.stringify(modelConfig),
   });
-  
+
   if (!response.ok) {
     const error = await response.json();
     switch (error.error.code) {
@@ -942,7 +956,7 @@ try {
     }
     return;
   }
-  
+
   const model = await response.json();
   // 处理成功响应
 } catch (err) {

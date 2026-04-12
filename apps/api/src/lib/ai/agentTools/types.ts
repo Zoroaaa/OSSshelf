@@ -70,6 +70,11 @@ export interface PendingConfirmResult extends ToolResultBase {
   message: string;
   toolName: string;
   args: Record<string, unknown>;
+  previewDiff?: {
+    before: string;
+    after: string;
+    totalChanges: number;
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -269,7 +269,7 @@ export function AdvancedConfigPanel({
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold">AI 系统配置</h2>
+            <h2 className="text-lg sm:text-xl font-semibold">AI 系统配置</h2>
             <p className="text-xs text-muted-foreground mt-0.5">调整AI功能的核心参数</p>
           </div>
         </div>
@@ -287,7 +287,7 @@ export function AdvancedConfigPanel({
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">AI 系统配置</h2>
+          <h2 className="text-lg sm:text-xl font-semibold">AI 系统配置</h2>
           <p className="text-xs text-muted-foreground mt-0.5">调整AI功能的核心参数</p>
         </div>
         <Button variant="outline" size="sm" onClick={onRefetch} disabled={configLoading}>

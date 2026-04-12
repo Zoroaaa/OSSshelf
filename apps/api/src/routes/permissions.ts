@@ -21,10 +21,23 @@ import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import {
   checkPermissionWithCache,
   invalidatePermissionCache,
-  resolveEffectivePermission,
   type PermissionLevel,
 } from '../lib/permissionResolver';
 import { createNotification, sendNotification, getUserInfo } from '../lib/notificationUtils';
+
+export {
+  checkFilePermission,
+  inheritParentPermissions,
+  setFolderAccessLevel,
+  manageGroupMembers,
+  type SetFolderAccessLevelInput,
+  type ManageGroupMembersInput,
+} from '../lib/permissionService';
+
+import {
+  checkFilePermission,
+  inheritParentPermissions,
+} from '../lib/permissionService';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -58,153 +71,10 @@ const removeTagSchema = z.object({
   tagName: z.string().min(1),
 });
 
-async function checkFileOwnership(db: ReturnType<typeof getDb>, fileId: string, userId: string) {
-  const file = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId)))
-    .get();
-  return file;
-}
-
-export async function checkFilePermission(
-  db: ReturnType<typeof getDb>,
-  fileId: string,
-  userId: string,
-  requiredPermission: PermissionLevel,
-  env?: Env
-): Promise<{ hasAccess: boolean; permission: string | null; isOwner: boolean }> {
-  const file = await db.select().from(files).where(eq(files.id, fileId)).get();
-  if (!file) {
-    return { hasAccess: false, permission: null, isOwner: false };
-  }
-
-  if (file.userId === userId) {
-    return { hasAccess: true, permission: 'admin', isOwner: true };
-  }
-
-  if (env) {
-    const resolution = await resolveEffectivePermission(db, env, fileId, userId, requiredPermission);
-    return {
-      hasAccess: resolution.hasAccess,
-      permission: resolution.permission,
-      isOwner: false,
-    };
-  }
-
-  const permission = await db
-    .select()
-    .from(filePermissions)
-    .where(
-      and(
-        eq(filePermissions.fileId, fileId),
-        eq(filePermissions.userId, userId),
-        eq(filePermissions.subjectType, 'user')
-      )
-    )
-    .get();
-
-  if (!permission) {
-    const userGroupIds = await getUserGroupIds(db, userId);
-    if (userGroupIds.length > 0) {
-      const groupPermission = await db
-        .select()
-        .from(filePermissions)
-        .where(
-          and(
-            eq(filePermissions.fileId, fileId),
-            inArray(filePermissions.groupId, userGroupIds),
-            eq(filePermissions.subjectType, 'group')
-          )
-        )
-        .get();
-
-      if (groupPermission) {
-        if (groupPermission.expiresAt && new Date(groupPermission.expiresAt) < new Date()) {
-          return { hasAccess: false, permission: null, isOwner: false };
-        }
-        const permissionLevels = { read: 1, write: 2, admin: 3 };
-        const hasAccess =
-          permissionLevels[groupPermission.permission as keyof typeof permissionLevels] >=
-          permissionLevels[requiredPermission];
-        return { hasAccess, permission: groupPermission.permission, isOwner: false };
-      }
-    }
-
-    return { hasAccess: false, permission: null, isOwner: false };
-  }
-
-  if (permission.expiresAt && new Date(permission.expiresAt) < new Date()) {
-    return { hasAccess: false, permission: null, isOwner: false };
-  }
-
-  const permissionLevels = { read: 1, write: 2, admin: 3 };
-  const hasAccess =
-    permissionLevels[permission.permission as keyof typeof permissionLevels] >= permissionLevels[requiredPermission];
-
-  return { hasAccess, permission: permission.permission, isOwner: false };
-}
-
-async function getUserGroupIds(db: ReturnType<typeof getDb>, userId: string): Promise<string[]> {
-  const memberships = await db
-    .select({ groupId: groupMembers.groupId })
-    .from(groupMembers)
-    .where(eq(groupMembers.userId, userId))
-    .all();
-
-  return memberships.map((m) => m.groupId);
-}
-
-export async function inheritParentPermissions(
-  db: ReturnType<typeof getDb>,
-  fileId: string,
-  parentId: string | null
-): Promise<void> {
-  if (!parentId) return;
-
-  const parentPermissions = await db
-    .select()
-    .from(filePermissions)
-    .where(and(eq(filePermissions.fileId, parentId), eq(filePermissions.inheritToChildren, true)))
-    .all();
-
-  if (parentPermissions.length === 0) return;
-
-  const now = new Date().toISOString();
-  const newPermissions = parentPermissions.map((p) => ({
-    id: crypto.randomUUID(),
-    fileId,
-    userId: p.userId,
-    groupId: p.groupId,
-    subjectType: p.subjectType,
-    permission: p.permission,
-    grantedBy: p.grantedBy,
-    expiresAt: p.expiresAt,
-    inheritToChildren: true,
-    scope: 'inherited',
-    sourcePermissionId: p.id,
-    createdAt: now,
-    updatedAt: now,
-  }));
-
-  for (const perm of newPermissions) {
-    const existing = await db
-      .select()
-      .from(filePermissions)
-      .where(
-        and(
-          eq(filePermissions.fileId, fileId),
-          perm.userId ? eq(filePermissions.userId, perm.userId) : isNull(filePermissions.userId),
-          perm.groupId ? eq(filePermissions.groupId, perm.groupId) : isNull(filePermissions.groupId)
-        )
-      )
-      .get();
-
-    if (!existing) {
-      await db.insert(filePermissions).values(perm);
-    }
-  }
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// checkFilePermission / inheritParentPermissions 已迁移至 ../lib/permissionService
+// 此处仅保留 re-export，确保所有现有 import 路径兼容
+// ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 静态路由必须在参数化路由之前定义
@@ -350,7 +220,11 @@ app.post('/grant', async (c) => {
 
   const db = getDb(c.env.DB);
 
-  const file = await checkFileOwnership(db, fileId, userId);
+  const file = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, fileId), eq(files.userId, userId)))
+    .get();
   if (!file) {
     throwAppError('FILE_NOT_FOUND', '文件不存在或无权限');
   }
@@ -515,7 +389,11 @@ app.post('/revoke', async (c) => {
   const { fileId, userId: targetUserId, groupId } = result.data;
   const db = getDb(c.env.DB);
 
-  const file = await checkFileOwnership(db, fileId, userId);
+  const file = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, fileId), eq(files.userId, userId)))
+    .get();
   if (!file) {
     throwAppError('FILE_NOT_FOUND', '文件不存在或无权限');
   }

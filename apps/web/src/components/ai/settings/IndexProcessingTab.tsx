@@ -21,6 +21,7 @@ import {
   Type,
   Play,
   Database,
+  BarChart3,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { StatsCard } from './StatsCard';
@@ -295,6 +296,51 @@ export function IndexProcessingTab({
 
         {task && task.status !== 'idle' && <TaskProgress task={task} onCancel={() => {}} />}
       </div>
+
+      {stats && (
+        <div className="border rounded-lg p-4 sm:p-6">
+          <h3 className="font-medium mb-4 flex items-center gap-2">
+            <BarChart3 className="h-5 w-5" />
+            文件处理总览
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="text-center p-3 bg-muted/40 rounded-lg">
+              <p className="text-2xl sm:text-3xl font-bold text-blue-600">
+                {(stats.editable.total || 0) + (stats.image.total || 0) + (stats.other.total || 0)}
+              </p>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-1">总文件数</p>
+            </div>
+            <div className="text-center p-3 bg-muted/40 rounded-lg">
+              <p className="text-2xl sm:text-3xl font-bold text-green-600">
+                {stats.editable.noSummary + stats.image.noTags}
+              </p>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-1">待处理</p>
+            </div>
+            <div className="text-center p-3 bg-muted/40 rounded-lg">
+              <p className="text-2xl sm:text-3xl font-bold text-amber-600">
+                {stats.editable.notIndexed + stats.image.notIndexed + stats.other.notIndexed}
+              </p>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-1">待索引</p>
+            </div>
+            <div className="text-center p-3 bg-muted/40 rounded-lg">
+              <p className="text-2xl sm:text-3xl font-bold text-purple-600">
+                {Math.round(
+                  ((stats.editable.total -
+                    stats.editable.notIndexed +
+                    stats.image.total -
+                    stats.image.notIndexed +
+                    stats.other.total -
+                    stats.other.notIndexed) /
+                    (stats.editable.total + stats.image.total + stats.other.total || 1)) *
+                    100
+                )}
+                %
+              </p>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-1">完成率</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

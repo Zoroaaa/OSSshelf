@@ -18,7 +18,7 @@ import { getDb, files, shares } from '../../../db';
 import type { Env } from '../../../types/env';
 import { logger } from '@osshelf/shared';
 import type { ToolDefinition } from './types';
-import { createShareLink as serviceCreateShare, revokeShare as serviceRevokeShare } from '../../../lib/shareService';
+import { createShareLink as serviceCreateShare, revokeShare as serviceRevokeShare, updateShare as serviceUpdateShare, createUploadLink as serviceCreateUploadLink } from '../../../lib/shareService';
 
 export const definitions: ToolDefinition[] = [
   // 1. create_share_link — 创建分享链接
@@ -253,27 +253,18 @@ export class ShareTools {
 
   static async executeUpdateShare(env: Env, userId: string, args: Record<string, unknown>) {
     const shareId = args.shareId as string;
-    const db = getDb(env.DB);
+    const password = 'password' in args ? (args.password as string | undefined) ?? null : undefined;
+    const expiresAt = 'expiresAt' in args ? (args.expiresAt as string | undefined) ?? null : undefined;
+    const maxUses = 'maxVisits' in args ? (args.maxVisits as number | undefined) ?? null : undefined;
 
-    const share = await db
-      .select()
-      .from(shares)
-      .where(and(eq(shares.id, shareId), eq(shares.userId, userId)))
-      .get();
-    if (!share) return { error: '分享链接不存在' };
-
-    const updates: Record<string, any> = {};
-    if ('password' in args && args.password !== undefined) updates.password = (args.password as string) || null;
-    if ('expiresAt' in args && args.expiresAt !== undefined) updates.expiresAt = (args.expiresAt as string) || null;
-    if ('maxVisits' in args && args.maxVisits !== undefined) updates.downloadLimit = (args.maxVisits as number) || null;
-
-    await db.update(shares).set(updates).where(eq(shares.id, shareId));
+    const result = await serviceUpdateShare(env, userId, shareId, { password, expiresAt, maxUses });
+    if (!result.success) return { error: result.error };
 
     return {
       success: true,
-      message: '分享设置已更新',
+      message: result.message,
       shareId,
-      changes: Object.keys(updates),
+      changes: result.changes,
     };
   }
 
@@ -404,48 +395,28 @@ export class ShareTools {
     const allowedMimeTypes = args.allowedMimeTypes as string[] | undefined;
     const maxSizeBytes = args.maxSizeBytes as number | undefined;
     const maxUploads = args.maxUploads as number | undefined;
-    const db = getDb(env.DB);
 
-    const folder = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.id, folderId), eq(files.userId, userId), eq(files.isFolder, true), isNull(files.deletedAt)))
-      .get();
-    if (!folder) return { error: '文件夹不存在或已被删除' };
-
-    const uploadLinkId = crypto.randomUUID();
-    const token = generateSecureToken(40);
-    const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000).toISOString();
-    const now = new Date().toISOString();
-
-    await db.insert(shares).values({
-      id: uploadLinkId,
-      userId,
-      fileId: folderId,
-      password: password || null,
-      expiresAt,
-      downloadLimit: maxUploads || null,
-      downloadCount: 0,
-      isUploadLink: true,
-      uploadToken: token,
-      maxUploadSize: maxSizeBytes || null,
-      uploadAllowedMimeTypes: allowedMimeTypes?.join(',') || null,
-      maxUploadCount: maxUploads || null,
-      uploadCount: 0,
-      createdAt: now,
+    const result = await serviceCreateUploadLink(env, userId, {
+      folderId,
+      password,
+      expiresInHours,
+      allowedMimeTypes,
+      maxSizeBytes,
+      maxUploads,
     });
+    if (!result.success) return { error: result.error };
 
     return {
       success: true,
       message: '上传链接已创建',
-      uploadLinkId,
-      url: `/upload/${token}`,
-      folderName: folder.name,
+      uploadLinkId: result.uploadLinkId,
+      url: result.url,
+      folderName: result.folderName,
       hasPassword: !!password,
       allowedMimeTypes: allowedMimeTypes || '不限',
       maxSizeBytes: maxSizeBytes ? formatSize(maxSizeBytes) : '不限',
       maxUploads,
-      expiresAt,
+      expiresAt: new Date(Date.now() + Math.min(expiresInHours, 720) * 60 * 60 * 1000).toISOString(),
       expiresInHours,
       securityTip: password ? '✅ 已设置密码保护' : '⚠️ 未设置密码，任何人都可以上传',
       _next_actions: ['✅ 上传链接已创建', '可通过 list_shares(isUploadLink=true) 查看', '可通过 revoke_share 撤销'],

@@ -9,9 +9,10 @@
  */
 
 import { getDb, aiConfig } from '../../db';
-import { eq, and } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { Env } from '../../types/env';
 import { logger } from '@osshelf/shared';
+import { AI_CONFIG_LOG_MODULE } from './constants';
 
 export interface AiConfigItem {
   id: string;
@@ -36,14 +37,34 @@ export type AiConfigValue = string | number | boolean | object | null;
 
 const CONFIG_CACHE_TTL_MS = 60_000;
 
-const envCacheMap = new WeakMap<object, { cache: Map<string, AiConfigItem>; timestamp: number }>();
+interface CacheEntry {
+  cache: Map<string, AiConfigItem>;
+  timestamp: number;
+  cleanupTimer?: ReturnType<typeof setTimeout>;
+}
+
+const envCacheMap = new WeakMap<object, CacheEntry>();
+
+function scheduleCleanup(env: Env): void {
+  const cached = envCacheMap.get(env);
+  if (!cached) return;
+
+  if (cached.cleanupTimer) {
+    clearTimeout(cached.cleanupTimer);
+  }
+
+  cached.cleanupTimer = setTimeout(() => {
+    envCacheMap.delete(env);
+    logger.debug(AI_CONFIG_LOG_MODULE, 'Cache expired and cleaned up');
+  }, CONFIG_CACHE_TTL_MS * 2);
+}
 
 export async function initializeAiConfig(env: Env): Promise<void> {
   const db = getDb(env.DB);
   const existingConfigs = await db.select().from(aiConfig).all();
 
   if (existingConfigs.length > 0) {
-    logger.info('AiConfig', `已存在 ${existingConfigs.length} 条配置，跳过初始化`);
+    logger.info(AI_CONFIG_LOG_MODULE, `已存在 ${existingConfigs.length} 条配置，跳过初始化`);
     return;
   }
 
@@ -323,7 +344,7 @@ export async function initializeAiConfig(env: Env): Promise<void> {
     });
   }
 
-  logger.info('AiConfig', `成功初始化 ${defaultConfigs.length} 条默认配置`);
+  logger.info(AI_CONFIG_LOG_MODULE, `成功初始化 ${defaultConfigs.length} 条默认配置`);
   clearCache(env);
 }
 
@@ -334,15 +355,27 @@ async function loadAllConfigs(env: Env): Promise<Map<string, AiConfigItem>> {
     return cached.cache;
   }
 
+  if (cached?.cleanupTimer) {
+    clearTimeout(cached.cleanupTimer);
+  }
+
   const db = getDb(env.DB);
   const configs = await db.select().from(aiConfig).orderBy(aiConfig.sortOrder).all();
   const cache = new Map(configs.map((c) => [c.key, c as AiConfigItem]));
-  envCacheMap.set(env, { cache, timestamp: now });
+
+  const entry: CacheEntry = { cache, timestamp: now };
+  envCacheMap.set(env, entry);
+
+  scheduleCleanup(env);
 
   return cache;
 }
 
 function clearCache(env: Env): void {
+  const cached = envCacheMap.get(env);
+  if (cached?.cleanupTimer) {
+    clearTimeout(cached.cleanupTimer);
+  }
   envCacheMap.delete(env);
 }
 
@@ -351,7 +384,7 @@ export async function getAiConfig(env: Env, key: string): Promise<AiConfigValue>
   const config = configs.get(key);
 
   if (!config) {
-    logger.warn('AiConfig', `未找到配置项: ${key}`);
+    logger.warn(AI_CONFIG_LOG_MODULE, `未找到配置项: ${key}`);
     return null;
   }
 
@@ -366,7 +399,7 @@ export async function getAiConfig(env: Env, key: string): Promise<AiConfigValue>
       try {
         return config.jsonValue ? JSON.parse(config.jsonValue) : JSON.parse(config.defaultValue);
       } catch (error) {
-        logger.error('AiConfig', `JSON解析失败: ${key}`, { error: String(error) });
+        logger.error(AI_CONFIG_LOG_MODULE, `JSON解析失败: ${key}`, { error: String(error) });
         return null;
       }
     default:
@@ -404,11 +437,11 @@ export async function updateAiConfig(env: Env, key: string, value: AiConfigValue
 
   const existing = await db.select().from(aiConfig).where(eq(aiConfig.key, key)).get();
   if (!existing) {
-    logger.error('AiConfig', `更新失败：配置项不存在: ${key}`);
+    logger.error(AI_CONFIG_LOG_MODULE, `更新失败：配置项不存在: ${key}`);
     return false;
   }
   if (!existing.isEditable) {
-    logger.error('AiConfig', `更新失败：配置项不可编辑: ${key}`);
+    logger.error(AI_CONFIG_LOG_MODULE, `更新失败：配置项不可编辑: ${key}`);
     return false;
   }
 
@@ -434,10 +467,10 @@ export async function updateAiConfig(env: Env, key: string, value: AiConfigValue
   try {
     await db.update(aiConfig).set(updateData).where(eq(aiConfig.key, key));
     clearCache(env);
-    logger.info('AiConfig', `配置已更新: ${key}`);
+    logger.info(AI_CONFIG_LOG_MODULE, `配置已更新: ${key}`);
     return true;
   } catch (error) {
-    logger.error('AiConfig', `更新配置失败: ${key}`, { error: String(error) });
+    logger.error(AI_CONFIG_LOG_MODULE, `更新配置失败: ${key}`, { error: String(error) });
     return false;
   }
 }
@@ -469,10 +502,10 @@ export async function resetAiConfigToDefault(env: Env, key: string): Promise<boo
   try {
     await db.update(aiConfig).set(resetData).where(eq(aiConfig.key, key));
     clearCache(env);
-    logger.info('AiConfig', `配置已重置为默认值: ${key}`);
+    logger.info(AI_CONFIG_LOG_MODULE, `配置已重置为默认值: ${key}`);
     return true;
   } catch (error) {
-    logger.error('AiConfig', `重置配置失败: ${key}`, { error: String(error) });
+    logger.error(AI_CONFIG_LOG_MODULE, `重置配置失败: ${key}`, { error: String(error) });
     return false;
   }
 }

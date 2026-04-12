@@ -13,12 +13,12 @@
  * - 文件夹创建
  */
 
-import { eq, and, isNull, sql } from 'drizzle-orm';
-import { getDb, files, users, storageBuckets, fileVersions } from '../db';
+import { eq, and, isNull, isNotNull, sql } from 'drizzle-orm';
+import { getDb, files, users, storageBuckets, fileVersions, userStars } from '../db';
 import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';
-import { checkFilePermission } from '../routes/permissions';
-import { inheritParentPermissions } from '../routes/permissions';
+import { checkFilePermission } from '../lib/permissionService';
+import { inheritParentPermissions } from '../lib/permissionService';
 import { inferMimeType, MAX_FILE_SIZE, ERROR_CODES } from '@osshelf/shared';
 import { resolveBucketConfig, updateUserStorage, updateBucketStats, checkBucketQuota } from './bucketResolver';
 import { getEncryptionKey } from './crypto';
@@ -26,7 +26,7 @@ import { s3Put } from './s3client';
 import { createVersionSnapshot, shouldCreateVersion } from './versionManager';
 import { dispatchWebhook } from './webhook';
 import { readFileContent, writeFileContent } from './fileContentHelper';
-import { deleteFileVector } from './vectorIndex';
+import { deleteFileVector } from './ai/vectorIndex';
 
 export interface CreateTextFileInput {
   name: string;
@@ -453,18 +453,25 @@ export async function toggleStar(
   const file = await db
     .select()
     .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+    .where(and(eq(files.id, fileId), isNull(files.deletedAt)))
     .get();
 
   if (!file) return { success: false, error: '文件不存在或无权访问' };
 
-  await db
-    .update(files)
-    .set({
-      isStarred: starred,
-      updatedAt: new Date().toISOString(),
-    })
-    .where(eq(files.id, fileId));
+  const now = new Date().toISOString();
+
+  if (starred) {
+    const existing = await db
+      .select()
+      .from(userStars)
+      .where(and(eq(userStars.userId, userId), eq(userStars.fileId, fileId)))
+      .get();
+    if (!existing) {
+      await db.insert(userStars).values({ userId, fileId, createdAt: now });
+    }
+  } else {
+    await db.delete(userStars).where(and(eq(userStars.userId, userId), eq(userStars.fileId, fileId)));
+  }
 
   logger.info('FileService', '收藏状态更新', { fileId, starred });
   return { success: true, message: starred ? '已添加到收藏' : '已取消收藏' };
@@ -552,4 +559,168 @@ export async function createFolder(
 
   logger.info('FileService', '文件夹创建成功', { folderId, name, parentId });
   return { success: true, folderId, folder: newFolder };
+}
+
+export interface CopyFileInput {
+  targetFolderId: string;
+  newName?: string;
+}
+
+export async function copyFile(
+  env: Env,
+  userId: string,
+  fileId: string,
+  input: CopyFileInput
+): Promise<{ success: true; message: string; newFileId: string; fileName: string } | { success: false; error: string }> {
+  const db = getDb(env.DB);
+  const { targetFolderId, newName } = input;
+
+  const [file, targetFolder] = await Promise.all([
+    db.select().from(files)
+      .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+      .get(),
+    db.select().from(files)
+      .where(and(eq(files.id, targetFolderId), eq(files.userId, userId)))
+      .get(),
+  ]);
+
+  if (!file) return { success: false, error: '源文件不存在或无权访问' };
+  if (!targetFolder) return { success: false, error: '目标文件夹不存在' };
+  if (file.isFolder) return { success: false, error: '暂不支持复制文件夹' };
+
+  const finalName = newName || file.name;
+  const newFileId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const parentPath = targetFolder.path || '';
+  const newPath = `${parentPath}/${finalName}`.replace('//', '/');
+
+  const r2KeyPrefix = file.r2Key?.substring(0, file.r2Key.lastIndexOf('/')) || `uploads/${userId}`;
+  const newR2Key = `${r2KeyPrefix}/${newFileId}/${finalName}`;
+
+  await db.insert(files).values({
+    id: newFileId,
+    userId,
+    parentId: targetFolderId,
+    name: finalName,
+    path: newPath,
+    size: file.size,
+    r2Key: newR2Key,
+    mimeType: file.mimeType,
+    isFolder: false,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  try {
+    const sourceObject = await env.FILES?.get(file.r2Key!);
+    if (sourceObject) {
+      const body = await sourceObject.arrayBuffer();
+      await env.FILES?.put(newR2Key, new Uint8Array(body));
+    }
+  } catch (error) {
+    logger.error('FileService', '复制文件存储失败', { sourceId: fileId, newFileId }, error);
+    try { await env.FILES?.delete(newR2Key); } catch { /* ignore */ }
+    await db.delete(files).where(eq(files.id, newFileId));
+    return { success: false, error: '文件复制失败: 存储服务异常' };
+  }
+
+  const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
+  if (userRow) await updateUserStorage(db, userId, file.size);
+
+  await inheritParentPermissions(db, newFileId, targetFolderId);
+
+  logger.info('FileService', '文件复制成功', { sourceId: fileId, newFileId, fileName: finalName });
+  return { success: true, message: `"${file.name}" 已复制为 "${finalName}"`, newFileId, fileName: finalName };
+}
+
+export async function restoreFile(
+  env: Env,
+  userId: string,
+  fileId: string
+): Promise<{ success: true; message: string; fileName: string } | { success: false; error: string }> {
+  const db = getDb(env.DB);
+
+  const file = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, fileId), eq(files.userId, userId), isNotNull(files.deletedAt)))
+    .get();
+
+  if (!file) return { success: false, error: '该文件不在回收站中或不存在' };
+
+  const now = new Date().toISOString();
+  await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, fileId));
+
+  if (file.isFolder) {
+    const folderPath = file.path?.endsWith('/') ? file.path.slice(0, -1) : file.path;
+    const allTrashed = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
+      .all();
+
+    const childFiles = allTrashed.filter((f) => f.path && f.path.startsWith(folderPath + '/'));
+    for (const child of childFiles) {
+      await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, child.id));
+    }
+  }
+
+  logger.info('FileService', '文件恢复成功', { fileId, fileName: file.name });
+  return { success: true, message: `"${file.name}" 已从回收站恢复`, fileName: file.name };
+}
+
+export async function findOrCreateFolder(
+  env: Env,
+  userId: string,
+  path: string
+): Promise<string | null> {
+  const db = getDb(env.DB);
+
+  const existing = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.userId, userId), eq(files.path, path), eq(files.isFolder, true), isNull(files.deletedAt)))
+    .get();
+
+  if (existing) return existing.id;
+
+  const parts = path.replace(/^\/+/, '').split('/');
+  let parentId: string | null = null;
+  let currentPath = '';
+
+  for (const part of parts) {
+    currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+    const folder = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.userId, userId), eq(files.path, currentPath), eq(files.isFolder, true), isNull(files.deletedAt)))
+      .get();
+
+    if (folder) {
+      parentId = folder.id;
+    } else {
+      const newFolderId = crypto.randomUUID();
+      const now = new Date().toISOString();
+
+      await db.insert(files).values({
+        id: newFolderId,
+        userId,
+        parentId,
+        name: part,
+        path: currentPath,
+        size: 0,
+        r2Key: '',
+        mimeType: null,
+        isFolder: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await inheritParentPermissions(db, newFolderId, parentId);
+      parentId = newFolderId;
+    }
+  }
+
+  return parentId;
 }

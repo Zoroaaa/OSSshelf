@@ -24,6 +24,13 @@ import {
 } from '../db';
 import { checkFilePermission } from './permissions';
 import { inheritParentPermissions } from './permissions';
+import {
+  restoreFile as serviceRestoreFile,
+  renameFile as serviceRenameFile,
+  moveFile as serviceMoveFile,
+  softDeleteFile as serviceSoftDeleteFile,
+  toggleStar as serviceToggleStar,
+} from '../lib/fileService';
 import { authMiddleware } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
 import { ERROR_CODES, MAX_FILE_SIZE, isPreviewableMimeType, inferMimeType, logger } from '@osshelf/shared';
@@ -722,32 +729,11 @@ app.get('/trash', async (c) => {
 app.post('/trash/:id/restore', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('id');
-  const db = getDb(c.env.DB);
-  const now = new Date().toISOString();
-  const file = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId), isNotNull(files.deletedAt)))
-    .get();
-  if (!file) throwAppError('FILE_NOT_FOUND', '文件不存在或未被删除');
 
-  await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, fileId));
+  const result = await serviceRestoreFile(c.env, userId, fileId);
+  if (!result.success) throwAppError('FILE_NOT_FOUND', result.error);
 
-  if (file.isFolder) {
-    const folderPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
-    const allFiles = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
-      .all();
-
-    const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(folderPath + '/'));
-    for (const child of childFiles) {
-      await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, child.id));
-    }
-  }
-
-  return c.json({ success: true, data: { message: '已恢复' } });
+  return c.json({ success: true, data: { message: result.message } });
 });
 
 // ── Trash: permanent delete ────────────────────────────────────────────────
@@ -1166,7 +1152,7 @@ app.get('/:id', async (c) => {
   return c.json({ success: true, data: { ...file, bucket: bucketInfo, owner: ownerInfo, isOwner } });
 });
 
-// ── Update ─────────────────────────────────────────────────────────────────
+// ── Update (rename / move) ───────────────────────────────────────────────
 app.put('/:id', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('id');
@@ -1177,42 +1163,32 @@ app.put('/:id', async (c) => {
       { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
       400
     );
-  const db = getDb(c.env.DB);
 
-  // 使用权限检查函数，需要 write 权限
-  const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'write', c.env);
-  if (!hasAccess) {
-    throwAppError('FILE_WRITE_DENIED', '无权修改此文件');
-  }
-
-  const file = await db.select().from(files).where(eq(files.id, fileId)).get();
-  if (!file) throwAppError('FILE_NOT_FOUND');
-
-  // 非所有者只能修改名称，不能移动位置
   const { name, parentId } = result.data;
-  const now = new Date().toISOString();
-  const updateData: Record<string, unknown> = { updatedAt: now };
 
   if (name) {
-    updateData.name = name;
-    updateData.path =
-      parentId !== undefined
-        ? parentId
-          ? `${parentId}/${name}`
-          : `/${name}`
-        : file.parentId
-          ? `${file.parentId}/${name}`
-          : `/${name}`;
+    const renameResult = await serviceRenameFile(c.env, userId, fileId, { name });
+    if (!renameResult.success) {
+      throwAppError('FILE_NOT_FOUND', renameResult.error);
+    }
   }
 
-  // 只有所有者可以移动文件位置
-  if (parentId !== undefined && isOwner) {
-    updateData.parentId = parentId || null;
-    const n = (name as string | undefined) || file.name;
-    updateData.path = parentId ? `${parentId}/${n}` : `/${n}`;
+  if (parentId !== undefined) {
+    const moveResult = await serviceMoveFile(c.env, userId, fileId, { targetParentId: parentId });
+    if (!moveResult.success) {
+      const errorMap: Record<string, string> = {
+        '目标位置已存在同名文件': 'FILE_NAME_CONFLICT',
+        '不能将文件夹移动到自身或其子文件夹中': 'CANNOT_MOVE_TO_SUBFOLDER',
+        '无权向目标目录移动文件': 'FORBIDDEN',
+      };
+      const errorCode = errorMap[moveResult.error] ?? 'VALIDATION_ERROR';
+      return c.json(
+        { success: false, error: { code: ERROR_CODES[errorCode as keyof typeof ERROR_CODES] || errorCode, message: moveResult.error } },
+        errorCode === 'FORBIDDEN' ? 403 : errorCode === 'FILE_NAME_CONFLICT' ? 409 : 400
+      );
+    }
   }
 
-  await db.update(files).set(updateData).where(eq(files.id, fileId));
   return c.json({ success: true, data: { message: '更新成功' } });
 });
 
@@ -1490,66 +1466,22 @@ app.post('/:id/move', async (c) => {
       { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
       400
     );
+
   const { targetParentId } = result.data;
-  const db = getDb(c.env.DB);
-  const file = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
-    .get();
-  if (!file) throwAppError('FILE_NOT_FOUND');
+  const moveResult = await serviceMoveFile(c.env, userId, fileId, { targetParentId });
 
-  if (targetParentId) {
-    const { hasAccess: targetAccess } = await checkFilePermission(db, targetParentId, userId, 'write', c.env);
-    if (!targetAccess) {
-      return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权向目标目录移动文件' } }, 403);
-    }
-  }
-
-  if (file.isFolder && targetParentId) {
-    let checkId: string | null = targetParentId;
-    while (checkId) {
-      if (checkId === fileId) throwAppError('CANNOT_MOVE_TO_SUBFOLDER', '不能将文件夹移动到自身或其子文件夹中');
-      const parent = await db.select().from(files).where(eq(files.id, checkId)).get();
-      checkId = parent?.parentId ?? null;
-    }
-  }
-  const conflict = await db
-    .select()
-    .from(files)
-    .where(
-      and(
-        eq(files.userId, userId),
-        eq(files.name, file.name),
-        targetParentId ? eq(files.parentId, targetParentId) : isNull(files.parentId),
-        isNull(files.deletedAt)
-      )
-    )
-    .get();
-  if (conflict && conflict.id !== fileId)
+  if (!moveResult.success) {
+    const errorMap: Record<string, string> = {
+      '文件不存在或无权访问': 'FILE_NOT_FOUND',
+      '目标位置已存在同名文件': 'FILE_NAME_CONFLICT',
+      '不能将文件夹移动到自身或其子文件夹中': 'CANNOT_MOVE_TO_SUBFOLDER',
+      '无权向目标目录移动文件': 'FORBIDDEN',
+    };
+    const errorCode = errorMap[moveResult.error] ?? 'VALIDATION_ERROR';
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '目标位置已存在同名文件' } },
-      409
+      { success: false, error: { code: ERROR_CODES[errorCode as keyof typeof ERROR_CODES] || errorCode, message: moveResult.error } },
+      errorCode === 'FORBIDDEN' ? 403 : errorCode === 'FILE_NAME_CONFLICT' ? 409 : 400
     );
-  const now = new Date().toISOString();
-  const oldPath = file.path;
-  const newPath = targetParentId ? `${targetParentId}/${file.name}` : `/${file.name}`;
-  await db.update(files).set({ parentId: targetParentId, path: newPath, updatedAt: now }).where(eq(files.id, fileId));
-
-  if (file.isFolder) {
-    const folderPath = oldPath.endsWith('/') ? oldPath.slice(0, -1) : oldPath;
-    const allFiles = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
-      .all();
-
-    const childFiles = allFiles.filter((f) => f.id !== fileId && f.path && f.path.startsWith(folderPath + '/'));
-    for (const child of childFiles) {
-      const relativePath = child.path!.slice(folderPath.length);
-      const childNewPath = `${newPath.endsWith('/') ? newPath.slice(0, -1) : newPath}${relativePath}`;
-      await db.update(files).set({ path: childNewPath, updatedAt: now }).where(eq(files.id, child.id));
-    }
   }
 
   return c.json({ success: true, data: { message: '移动成功' } });
@@ -1561,7 +1493,6 @@ app.delete('/:id', async (c) => {
   const fileId = c.req.param('id');
   const db = getDb(c.env.DB);
 
-  // 使用权限检查函数，需要 admin 权限才能删除
   const { hasAccess } = await checkFilePermission(db, fileId, userId, 'admin', c.env);
   if (!hasAccess) {
     throwAppError('FILE_DELETE_DENIED', '无权删除此文件');
@@ -1573,9 +1504,9 @@ app.delete('/:id', async (c) => {
     .where(and(eq(files.id, fileId), isNull(files.deletedAt)))
     .get();
   if (!file) throwAppError('FILE_NOT_FOUND');
-  const now = new Date().toISOString();
-  if (file.isFolder) await softDeleteFolder(db, fileId, now);
-  await db.update(files).set({ deletedAt: now, updatedAt: now }).where(eq(files.id, fileId));
+
+  const result = await serviceSoftDeleteFile(c.env, userId, fileId);
+  if (!result.success) throwAppError('FILE_NOT_FOUND', result.error);
 
   sendNotification(c, {
     userId,
@@ -1597,20 +1528,8 @@ app.delete('/:id', async (c) => {
     })
   );
 
-  return c.json({ success: true, data: { message: '已移入回收站' } });
+  return c.json({ success: true, data: { message: result.message } });
 });
-
-async function softDeleteFolder(db: ReturnType<typeof getDb>, folderId: string, now: string) {
-  const children = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.parentId, folderId), isNull(files.deletedAt)))
-    .all();
-  for (const child of children) {
-    if (child.isFolder) await softDeleteFolder(db, child.id, now);
-    await db.update(files).set({ deletedAt: now, updatedAt: now }).where(eq(files.id, child.id));
-  }
-}
 
 // ── Shared helper ──────────────────────────────────────────────────────────
 /**
@@ -1705,26 +1624,14 @@ app.post('/:id/star', async (c) => {
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
   if (!file) throwAppError('FILE_NOT_FOUND');
 
-  const existing = await db
-    .select()
-    .from(userStars)
-    .where(and(eq(userStars.userId, userId), eq(userStars.fileId, fileId)))
-    .get();
-
-  if (!existing) {
-    await db.insert(userStars).values({ userId, fileId, createdAt: new Date().toISOString() });
-  }
+  await serviceToggleStar(c.env, userId, fileId, true);
 
   sendNotification(c, {
     userId,
     type: 'file_starred',
     title: '文件已收藏',
     body: `您已收藏${file.isFolder ? '文件夹' : '文件'}「${file.name}」`,
-    data: {
-      fileId,
-      fileName: file.name,
-      isFolder: file.isFolder,
-    },
+    data: { fileId, fileName: file.name, isFolder: file.isFolder },
   });
 
   return c.json({ success: true, data: { message: '已收藏', isStarred: true } });
@@ -1743,18 +1650,14 @@ app.delete('/:id/star', async (c) => {
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
   if (!file) throwAppError('FILE_NOT_FOUND');
 
-  await db.delete(userStars).where(and(eq(userStars.userId, userId), eq(userStars.fileId, fileId)));
+  await serviceToggleStar(c.env, userId, fileId, false);
 
   sendNotification(c, {
     userId,
     type: 'file_unstarred',
     title: '已取消收藏',
     body: `您已取消收藏${file.isFolder ? '文件夹' : '文件'}「${file.name}」`,
-    data: {
-      fileId,
-      fileName: file.name,
-      isFolder: file.isFolder,
-    },
+    data: { fileId, fileName: file.name, isFolder: file.isFolder },
   });
 
   return c.json({ success: true, data: { message: '已取消收藏', isStarred: false } });

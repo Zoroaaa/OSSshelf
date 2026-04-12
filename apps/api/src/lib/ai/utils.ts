@@ -1,3 +1,15 @@
+/**
+ * utils.ts
+ * AI模块通用工具函数
+ *
+ * 功能:
+ * - Thinking模式配置构建
+ * - 模型供应商检测
+ * - 文件内容读取辅助
+ * - Base64编码转换
+ * - Vision消息内容构建
+ */
+
 import { logger } from '@osshelf/shared';
 import type { Env } from '../../types/env';
 import { getDb, telegramFileRefs } from '../../db';
@@ -9,6 +21,10 @@ import { tgDownloadChunked, isChunkedFileId } from '../telegramChunked';
 import type { AiFeatureType, ThinkingParamFormat } from './types';
 import { getVendorConfig, getModelConfig } from './vendorConfig';
 
+/**
+ * 模型Thinking配置接口
+ * 用于控制模型的推理/思考模式
+ */
 export interface ModelThinkingConfig {
   supportsThinking?: boolean;
   thinkingParamFormat?: ThinkingParamFormat;
@@ -19,6 +35,21 @@ export interface ModelThinkingConfig {
   disableThinkingForFeatures?: string;
 }
 
+/**
+ * 构建Thinking模式配置
+ *
+ * 根据模型ID和功能类型，生成相应的Thinking参数配置。
+ * 不同模型供应商使用不同的参数格式。
+ *
+ * @param modelId - 模型ID，如 '@cf/meta/llama-3.3-70b-instruct'
+ * @param featureType - 功能类型，默认为 'chat'
+ * @param customConfig - 自定义Thinking配置
+ * @returns Thinking参数对象，如果不支持则返回undefined
+ *
+ * @example
+ * const config = buildThinkingConfig('@cf/meta/llama-3.3-70b-instruct', 'chat');
+ * // 返回: { thinking: { type: 'enabled' } }
+ */
 export function buildThinkingConfig(
   modelId: string,
   featureType: AiFeatureType = 'chat',
@@ -248,6 +279,20 @@ export type ModelVendor =
   | 'openrouter'
   | 'unknown';
 
+/**
+ * 检测模型供应商
+ *
+ * 根据模型ID字符串识别模型供应商。
+ * 支持主流AI模型供应商的自动识别。
+ *
+ * @param modelId - 模型ID，如 'gpt-4o', 'claude-3-opus', 'deepseek-chat'
+ * @returns 模型供应商类型
+ *
+ * @example
+ * detectModelVendor('gpt-4o'); // 返回: 'openai'
+ * detectModelVendor('claude-3-opus'); // 返回: 'anthropic'
+ * detectModelVendor('deepseek-chat'); // 返回: 'deepseek'
+ */
 export function detectModelVendor(modelId: string): ModelVendor {
   const id = modelId.toLowerCase();
 
@@ -276,6 +321,24 @@ export function detectModelVendor(modelId: string): ModelVendor {
   return 'unknown';
 }
 
+/**
+ * 构建Vision消息内容
+ *
+ * 将图片和文本提示词组合成Vision API所需的消息格式。
+ * 用于图片标签、图片分析等视觉功能。
+ *
+ * @param base64Image - Base64编码的图片数据
+ * @param mimeType - 图片MIME类型，如 'image/jpeg', 'image/png'
+ * @param textPrompt - 文本提示词
+ * @returns Vision消息内容数组
+ *
+ * @example
+ * const content = buildVisionMessageContent(
+ *   'iVBORw0KGgoAAAANSUhEUg...',
+ *   'image/png',
+ *   '请描述这张图片的内容'
+ * );
+ */
 export function buildVisionMessageContent(
   base64Image: string,
   mimeType: string,
@@ -287,6 +350,19 @@ export function buildVisionMessageContent(
   ];
 }
 
+/**
+ * 检查模型是否支持推理内容
+ *
+ * 判断指定模型是否支持Thinking/推理模式。
+ * 用于决定是否启用深度推理功能。
+ *
+ * @param modelId - 模型ID
+ * @param customConfig - 自定义Thinking配置
+ * @returns 是否支持推理内容
+ *
+ * @example
+ * supportsReasoningContent('@cf/meta/llama-3.3-70b-instruct'); // 返回: true
+ */
 export function supportsReasoningContent(modelId: string, customConfig?: ModelThinkingConfig): boolean {
   if (customConfig) {
     return customConfig.supportsThinking ?? false;
@@ -317,7 +393,6 @@ export function buildVendorSpecificParams(
   const id = modelId.toLowerCase();
   const params: VendorSpecificParams = {};
 
-  const enableThinking = options?.enableThinking ?? true;
   const thinkingBudget = options?.thinkingBudget;
   const reasoningEffort = options?.reasoningEffort ?? 'medium';
 

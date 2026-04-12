@@ -10,11 +10,12 @@
  * 注意: Vectorize 索引需以 --dimensions=1024 --metric=cosine 创建
  */
 
-import type { Env } from '../types/env';
-import { getDb, files, fileNotes } from '../db';
+import type { Env } from '../../types/env';
+import { getDb, files, fileNotes } from '../../db';
 import { eq, and, inArray, isNull, sql } from 'drizzle-orm';
 import { logger } from '@osshelf/shared';
-import { readFileContent } from './fileContentHelper';
+import { readFileContent } from '../fileContentHelper';
+import { VECTOR_LOG_MODULE } from './constants';
 
 // bge-m3: 多语言，1024 维，中文效果远优于 bge-base-en-v1.5
 const EMBEDDING_MODEL = '@cf/baai/bge-m3';
@@ -86,12 +87,12 @@ function extractFileIdFromChunkId(vectorId: string): string {
 
 export async function indexFileVector(env: Env, fileId: string, text: string): Promise<void> {
   if (!env.AI || !env.VECTORIZE) {
-    logger.warn('VECTOR', 'AI或VECTORIZE未配置，跳过向量索引');
+    logger.warn(VECTOR_LOG_MODULE, 'AI或VECTORIZE未配置，跳过向量索引');
     return;
   }
 
   if (!text || text.trim().length === 0) {
-    logger.warn('VECTOR', '文件文本为空，跳过向量索引', { fileId });
+    logger.warn(VECTOR_LOG_MODULE, '文件文本为空，跳过向量索引', { fileId });
     return;
   }
 
@@ -131,7 +132,7 @@ export async function indexFileVector(env: Env, fileId: string, text: string): P
       ]);
     } else {
       // 长文本：多块模式
-      logger.info('VECTOR', '文件使用分块索引', { fileId, chunkCount: chunks.length });
+      logger.info(VECTOR_LOG_MODULE, '文件使用分块索引', { fileId, chunkCount: chunks.length });
 
       const embeddings = await (env.AI as any).run(EMBEDDING_MODEL, {
         text: chunks.map((c) => c.slice(0, MAX_TEXT_LENGTH)),
@@ -160,25 +161,40 @@ export async function indexFileVector(env: Env, fileId: string, text: string): P
 
     await db.update(files).set({ vectorIndexedAt: new Date().toISOString() }).where(eq(files.id, fileId));
   } catch (error) {
-    logger.error('VECTOR', '文件索引失败', { fileId }, error);
+    logger.error(VECTOR_LOG_MODULE, '文件索引失败', { fileId }, error);
     throw error;
   }
 }
 
 export async function deleteFileVector(env: Env, fileId: string): Promise<void> {
-  if (!env.VECTORIZE) return;
+  return deleteFileVectors(env, [fileId]);
+}
+
+export async function deleteFileVectors(env: Env, fileIds: string[]): Promise<void> {
+  if (!env.VECTORIZE || fileIds.length === 0) return;
 
   try {
-    // 尝试删除所有可能的向量 ID（单块 + 所有分块）
-    const idsToDelete: string[] = [fileId];
+    const allIdsToDelete: string[] = [];
 
-    for (let i = 0; i < CHUNK_CONFIG.maxChunks; i++) {
-      idsToDelete.push(buildChunkVectorId(fileId, i));
+    for (const fileId of fileIds) {
+      allIdsToDelete.push(fileId);
+      for (let i = 0; i < CHUNK_CONFIG.maxChunks; i++) {
+        allIdsToDelete.push(buildChunkVectorId(fileId, i));
+      }
     }
 
-    await env.VECTORIZE.deleteByIds(idsToDelete);
+    const VECTORIZE_DELETE_CHUNK_SIZE = 1000;
+    for (let i = 0; i < allIdsToDelete.length; i += VECTORIZE_DELETE_CHUNK_SIZE) {
+      const chunk = allIdsToDelete.slice(i, i + VECTORIZE_DELETE_CHUNK_SIZE);
+      await env.VECTORIZE.deleteByIds(chunk);
+    }
+
+    logger.info(VECTOR_LOG_MODULE, '批量删除向量成功', {
+      fileCount: fileIds.length,
+      vectorCount: allIdsToDelete.length,
+    });
   } catch (error) {
-    logger.error('VECTOR', '删除向量失败', { fileId }, error);
+    logger.error(VECTOR_LOG_MODULE, '批量删除向量失败', { fileIds }, error);
   }
 }
 
@@ -246,7 +262,7 @@ export async function searchSimilarFiles(
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
   } catch (error) {
-    logger.error('VECTOR', '搜索相似文件失败', {}, error);
+    logger.error(VECTOR_LOG_MODULE, '搜索相似文件失败', {}, error);
     return [];
   }
 }
@@ -262,10 +278,10 @@ export async function buildFileTextForVector(env: Env, fileId: string): Promise<
     const readResult = await readFileContent(env, file);
     if (readResult.success && readResult.content) {
       actualContent = readResult.content.slice(0, 50000);
-      logger.info('VECTOR', '成功读取文件内容用于索引', { fileId, source: readResult.source });
+      logger.info(VECTOR_LOG_MODULE, '成功读取文件内容用于索引', { fileId, source: readResult.source });
     }
   } catch (error) {
-    logger.warn('VECTOR', '无法读取实际文件内容，使用元数据降级', { fileId, fileName: file.name }, error);
+    logger.warn(VECTOR_LOG_MODULE, '无法读取实际文件内容，使用元数据降级', { fileId, fileName: file.name }, error);
   }
 
   const notes = await db

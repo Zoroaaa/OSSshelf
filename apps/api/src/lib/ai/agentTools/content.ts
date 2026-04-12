@@ -29,7 +29,7 @@ import {
   buildVisionMessageContent,
 } from '../utils';
 import { readFileContent } from '../../../lib/fileContentHelper';
-import { buildFileTextForVector } from '../../vectorIndex';
+import { buildFileTextForVector } from '../vectorIndex';
 import { getAiConfigNumber, getAiConfigString } from '../aiConfigService';
 import { toAgentFile, validateFileAccess, createSuccessResponse, createErrorResponse } from './agentToolUtils';
 

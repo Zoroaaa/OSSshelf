@@ -26,8 +26,8 @@ import { OpenAiCompatibleAdapter } from './adapters/openAiCompatibleAdapter';
 import { logger } from '@osshelf/shared';
 import { getDb, aiModels } from '../../db';
 import { eq, and } from 'drizzle-orm';
-import { decryptCredential, getEncryptionKey, isAesGcmFormat } from '../crypto';
-import { getAiConfigString, getAiConfigNumber, initializeAiConfig } from './aiConfigService';
+import { getAiConfigString, getAiConfigNumber } from './aiConfigService';
+import { AI_LOG_MODULE } from './constants';
 import { buildThinkingConfig } from './utils';
 
 const DEFAULT_MAX_RETRIES = 3;
@@ -71,9 +71,9 @@ export class ModelGateway {
         .get();
 
       if (!model) return null;
-      return await this.parseAndDecryptModelConfig(model);
+      return this.parseModelConfigWithValidation(model);
     } catch (error) {
-      logger.error('AI', 'Failed to get active model', { userId }, error);
+      logger.error(AI_LOG_MODULE, 'Failed to get active model', { userId }, error);
       return null;
     }
   }
@@ -96,9 +96,9 @@ export class ModelGateway {
       }
 
       if (!model) return null;
-      return await this.parseAndDecryptModelConfig(model);
+      return this.parseModelConfigWithValidation(model);
     } catch (error) {
-      logger.error('AI', 'Failed to get model by ID', { modelId, userId }, error);
+      logger.error(AI_LOG_MODULE, 'Failed to get model by ID', { modelId, userId }, error);
       return null;
     }
   }
@@ -107,9 +107,9 @@ export class ModelGateway {
     try {
       const db = getDb(this.env.DB);
       const models = await db.select().from(aiModels).where(eq(aiModels.userId, userId)).all();
-      return Promise.all(models.map((m) => this.parseAndDecryptModelConfig(m)));
+      return models.map((m) => this.parseModelConfigWithValidation(m));
     } catch (error) {
-      logger.error('AI', 'Failed to get all models', { userId }, error);
+      logger.error(AI_LOG_MODULE, 'Failed to get all models', { userId }, error);
       return [];
     }
   }
@@ -127,7 +127,7 @@ export class ModelGateway {
         adapter = new WorkersAiAdapter(this.env, modelConfig);
         break;
       case 'openai_compatible':
-        adapter = new OpenAiCompatibleAdapter(modelConfig);
+        adapter = new OpenAiCompatibleAdapter(this.env, modelConfig);
         break;
       default:
         throw new Error(`Unsupported model provider: ${modelConfig.provider}`);
@@ -197,7 +197,7 @@ export class ModelGateway {
         }
 
         const delayMs = baseDelayMs * Math.pow(2, attempt);
-        logger.warn('AI', `Retrying ${operation}`, { attempt: attempt + 1, delayMs, status });
+        logger.warn(AI_LOG_MODULE, `Retrying ${operation}`, { attempt: attempt + 1, delayMs, status });
         await new Promise((r) => setTimeout(r, delayMs));
       }
     }
@@ -230,10 +230,10 @@ export class ModelGateway {
           ...request,
           temperature: request.temperature ?? modelConfig.temperature,
         },
-        timeoutSignal.signal
+        timeoutSignal.controller.signal
       );
     } finally {
-      timeoutSignal.abort();
+      timeoutSignal.clear();
     }
   }
 
@@ -263,10 +263,10 @@ export class ModelGateway {
           temperature: request.temperature ?? modelConfig.temperature,
         },
         onChunk,
-        timeoutSignal.signal
+        timeoutSignal.controller.signal
       );
     } finally {
-      timeoutSignal.abort();
+      timeoutSignal.clear();
     }
   }
 
@@ -311,29 +311,41 @@ export class ModelGateway {
     }
   }
 
-  private async createTimeoutSignal(externalSignal?: AbortSignal): Promise<AbortController> {
+  private async createTimeoutSignal(externalSignal?: AbortSignal): Promise<{
+    controller: AbortController;
+    timeoutId: ReturnType<typeof setTimeout>;
+    clear: () => void;
+  }> {
     const { timeoutMs } = await this.getRetryConfig();
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutId = setTimeout(() => {
+      const error = new DOMException(`AI request timeout after ${timeoutMs}ms`, 'TimeoutError');
+      controller.abort(error);
+      logger.warn(AI_LOG_MODULE, 'Request timeout', { timeoutMs });
+    }, timeoutMs);
+
+    const clear = () => {
+      clearTimeout(timeoutId);
+    };
 
     if (externalSignal) {
       if (externalSignal.aborted) {
-        clearTimeout(timeoutId);
-        controller.abort();
-        return controller;
+        clear();
+        controller.abort(externalSignal.reason);
+        return { controller, timeoutId, clear };
       }
 
       externalSignal.addEventListener(
         'abort',
         () => {
-          clearTimeout(timeoutId);
-          controller.abort();
+          clear();
+          controller.abort(externalSignal.reason);
         },
         { once: true }
       );
     }
 
-    return controller;
+    return { controller, timeoutId, clear };
   }
 
   private buildCacheKey(config: ModelConfig): string {
@@ -428,18 +440,8 @@ export class ModelGateway {
     };
   }
 
-  private async parseAndDecryptModelConfig(raw: Record<string, unknown>): Promise<ModelConfig> {
+  private parseModelConfigWithValidation(raw: Record<string, unknown>): ModelConfig {
     const config = this.parseModelConfig(raw);
-
-    if (config.apiKeyEncrypted && isAesGcmFormat(config.apiKeyEncrypted)) {
-      try {
-        const secret = getEncryptionKey(this.env);
-        config.apiKeyDecrypted = await decryptCredential(config.apiKeyEncrypted, secret);
-      } catch (error) {
-        logger.error('AI', 'Failed to decrypt API key', { modelId: config.id }, error);
-      }
-    }
-
     return config;
   }
 
