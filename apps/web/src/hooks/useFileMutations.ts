@@ -46,7 +46,7 @@ interface CreateFileParams {
 export function useFileMutations() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { clearSelection, clearClipboard } = useFileStore();
+  const { clearSelection } = useFileStore();
 
   const createFolderMutation = useMutation({
     mutationFn: ({ name, parentId, bucketId }: { name: string; parentId: string | null; bucketId: string | null }) =>
@@ -130,22 +130,10 @@ export function useFileMutations() {
     mutationFn: ({ fileIds, targetParentId }: BatchMoveParams) => batchApi.move(fileIds, targetParentId),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['files'] });
-      clearClipboard();
       const data = res.data.data;
       toast({ title: '批量移动完成', description: `成功 ${data?.success || 0} 个，失败 ${data?.failed || 0} 个` });
     },
     onError: (e) => toast({ title: '批量移动失败', description: getErrorMessage(e), variant: 'destructive' }),
-  });
-
-  const batchCopyMutation = useMutation({
-    mutationFn: ({ fileIds, targetParentId }: BatchMoveParams) => batchApi.copy(fileIds, targetParentId),
-    onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: ['files'] });
-      clearClipboard();
-      const data = res.data.data;
-      toast({ title: '批量复制完成', description: `成功 ${data?.success || 0} 个，失败 ${data?.failed || 0} 个` });
-    },
-    onError: (e) => toast({ title: '批量复制失败', description: getErrorMessage(e), variant: 'destructive' }),
   });
 
   const batchZipMutation = useMutation({
@@ -174,7 +162,6 @@ export function useFileMutations() {
     shareMutation,
     batchDeleteMutation,
     batchMoveMutation,
-    batchCopyMutation,
     batchZipMutation,
     checkTelegramLimit,
   };

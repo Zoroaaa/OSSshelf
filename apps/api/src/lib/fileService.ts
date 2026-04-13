@@ -13,8 +13,8 @@
  * - 文件夹创建
  */
 
-import { eq, and, isNull, isNotNull, sql } from 'drizzle-orm';
-import { getDb, files, users, storageBuckets, fileVersions, userStars } from '../db';
+import { eq, and, isNull, isNotNull, sql, inArray } from 'drizzle-orm';
+import { getDb, files, users, storageBuckets, fileVersions, userStars, fileTags } from '../db';
 import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';
 import { checkFilePermission } from '../lib/permissionService';
@@ -266,7 +266,10 @@ export async function moveFile(
   userId: string,
   fileId: string,
   input: MoveFileInput
-): Promise<{ success: true; message: string } | { success: false; error: string }> {
+): Promise<
+  | { success: true; message: string }
+  | { success: false; error: string; sourceBucketId?: string; targetBucketId?: string }
+> {
   const db = getDb(env.DB);
   const { targetParentId } = input;
 
@@ -283,6 +286,25 @@ export async function moveFile(
     const { hasAccess: targetAccess } = await checkFilePermission(db, targetParentId, userId, 'write', env);
     if (!targetAccess) return { success: false, error: '无权向目标目录移动文件' };
   }
+
+  // ── 跨桶移动检测 ────────────────────────────────────────────────
+  if (targetParentId) {
+    const targetFolder = await db
+      .select({ bucketId: files.bucketId })
+      .from(files)
+      .where(eq(files.id, targetParentId))
+      .get();
+
+    if (targetFolder?.bucketId && file.bucketId && targetFolder.bucketId !== file.bucketId) {
+      return {
+        success: false,
+        error: 'CROSS_BUCKET',
+        sourceBucketId: file.bucketId,
+        targetBucketId: targetFolder.bucketId,
+      };
+    }
+  }
+  // ────────────────────────────────────────────────────────────────
 
   // 文件夹循环检测
   if (file.isFolder && targetParentId) {
@@ -571,15 +593,21 @@ export async function copyFile(
   userId: string,
   fileId: string,
   input: CopyFileInput
-): Promise<{ success: true; message: string; newFileId: string; fileName: string } | { success: false; error: string }> {
+): Promise<
+  { success: true; message: string; newFileId: string; fileName: string } | { success: false; error: string }
+> {
   const db = getDb(env.DB);
   const { targetFolderId, newName } = input;
 
   const [file, targetFolder] = await Promise.all([
-    db.select().from(files)
+    db
+      .select()
+      .from(files)
       .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
       .get(),
-    db.select().from(files)
+    db
+      .select()
+      .from(files)
       .where(and(eq(files.id, targetFolderId), eq(files.userId, userId)))
       .get(),
   ]);
@@ -619,7 +647,11 @@ export async function copyFile(
     }
   } catch (error) {
     logger.error('FileService', '复制文件存储失败', { sourceId: fileId, newFileId }, error);
-    try { await env.FILES?.delete(newR2Key); } catch { /* ignore */ }
+    try {
+      await env.FILES?.delete(newR2Key);
+    } catch {
+      /* ignore */
+    }
     await db.delete(files).where(eq(files.id, newFileId));
     return { success: false, error: '文件复制失败: 存储服务异常' };
   }
@@ -669,11 +701,7 @@ export async function restoreFile(
   return { success: true, message: `"${file.name}" 已从回收站恢复`, fileName: file.name };
 }
 
-export async function findOrCreateFolder(
-  env: Env,
-  userId: string,
-  path: string
-): Promise<string | null> {
+export async function findOrCreateFolder(env: Env, userId: string, path: string): Promise<string | null> {
   const db = getDb(env.DB);
 
   const existing = await db
@@ -694,7 +722,9 @@ export async function findOrCreateFolder(
     const folder = await db
       .select()
       .from(files)
-      .where(and(eq(files.userId, userId), eq(files.path, currentPath), eq(files.isFolder, true), isNull(files.deletedAt)))
+      .where(
+        and(eq(files.userId, userId), eq(files.path, currentPath), eq(files.isFolder, true), isNull(files.deletedAt))
+      )
       .get();
 
     if (folder) {
@@ -723,4 +753,135 @@ export async function findOrCreateFolder(
   }
 
   return parentId;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 文件集合分析（供 AgentTools 调用）
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface FileCollectionItem {
+  id: string;
+  name: string;
+  mimeType: string | null;
+  size: number;
+  summary: string;
+  updatedAt: string;
+}
+
+export interface AnalyzeFileCollectionInput {
+  scope: 'folder' | 'tag' | 'starred';
+  folderId?: string;
+  tagName?: string;
+  maxFiles?: number;
+}
+
+export async function getFilesByScope(
+  env: Env,
+  userId: string,
+  input: AnalyzeFileCollectionInput
+): Promise<{ files: FileCollectionItem[]; totalCount: number; error?: string }> {
+  const db = getDb(env.DB);
+  const { scope, folderId, tagName, maxFiles = 20 } = input;
+
+  const conditions = [isNull(files.deletedAt), eq(files.userId, userId)];
+
+  switch (scope) {
+    case 'folder':
+      if (!folderId) {
+        return { files: [], totalCount: 0, error: 'scope=folder 时必须提供 folderId' };
+      }
+      conditions.push(eq(files.parentId, folderId));
+      break;
+
+    case 'starred': {
+      const starredFiles = await db
+        .select({ fileId: userStars.fileId })
+        .from(userStars)
+        .where(eq(userStars.userId, userId))
+        .all();
+
+      if (starredFiles.length === 0) {
+        return { files: [], totalCount: 0 };
+      }
+
+      const starredIds = starredFiles.map((s) => s.fileId);
+      conditions.push(inArray(files.id, starredIds));
+      break;
+    }
+
+    case 'tag':
+      if (!tagName) {
+        return { files: [], totalCount: 0, error: 'scope=tag 时必须提供 tagName' };
+      }
+
+      const taggedFiles = await db
+        .select({ fileId: fileTags.fileId })
+        .from(fileTags)
+        .where(and(eq(fileTags.userId, userId), eq(fileTags.name, tagName)))
+        .all();
+
+      if (taggedFiles.length === 0) {
+        return { files: [], totalCount: 0 };
+      }
+
+      const taggedIds = taggedFiles.map((t) => t.fileId);
+      conditions.push(inArray(files.id, taggedIds));
+      break;
+
+    default:
+      return { files: [], totalCount: 0, error: `无效的 scope: ${scope}` };
+  }
+
+  const fileList = await db
+    .select({
+      id: files.id,
+      name: files.name,
+      mimeType: files.mimeType,
+      size: files.size,
+      aiSummary: files.aiSummary,
+      updatedAt: files.updatedAt,
+      createdAt: files.createdAt,
+    })
+    .from(files)
+    .where(and(...conditions))
+    .limit(maxFiles)
+    .all();
+
+  const result: FileCollectionItem[] = [];
+
+  for (const f of fileList) {
+    let summary = f.aiSummary || '';
+
+    if (!summary && !f.mimeType?.startsWith('image/') && !f.mimeType?.startsWith('video/')) {
+      try {
+        const { readFileContent } = require('./fileContentHelper');
+        const fileRecord = { id: f.id, r2Key: '', bucketId: null, mimeType: f.mimeType, size: f.size } as any;
+        const readResult = await readFileContent(env, fileRecord, userId);
+
+        if (readResult.success && readResult.content) {
+          summary = readResult.content.slice(0, 500);
+        }
+      } catch (e) {
+        logger.warn('FileService', '读取文件内容失败用于集合分析', { fileId: f.id }, e as Error);
+      }
+    }
+
+    result.push({
+      id: f.id,
+      name: f.name,
+      mimeType: f.mimeType,
+      size: Number(f.size),
+      summary: summary || (f.mimeType?.startsWith('image/') ? '[图片文件]' : '[二进制文件]'),
+      updatedAt: f.updatedAt,
+    });
+  }
+
+  logger.info('FileService', '文件集合查询完成', {
+    userId,
+    scope,
+    count: result.length,
+    total: fileList.length,
+  });
+
+  return { files: result, totalCount: fileList.length };
 }

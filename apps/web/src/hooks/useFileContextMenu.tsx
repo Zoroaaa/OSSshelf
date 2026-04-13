@@ -21,19 +21,19 @@ import {
   Settings,
   Pencil,
   FolderInput,
-  Copy,
-  Scissors,
   Trash2,
   RefreshCw,
   CheckSquare,
   Upload,
   FolderPlus,
-  Clipboard,
   Link2,
   FilePlus,
   Link,
   History,
   Star,
+  Info,
+  Database,
+  HardDrive,
 } from 'lucide-react';
 
 export function useFileContextMenu() {
@@ -42,6 +42,12 @@ export function useFileContextMenu() {
   const getFileContextMenuItems = useCallback(
     (file: FileItem, callbacks: FileContextMenuCallbacks): ContextMenuItem[] => {
       return [
+        {
+          id: 'detail',
+          label: '详情',
+          icon: <Info className="h-4 w-4" />,
+          action: () => callbacks.onDetail?.(file),
+        },
         {
           id: 'open',
           label: file.isFolder ? '打开文件夹' : '打开',
@@ -123,18 +129,18 @@ export function useFileContextMenu() {
           action: () => callbacks.onMove(file),
         },
         {
-          id: 'copy',
-          label: '复制',
-          icon: <Copy className="h-4 w-4" />,
-          shortcut: 'Ctrl+C',
-          action: () => callbacks.onCopy(file),
+          id: 'migrate-bucket',
+          label: '换桶',
+          icon: <Database className="h-4 w-4" />,
+          action: () => callbacks.onMigrateBucket?.(file),
+          disabled: (callbacks as any).bucketsCount <= 1,
         },
         {
-          id: 'cut',
-          label: '剪切',
-          icon: <Scissors className="h-4 w-4" />,
-          shortcut: 'Ctrl+X',
-          action: () => callbacks.onCut(file),
+          id: 'change-folder-bucket',
+          label: '改默认桶',
+          icon: <HardDrive className="h-4 w-4" />,
+          action: () => callbacks.onChangeFolderBucket?.(file),
+          disabled: !file.isFolder || (callbacks as any).bucketsCount <= 1,
         },
         { id: 'divider3', label: '', divider: true },
         {
@@ -186,19 +192,6 @@ export function useFileContextMenu() {
         action: () => callbacks.onNewFolder(),
       },
     ];
-
-    if (callbacks.hasClipboard && callbacks.clipboardCount > 0) {
-      items.push(
-        { id: 'divider2', label: '', divider: true },
-        {
-          id: 'paste',
-          label: `粘贴 (${callbacks.clipboardCount} 个项目)`,
-          icon: <Clipboard className="h-4 w-4" />,
-          shortcut: 'Ctrl+V',
-          action: () => callbacks.onPaste(),
-        }
-      );
-    }
 
     return items;
   }, []);

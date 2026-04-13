@@ -124,12 +124,13 @@ export class VersionTools {
         comment: v.changeSummary || null,
         isCurrent: v.version === (file.currentVersion || 0),
       })),
-      _next_actions: versions.length >= 2
-        ? [
-            `如需对比两个版本，调用 compare_versions(fileId="${fileId}", versionA=X, versionB=Y)`,
-            `如需恢复到某个版本，调用 restore_version(fileId="${fileId}", versionId="<版本id>")`,
-          ]
-        : ['只有一个版本，无需对比或恢复'],
+      _next_actions:
+        versions.length >= 2
+          ? [
+              `如需对比两个版本，调用 compare_versions(fileId="${fileId}", versionA=X, versionB=Y)`,
+              `如需恢复到某个版本，调用 restore_version(fileId="${fileId}", versionId="<版本id>")`,
+            ]
+          : ['只有一个版本，无需对比或恢复'],
     };
   }
 
@@ -254,9 +255,7 @@ export class VersionTools {
           newerVersion: verB.createdAt > verA.createdAt ? 'B' : 'A',
         },
       },
-      _next_actions: [
-        `如需恢复到其中一个版本，调用 restore_version(fileId="${fileId}", versionId="<版本id>")`,
-      ],
+      _next_actions: [`如需恢复到其中一个版本，调用 restore_version(fileId="${fileId}", versionId="<版本id>")`],
     };
   }
 

@@ -274,10 +274,7 @@ app.delete('/:fileId/:noteId', async (c) => {
 
   const result = await serviceDeleteNote(c.env, userId, fileId, noteId);
   if (!result.success) {
-    throwAppError(
-      result.error === '无权删除此笔记' ? 'NOTE_DELETE_DENIED' : 'NOTE_NOT_FOUND',
-      result.error
-    );
+    throwAppError(result.error === '无权删除此笔记' ? 'NOTE_DELETE_DENIED' : 'NOTE_NOT_FOUND', result.error);
   }
 
   return c.json({ success: true, data: { message: result.message, deletedCount: result.deletedCount } });

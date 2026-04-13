@@ -14,6 +14,7 @@ import { useState } from 'react';
 import { Sparkles, ChevronDown, Loader2, File, CheckCircle2, AlertTriangle, Clock, Zap } from 'lucide-react';
 import type { ToolCallEvent, AgentFile, PreviewDiff } from '../types';
 import { DiffPreview } from './DiffPreview';
+import { DraftPreview } from './DraftPreview'; // Phase 7 草稿预览
 
 interface ToolCallCardProps {
   tc: ToolCallEvent;
@@ -159,7 +160,9 @@ export function ToolCallCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
             <span className="text-[13px] font-semibold text-slate-800 dark:text-slate-200">{meta.label}</span>
-            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${statusConfig.iconBg} ${statusConfig.statusColor}`}>
+            <span
+              className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${statusConfig.iconBg} ${statusConfig.statusColor}`}
+            >
               {isRunning && <Clock className="h-2.5 w-2.5 mr-1" />}
               {!isRunning && !isPendingConfirm && <Zap className="h-2.5 w-2.5 mr-1" />}
               {isPendingConfirm && <AlertTriangle className="h-2.5 w-2.5 mr-1" />}
@@ -208,7 +211,9 @@ export function ToolCallCard({
                         <File className="h-4 w-4 text-slate-500 group-hover/file:text-violet-600 dark:group-hover/file:text-violet-400 transition-colors" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-medium text-slate-700 dark:text-slate-300 truncate group-hover/file:text-violet-700 dark:group-hover/file:text-violet-300 transition-colors">{f.name}</p>
+                        <p className="text-[13px] font-medium text-slate-700 dark:text-slate-300 truncate group-hover/file:text-violet-700 dark:group-hover/file:text-violet-300 transition-colors">
+                          {f.name}
+                        </p>
                       </div>
                       <ExternalLinkIcon />
                     </button>
@@ -216,7 +221,9 @@ export function ToolCallCard({
                 </div>
               ) : (
                 <pre className="text-[12px] text-slate-700 dark:text-slate-300 bg-gradient-to-br from-slate-50 to-slate-100/50 dark:from-slate-950 dark:to-slate-900/50 rounded-lg p-3 overflow-auto font-mono max-h-40 border border-slate-200/60 dark:border-slate-700/40 shadow-inner leading-relaxed">
-                  {JSON.stringify(tc.result, null, 2)}
+                  {typeof tc.result === 'object' && tc.result !== null
+                    ? JSON.stringify(tc.result, null, 2)
+                    : String(tc.result ?? '')}
                 </pre>
               )}
             </div>
@@ -248,8 +255,14 @@ export function ToolCallCard({
                 </p>
               </div>
 
-              {previewDiff && (
-                <DiffPreview diff={previewDiff} />
+              {previewDiff && <DiffPreview diff={previewDiff} />}
+
+              {/* Phase 7: 草稿预览 */}
+              {(resultObj?.previewType as string) === 'draft' && resultObj.draftContent != null && (
+                <DraftPreview
+                  content={String(resultObj.draftContent)}
+                  fileName={String(resultObj.fileName || 'untitled')}
+                />
               )}
 
               <div className="flex gap-2.5 pt-1">
@@ -294,7 +307,11 @@ function ExternalLinkIcon() {
       stroke="currentColor"
       strokeWidth={2}
     >
-      <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+      />
     </svg>
   );
 }

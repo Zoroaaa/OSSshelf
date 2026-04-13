@@ -2,7 +2,7 @@
 
 本文档基于项目实际路由代码，详细描述 OSSshelf 的所有 API 接口。
 
-**当前版本**: v4.0.0
+**当前版本**: v4.6.0
 
 ---
 
@@ -577,6 +577,62 @@ bucketId: <存储桶ID>
 GET /api/files/<fileId>
 Authorization: Bearer <token>
 ```
+
+### 获取文件/文件夹详情 (v4.6.0 新增)
+
+```http
+GET /api/files/<fileId>/detail
+Authorization: Bearer <token>
+```
+
+**响应**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "file-id",
+    "name": "document.pdf",
+    "path": "/folder/document.pdf",
+    "size": 1048576,
+    "mimeType": "application/pdf",
+    "isFolder": false,
+    "createdAt": "2026-04-01T10:00:00Z",
+    "updatedAt": "2026-04-01T10:00:00Z",
+    "description": "项目文档",
+    "bucketId": "bucket-uuid",
+    "bucketName": "我的存储桶",
+    "r2Key": "files/user-id/file-id/document.pdf",
+    "currentVersion": 3,
+    "maxVersions": 10,
+    "versionRetentionDays": 30,
+    "aiSummary": "这是一份项目文档...",
+    "aiTags": ["项目", "文档", "PDF"],
+    "vectorIndexedAt": "2026-04-01T10:05:00Z",
+    "aiSummaryAt": "2026-04-01T10:05:00Z",
+    "aiTagsAt": "2026-04-01T10:05:00Z",
+    "activeShareCount": 2,
+    "childFileCount": null,
+    "childFolderCount": null,
+    "totalFileCount": null,
+    "totalSize": null
+  }
+}
+```
+
+**文件夹专属字段**（仅当 isFolder 为 true 时返回）：
+
+| 字段            | 类型   | 说明                                   |
+| --------------- | ------ | -------------------------------------- |
+| `childFileCount` | number | 直接子文件数                           |
+| `childFolderCount`| number | 直接子文件夹数                         |
+| `totalFileCount` | number | WITH RECURSIVE 递归所有子文件数        |
+| `totalSize`      | number | WITH RECURSIVE 递归所有子文件体积之和（字节） |
+
+**说明**:
+- 此 API 提供文件的完整元数据信息，包括存储信息、版本信息、AI 信息和分享状态
+- 文件夹类型会额外返回子文件统计信息（使用 D1 的 WITH RECURSIVE 递归查询）
+- activeShareCount 统计当前活跃的分享链接数量
 
 ### 更新文件/文件夹
 

@@ -3,9 +3,8 @@
  * 移动端文件页面底部操作栏
  *
  * 功能:
- * - 视图切换
- * - 排序选项
- * - 浮动操作按钮
+ * - 视图切换（list/grid）+ 排序（名称/大小）
+ * - 浮动操作按钮（新建/上传）
  */
 
 import { useState } from 'react';
@@ -13,8 +12,6 @@ import { Button } from '@/components/ui/Button';
 import {
   Grid,
   List,
-  Columns,
-  Image as ImageIcon,
   SortAsc,
   SortDesc,
   Plus,
@@ -34,12 +31,10 @@ import type { AdvancedSearchCondition, AdvancedSearchLogic } from '@/types/files
 
 interface MobileFilesToolbarProps {
   viewMode: ViewMode;
-  galleryMode: boolean;
   hasImages: boolean;
   sortBy: SortField;
   sortOrder: 'asc' | 'desc';
   onViewModeChange: (mode: ViewMode) => void;
-  onGalleryModeChange: (mode: boolean) => void;
   onSort: (field: SortField) => void;
   onNewFile: () => void;
   onNewFolder: () => void;
@@ -50,17 +45,14 @@ interface MobileFilesToolbarProps {
 const viewModes: { mode: ViewMode; icon: typeof List; label: string }[] = [
   { mode: 'list', icon: List, label: '列表' },
   { mode: 'grid', icon: Grid, label: '网格' },
-  { mode: 'masonry', icon: Columns, label: '瀑布流' },
 ];
 
 export function MobileFilesToolbar({
   viewMode,
-  galleryMode,
   hasImages,
   sortBy,
   sortOrder,
   onViewModeChange,
-  onGalleryModeChange,
   onSort,
   onNewFile,
   onNewFolder,
@@ -72,37 +64,49 @@ export function MobileFilesToolbar({
   return (
     <>
       <div className="mobile-action-bar lg:hidden">
+        {/* 左侧：视图切换 + 排序 */}
         <div className="flex items-center gap-0.5">
           {viewModes.map(({ mode, icon: Icon, label }) => (
             <button
               key={mode}
               className={cn(
                 'p-2 rounded-lg transition-colors touch-target-sm',
-                viewMode === mode && !galleryMode ? 'bg-accent text-foreground' : 'text-muted-foreground'
+                viewMode === mode ? 'bg-accent text-foreground' : 'text-muted-foreground'
               )}
-              onClick={() => {
-                onViewModeChange(mode);
-                onGalleryModeChange(false);
-              }}
+              onClick={() => onViewModeChange(mode)}
               title={label}
             >
               <Icon className="h-4 w-4" />
             </button>
           ))}
-          {hasImages && (
-            <button
-              className={cn(
-                'p-2 rounded-lg transition-colors touch-target-sm',
-                galleryMode ? 'bg-accent text-foreground' : 'text-muted-foreground'
-              )}
-              onClick={() => onGalleryModeChange(true)}
-              title="图库"
-            >
-              <ImageIcon className="h-4 w-4" />
-            </button>
-          )}
+          <div className="w-px h-4 bg-border mx-0.5" />
+          <button
+            className={cn(
+              'flex items-center gap-0.5 px-2 py-1.5 rounded-lg text-xs transition-colors touch-target-sm',
+              sortBy === 'name' ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground'
+            )}
+            onClick={() => onSort('name')}
+            title="按名称排序"
+          >
+            名称
+            {sortBy === 'name' &&
+              (sortOrder === 'asc' ? <SortAsc className="h-3 w-3" /> : <SortDesc className="h-3 w-3" />)}
+          </button>
+          <button
+            className={cn(
+              'flex items-center gap-0.5 px-2 py-1.5 rounded-lg text-xs transition-colors touch-target-sm',
+              sortBy === 'size' ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground'
+            )}
+            onClick={() => onSort('size')}
+            title="按大小排序"
+          >
+            大小
+            {sortBy === 'size' &&
+              (sortOrder === 'asc' ? <SortAsc className="h-3 w-3" /> : <SortDesc className="h-3 w-3" />)}
+          </button>
         </div>
 
+        {/* 中间：FAB 按钮 */}
         <button
           className="flex items-center justify-center w-12 h-10 rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95"
           onClick={() => setShowFabMenu(!showFabMenu)}
@@ -111,30 +115,8 @@ export function MobileFilesToolbar({
           {showFabMenu ? <X className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
         </button>
 
-        <div className="flex items-center gap-1">
-          <button
-            className={cn(
-              'flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-colors',
-              'text-muted-foreground hover:bg-accent'
-            )}
-            onClick={() => onSort('name')}
-          >
-            名称
-            {sortBy === 'name' &&
-              (sortOrder === 'asc' ? <SortAsc className="h-3 w-3" /> : <SortDesc className="h-3 w-3" />)}
-          </button>
-          <button
-            className={cn(
-              'flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs transition-colors',
-              'text-muted-foreground hover:bg-accent'
-            )}
-            onClick={() => onSort('size')}
-          >
-            大小
-            {sortBy === 'size' &&
-              (sortOrder === 'asc' ? <SortAsc className="h-3 w-3" /> : <SortDesc className="h-3 w-3" />)}
-          </button>
-        </div>
+        {/* 右侧占位，保持 FAB 居中 */}
+        <div className="w-[120px]" />
       </div>
 
       {showFabMenu && (
@@ -260,27 +242,104 @@ export function MobileSearchPanel({
 }: MobileSearchPanelProps) {
   return (
     <div className="space-y-2 md:hidden">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <input
-          className="pl-10 pr-20 h-10 w-full rounded-xl border bg-background text-sm outline-none focus:ring-2 focus:ring-ring"
-          placeholder={tagSearchQuery ? `标签: ${tagSearchQuery}` : '搜索文件...'}
-          value={searchInput}
-          onChange={(e) => onSearchInputChange(e.target.value)}
-          onBlur={onBlur}
-          onFocus={onFocus}
-        />
-        {(searchInput || tagSearchQuery) && (
+      {/* 搜索输入行：输入框 + 搜索模式按钮 + 高级搜索 */}
+      <div className="relative flex items-center gap-1.5">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <input
+            className="pl-9 pr-8 h-10 w-full rounded-xl border bg-background text-sm outline-none focus:ring-2 focus:ring-ring"
+            placeholder={tagSearchQuery ? `标签: ${tagSearchQuery}` : '搜索文件...'}
+            value={searchInput}
+            onChange={(e) => onSearchInputChange(e.target.value)}
+            onBlur={onBlur}
+            onFocus={onFocus}
+          />
+          {(searchInput || tagSearchQuery) && (
+            <button
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
+              onClick={onClearSearch}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+
+          {showSuggestions && searchSuggestions.length > 0 && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-card border rounded-xl shadow-lg z-50 max-h-48 overflow-auto">
+              {searchSuggestions.map((suggestion, idx) => (
+                <button
+                  key={idx}
+                  className="w-full px-4 py-3 text-left text-sm hover:bg-muted/50 transition-colors"
+                  onMouseDown={() => onSuggestionClick(suggestion)}
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {showSearchHistory &&
+            !showSuggestions &&
+            searchInput.length === 0 &&
+            (searchHistoryData?.length ?? 0) > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-card border rounded-xl shadow-lg z-50 max-h-56 overflow-auto">
+                <div className="flex items-center justify-between px-4 py-2 border-b">
+                  <span className="text-xs text-muted-foreground">搜索历史</span>
+                  <button
+                    className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+                    onMouseDown={onClearHistory}
+                  >
+                    清空
+                  </button>
+                </div>
+                {searchHistoryData?.map((item) => (
+                  <div key={item.id} className="flex items-center group hover:bg-muted/50 transition-colors">
+                    <button
+                      className="flex-1 px-4 py-3 text-left text-sm"
+                      onMouseDown={() => onSuggestionClick(item.query)}
+                    >
+                      {item.query}
+                    </button>
+                    <button
+                      className="px-3 py-3 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all touch-visible"
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        onDeleteHistoryItem(item.id);
+                      }}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+        </div>
+
+        {/* 搜索模式图标按钮（与输入框同行） */}
+        {aiConfigured && (
           <button
-            className="absolute right-12 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
-            onClick={onClearSearch}
+            className={cn(
+              'flex-shrink-0 p-2 rounded-lg transition-colors',
+              semanticSearch ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'
+            )}
+            onClick={onToggleSemanticSearch}
+            title={semanticSearch ? '关闭语义搜索' : '开启语义搜索'}
           >
-            <X className="h-4 w-4" />
+            <Sparkles className="h-4 w-4" />
           </button>
         )}
         <button
           className={cn(
-            'absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg transition-colors',
+            'flex-shrink-0 p-2 rounded-lg transition-colors',
+            ftsSearch ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'
+          )}
+          onClick={onToggleFtsSearch}
+          title={ftsSearch ? '关闭FTS5全文搜索' : '开启FTS5全文搜索'}
+        >
+          <Search className="h-4 w-4" />
+        </button>
+        <button
+          className={cn(
+            'flex-shrink-0 p-2 rounded-lg transition-colors',
             showAdvancedSearch ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground'
           )}
           onClick={onToggleAdvancedSearch}
@@ -288,71 +347,7 @@ export function MobileSearchPanel({
         >
           <SlidersHorizontal className="h-4 w-4" />
         </button>
-
-        {showSuggestions && searchSuggestions.length > 0 && (
-          <div className="absolute top-full left-0 right-0 mt-1 bg-card border rounded-xl shadow-lg z-50 max-h-48 overflow-auto">
-            {searchSuggestions.map((suggestion, idx) => (
-              <button
-                key={idx}
-                className="w-full px-4 py-3 text-left text-sm hover:bg-muted/50 transition-colors"
-                onMouseDown={() => onSuggestionClick(suggestion)}
-              >
-                {suggestion}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {showSearchHistory && !showSuggestions && searchInput.length === 0 && (searchHistoryData?.length ?? 0) > 0 && (
-          <div className="absolute top-full left-0 right-0 mt-1 bg-card border rounded-xl shadow-lg z-50 max-h-56 overflow-auto">
-            <div className="flex items-center justify-between px-4 py-2 border-b">
-              <span className="text-xs text-muted-foreground">搜索历史</span>
-              <button
-                className="text-xs text-muted-foreground hover:text-destructive transition-colors"
-                onMouseDown={onClearHistory}
-              >
-                清空
-              </button>
-            </div>
-            {searchHistoryData?.map((item) => (
-              <div key={item.id} className="flex items-center group hover:bg-muted/50 transition-colors">
-                <button
-                  className="flex-1 px-4 py-3 text-left text-sm"
-                  onMouseDown={() => onSuggestionClick(item.query)}
-                >
-                  {item.query}
-                </button>
-                <button
-                  className="px-3 py-3 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all touch-visible"
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                    onDeleteHistoryItem(item.id);
-                  }}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
-
-      {aiConfigured && (
-        <Button
-          variant={semanticSearch ? 'default' : 'outline'}
-          size="sm"
-          onClick={onToggleSemanticSearch}
-          className="w-full"
-        >
-          <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-          {semanticSearch ? '语义搜索已开启' : '开启语义搜索'}
-        </Button>
-      )}
-
-      <Button variant={ftsSearch ? 'default' : 'outline'} size="sm" onClick={onToggleFtsSearch} className="w-full">
-        <Search className="h-3.5 w-3.5 mr-1.5" />
-        {ftsSearch ? 'FTS5全文搜索已开启' : '开启FTS5全文搜索'}
-      </Button>
 
       {tagSearchQuery && (
         <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border border-primary/20 rounded-xl text-sm">

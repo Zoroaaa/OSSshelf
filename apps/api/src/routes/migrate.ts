@@ -77,14 +77,14 @@ function kvKey(userId: string, migrationId: string) {
 // ── Validation schemas ─────────────────────────────────────────────────────
 
 const startMigrateSchema = z.object({
-  /** 来源存储桶 ID */
-  sourceBucketId: z.string().min(1),
+  /** 来源存储桶 ID（可选，不传则从 fileIds 自动推断） */
+  sourceBucketId: z.string().min(1).optional(),
   /** 目标存储桶 ID */
   targetBucketId: z.string().min(1),
   /**
    * 要迁移的文件/文件夹 ID 列表。
    * 若传文件夹 ID，后端会递归展开其所有子文件。
-   * 不传则迁移 sourceBucketId 下的全部文件。
+   * 不传则迁移 sourceBucketId 下的全部文件（此时 sourceBucketId 必填）。
    */
   fileIds: z.array(z.string()).optional(),
   /** 迁移后文件的目标父文件夹（null = 保持原 parentId） */
@@ -160,9 +160,36 @@ app.post('/start', async (c) => {
     );
   }
 
-  const { sourceBucketId, targetBucketId, fileIds, targetFolderId, deleteSource } = result.data;
+  const { sourceBucketId: _sourceBucketId, targetBucketId, fileIds, targetFolderId, deleteSource } = result.data;
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
+
+  // ── 自动推断 sourceBucketId（如果未提供）───────────────────
+  let sourceBucketId = _sourceBucketId;
+  if (!sourceBucketId && fileIds && fileIds.length > 0) {
+    // 从第一个文件/文件夹的 bucketId 推断
+    const sampleFile = await db
+      .select({ bucketId: files.bucketId })
+      .from(files)
+      .where(and(eq(files.id, fileIds[0]), eq(files.userId, userId), isNull(files.deletedAt)))
+      .get();
+    if (sampleFile?.bucketId) {
+      sourceBucketId = sampleFile.bucketId;
+    } else {
+      return c.json(
+        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无法从指定文件推断来源存储桶' } },
+        400
+      );
+    }
+  }
+
+  if (!sourceBucketId) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '必须提供 sourceBucketId 或 fileIds' } },
+      400
+    );
+  }
+  // ─────────────────────────────────────────────────────────────
 
   if (sourceBucketId === targetBucketId) {
     return c.json(

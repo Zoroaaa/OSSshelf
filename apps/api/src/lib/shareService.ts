@@ -109,7 +109,11 @@ export async function updateShare(
   const db = getDb(env.DB);
   const { password, expiresAt, maxUses } = input;
 
-  const share = await db.select().from(shares).where(and(eq(shares.id, shareId), eq(shares.userId, userId))).get();
+  const share = await db
+    .select()
+    .from(shares)
+    .where(and(eq(shares.id, shareId), eq(shares.userId, userId)))
+    .get();
   if (!share) return { success: false, error: '分享链接不存在' };
 
   const updates: Record<string, unknown> = {};
@@ -149,7 +153,9 @@ export async function createUploadLink(
   env: Env,
   userId: string,
   input: CreateUploadLinkInput
-): Promise<{ success: true; uploadLinkId: string; url: string; folderName: string } | { success: false; error: string }> {
+): Promise<
+  { success: true; uploadLinkId: string; url: string; folderName: string } | { success: false; error: string }
+> {
   const db = getDb(env.DB);
   const { folderId, password, expiresInHours = 72, allowedMimeTypes, maxSizeBytes, maxUploads } = input;
 
@@ -189,5 +195,7 @@ export async function createUploadLink(
 function generateSecureToken(length: number): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   const values = crypto.getRandomValues(new Uint8Array(length));
-  return Array.from(values).map((v) => chars[v % chars.length]).join('');
+  return Array.from(values)
+    .map((v) => chars[v % chars.length])
+    .join('');
 }

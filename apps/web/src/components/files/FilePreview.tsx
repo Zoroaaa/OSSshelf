@@ -92,7 +92,9 @@ export function FilePreview({ file, token, onClose, onDownload, onShare, onEdit,
   const [loadError, setLoadError] = useState(false);
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
   const [previewInfo, setPreviewInfo] = useState<PreviewInfo | null>(null);
-  const [zoomLevel, setZoomLevel] = useState(100);
+  const [zoomLevel, setZoomLevel] = useState(() =>
+    typeof window !== 'undefined' && window.innerWidth < 768 ? 75 : 100
+  );
   const [windowSize, setWindowSize] = useState<WindowSize>(() =>
     typeof window !== 'undefined' && window.innerWidth < 768 ? 'fullscreen' : 'medium'
   );
@@ -100,7 +102,16 @@ export function FilePreview({ file, token, onClose, onDownload, onShare, onEdit,
   const [showEditor, setShowEditor] = useState(false);
   const [showSmartRename, setShowSmartRename] = useState(false);
   const [showAIInfo, setShowAIInfo] = useState(true);
+  // 移动端全屏时底部操作栏显示状态（Phase 3）
+  const [showMobileBar, setShowMobileBar] = useState(false);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
+
+  // 移动端全屏判断（Phase 3）
+  const isMobileFullscreen = windowSize === 'fullscreen' && typeof window !== 'undefined' && window.innerWidth < 768;
+  const toggleMobileBar = useCallback(() => {
+    setShowMobileBar((prev) => !prev);
+  }, []);
 
   const [aiSummary, setAiSummary] = useState<string | null>(file.aiSummary ?? null);
   const [aiSummaryAt, setAiSummaryAt] = useState<string | null>(file.aiSummaryAt ?? null);
@@ -301,14 +312,22 @@ export function FilePreview({ file, token, onClose, onDownload, onShare, onEdit,
   }, []);
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose();
       }
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
+    window.addEventListener('keydown', handleKeyDown);
+
+    if (isMobile && file) {
+      document.body.classList.add('preview-fullscreen');
+    }
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.classList.remove('preview-fullscreen');
+    };
+  }, [onClose, isMobile, file]);
 
   const sizeConfig = WINDOW_SIZE_CONFIG[windowSize];
   const showZoomControls = isText || isMarkdown || isExcel || isWord || isCsv || isFont || isEpub || isPpt;
@@ -430,7 +449,14 @@ export function FilePreview({ file, token, onClose, onDownload, onShare, onEdit,
           </div>
         </div>
 
-        <div className="flex-1 overflow-auto min-h-0">
+        {/* 预览内容区域 - 点击可切换底部栏显示（Phase 3） */}
+        <div
+          className={cn(
+            'flex-1 overflow-auto min-h-0',
+            isMobileFullscreen && !showMobileBar ? 'pb-0' : 'pb-[calc(3.5rem+var(--safe-area-inset-bottom,0px))]'
+          )}
+          onClick={() => isMobileFullscreen && toggleMobileBar()}
+        >
           {loadError ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center py-12 text-muted-foreground px-6">
@@ -489,6 +515,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare, onEdit,
               onGenerateTags={handleGenerateTags}
               isGeneratingSummary={isGeneratingSummary}
               isGeneratingTags={isGeneratingTags}
+              onTap={isMobileFullscreen ? toggleMobileBar : undefined}
             />
           ) : isVideo ? (
             <VideoPreview resolvedUrl={resolvedUrl} onLoadError={() => setLoadError(true)} />
@@ -608,7 +635,13 @@ export function FilePreview({ file, token, onClose, onDownload, onShare, onEdit,
         />
       )}
 
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-card border-t safe-bottom">
+      {/* 底部操作栏 - 移动端全屏时可隐藏（Phase 3） */}
+      <div
+        className={cn(
+          'lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-card border-t safe-bottom transition-transform duration-300',
+          isMobileFullscreen && !showMobileBar && 'translate-y-full'
+        )}
+      >
         <div className="flex items-center justify-around h-14 px-2">
           {showZoomControls && (
             <div className="flex items-center gap-1 px-2 py-1 bg-muted/50 rounded-md">

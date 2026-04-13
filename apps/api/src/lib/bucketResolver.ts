@@ -23,6 +23,7 @@
 import { eq, and, isNull, sql } from 'drizzle-orm';
 import { getDb, storageBuckets, files, users } from '../db';
 import { makeBucketConfigAsync, type S3BucketConfig } from './s3client';
+import { formatBytes } from './ai/utils';
 
 type DbType = ReturnType<typeof getDb>;
 
@@ -168,12 +169,4 @@ export async function checkBucketQuota(db: DbType, bucketId: string, bytes: numb
     return `存储桶「${row.name}」空间不足（已用 ${used} / 限额 ${quota}）`;
   }
   return null;
-}
-
-function formatBytes(b: number): string {
-  if (b >= 1e12) return `${(b / 1e12).toFixed(1)} TB`;
-  if (b >= 1e9) return `${(b / 1e9).toFixed(1)} GB`;
-  if (b >= 1e6) return `${(b / 1e6).toFixed(1)} MB`;
-  if (b >= 1e3) return `${(b / 1e3).toFixed(1)} KB`;
-  return `${b} B`;
 }

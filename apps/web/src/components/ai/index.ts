@@ -11,7 +11,6 @@ export { AIChatWidget } from './AIChatWidget';
 // 聊天页面可复用组件
 export {
   ToolCallCard,
-  FileChip,
   ReasoningSection,
   AssistantContent,
   ToolInfoModal,

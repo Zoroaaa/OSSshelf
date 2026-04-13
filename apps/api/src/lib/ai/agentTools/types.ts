@@ -53,6 +53,7 @@ export interface AgentFile {
   isStarred: boolean;
   currentVersion: number | null;
   vectorIndexedAt: string | null;
+  _ref?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -86,6 +87,7 @@ export const WRITE_TOOLS = new Set([
   'create_text_file',
   'create_code_file',
   'create_file_from_template',
+  'draft_and_create_file',
   'edit_file_content',
   'append_to_file',
   'find_and_replace',

@@ -18,7 +18,12 @@ import { getDb, files, shares } from '../../../db';
 import type { Env } from '../../../types/env';
 import { logger } from '@osshelf/shared';
 import type { ToolDefinition } from './types';
-import { createShareLink as serviceCreateShare, revokeShare as serviceRevokeShare, updateShare as serviceUpdateShare, createUploadLink as serviceCreateUploadLink } from '../../../lib/shareService';
+import {
+  createShareLink as serviceCreateShare,
+  revokeShare as serviceRevokeShare,
+  updateShare as serviceUpdateShare,
+  createUploadLink as serviceCreateUploadLink,
+} from '../../../lib/shareService';
 
 export const definitions: ToolDefinition[] = [
   // 1. create_share_link — 创建分享链接
@@ -253,9 +258,9 @@ export class ShareTools {
 
   static async executeUpdateShare(env: Env, userId: string, args: Record<string, unknown>) {
     const shareId = args.shareId as string;
-    const password = 'password' in args ? (args.password as string | undefined) ?? null : undefined;
-    const expiresAt = 'expiresAt' in args ? (args.expiresAt as string | undefined) ?? null : undefined;
-    const maxUses = 'maxVisits' in args ? (args.maxVisits as number | undefined) ?? null : undefined;
+    const password = 'password' in args ? ((args.password as string | undefined) ?? null) : undefined;
+    const expiresAt = 'expiresAt' in args ? ((args.expiresAt as string | undefined) ?? null) : undefined;
+    const maxUses = 'maxVisits' in args ? ((args.maxVisits as number | undefined) ?? null) : undefined;
 
     const result = await serviceUpdateShare(env, userId, shareId, { password, expiresAt, maxUses });
     if (!result.success) return { error: result.error };

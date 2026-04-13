@@ -3,7 +3,6 @@
  */
 
 export { ToolCallCard } from './ToolCallCard';
-export { FileChip } from './FileChip';
 export { ReasoningSection } from './ReasoningSection';
 export { AssistantContent } from './AssistantContent';
 export { ToolInfoModal } from './ToolInfoModal';

@@ -1,7 +1,7 @@
 # OSSshelf AI API 文档
 
-**版本**: v4.5.0
-**更新日期**: 2026-04-12
+**版本**: v4.6.0
+**更新日期**: 2026-04-13
 
 ---
 
@@ -963,6 +963,254 @@ try {
   showNetworkError();
 }
 ```
+
+---
+
+## v4.6.0 新增工具 API
+
+> **v4.6.0 更新**: Agent 工具集从 95 个扩展至 99+ 个，新增 4 个工具。
+
+### 新增工具列表
+
+| 工具名称                    | 模块         | 说明                                     | 版本    |
+| --------------------------- | ------------ | ---------------------------------------- | ------- |
+| `list_expired_permissions`  | permission.ts | 查询已过期/快过期的文件授权              | v4.6.0  |
+| `draft_and_create_file`     | fileops.ts    | 对话式文件创建（支持草稿预览）           | v4.6.0  |
+| `smart_organize_suggest`    | ai-enhance.ts | 智能整理建议（四维度分析）               | v4.6.0  |
+| `analyze_file_collection`   | content.ts    | 文件集合分析（多场景分析）               | v4.6.0  |
+
+### 1. list_expired_permissions
+
+查询已过期或即将过期的文件授权。
+
+**参数**：
+
+```typescript
+{
+  includeExpiringSoon?: boolean,  // 是否包含快过期授权（默认 false）
+  withinDays?: number            // 快过期阈值天数（默认 7 天）
+}
+```
+
+**响应**：
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "fileId": "file-uuid",
+      "fileName": "project.docx",
+      "userId": "user-uuid",
+      "permission": "read",
+      "expiresAt": "2026-03-01T00:00:00Z",
+      "status": "expired"
+    },
+    {
+      "fileId": "file-uuid-2",
+      "fileName": "report.pdf",
+      "userId": "user-uuid-2",
+      "permission": "write",
+      "expiresAt": "2026-04-20T00:00:00Z",
+      "status": "expiring_soon"
+    }
+  ],
+  "_next_actions": ["可调用 revoke_permission 批量撤销"]
+}
+```
+
+**使用场景**：
+- 定期清理已过期授权
+- 查找即将到期的授权并通知用户
+- 批量撤销不再需要的权限
+
+### 2. draft_and_create_file
+
+对话式文件创建工具，支持草稿预览和多轮确认流程。
+
+**参数**：
+
+```typescript
+{
+  fileName: string,           // 目标文件名（含扩展名）
+  targetFolderId?: string,    // 目标文件夹 ID（可选，默认根目录）
+  userRequest: string,        // 用户原始需求
+  draftContent: string,       // Agent 生成的草稿内容
+  _confirmed?: boolean        // 是否确认（false=返回草稿，true=创建文件）
+}
+```
+
+**响应（_confirmed = false）**：
+
+```json
+{
+  "success": true,
+  "type": "pending_confirm",
+  "data": {
+    "confirmId": "confirm-uuid",
+    "message": "是否创建文件 \"README.md\"？",
+    "draftContent": "# 项目名称\n\n## 简介\n\n这是一个新项目...",
+    "previewType": "draft"
+  }
+}
+```
+
+**响应（_confirmed = true）**：
+
+```json
+{
+  "success": true,
+  "data": {
+    "fileId": "file-uuid",
+    "fileName": "README.md",
+    "path": "/folder/README.md"
+  }
+}
+```
+
+**工作流程**：
+1. Agent 调用工具生成草稿（_confirmed=false）
+2. 前端渲染 DraftPreview 组件展示草稿
+3. 用户确认后再次调用（_confirmed=true）
+4. 文件创建完成
+
+**支持的预览格式**：
+- `.md` → Markdown 渲染
+- `.py/.js/.ts/.json` → 代码高亮
+- 其他 → 纯文本显示
+
+### 3. smart_organize_suggest
+
+智能分析文件库并提供整理建议（四维度分析）。
+
+**参数**：
+
+```typescript
+{
+  scope: 'all' | 'folder' | 'untagged',  // 分析范围
+  folderId?: string,                     // 文件夹 ID（scope='folder' 时必填）
+  limit?: number                         // 最大扫描数（默认 200）
+}
+```
+
+**响应**：
+
+```json
+{
+  "success": true,
+  "data": {
+    "scannedCount": 500,
+    "namingIssues": [
+      {
+        "fileId": "file-uuid",
+        "currentName": "IMG_001.jpg",
+        "issue": "不规范命名：以 IMG 开头"
+      }
+    ],
+    "missingTags": [
+      {
+        "fileId": "file-uuid-2",
+        "fileName": "document.pdf"
+      }
+    ],
+    "relocateSuggestions": [
+      {
+        "fileId": "file-uuid-3",
+        "fileName": "image1.png",
+        "suggestedFolderName": "图片",
+        "reason": "根目录有 5 个图片文件，建议归类"
+      }
+    ],
+    "structureIssues": [
+      {
+        "folderId": "folder-uuid",
+        "folderName": "uploads",
+        "issue": "子文件数过多（120个）",
+        "suggestion": "建议按类型拆分为多个文件夹"
+      }
+    ],
+    "_next_actions": [
+      "可调用 batch_rename 修复命名问题",
+      "可调用 auto_tag_files 补充标签",
+      "可调用 move_file 归类文件"
+    ]
+  }
+}
+```
+
+**分析维度详解**：
+
+1. **命名问题** (namingIssues)
+   - 匹配规则：/^(IMG|DSC|截图|Screenshot|未命名|Untitled|New )/i 或纯数字
+   - 建议：使用 batch_rename 批量重命名
+
+2. **标签缺失** (missingTags)
+   - 条件：aiTags 为空 AND aiSummary 非空
+   - 建议：使用 auto_tag_files 自动打标签
+
+3. **归类建议** (relocateSuggestions)
+   - 条件：根目录文件且同 MIME 类型 > 3 个
+   - 建议：归入同一文件夹
+
+4. **结构问题** (structureIssues)
+   - 条件：单文件夹直接子文件 > 100 或路径层级 > 5
+   - 建议：拆分文件夹或平铺结构
+
+### 4. analyze_file_collection
+
+对文件集合进行多维度分析，支持多种分析类型。
+
+**参数**：
+
+```typescript
+{
+  scope: 'folder' | 'tag' | 'starred',     // 分析范围
+  folderId?: string,                        // 文件夹 ID（scope='folder' 时）
+  tagName?: string,                         // 标签名（scope='tag' 时）
+  analysisType: 'summary' | 'compare' | 'extract_common' | 'timeline',
+  maxFiles?: number                          // 最大文件数（默认 20）
+}
+```
+
+**响应**：
+
+```json
+{
+  "success": true,
+  "data": {
+    "files": [
+      {
+        "id": "file-uuid",
+        "name": "project-plan.md",
+        "mimeType": "text/markdown",
+        "size": 10240,
+        "summary": "项目计划文档，包含时间线和里程碑...",
+        "updatedAt": "2026-04-10T10:00:00Z"
+      }
+    ],
+    "totalCount": 15,
+    "truncated": false,
+    "analysisType": "summary",
+    "_next_actions": ["请基于以上文件摘要生成整体报告"]
+  }
+}
+```
+
+**analysisType 类型说明**：
+
+| 类型             | 说明                           | 输出示例                     |
+| ---------------- | ------------------------------ | ---------------------------- |
+| `summary`        | 生成整体报告                   | 文件夹概览、主要主题、统计信息 |
+| `compare`        | 对比异同点                     | 文档差异、版本对比、优缺点对比 |
+| `extract_common` | 提取共同主题/条款/关键词        | 合同要点、论文共同观点、API规范 |
+| `timeline`       | 按时间顺序梳理脉络              | 项目进展、事件时间线、变更历史 |
+
+**技术特点**：
+
+- **性能优化**：优先使用 aiSummary 字段，减少实际文件读取
+- **灵活范围**：支持 folder/tag/starred 三种筛选方式
+- **智能截断**：超过 maxFiles 时优先保留有 aiSummary 的文件
+- **Agent 驱动**：返回的 _next_actions 指导 Agent 进行下一步分析
 
 ---
 

@@ -38,12 +38,6 @@ const batchMoveSchema = z.object({
   targetParentId: z.string().nullable(),
 });
 
-const batchCopySchema = z.object({
-  fileIds: z.array(z.string().min(1)).min(1).max(50),
-  targetParentId: z.string().nullable(),
-  targetBucketId: z.string().nullable().optional(),
-});
-
 const batchRenameSchema = z.object({
   items: z
     .array(
@@ -171,6 +165,27 @@ app.post('/move', async (c) => {
         continue;
       }
 
+      // ── 跨桶移动检测 ────────────────────────────────────────
+      if (targetParentId && file.bucketId) {
+        const targetFolder = await db
+          .select({ bucketId: files.bucketId })
+          .from(files)
+          .where(eq(files.id, targetParentId))
+          .get();
+
+        if (targetFolder?.bucketId && targetFolder.bucketId !== file.bucketId) {
+          batchResult.failed++;
+          batchResult.errors.push({
+            id: fileId,
+            error: 'CROSS_BUCKET',
+            sourceBucketId: file.bucketId,
+            targetBucketId: targetFolder.bucketId,
+          } as any);
+          continue;
+        }
+      }
+      // ────────────────────────────────────────────────────────
+
       if (file.isFolder && targetParentId) {
         let checkId: string | null = targetParentId;
         while (checkId) {
@@ -235,228 +250,6 @@ app.post('/move', async (c) => {
     action: 'file.move',
     resourceType: 'batch',
     details: { action: 'move', count: fileIds.length, success: batchResult.success, targetParentId },
-    ipAddress: getClientIp(c),
-    userAgent: getUserAgent(c),
-  });
-
-  return c.json({ success: true, data: batchResult });
-});
-
-app.post('/copy', async (c) => {
-  const userId = c.get('userId')!;
-  const body = await c.req.json();
-  const result = batchCopySchema.safeParse(body);
-  if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
-      400
-    );
-  }
-
-  const { fileIds, targetParentId, targetBucketId } = result.data;
-  const db = getDb(c.env.DB);
-  const encKey = getEncryptionKey(c.env);
-  const now = new Date().toISOString();
-  const batchResult: BatchResult = { success: 0, failed: 0, errors: [] };
-
-  const user = await db.select().from(users).where(eq(users.id, userId)).get();
-  if (!user) {
-    throwAppError('USER_NOT_FOUND');
-  }
-
-  if (targetParentId) {
-    const targetFolder = await db
-      .select()
-      .from(files)
-      .where(
-        and(eq(files.id, targetParentId), eq(files.userId, userId), eq(files.isFolder, true), isNull(files.deletedAt))
-      )
-      .get();
-    if (!targetFolder) {
-      throwAppError('FOLDER_NOT_FOUND', '目标文件夹不存在');
-    }
-  }
-
-  // ── 递归复制文件夹辅助函数 ────────────────────────────────────────────────
-  type CopyStats = { copiedFiles: number; copiedBytes: number };
-
-  async function copyFolderRecursive(
-    srcFolderId: string,
-    destParentId: string | null,
-    destBucketConfig: Awaited<ReturnType<typeof resolveBucketConfig>>
-  ): Promise<CopyStats> {
-    const stats: CopyStats = { copiedFiles: 0, copiedBytes: 0 };
-    if (!destBucketConfig) return stats;
-
-    const srcFolder = await db.select().from(files).where(eq(files.id, srcFolderId)).get();
-    if (!srcFolder) return stats;
-
-    // 在目标位置建同名文件夹
-    const newFolderId = crypto.randomUUID();
-    const newFolderPath = destParentId ? `${destParentId}/${srcFolder.name}` : `/${srcFolder.name}`;
-    await db.insert(files).values({
-      id: newFolderId,
-      userId,
-      parentId: destParentId,
-      name: srcFolder.name,
-      path: newFolderPath,
-      type: 'folder',
-      size: 0,
-      r2Key: `folders/${newFolderId}`,
-      mimeType: null,
-      hash: null,
-      refCount: 1,
-      isFolder: true,
-      bucketId: destBucketConfig.id,
-      allowedMimeTypes: srcFolder.allowedMimeTypes,
-      createdAt: now,
-      updatedAt: now,
-      deletedAt: null,
-    });
-
-    // 复制直接子节点
-    const children = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.parentId, srcFolderId), eq(files.userId, userId), isNull(files.deletedAt)))
-      .all();
-
-    for (const child of children) {
-      if (child.isFolder) {
-        const subStats = await copyFolderRecursive(child.id, newFolderId, destBucketConfig);
-        stats.copiedFiles += subStats.copiedFiles;
-        stats.copiedBytes += subStats.copiedBytes;
-      } else {
-        try {
-          const srcBucketConfig = await resolveBucketConfig(db, userId, encKey, child.bucketId, child.parentId);
-          let fileContent: ArrayBuffer;
-          if (srcBucketConfig) {
-            const s3Res = await s3Get(srcBucketConfig, child.r2Key);
-            fileContent = await s3Res.arrayBuffer();
-          } else if (c.env.FILES) {
-            const obj = await c.env.FILES.get(child.r2Key);
-            if (!obj) throw new Error('源文件内容不存在');
-            fileContent = await obj.arrayBuffer();
-          } else {
-            throw new Error('无法获取源文件内容');
-          }
-
-          const newFileId = crypto.randomUUID();
-          const newR2Key = `files/${userId}/${newFileId}/${child.name}`;
-          const newPath = `${newFolderId}/${child.name}`;
-          await s3Put(destBucketConfig, newR2Key, fileContent, child.mimeType || 'application/octet-stream');
-          await db.insert(files).values({
-            id: newFileId,
-            userId,
-            parentId: newFolderId,
-            name: child.name,
-            path: newPath,
-            type: 'file',
-            size: child.size,
-            r2Key: newR2Key,
-            mimeType: child.mimeType,
-            hash: child.hash,
-            refCount: 1,
-            isFolder: false,
-            bucketId: destBucketConfig.id,
-            createdAt: now,
-            updatedAt: now,
-            deletedAt: null,
-          });
-          stats.copiedFiles++;
-          stats.copiedBytes += child.size;
-        } catch {
-          // 单个子文件失败不中断整个文件夹复制
-        }
-      }
-    }
-    return stats;
-  }
-  // ─────────────────────────────────────────────────────────────────────────
-
-  const bucketConfig = await resolveBucketConfig(db, userId, encKey, targetBucketId, targetParentId);
-  if (!bucketConfig) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '未配置存储桶' } }, 400);
-  }
-
-  let totalCopiedSize = 0;
-
-  for (const fileId of fileIds) {
-    const file = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
-      .get();
-
-    if (!file) {
-      batchResult.failed++;
-      batchResult.errors.push({ id: fileId, error: '文件不存在或已被删除' });
-      continue;
-    }
-
-    try {
-      if (file.isFolder) {
-        // 文件夹递归复制
-        const stats = await copyFolderRecursive(file.id, targetParentId, bucketConfig);
-        totalCopiedSize += stats.copiedBytes;
-        batchResult.success++;
-      } else {
-        // 普通文件复制
-        const sourceBucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
-        let fileContent: ArrayBuffer;
-        if (sourceBucketConfig) {
-          const s3Res = await s3Get(sourceBucketConfig, file.r2Key);
-          fileContent = await s3Res.arrayBuffer();
-        } else if (c.env.FILES) {
-          const obj = await c.env.FILES.get(file.r2Key);
-          if (!obj) throw new Error('源文件内容不存在');
-          fileContent = await obj.arrayBuffer();
-        } else {
-          throw new Error('无法获取源文件内容');
-        }
-
-        const newFileId = crypto.randomUUID();
-        const newR2Key = `files/${userId}/${newFileId}/${file.name}`;
-        const newPath = targetParentId ? `${targetParentId}/${file.name}` : `/${file.name}`;
-        await s3Put(bucketConfig, newR2Key, fileContent, file.mimeType || 'application/octet-stream');
-        await db.insert(files).values({
-          id: newFileId,
-          userId,
-          parentId: targetParentId,
-          name: file.name,
-          path: newPath,
-          type: 'file',
-          size: file.size,
-          r2Key: newR2Key,
-          mimeType: file.mimeType,
-          hash: file.hash,
-          refCount: 1,
-          isFolder: false,
-          bucketId: bucketConfig.id,
-          createdAt: now,
-          updatedAt: now,
-          deletedAt: null,
-        });
-        totalCopiedSize += file.size;
-        batchResult.success++;
-      }
-    } catch (error) {
-      batchResult.failed++;
-      batchResult.errors.push({ id: fileId, error: error instanceof Error ? error.message : '复制失败' });
-    }
-  }
-
-  if (totalCopiedSize > 0) {
-    await updateUserStorage(db, userId, totalCopiedSize);
-    await updateBucketStats(db, bucketConfig.id, totalCopiedSize, batchResult.success);
-  }
-
-  await createAuditLog({
-    env: c.env,
-    userId,
-    action: 'file.upload',
-    resourceType: 'batch',
-    details: { action: 'copy', count: fileIds.length, success: batchResult.success, targetParentId },
     ipAddress: getClientIp(c),
     userAgent: getUserAgent(c),
   });

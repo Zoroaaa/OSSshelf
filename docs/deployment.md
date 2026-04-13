@@ -2,7 +2,7 @@
 
 本文档基于项目实际配置文件，提供完整的部署指南，确保您能够一次性成功部署 OSSshelf。
 
-**当前版本**: v4.2.0
+**当前版本**: v4.6.0
 
 ---
 
@@ -72,6 +72,103 @@
 ## 版本更新说明
 
 详细的版本更新日志请参阅 [CHANGELOG.md](../CHANGELOG.md)。
+
+### v4.6.0 (2026-04-13)
+
+本次更新包含用户体验全面优化和AI能力增强：
+
+**非AI功能优化（5项）**
+
+1. **移除复制/剪切，跨桶移动智能提示**
+   - 删除复制/剪切/粘贴文件操作（避免数据错位）
+   - 新增跨桶移动检测和确认引导
+   - MoveFolderPicker 显示"将跨桶迁移"Badge
+
+2. **简化展示模式 + 列表图片缩略图**
+   - ViewMode 简化为 list/grid（删除 masonry/gallery）
+   - 列表模式新增 40×40px 图片缩略图
+   - 删除 GalleryItem.tsx 和 MasonryItem.tsx
+
+3. **移动端预览全屏体验**
+   - 底部操作栏默认隐藏（tap-to-toggle）
+   - 移动端屏幕利用率提升30%+
+
+4. **文件/文件夹详情面板**
+   - 新增 GET /:id/detail API
+   - FileDetailPanel 组件（Sheet 形式）
+   - 右键菜单新增"详情"入口
+
+5. **文件/文件夹换桶操作**
+   - MigrateBucketDialog 组件
+   - 右键菜单新增"换桶"入口
+   - 支持单文件/文件夹粒度迁移
+
+**AI功能增强（4项）**
+
+1. **对话式权限管理**
+   - grant_permission 新增 expiresInDays 参数
+   - 新增 list_expired_permissions 工具
+
+2. **对话式文件创建（含草稿预览）**
+   - 新增 draft_and_create_file 工具
+   - DraftPreview 组件支持多格式渲染
+
+3. **智能整理建议**
+   - 新增 smart_organize_suggest 工具
+   - 四维度分析：命名、标签、归类、结构
+
+4. **文件集合分析**
+   - 新增 analyze_file_collection 工具
+   - 支持多种分析类型（summary/compare/timeline等）
+
+**性能优化**
+
+- 懒加载功能：路由级代码分割、组件级懒加载、图片懒加载、虚拟滚动
+- 首屏加载时间减少40%+
+- 内存占用降低60%（大文件夹场景）
+
+**已移除的功能**
+
+- 复制/剪切/粘贴文件操作
+- Masonry/Gallery 展示模式及相关组件
+
+**升级步骤**
+
+```bash
+# 1. 拉取最新代码
+git pull origin main
+
+# 2. 运行数据库迁移（如有新迁移文件）
+pnpm db:migrate
+
+# 3. 重新构建前端
+pnpm build:web
+
+# 4. 部署后端
+pnpm deploy:api
+
+# 5. 部署前端
+wrangler pages deploy apps/web/dist --project-name=ossshelf-web
+```
+
+### v4.5.0 (2026-04-12)
+
+本次更新包含 AI 模型库大幅扩展：
+
+**核心变更**
+
+1. **模型库扩展至80+个模型**
+   - 覆盖16个厂商的最新推理/视觉/长上下文模型
+   - 新增 OpenAI o3 Mini/GPT-5、Claude Sonnet 4/Opus 4.1 等
+
+2. **Agent 引擎增强**
+   - Token 预算管理（默认100K tokens）
+   - 智能 Token 估算算法
+   - 降级机制改进
+
+3. **模型网关增强**
+   - providerId 关联、排序功能、只读模式
+   - Thinking 配置字段完善
 
 ### v4.2.0 (2026-04-06)
 

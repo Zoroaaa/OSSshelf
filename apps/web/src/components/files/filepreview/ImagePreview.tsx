@@ -22,6 +22,8 @@ interface ImagePreviewProps {
   onGenerateTags: () => void;
   isGeneratingSummary: boolean;
   isGeneratingTags: boolean;
+  /** 点击图片回调（Phase 3 - 用于移动端切换底部栏） */
+  onTap?: () => void;
 }
 
 export function ImagePreview({
@@ -37,7 +39,8 @@ export function ImagePreview({
   onGenerateSummary: _onGenerateSummary,
   onGenerateTags,
   isGeneratingSummary: _isGeneratingSummary,
-  isGeneratingTags,
+  isGeneratingTags: _isGeneratingTags,
+  onTap,
 }: ImagePreviewProps) {
   return (
     <div className="relative flex items-center justify-center h-full overflow-auto p-4">
@@ -47,6 +50,7 @@ export function ImagePreview({
         className="max-w-full max-h-full object-contain"
         style={{ transform: `scale(${zoomLevel / 100})` }}
         onError={onLoadError}
+        onClick={onTap}
       />
       <button
         className="absolute bottom-4 right-4 p-2 rounded-full bg-background/80 backdrop-blur border shadow-sm hover:bg-background transition-colors"
@@ -68,7 +72,7 @@ export function ImagePreview({
             <ImageTagsDisplay
               tags={aiTags}
               onGenerate={onGenerateTags}
-              isGenerating={isGeneratingTags}
+              isGenerating={_isGeneratingTags}
               showGenerateButton
             />
           </div>

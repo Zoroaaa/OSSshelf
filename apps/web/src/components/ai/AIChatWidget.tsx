@@ -5,13 +5,27 @@
  * 功能:
  * - 右下角悬浮按钮 (FAB)，带脉冲动画
  * - 点击跳转到 AI 对话页面
+ * - 文件预览全屏时自动隐藏
  */
 
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MessageSquare } from 'lucide-react';
 
 export function AIChatWidget() {
   const navigate = useNavigate();
+  const [isPreviewFullscreen, setIsPreviewFullscreen] = useState(false);
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsPreviewFullscreen(document.body.classList.contains('preview-fullscreen'));
+    });
+    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    setIsPreviewFullscreen(document.body.classList.contains('preview-fullscreen'));
+    return () => observer.disconnect();
+  }, []);
+
+  if (isPreviewFullscreen) return null;
 
   return (
     <button

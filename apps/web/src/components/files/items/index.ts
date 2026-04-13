@@ -5,5 +5,3 @@
 
 export { ListItem } from './ListItem';
 export { GridItem } from './GridItem';
-export { MasonryItem } from './MasonryItem';
-export { GalleryItem } from './GalleryItem';

@@ -15,15 +15,9 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { FileItem } from '@osshelf/shared';
 
-export type ViewMode = 'list' | 'grid' | 'masonry';
+export type ViewMode = 'list' | 'grid';
 export type SortField = 'name' | 'size' | 'createdAt' | 'updatedAt' | 'mimeType';
 export type SortOrder = 'asc' | 'desc';
-
-export interface ClipboardItem {
-  type: 'copy' | 'cut';
-  files: FileItem[];
-  sourceFolderId: string | null;
-}
 
 interface NavigationHistory {
   folderId: string | null;
@@ -38,7 +32,6 @@ interface FileState {
   sortBy: SortField;
   sortOrder: SortOrder;
   searchQuery: string;
-  clipboard: ClipboardItem | null;
   navigationHistory: NavigationHistory[];
   historyIndex: number;
   focusedFileId: string | null;
@@ -53,8 +46,6 @@ interface FileState {
   setViewMode: (mode: ViewMode) => void;
   setSort: (sortBy: SortField, sortOrder: SortOrder) => void;
   setSearchQuery: (query: string) => void;
-  setClipboard: (type: 'copy' | 'cut', files: FileItem[], sourceFolderId: string | null) => void;
-  clearClipboard: () => void;
   goBack: () => string | null;
   goForward: () => string | null;
   canGoBack: () => boolean;
@@ -73,7 +64,6 @@ export const useFileStore = create<FileState>()(
       sortBy: 'createdAt',
       sortOrder: 'desc',
       searchQuery: '',
-      clipboard: null,
       navigationHistory: [],
       historyIndex: -1,
       focusedFileId: null,
@@ -165,14 +155,6 @@ export const useFileStore = create<FileState>()(
       setSort: (sortBy, sortOrder) => set({ sortBy, sortOrder }),
 
       setSearchQuery: (query) => set({ searchQuery: query }),
-
-      setClipboard: (type, files, sourceFolderId) => {
-        set({
-          clipboard: { type, files, sourceFolderId },
-        });
-      },
-
-      clearClipboard: () => set({ clipboard: null }),
 
       goBack: () => {
         const { navigationHistory, historyIndex } = get();

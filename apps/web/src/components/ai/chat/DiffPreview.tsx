@@ -31,9 +31,7 @@ export function DiffPreview({ diff }: DiffPreviewProps) {
         <div className="flex items-center gap-2">
           <Diff className="h-3.5 w-3.5 text-slate-500" />
           <span className="text-xs font-medium text-slate-600 dark:text-slate-400">变更预览</span>
-          <span className="text-xs text-violet-600 dark:text-violet-400 font-medium">
-            {diff.totalChanges} 处改动
-          </span>
+          <span className="text-xs text-violet-600 dark:text-violet-400 font-medium">{diff.totalChanges} 处改动</span>
         </div>
         {maxLines > 8 && (
           <button

@@ -49,14 +49,6 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: 'Esc', description: '取消选择/关闭对话框' },
     ],
   },
-  {
-    title: '编辑操作',
-    shortcuts: [
-      { keys: 'Ctrl+C', description: '复制' },
-      { keys: 'Ctrl+X', description: '剪切' },
-      { keys: 'Ctrl+V', description: '粘贴' },
-    ],
-  },
 ];
 
 interface KeyboardShortcutsDialogProps {

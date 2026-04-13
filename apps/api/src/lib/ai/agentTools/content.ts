@@ -32,6 +32,7 @@ import { readFileContent } from '../../../lib/fileContentHelper';
 import { buildFileTextForVector } from '../vectorIndex';
 import { getAiConfigNumber, getAiConfigString } from '../aiConfigService';
 import { toAgentFile, validateFileAccess, createSuccessResponse, createErrorResponse } from './agentToolUtils';
+import { getFilesByScope as serviceGetFilesByScope } from '../../../lib/fileService';
 
 const DEFAULT_MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 const DEFAULT_TEXT_CHUNK_SIZE = 1500;
@@ -197,6 +198,45 @@ export const definitions: ToolDefinition[] = [
           maxLength: { type: 'number', description: '最大字符数（默认2000）' },
         },
         required: ['fileId'],
+      },
+    },
+  },
+
+  // ── Phase 9: 文件集合分析工具 ──────────────────────────
+  {
+    type: 'function',
+    function: {
+      name: 'analyze_file_collection',
+      description: `【文件集合分析】对一组文件进行结构化分析，生成报告、对比、提取共同点等。
+适用场景：
+- "分析这个文件夹的内容"
+- "对比这些文件的异同"
+- "提取这些合同的共同条款"
+- "梳理一下项目的文件脉络"
+
+分析类型：
+- summary: 生成整体报告
+- compare: 对比异同点
+- extract_common: 提取共同主题/关键词
+- timeline: 按时间顺序梳理`,
+      parameters: {
+        type: 'object',
+        properties: {
+          scope: {
+            type: 'string',
+            enum: ['folder', 'tag', 'starred'],
+            description: '分析范围：folder=文件夹, tag=标签, starred=收藏',
+          },
+          folderId: { type: 'string', description: '文件夹ID（scope=folder时必填）' },
+          tagName: { type: 'string', description: '标签名（scope=tag时必填）' },
+          analysisType: {
+            type: 'string',
+            enum: ['summary', 'compare', 'extract_common', 'timeline'],
+            description: '分析类型',
+          },
+          maxFiles: { type: 'number', description: '最大文件数（默认20）' },
+        },
+        required: ['scope', 'analysisType'],
       },
     },
   },
@@ -667,6 +707,58 @@ export class ContentTools {
         mimeType: file.mimeType,
         preview: null,
         error: '预览失败: ' + (error instanceof Error ? error.message : '未知错误'),
+      };
+    }
+  }
+
+  // ── Phase 9: 文件集合分析执行方法 ─────────────────────
+  static async executeAnalyzeFileCollection(env: Env, userId: string, args: Record<string, unknown>) {
+    const scope = args.scope as string;
+    const folderId = args.folderId as string | undefined;
+    const tagName = args.tagName as string | undefined;
+    const analysisType = args.analysisType as string;
+    const maxFiles = Math.min((args.maxFiles as number) || 20, 50);
+
+    if (!scope || !analysisType) {
+      return { error: '缺少必要参数: scope 和 analysisType' };
+    }
+
+    try {
+      const result = await serviceGetFilesByScope(env, userId, {
+        scope: scope as 'folder' | 'tag' | 'starred',
+        folderId,
+        tagName,
+        maxFiles,
+      });
+
+      if (result.error) {
+        return { error: result.error };
+      }
+
+      const analysisTypeMap: Record<string, string> = {
+        summary: '请基于以上文件摘要生成整体报告',
+        compare: '请对比以上文件的异同点',
+        extract_common: '请提取以上文件的共同主题/条款/关键词',
+        timeline: '请按时间顺序梳理文件脉络',
+      };
+
+      return {
+        files: result.files,
+        totalCount: result.totalCount,
+        truncated: result.totalCount >= maxFiles,
+        analysisType,
+        scope,
+        _next_actions: [analysisTypeMap[analysisType] || '请分析以上文件集合'],
+      };
+    } catch (error) {
+      logger.error(
+        'AgentTool',
+        '文件集合分析失败',
+        { error: error instanceof Error ? error.message : error },
+        error as Error
+      );
+      return {
+        error: '分析失败：' + (error instanceof Error ? error.message : '未知错误'),
       };
     }
   }

@@ -15,7 +15,11 @@ import { getDb, files, userGroups, groupMembers } from '../../../db';
 import type { Env } from '../../../types/env';
 import { logger } from '@osshelf/shared';
 import type { ToolDefinition } from './types';
-import { setFolderAccessLevel as serviceSetFolderAccessLevel, manageGroupMembers as serviceManageGroupMembers } from '../../../lib/permissionService';
+import {
+  setFolderAccessLevel as serviceSetFolderAccessLevel,
+  manageGroupMembers as serviceManageGroupMembers,
+  listExpiredPermissions as serviceListExpiredPermissions,
+} from '../../../lib/permissionService';
 
 export const definitions: ToolDefinition[] = [
   {
@@ -38,7 +42,7 @@ export const definitions: ToolDefinition[] = [
     function: {
       name: 'grant_permission',
       description: `【授予权限】为用户授予对文件的访问权限。
-适用场景："给张三这个文件夹的读写权限"、"允许李四访问这个文件"`,
+适用场景："给张三这个文件夹的读写权限"、"允许李四访问这个文件"、"把设计文件夹给小明只读，30天后过期"`,
       parameters: {
         type: 'object',
         properties: {
@@ -50,6 +54,8 @@ export const definitions: ToolDefinition[] = [
             enum: ['read', 'write', 'admin'],
             description: '权限级别：read=只读, write=读写, admin=管理员',
           },
+          /** N天后过期（自然语言表达，如"30天后过期"） */
+          expiresInDays: { type: 'number', description: 'N天后过期（可选，不传则永不过期）' },
           _confirmed: { type: 'boolean', description: '用户确认' },
         },
         required: ['fileId', 'permissionLevel'],
@@ -138,6 +144,22 @@ export const definitions: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'list_expired_permissions',
+      description: `【查询过期授权】查看已过期或即将过期的文件授权。
+适用场景："哪些授权过期了"、"快过期的权限"、"清理过期授权"、"检查即将到期的分享"`,
+      parameters: {
+        type: 'object',
+        properties: {
+          includeExpiringSoon: { type: 'boolean', description: '是否包含即将过期的授权（默认false）' },
+          withinDays: { type: 'number', description: '即将过期的天数阈值（默认7天）' },
+        },
+        required: [],
+      },
+    },
+  },
 ];
 
 export class PermissionTools {
@@ -178,10 +200,18 @@ export class PermissionTools {
     const targetUserId = args.targetUserId as string | undefined;
     const targetEmail = args.targetEmail as string | undefined;
     const permissionLevel = args.permissionLevel as string;
+    const expiresInDays = args.expiresInDays as number | undefined;
 
     if (!targetUserId && !targetEmail) {
       return { error: '需要提供 targetUserId 或 targetEmail' };
     }
+
+    // ── 处理 expiresInDays → expiresAt ─────────────────────
+    let expiresAt: string | undefined;
+    if (expiresInDays && expiresInDays > 0) {
+      expiresAt = new Date(Date.now() + expiresInDays * 86400000).toISOString();
+    }
+    // ───────────────────────────────────────────────────────
 
     const db = getDb(env.DB);
     const file = await db
@@ -197,15 +227,18 @@ export class PermissionTools {
       targetUserId: targetUserId || '(by email)',
       targetEmail,
       permissionLevel,
+      expiresInDays,
+      expiresAt,
     });
 
     return {
       success: true,
-      message: `已为 ${targetEmail || targetUserId} 授予 ${permissionLevel} 权限`,
+      message: `已为 ${targetEmail || targetUserId} 授予 ${permissionLevel} 权限${expiresAt ? `，${expiresInDays}天后过期` : ''}`,
       fileId,
       fileName: file.name,
       grantedTo: targetEmail || targetUserId,
       permissionLevel,
+      ...(expiresAt && { expiresAt, expiresInDays }),
       _next_actions: [
         '✅ 权限已授予',
         '可通过 get_file_permissions 查看当前权限状态',
@@ -250,9 +283,14 @@ export class PermissionTools {
       folderId,
       folderName: result.folderName,
       accessLevel: result.accessLevel,
-      description: result.accessLevel === 'private' ? '仅自己可访问' :
-        result.accessLevel === 'team' ? '团队成员可访问' :
-        result.accessLevel === 'public_read' ? '所有人可读' : '所有人可读写',
+      description:
+        result.accessLevel === 'private'
+          ? '仅自己可访问'
+          : result.accessLevel === 'team'
+            ? '团队成员可访问'
+            : result.accessLevel === 'public_read'
+              ? '所有人可读'
+              : '所有人可读写',
     };
   }
 
@@ -326,5 +364,40 @@ export class PermissionTools {
     if ('success' in result && result.success === false) return { error: (result as { error: string }).error };
 
     return result;
+  }
+
+  static async executeListExpiredPermissions(env: Env, userId: string, args: Record<string, unknown>) {
+    const includeExpiringSoon = (args.includeExpiringSoon as boolean) || false;
+    const withinDays = (args.withinDays as number) || 7;
+
+    try {
+      const result = await serviceListExpiredPermissions(env, userId, {
+        includeExpiringSoon,
+        withinDays,
+      });
+
+      return {
+        ...result,
+        _next_actions: [
+          `找到 ${result.expired.length} 个已过期授权${includeExpiringSoon ? `，${result.expiringSoon?.length || 0} 个即将过期` : ''}`,
+          '可调用 revoke_permission 批量撤销过期授权',
+          '可调用 grant_permission 重新授权',
+        ],
+      };
+    } catch (error) {
+      logger.error(
+        'AgentTool',
+        '查询过期授权失败',
+        { error: error instanceof Error ? error.message : error },
+        error as Error
+      );
+      return {
+        expired: [],
+        expiringSoon: includeExpiringSoon ? [] : undefined,
+        scannedAt: new Date().toISOString(),
+        error: '查询失败：' + (error instanceof Error ? error.message : '未知错误'),
+        _next_actions: ['请检查数据库连接或表结构'],
+      };
+    }
   }
 }

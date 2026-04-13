@@ -27,7 +27,7 @@ export {
   type FileTemplate,
 } from './dialogs';
 
-export { ListItem, GridItem, MasonryItem, GalleryItem } from './items';
+export { ListItem, GridItem } from './items';
 
 export { FilePermissionManager, FilePermissionsDialog } from './permissions';
 

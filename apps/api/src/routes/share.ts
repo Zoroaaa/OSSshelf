@@ -230,7 +230,12 @@ app.post('/', authMiddleware, async (c) => {
   }
 
   const { fileId, password, expiresAt, downloadLimit } = result.data;
-  const serviceResult = await serviceCreateShareLink(c.env, userId, { fileId, password, expiresAt, maxUses: downloadLimit });
+  const serviceResult = await serviceCreateShareLink(c.env, userId, {
+    fileId,
+    password,
+    expiresAt,
+    maxUses: downloadLimit,
+  });
   if (!serviceResult.success) {
     if (serviceResult.error === '无权分享此文件') throwAppError('FILE_ACCESS_DENIED', serviceResult.error);
     if (serviceResult.error === '文件不存在') throwAppError('FILE_NOT_FOUND');
@@ -337,7 +342,9 @@ app.post('/upload-link', authMiddleware, async (c) => {
       folderId,
       folderName: serviceResult.folderName,
       uploadToken: serviceResult.url.replace('/upload/', ''),
-      expiresAt: new Date(Date.now() + (expiresAt ? (new Date(expiresAt).getTime() - Date.now()) : SHARE_DEFAULT_EXPIRY)).toISOString(),
+      expiresAt: new Date(
+        Date.now() + (expiresAt ? new Date(expiresAt).getTime() - Date.now() : SHARE_DEFAULT_EXPIRY)
+      ).toISOString(),
       maxUploadSize,
       allowedMimeTypes: allowedMimeTypes ?? null,
       maxUploadCount: maxUploadCount ?? null,

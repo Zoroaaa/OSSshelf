@@ -2,20 +2,34 @@
  * MigrateBucketDialog.tsx
  * 存储桶迁移对话框
  *
- * 允许用户在两个存储桶之间迁移文件，支持：
- * - 选择来源和目标存储桶
- * - 可选"移动"模式（迁移后删除来源）
+ * 功能:
+ * - 支持全桶迁移和单文件/文件夹粒度迁移
+ * - 单文件模式：自动推断来源桶，展示文件信息
+ * - 文件夹模式：显示递归迁移提示
  * - 实时进度轮询（每 2s 刷新）
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { bucketsApi, migrateApi, type StorageBucket, type MigrationStatus } from '@/services/api';
+import { bucketsApi, migrateApi, filesApi, type StorageBucket, type MigrationStatus } from '@/services/api';
 import { Button } from '@/components/ui/Button';
-import { formatBytes } from '@/utils';
-import { ArrowRight, Loader2, CheckCircle2, XCircle, AlertCircle, ArrowRightLeft, X } from 'lucide-react';
+import { formatBytes, decodeFileName } from '@/utils';
+import {
+  ArrowRight,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  ArrowRightLeft,
+  X,
+  Folder,
+  FileText,
+} from 'lucide-react';
+import type { FileItem } from '@osshelf/shared';
 
 interface Props {
+  /** 单个文件/文件夹换桶时传入（Phase 5 增强） */
+  file?: FileItem;
   /** 预填的来源存储桶 ID（可选） */
   defaultSourceId?: string;
   /** 可选：仅迁移指定文件 ID */
@@ -23,17 +37,40 @@ interface Props {
   onClose: () => void;
 }
 
-export function MigrateBucketDialog({ defaultSourceId, fileIds, onClose }: Props) {
+export function MigrateBucketDialog({ file, defaultSourceId, fileIds: _fileIds, onClose }: Props) {
   const [sourceId, setSourceId] = useState(defaultSourceId ?? '');
   const [targetId, setTargetId] = useState('');
   const [deleteSource, setDeleteSource] = useState(false);
   const [migrationId, setMigrationId] = useState<string | null>(null);
+
+  // ── 单文件模式：自动推断来源桶 ──────────────────────────────
+  useEffect(() => {
+    if (file && !defaultSourceId) {
+      const bucketId = (file as any).bucketId;
+      if (bucketId) {
+        setSourceId(bucketId);
+      }
+    }
+  }, [file, defaultSourceId]);
+
+  // 构建实际的 fileIds
+  const fileIds = file ? [file.id] : _fileIds;
+
+  // 获取文件夹详情（用于显示递归统计）
+  const { data: folderDetail } = useQuery({
+    queryKey: ['file-detail', file?.id],
+    queryFn: () => filesApi.getFileDetail(file!.id),
+    enabled: !!file?.isFolder,
+  });
 
   const { data: bucketsData } = useQuery({
     queryKey: ['buckets'],
     queryFn: () => bucketsApi.list().then((r) => r.data.data ?? []),
   });
   const buckets: StorageBucket[] = bucketsData ?? [];
+
+  // 过滤掉当前源桶
+  const targetBuckets = buckets.filter((b) => b.id !== sourceId);
 
   // Poll migration status every 2s while running
   const { data: statusData } = useQuery({
@@ -50,7 +87,12 @@ export function MigrateBucketDialog({ defaultSourceId, fileIds, onClose }: Props
   const startMutation = useMutation({
     mutationFn: () =>
       migrateApi
-        .start({ sourceBucketId: sourceId, targetBucketId: targetId, deleteSource, fileIds })
+        .start({
+          sourceBucketId: sourceId || '',
+          targetBucketId: targetId,
+          deleteSource,
+          fileIds,
+        })
         .then((r) => r.data),
     onSuccess: (res) => {
       setMigrationId(res.data?.migrationId ?? null);
@@ -75,7 +117,7 @@ export function MigrateBucketDialog({ defaultSourceId, fileIds, onClose }: Props
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <ArrowRightLeft className="h-4 w-4 text-primary" />
-            <h2 className="text-lg font-semibold">存储桶迁移</h2>
+            <h2 className="text-lg font-semibold">{file ? '换桶' : '存储桶迁移'}</h2>
           </div>
           {!isRunning && (
             <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
@@ -84,10 +126,30 @@ export function MigrateBucketDialog({ defaultSourceId, fileIds, onClose }: Props
           )}
         </div>
 
+        {/* 单文件信息卡片 */}
+        {file && (
+          <div className="bg-muted/30 rounded-lg p-3 space-y-1">
+            <div className="flex items-center gap-2 text-sm">
+              {file.isFolder ? (
+                <Folder className="h-4 w-4 text-amber-500" />
+              ) : (
+                <FileText className="h-4 w-4 text-blue-500" />
+              )}
+              <span className="font-medium truncate">{decodeFileName(file.name)}</span>
+            </div>
+            {file.isFolder && folderDetail?.data && folderDetail.data.totalFileCount > 0 && (
+              <p className="text-xs text-muted-foreground pl-6">
+                将递归迁移所有子文件（共 {folderDetail.data.totalFileCount} 个， 总大小{' '}
+                {formatBytes(folderDetail.data.totalSize)})
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Bucket selectors */}
         {!migrationId && (
           <div className="space-y-3">
-            {fileIds?.length && (
+            {!file && fileIds?.length && (
               <p className="text-xs text-muted-foreground bg-muted rounded-lg px-3 py-2">
                 仅迁移已选中的 <span className="font-medium">{fileIds.length}</span> 个文件
               </p>
@@ -99,6 +161,7 @@ export function MigrateBucketDialog({ defaultSourceId, fileIds, onClose }: Props
                 value={sourceId}
                 onChange={(e) => setSourceId(e.target.value)}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                disabled={!!file} // 单文件模式下锁定
               >
                 <option value="">请选择来源存储桶</option>
                 {buckets.map((b) => (
@@ -121,12 +184,15 @@ export function MigrateBucketDialog({ defaultSourceId, fileIds, onClose }: Props
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               >
                 <option value="">请选择目标存储桶</option>
-                {buckets.map((b) => (
-                  <option key={b.id} value={b.id} disabled={b.id === sourceId}>
+                {targetBuckets.map((b) => (
+                  <option key={b.id} value={b.id}>
                     {b.name} ({b.provider}) — {formatBytes(b.storageUsed)}
                   </option>
                 ))}
               </select>
+              {targetBuckets.length === 0 && sourceId && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">没有可用的目标存储桶</p>
+              )}
             </div>
 
             <label className="flex items-center gap-2 text-sm cursor-pointer select-none">

@@ -491,6 +491,27 @@ export const definitions: ToolDefinition[] = [
       },
     },
   },
+
+  // ── Phase 7: 草稿创建工具 ──────────────────────────────────
+  {
+    type: 'function',
+    function: {
+      name: 'draft_and_create_file',
+      description: `【草稿创建】先生成文件草稿供用户确认后再正式创建。
+适用场景："帮我写一个README"、"生成Python脚本"、"创建配置文件"、"帮我写一个项目文档"`,
+      parameters: {
+        type: 'object',
+        properties: {
+          fileName: { type: 'string', description: '目标文件名（含扩展名）' },
+          targetFolderId: { type: 'string', description: '目标文件夹ID（不传则根目录）' },
+          userRequest: { type: 'string', description: '用户原始需求（用于确认展示）' },
+          draftContent: { type: 'string', description: 'Agent生成的草稿内容' },
+          _confirmed: { type: 'boolean', description: '用户确认标志' },
+        },
+        required: ['fileName', 'draftContent'],
+      },
+    },
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1062,6 +1083,66 @@ services:
 
   private static async findOrCreateFolder(env: Env, userId: string, path: string): Promise<string | null> {
     return serviceFindOrCreateFolder(env, userId, path);
+  }
+
+  // ── Phase 7: 草稿创建执行方法 ─────────────────────────────
+  static async executeDraftAndCreateFile(env: Env, userId: string, args: Record<string, unknown>) {
+    const fileName = args.fileName as string;
+    const targetFolderId = args.targetFolderId as string | undefined;
+    const userRequest = args.userRequest as string | undefined;
+    const draftContent = args.draftContent as string;
+    const _confirmed = args._confirmed as boolean;
+
+    if (!fileName || !draftContent) {
+      return { error: '缺少必要参数: fileName 和 draftContent' };
+    }
+
+    // 未确认时返回草稿供预览
+    if (!_confirmed) {
+      return {
+        success: false,
+        pendingConfirm: true,
+        confirmId: `draft-${Date.now()}`,
+        message: `是否创建文件 "${fileName}"？`,
+        previewType: 'draft',
+        draftContent,
+        fileName,
+        userRequest,
+        _next_actions: ['用户确认后将正式创建文件', '用户可查看并编辑草稿内容'],
+      } as unknown as PendingConfirmResult;
+    }
+
+    // 确认后创建文件
+    const ext = getFileExtension(fileName);
+    const folderId: string | null = targetFolderId || null;
+
+    const result = await createTextFile(env, userId, {
+      name: fileName,
+      content: draftContent,
+      parentId: folderId,
+      mimeType: MIME_TYPE_MAP[ext] || 'text/plain',
+    });
+
+    if (!result.success) {
+      return { error: result.error };
+    }
+
+    logger.info('AgentTool', 'Draft file created', { fileId: result.fileId, fileName });
+
+    return {
+      success: true,
+      message: `文件 "${fileName}" 已创建`,
+      fileId: result.fileId,
+      fileName,
+      path: (result.file?.path as string) || '',
+      size: formatBytes((result.file?.size as number) || 0),
+      mimeType: (result.file?.mimeType as string) || 'text/plain',
+      _next_actions: [
+        '✅ 文件已创建',
+        '如需编辑，可调用 edit_file_content',
+        '如需分享，可调用 create_share 或 create_direct_link',
+      ],
+    };
   }
 }
 

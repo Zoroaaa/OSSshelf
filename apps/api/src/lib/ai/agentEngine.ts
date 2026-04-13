@@ -60,8 +60,6 @@ const DEFAULT_IMAGE_TIMEOUT_MS = 25000;
 const TOKENS_PER_CHAR = 0.5;
 const TOOL_CALL_REGEX = /```tool(?:_call)?\s*([\s\S]*?)```/;
 
-
-
 /**
  * 视觉意图检测模式（中英文）
  * runAutoChain 只在 query 明确包含"视觉操作类意图"时自动触发，
@@ -114,14 +112,13 @@ async function loadAgentConfig(env: Env): Promise<AgentConfig> {
 
   try {
     // 并发查询所有配置项
-    const [maxToolCalls, maxIdleRounds, agentTemperature, imageTimeoutMs, maxContextTokens] =
-      await Promise.all([
-        getAiConfigNumber(env, 'ai.agent.max_tool_calls', DEFAULT_MAX_TOOL_CALLS),
-        getAiConfigNumber(env, 'ai.agent.max_idle_rounds', DEFAULT_MAX_IDLE_ROUNDS),
-        getAiConfigNumber(env, 'ai.agent.temperature', DEFAULT_AGENT_TEMPERATURE),
-        getAiConfigNumber(env, 'ai.agent.image_timeout_ms', DEFAULT_IMAGE_TIMEOUT_MS),
-        getAiConfigNumber(env, 'ai.agent.max_context_tokens', DEFAULT_MAX_CONTEXT_TOKENS),
-      ]);
+    const [maxToolCalls, maxIdleRounds, agentTemperature, imageTimeoutMs, maxContextTokens] = await Promise.all([
+      getAiConfigNumber(env, 'ai.agent.max_tool_calls', DEFAULT_MAX_TOOL_CALLS),
+      getAiConfigNumber(env, 'ai.agent.max_idle_rounds', DEFAULT_MAX_IDLE_ROUNDS),
+      getAiConfigNumber(env, 'ai.agent.temperature', DEFAULT_AGENT_TEMPERATURE),
+      getAiConfigNumber(env, 'ai.agent.image_timeout_ms', DEFAULT_IMAGE_TIMEOUT_MS),
+      getAiConfigNumber(env, 'ai.agent.max_context_tokens', DEFAULT_MAX_CONTEXT_TOKENS),
+    ]);
 
     const config: AgentConfig = {
       maxToolCalls,
@@ -193,6 +190,10 @@ const TOOL_SUMMARY_MAP: Record<string, (args: Record<string, unknown>) => string
   create_api_key: (a) => `创建 API Key`,
   revoke_api_key: (a) => `撤销 API Key`,
   create_webhook: (a) => `创建 Webhook`,
+  draft_and_create_file: (a) => `草稿创建文件 "${a.fileName || '(未命名)'}"`,
+  list_expired_permissions: (a) => `查询过期授权`,
+  smart_organize_suggest: (a) => `智能整理建议 (范围: ${a.scope || 'all'})`,
+  analyze_file_collection: (a) => `文件集合分析 (类型: ${a.analysisType})`,
 };
 
 function buildConfirmSummary(toolName: string, args: Record<string, unknown>): string {
@@ -438,6 +439,17 @@ export const AGENT_SYSTEM_PROMPT = `你是 OSSshelf 的智能文件管家，拥�
 - 版本管理：恢复版本、设置保留策略
 - 笔记管理：写入/更新/删除备注
 - 收藏：收藏/取消收藏
+- 权限管理：授权、撤销权限、设置访问级别（支持自然语言过期时间）
+
+**权限管理示例**：
+- "把设计文件夹给小明只读，30天后过期" → grant_permission(folderId, userId, 'read', expiresInDays=30)
+- "检查财务文件夹谁有写权限" → get_file_permissions(folderId) → 过滤 permission='write'
+- "清理所有已过期授权" → list_expired_permissions() → 逐个 revoke_permission(_confirmed=true)
+
+**文件创建（草稿模式）**：
+- "帮我写一个 README" → draft_and_create_file(fileName='README.md', draftContent=<生成内容>, _confirmed=false)
+- "生成一个 Python 爬虫脚本放到代码文件夹" → draft_and_create_file(fileName='spider.py', targetFolderId=<ID>, draftContent=<代码>, _confirmed=false)
+- 用户确认后收到 _confirmed=true → 正式创建文件
 
 **写前验证（强制）**：任何涉及路径/文件夹的写操作，执行前必须先确认目标位置真实存在：
 1. 用户提到文件夹名称时（如"资料共享文件夹"、"项目目录"），**先调用 \`search_files\` 或 \`get_folder_tree\` 查找该文件夹**
@@ -548,7 +560,9 @@ export class AgentEngine {
       const ctxParts: string[] = [];
 
       if (contextFolderId) {
-        const folder = await db.select().from(files)
+        const folder = await db
+          .select()
+          .from(files)
           .where(and(eq(files.id, contextFolderId), eq(files.userId, userId), isNull(files.deletedAt)))
           .get();
         if (folder) {
@@ -558,15 +572,13 @@ export class AgentEngine {
       }
 
       if (contextFileIds && contextFileIds.length > 0) {
-        const ctxFiles = await db.select({ id: files.id, name: files.name, path: files.path })
+        const ctxFiles = await db
+          .select({ id: files.id, name: files.name, path: files.path })
           .from(files)
-          .where(and(
-            inArray(files.id, contextFileIds),
-            eq(files.userId, userId),
-            isNull(files.deletedAt)
-          )).all();
+          .where(and(inArray(files.id, contextFileIds), eq(files.userId, userId), isNull(files.deletedAt)))
+          .all();
         if (ctxFiles.length > 0) {
-          const fileList = ctxFiles.map(f => `- ${f.name} (${f.path})`).join('\n');
+          const fileList = ctxFiles.map((f) => `- ${f.name} (${f.path})`).join('\n');
           ctxParts.push(`用户选中的文件：\n${fileList}`);
         }
       }
@@ -589,8 +601,15 @@ export class AgentEngine {
       });
 
       const result = await this.runNative(
-        userId, query, conversationHistory, modelId,
-        caps, config, onChunk, signal, sessionId,
+        userId,
+        query,
+        conversationHistory,
+        modelId,
+        caps,
+        config,
+        onChunk,
+        signal,
+        sessionId,
         TOOL_DEFINITIONS, // 全量工具，让模型自己选
         contextPrompt
       );
@@ -617,9 +636,17 @@ export class AgentEngine {
     });
 
     const result = await this.runPromptBased(
-      userId, query, conversationHistory, modelId,
-      caps, config, onChunk, signal, sessionId,
-      filteredTools, contextPrompt
+      userId,
+      query,
+      conversationHistory,
+      modelId,
+      caps,
+      config,
+      onChunk,
+      signal,
+      sessionId,
+      filteredTools,
+      contextPrompt
     );
     return {
       ...result,
@@ -735,7 +762,19 @@ export class AgentEngine {
               fullText = '';
             }
             logger.warn('AgentEngine', 'Native tool calling failed, falling back to prompt-based');
-            return this.runPromptBased(userId, query, conversationHistory, modelId, caps, config, onChunk, signal, sessionId, filteredTools, contextPrompt);
+            return this.runPromptBased(
+              userId,
+              query,
+              conversationHistory,
+              modelId,
+              caps,
+              config,
+              onChunk,
+              signal,
+              sessionId,
+              filteredTools,
+              contextPrompt
+            );
           } else {
             // 已有工具调用轮次，不 fallback，直接报错
             onChunk({ type: 'error', message: 'AI 模型调用失败', done: true });
@@ -771,7 +810,20 @@ export class AgentEngine {
             fullText = '';
           }
 
-          return this.runPromptBased(userId, query, conversationHistory, modelId, caps, config, onChunk, signal, sessionId, filteredTools, contextPrompt, fallbackCount + 1);
+          return this.runPromptBased(
+            userId,
+            query,
+            conversationHistory,
+            modelId,
+            caps,
+            config,
+            onChunk,
+            signal,
+            sessionId,
+            filteredTools,
+            contextPrompt,
+            fallbackCount + 1
+          );
         }
 
         messages.push({ role: 'assistant', content: streamContent });
@@ -842,7 +894,12 @@ export class AgentEngine {
               summary,
               done: true,
             });
-            return { fullText, sources, pendingConfirmId: confirmId, meta: { toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens } };
+            return {
+              fullText,
+              sources,
+              pendingConfirmId: confirmId,
+              meta: { toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens },
+            };
           }
 
           roundNewData = mergeSourcesFromResult(result, sources) || roundNewData;
@@ -856,8 +913,10 @@ export class AgentEngine {
 
         // 提取 _next_actions，native 模式同样注入规划提示（与 prompt-based 对齐）
         const nativeNextActions = (result as any)?._next_actions as string[] | undefined;
-        const nativeResultContent = JSON.stringify(result, null, 2) + INJECTION_GUARD
-          + (nativeNextActions?.length
+        const nativeResultContent =
+          JSON.stringify(result, null, 2) +
+          INJECTION_GUARD +
+          (nativeNextActions?.length
             ? `\n\n💡 系统建议下一步：\n${nativeNextActions.map((a) => `- ${a}`).join('\n')}`
             : '');
 
@@ -916,9 +975,10 @@ export class AgentEngine {
   ): Promise<{ fullText: string; sources: AgentSource[]; pendingConfirmId?: string; meta: AgentRunMeta }> {
     const MAX_FALLBACK_ATTEMPTS = 1;
     // 只注入工具名列表，不加完整描述，避免token暴增导致LLM失效
-    const toolListHint = filteredTools.length > 0
-      ? `\n\n## 当前可用工具（只能调用以下工具名，工具名必须完全匹配）\n${filteredTools.map(t => `- ${t.function.name}`).join('\n')}`
-      : '';
+    const toolListHint =
+      filteredTools.length > 0
+        ? `\n\n## 当前可用工具（只能调用以下工具名，工具名必须完全匹配）\n${filteredTools.map((t) => `- ${t.function.name}`).join('\n')}`
+        : '';
     const systemContent = PROMPT_BASED_SYSTEM_PROMPT + contextPrompt + toolListHint;
     const messages: Array<{ role: string; content: string }> = [
       { role: 'system', content: systemContent },
@@ -1090,7 +1150,12 @@ export class AgentEngine {
             summary,
             done: true,
           });
-          return { fullText, sources, pendingConfirmId: confirmId, meta: { toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens } };
+          return {
+            fullText,
+            sources,
+            pendingConfirmId: confirmId,
+            meta: { toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens },
+          };
         }
 
         roundNewData = mergeSourcesFromResult(result, sources);
@@ -1257,9 +1322,8 @@ export class AgentEngine {
     const last = msgs[msgs.length - 1];
     const deduped = last?.role === 'user' && last.content === currentQuery ? msgs.slice(0, -1) : msgs;
 
-    const maxContextTokens = (config.maxContextTokens && config.maxContextTokens > 0)
-      ? config.maxContextTokens
-      : DEFAULT_MAX_CONTEXT_TOKENS;
+    const maxContextTokens =
+      config.maxContextTokens && config.maxContextTokens > 0 ? config.maxContextTokens : DEFAULT_MAX_CONTEXT_TOKENS;
     let totalTokens = estimateTokens(currentQuery);
     const result: Array<{ role: string; content: string }> = [];
 
@@ -1356,7 +1420,10 @@ function randomId(): string {
 function isPureChitchat(query: string): boolean {
   const q = query.trim();
   // 极短的问候/感谢/确认
-  if (q.length < 15 && /^(你好|hi|hello|谢谢|感谢|好的|明白|知道了|ok|okay|嗯|哦|是的|对的|没事|不用了)[\s!！。.]*$/i.test(q)) {
+  if (
+    q.length < 15 &&
+    /^(你好|hi|hello|谢谢|感谢|好的|明白|知道了|ok|okay|嗯|哦|是的|对的|没事|不用了)[\s!！。.]*$/i.test(q)
+  ) {
     return true;
   }
   // 明确的通用知识问题（不涉及文件系统）

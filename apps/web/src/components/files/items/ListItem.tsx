@@ -15,6 +15,7 @@ import { FileTagsDisplay } from '@/components/files/tags';
 import { ActionBtn } from '../ActionBtn';
 import { formatBytes, formatDate, decodeFileName } from '@/utils';
 import { isPreviewable, formatAllowedMimeTypes } from '@/utils/fileTypes';
+import { filesApi } from '@/services/api';
 import { cn } from '@/utils';
 import {
   CheckSquare,
@@ -39,6 +40,7 @@ export function ListItem({
   file,
   isSelected,
   tags,
+  token,
   onClick,
   onToggleSelect,
   onDownload,
@@ -82,7 +84,18 @@ export function ListItem({
         </button>
 
         <div className="flex-shrink-0">
-          <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="md" />
+          {file.mimeType?.startsWith('image/') ? (
+            <img
+              src={filesApi.previewUrl(file.id, token)}
+              alt={decodeFileName(file.name)}
+              className="w-10 h-10 rounded object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
+            />
+          ) : (
+            <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="md" />
+          )}
         </div>
 
         <div className="flex-1 min-w-0">
@@ -141,7 +154,18 @@ export function ListItem({
         )}
       </button>
       <div className="flex-shrink-0">
-        <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="md" />
+        {file.mimeType?.startsWith('image/') ? (
+          <img
+            src={filesApi.previewUrl(file.id, token)}
+            alt={decodeFileName(file.name)}
+            className="w-10 h-10 rounded object-cover"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        ) : (
+          <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="md" />
+        )}
       </div>
       <div className="flex-[3] min-w-0">
         <div className="flex items-center gap-2">

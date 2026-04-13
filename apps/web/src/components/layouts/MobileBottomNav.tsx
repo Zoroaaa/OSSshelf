@@ -69,6 +69,7 @@ export function MobileBottomNav({ onUpload, onNewFolder, onNavigate }: MobileBot
   const [showDrawer, setShowDrawer] = useState(false);
   const { selectedFiles } = useFileStore();
   const { user, logout } = useAuthStore();
+  const [isPreviewFullscreen, setIsPreviewFullscreen] = useState(false);
 
   const { data: trashItems = [] } = useQuery({
     queryKey: ['trash'],
@@ -93,9 +94,18 @@ export function MobileBottomNav({ onUpload, onNewFolder, onNavigate }: MobileBot
     };
   }, [showDrawer]);
 
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsPreviewFullscreen(document.body.classList.contains('preview-fullscreen'));
+    });
+    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    setIsPreviewFullscreen(document.body.classList.contains('preview-fullscreen'));
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <>
-      <nav className="mobile-nav lg:hidden">
+      <nav className={cn('mobile-nav lg:hidden', isPreviewFullscreen && 'hidden')}>
         <div className="flex items-center justify-around h-14">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;

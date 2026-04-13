@@ -10,13 +10,23 @@
  * 智能特性：
  * - 自动识别相关标签
  * - 支持标签颜色/图标
+ *
+ * 注意：所有数据库操作已提取到 tagService.ts，本文件仅负责参数处理和结果组装
  */
 
-import { eq, and, isNull, inArray, like, count, desc, asc } from 'drizzle-orm';
-import { getDb, files, fileTags } from '../../../db';
 import type { Env } from '../../../types/env';
 import { logger } from '@osshelf/shared';
 import type { ToolDefinition } from './types';
+import {
+  addTagToFile,
+  removeTagFromFile,
+  getFileTags,
+  getAllUserTags,
+  getTagStats,
+  batchAddTagsToFiles,
+  getImageFilesForAutoTagging,
+} from '../../../lib/tagService';
+import { getFileById } from '../../../lib/fileQueryService';
 
 export const definitions: ToolDefinition[] = [
   {
@@ -181,36 +191,21 @@ export class TagsTools {
   static async executeAddTag(env: Env, userId: string, args: Record<string, unknown>) {
     const fileId = args.fileId as string;
     const tags = (args.tags as string[]) || [];
-    const db = getDb(env.DB);
 
-    const file = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
-      .get();
+    const file = await getFileById(env, userId, fileId);
     if (!file) return { error: `文件不存在或无权访问: ${fileId}` };
 
-    const now = new Date().toISOString();
     let addedCount = 0;
+    let skippedTags: string[] = [];
+
     for (const tagName of tags) {
       if (!tagName) continue;
 
-      const existing = await db
-        .select()
-        .from(fileTags)
-        .where(and(eq(fileTags.fileId, fileId), eq(fileTags.name, tagName)))
-        .get();
-
-      if (!existing) {
-        await db.insert(fileTags).values({
-          id: crypto.randomUUID(),
-          userId,
-          fileId,
-          name: tagName,
-          color: generateTagColor(tagName),
-          createdAt: now,
-        });
+      const result = await addTagToFile(env, userId, { fileId, name: tagName });
+      if (result.success) {
         addedCount++;
+      } else {
+        skippedTags.push(tagName);
       }
     }
 
@@ -219,102 +214,69 @@ export class TagsTools {
       message: `已添加 ${addedCount} 个标签到 "${file.name}"`,
       fileId,
       fileName: file.name,
-      addedTags: tags.slice(0, addedCount),
-      skippedTags: tags.length > addedCount ? tags.slice(addedCount) : [],
+      addedTags: tags.filter((t) => !skippedTags.includes(t)).slice(0, addedCount),
+      skippedTags,
     };
   }
 
   static async executeRemoveTag(env: Env, userId: string, args: Record<string, unknown>) {
     const fileId = args.fileId as string;
     const tagNames = (args.tagNames as string[]) || (args.tags as string[]) || [];
-    const db = getDb(env.DB);
 
-    const file = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
-      .get();
+    const file = await getFileById(env, userId, fileId);
     if (!file) return { error: `文件不存在或无权访问: ${fileId}` };
 
     let removedCount = 0;
+    const removedTags: string[] = [];
+
     for (const tagName of tagNames) {
       if (!tagName) continue;
-      const result = await db
-        .delete(fileTags)
-        .where(and(eq(fileTags.fileId, fileId), eq(fileTags.name, tagName), eq(fileTags.userId, userId)))
-        .run();
-      if ((result as any).meta?.changes > 0) removedCount++;
+      const result = await removeTagFromFile(env, userId, fileId, tagName);
+      if (result.success && result.removed) {
+        removedCount++;
+        removedTags.push(tagName);
+      }
     }
 
     return {
       success: true,
       message: `已移除 ${removedCount} 个标签`,
       fileId,
-      removedTags: tagNames.slice(0, removedCount),
+      removedTags,
     };
   }
 
   static async executeGetFileTags(env: Env, userId: string, args: Record<string, unknown>) {
     const fileId = args.fileId as string;
-    const db = getDb(env.DB);
 
-    const file = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
-      .get();
+    const file = await getFileById(env, userId, fileId);
     if (!file) return { error: `文件不存在或无权访问: ${fileId}` };
 
-    const tags = await db
-      .select({
-        id: fileTags.id,
-        name: fileTags.name,
-        color: fileTags.color,
-        createdAt: fileTags.createdAt,
-      })
-      .from(fileTags)
-      .where(eq(fileTags.fileId, fileId))
-      .all();
+    const tags = await getFileTags(env, userId, fileId);
 
     return {
       fileId,
       fileName: file.name,
-      tags: tags.map((t) => ({
-        id: t.id,
-        name: t.name,
-        color: t.color,
-        createdAt: t.createdAt,
-      })),
+      tags,
       count: tags.length,
     };
   }
 
   static async executeListAllTags(env: Env, userId: string, args: Record<string, unknown>) {
-    const sortBy = (args.sortBy as string) || 'usage_count';
     const limit = Math.min((args.limit as number) || 50, 100);
-    const db = getDb(env.DB);
 
-    const rows = await db
-      .select({
-        name: fileTags.name,
-        color: fileTags.color,
-        createdAt: fileTags.createdAt,
-        usageCount: count(fileTags.fileId),
-      })
-      .from(fileTags)
-      .where(eq(fileTags.userId, userId))
-      .groupBy(fileTags.name)
-      .orderBy(sortBy === 'name' ? asc(fileTags.name) : desc(count(fileTags.fileId)))
-      .limit(limit)
-      .all();
+    const allTags = await getAllUserTags(env, userId, { limit });
+
+    const stats = await getTagStats(env, userId);
+    const statsMap = new Map(stats.map((s) => [s.name, s.count]));
 
     return {
-      total: rows.length,
-      tags: rows.map((r) => ({
-        name: r.name,
-        color: r.color,
-        usageCount: Number(r.usageCount) || 0,
-        createdAt: r.createdAt,
+      total: allTags.length,
+      tags: allTags.map((t) => ({
+        name: t.name,
+        color: t.color,
+        usageCount: statsMap.get(t.name) || 0,
+        createdAt: t.createdAt,
       })),
     };
   }
@@ -322,31 +284,24 @@ export class TagsTools {
   static async executeMergeTags(env: Env, userId: string, args: Record<string, unknown>) {
     const sourceTag = args.sourceTag as string;
     const targetTag = args.targetTag as string;
-    const db = getDb(env.DB);
 
     if (sourceTag === targetTag) {
       return { error: '源标签和目标标签不能相同' };
     }
 
-    const sourceRecords = await db
-      .select()
-      .from(fileTags)
-      .where(and(eq(fileTags.userId, userId), eq(fileTags.name, sourceTag)))
-      .all();
+    const sourceRecords = await getAllUserTags(env, userId, { search: sourceTag, limit: 1000 });
 
     let migratedCount = 0;
     for (const record of sourceRecords) {
-      const existingTarget = await db
-        .select()
-        .from(fileTags)
-        .where(and(eq(fileTags.userId, userId), eq(fileTags.fileId, record.fileId), eq(fileTags.name, targetTag)))
-        .get();
+      if (record.name !== sourceTag) continue;
 
-      if (!existingTarget) {
-        await db.update(fileTags).set({ name: targetTag }).where(eq(fileTags.id, record.id));
+      const result = await addTagToFile(env, userId, {
+        fileId: record.id.split('-')[0],
+        name: targetTag,
+      });
+
+      if (result.success) {
         migratedCount++;
-      } else {
-        await db.delete(fileTags).where(eq(fileTags.id, record.id));
       }
     }
 
@@ -363,95 +318,101 @@ export class TagsTools {
 
   static async executeAutoTagFiles(env: Env, userId: string, args: Record<string, unknown>) {
     const fileIds = (args.fileIds as string[]) || [];
-    const maxTagsPerFile = Math.min((args.maxTagsPerFile as number) || 3, 5);
+    const maxTags = Math.min((args.maxTags as number) || (args.maxTagsPerFile as number) || 5, 10);
 
-    return {
-      status: 'queued',
-      message: `自动打标签任务已加入队列，将为 ${fileIds.length} 个文件各推荐最多 ${maxTagsPerFile} 个标签`,
-      fileIds,
-      maxTagsPerFile,
-      _next_actions: ['完成后可通过 get_file_detail 查看更新后的标签', '可通过 search_by_tag 按新标签搜索'],
-    };
+    if (!env.AI_TASKS_QUEUE) {
+      return {
+        error: 'AI任务队列未配置，无法执行批量标签生成。请联系管理员配置 Cloudflare Queue。',
+        hint: '管理员需在 wrangler.toml 中配置 [[queues.producers]] 和 [[queues.consumers]]',
+        code: 'QUEUE_NOT_CONFIGURED',
+      };
+    }
+
+    if (fileIds.length === 0) {
+      return { error: '未指定要处理的文件ID列表', code: 'NO_FILE_IDS' };
+    }
+
+    const validFiles = await getImageFilesForAutoTagging(env, userId, fileIds);
+
+    if (validFiles.length === 0) {
+      return {
+        error: '没有找到有效的图片文件。注意：自动标签功能仅支持图片文件（mimeType: image/*）',
+        code: 'NO_VALID_IMAGE_FILES',
+        providedFileIds: fileIds,
+        hint: '请使用 filter_files(mimeTypePrefix="image/") 先筛选出图片文件，再传入fileIds',
+      };
+    }
+
+    try {
+      const { createTaskRecord, enqueueAiTasks } = await import('../aiTaskQueue');
+      const task = await createTaskRecord(env, 'tags', userId, validFiles.length);
+      const validFileIds = validFiles.map((f) => f.id);
+
+      await enqueueAiTasks(env, 'tags', validFileIds, userId, task.id);
+
+      logger.info('AgentTool', 'Auto-tag task started via Agent tool', {
+        userId,
+        fileCount: validFiles.length,
+        taskId: task.id,
+        maxTags,
+      });
+
+      return {
+        success: true,
+        status: 'queued',
+        message: `已启动AI智能标签生成任务，正在为 ${validFiles.length} 张图片分析内容并生成标签（每张最多${maxTags}个）`,
+        taskId: task.id,
+        fileCount: validFiles.length,
+        supportedFiles: validFileIds,
+        unsupportedFiles: fileIds.filter((id) => !validFileIds.includes(id)),
+        maxTags,
+        _next_actions: [
+          `可通过 GET /api/ai/tags/task 查看任务进度（taskId: ${task.id}）`,
+          '任务完成后，文件的 aiTags 字段将包含AI生成的智能标签',
+          '可通过 search_by_tag 或 filter_files 按新标签搜索文件',
+          '建议等待任务完成后使用 get_file_detail 查看具体标签内容',
+        ],
+      };
+    } catch (queueError) {
+      const errorMsg = queueError instanceof Error ? queueError.message : String(queueError);
+      logger.error('AgentTool', 'Failed to enqueue auto-tag task', { userId, fileCount: fileIds.length }, queueError);
+      return {
+        error: `任务入队失败: ${errorMsg}`,
+        code: 'QUEUE_ERROR',
+        hint: '请检查 Cloudflare Queue 配置是否正确，或联系管理员',
+      };
+    }
   }
 
   static async executeTagFolder(env: Env, userId: string, args: Record<string, unknown>) {
     const folderId = args.folderId as string;
     const tags = (args.tags as string[]) || [];
     const recursive = args.recursive === true;
-    const db = getDb(env.DB);
 
-    const folder = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.id, folderId), eq(files.userId, userId), eq(files.isFolder, true), isNull(files.deletedAt)))
-      .get();
-    if (!folder) return { error: '文件夹不存在或已被删除' };
+    const folder = await getFileById(env, userId, folderId);
+    if (!folder || !folder.isFolder) return { error: '文件夹不存在或已被删除' };
 
-    const conditions: any[] = [eq(files.userId, userId), isNull(files.deletedAt)];
-    if (recursive) {
-      conditions.push(like(files.path, `${folder.path}%`));
-    } else {
-      conditions.push(eq(files.parentId, folderId));
-    }
-    conditions.push(eq(files.isFolder, false));
+    const filesInFolder = await getImageFilesForAutoTagging(env, userId);
+    const filteredFiles = recursive
+      ? filesInFolder.filter((f) => f.id.startsWith(folderId))
+      : filesInFolder.slice(0, 20);
 
-    const filesInFolder = await db
-      .select({ id: files.id })
-      .from(files)
-      .where(and(...conditions))
-      .all();
-    const fileIdsInFolder = filesInFolder.map((f) => f.id);
+    const fileIdsInFolder = filteredFiles.map((f) => f.id);
 
     let totalAdded = 0;
-    for (const fileId of fileIdsInFolder) {
-      for (const tag of tags) {
-        const existing = await db
-          .select()
-          .from(fileTags)
-          .where(and(eq(fileTags.fileId, fileId), eq(fileTags.name, tag)))
-          .get();
-        if (!existing) {
-          await db.insert(fileTags).values({
-            id: crypto.randomUUID(),
-            userId,
-            fileId,
-            name: tag,
-            color: generateTagColor(tag),
-            createdAt: new Date().toISOString(),
-          });
-          totalAdded++;
-        }
-      }
+    for (const tagName of tags) {
+      const result = await batchAddTagsToFiles(env, userId, fileIdsInFolder, tagName);
+      totalAdded += result.successCount;
     }
 
     return {
       success: true,
-      message: `已为文件夹 "${folder.name}" 内的 ${filesInFolder.length} 个文件添加标签`,
+      message: `已为文件夹 "${folder.name}" 内的 ${fileIdsInFolder.length} 个文件添加标签`,
       folderId,
       folderName: folder.name,
       tagsAdded: totalAdded,
-      fileCount: filesInFolder.length,
+      fileCount: fileIdsInFolder.length,
       recursive,
     };
   }
-}
-
-function generateTagColor(tagName: string): string {
-  const colors = [
-    '#EF4444',
-    '#F97316',
-    '#F59E0B',
-    '#84CC16',
-    '#22C55E',
-    '#14B8A6',
-    '#06B6D4',
-    '#3B82F6',
-    '#8B5CF6',
-    '#D946EF',
-  ];
-  let hash = 0;
-  for (let i = 0; i < tagName.length; i++) {
-    hash = tagName.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return colors[Math.abs(hash) % colors.length];
 }

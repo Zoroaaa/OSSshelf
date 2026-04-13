@@ -11,3 +11,4 @@ export { RenameDialog } from './RenameDialog';
 export { FolderPickerDialog } from './FolderPickerDialog';
 export { MoveFolderPicker } from './MoveFolderPicker';
 export { MigrateBucketDialog } from './MigrateBucketDialog';
+export { FileDetailPanel } from './FileDetailPanel';

@@ -77,12 +77,15 @@ export async function createNote(
   env: Env,
   userId: string,
   input: CreateNoteInput
-): Promise<{
-  success: true;
-  noteId: string;
-  note: Record<string, unknown>;
-  mentions: NoteWithMentions | null;
-} | { success: false; error: string }> {
+): Promise<
+  | {
+      success: true;
+      noteId: string;
+      note: Record<string, unknown>;
+      mentions: NoteWithMentions | null;
+    }
+  | { success: false; error: string }
+> {
   const db = getDb(env.DB);
   const { fileId, content, parentId } = input;
 
@@ -412,11 +415,14 @@ export async function getNoteHistory(
   userId: string,
   fileId: string,
   noteId: string
-): Promise<{
-  success: true;
-  current: { id: string; content: string; version: number };
-  history: NoteHistoryEntry[];
-} | { success: false; error: string }> {
+): Promise<
+  | {
+      success: true;
+      current: { id: string; content: string; version: number };
+      history: NoteHistoryEntry[];
+    }
+  | { success: false; error: string }
+> {
   const db = getDb(env.DB);
 
   const note = await db

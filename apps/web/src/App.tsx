@@ -13,26 +13,29 @@ import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { useAuthStore } from './stores/auth';
 import MainLayout from './components/layouts/MainLayout';
 import AuthLayout from './components/layouts/AuthLayout';
-import Login from './pages/Login';
-import Register from './pages/Register';
-import VerifyEmail from './pages/VerifyEmail';
-import ForgotPassword from './pages/ForgotPassword';
-import ResetPassword from './pages/ResetPassword';
-import Dashboard from './pages/Dashboard';
-import Files from './pages/Files';
-import Shares from './pages/Shares';
-import Settings from './pages/Settings';
-import Trash from './pages/Trash';
-import SharePage from './pages/SharePage';
-import Buckets from './pages/Buckets';
-import Admin from './pages/Admin';
-import Tasks from './pages/Tasks';
-import Downloads from './pages/Downloads';
-import Permissions from './pages/Permissions';
-import Analytics from './pages/Analytics';
-import Starred from './pages/Starred';
-import { AIChat } from './pages/AIChat';
-import { AISettings } from './pages/AISettings';
+import {
+  LazyLogin,
+  LazyRegister,
+  LazyVerifyEmail,
+  LazyForgotPassword,
+  LazyResetPassword,
+  LazyDashboard,
+  LazyFiles,
+  LazyShares,
+  LazySettings,
+  LazyTrash,
+  LazySharePage,
+  LazyBuckets,
+  LazyAdmin,
+  LazyTasks,
+  LazyDownloads,
+  LazyPermissions,
+  LazyAnalytics,
+  LazyStarred,
+  LazyAIChat,
+  LazyAISettings,
+  LazyWrapper,
+} from './LazyComponents';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isInitialized } = useAuthStore();
@@ -60,18 +63,67 @@ function App() {
     <Routes>
       {/* Auth */}
       <Route element={<AuthLayout />}>
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route
+          path="/login"
+          element={
+            <LazyWrapper>
+              <LazyLogin />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/register"
+          element={
+            <LazyWrapper>
+              <LazyRegister />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/forgot-password"
+          element={
+            <LazyWrapper>
+              <LazyForgotPassword />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/reset-password"
+          element={
+            <LazyWrapper>
+              <LazyResetPassword />
+            </LazyWrapper>
+          }
+        />
       </Route>
 
       {/* Email verification (public) */}
-      <Route path="/verify-email" element={<VerifyEmail />} />
+      <Route
+        path="/verify-email"
+        element={
+          <LazyWrapper>
+            <LazyVerifyEmail />
+          </LazyWrapper>
+        }
+      />
 
       {/* Public share page & upload link */}
-      <Route path="/share/:shareId" element={<SharePage />} />
-      <Route path="/upload/:uploadToken" element={<SharePage />} />
+      <Route
+        path="/share/:shareId"
+        element={
+          <LazyWrapper>
+            <LazySharePage />
+          </LazyWrapper>
+        }
+      />
+      <Route
+        path="/upload/:uploadToken"
+        element={
+          <LazyWrapper>
+            <LazySharePage />
+          </LazyWrapper>
+        }
+      />
 
       {/* Protected - MainLayout 内 */}
       <Route
@@ -81,20 +133,118 @@ function App() {
           </PrivateRoute>
         }
       >
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/files" element={<Files />} />
-        <Route path="/files/:folderId" element={<Files />} />
-        <Route path="/shares" element={<Shares />} />
-        <Route path="/trash" element={<Trash />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/buckets" element={<Buckets />} />
-        <Route path="/tasks" element={<Tasks />} />
-        <Route path="/downloads" element={<Downloads />} />
-        <Route path="/permissions" element={<Permissions />} />
-        <Route path="/analytics" element={<Analytics />} />
-        <Route path="/starred" element={<Starred />} />
-        <Route path="/admin" element={<Admin />} />
-        <Route path="/ai-settings" element={<AISettings />} />
+        <Route
+          path="/"
+          element={
+            <LazyWrapper>
+              <LazyDashboard />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/files"
+          element={
+            <LazyWrapper>
+              <LazyFiles />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/files/:folderId"
+          element={
+            <LazyWrapper>
+              <LazyFiles />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/shares"
+          element={
+            <LazyWrapper>
+              <LazyShares />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/trash"
+          element={
+            <LazyWrapper>
+              <LazyTrash />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <LazyWrapper>
+              <LazySettings />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/buckets"
+          element={
+            <LazyWrapper>
+              <LazyBuckets />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/tasks"
+          element={
+            <LazyWrapper>
+              <LazyTasks />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/downloads"
+          element={
+            <LazyWrapper>
+              <LazyDownloads />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/permissions"
+          element={
+            <LazyWrapper>
+              <LazyPermissions />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/analytics"
+          element={
+            <LazyWrapper>
+              <LazyAnalytics />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/starred"
+          element={
+            <LazyWrapper>
+              <LazyStarred />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <LazyWrapper>
+              <LazyAdmin />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/ai-settings"
+          element={
+            <LazyWrapper>
+              <LazyAISettings />
+            </LazyWrapper>
+          }
+        />
       </Route>
 
       {/* Protected - 独立全屏页面（无侧边栏） */}
@@ -105,8 +255,22 @@ function App() {
           </PrivateRoute>
         }
       >
-        <Route path="/ai-chat" element={<AIChat />} />
-        <Route path="/ai-chat/:sessionId" element={<AIChat />} />
+        <Route
+          path="/ai-chat"
+          element={
+            <LazyWrapper>
+              <LazyAIChat />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/ai-chat/:sessionId"
+          element={
+            <LazyWrapper>
+              <LazyAIChat />
+            </LazyWrapper>
+          }
+        />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

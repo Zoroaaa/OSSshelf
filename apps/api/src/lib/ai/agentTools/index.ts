@@ -146,6 +146,7 @@ const TOOL_EXECUTOR_MAP: Record<string, (env: Env, userId: string, args: Record<
     generate_summary: (env, userId, args) => ContentTools.executeGenerateSummary(env, userId, args),
     generate_tags: (env, userId, args) => ContentTools.executeGenerateTags(env, userId, args),
     content_preview: (env, userId, args) => ContentTools.executeContentPreview(env, userId, args),
+    analyze_file_collection: (env, userId, args) => ContentTools.executeAnalyzeFileCollection(env, userId, args),
 
     // ════════════════════════════════════════════════════════════════
     // 📂 目录导航 (navigation.ts)
@@ -185,6 +186,7 @@ const TOOL_EXECUTOR_MAP: Record<string, (env: Env, userId: string, args: Record<
     batch_rename: (env, userId, args) => FileOpsTools.executeBatchRename(env, userId, args),
     star_file: (env, userId, args) => FileOpsTools.executeStarFile(env, userId, args),
     unstar_file: (env, userId, args) => FileOpsTools.executeUnstarFile(env, userId, args),
+    draft_and_create_file: (env, userId, args) => FileOpsTools.executeDraftAndCreateFile(env, userId, args),
 
     // ════════════════════════════════════════════════════════════════
     // 🏷️ 标签管理 (tags.ts)
@@ -236,6 +238,7 @@ const TOOL_EXECUTOR_MAP: Record<string, (env: Env, userId: string, args: Record<
     set_folder_access_level: (env, userId, args) => PermissionTools.executeSetFolderAccessLevel(env, userId, args),
     list_user_groups: (env, userId, args) => PermissionTools.executeListUserGroups(env, userId, args),
     manage_group_members: (env, userId, args) => PermissionTools.executeManageGroupMembers(env, userId, args),
+    list_expired_permissions: (env, userId, args) => PermissionTools.executeListExpiredPermissions(env, userId, args),
 
     // ════════════════════════════════════════════════════════════════
     // 💾 存储桶管理 (storage.ts)
@@ -272,6 +275,7 @@ const TOOL_EXECUTOR_MAP: Record<string, (env: Env, userId: string, args: Record<
     rebuild_vector_index: (env, userId, args) => AiEnhanceTools.executeRebuildVectorIndex(env, userId, args),
     ask_rag_question: (env, userId, args) => AiEnhanceTools.executeAskRagQuestion(env, userId, args),
     smart_rename_suggest: (env, userId, args) => AiEnhanceTools.executeSmartRenameSuggest(env, userId, args),
+    smart_organize_suggest: (env, userId, args) => AiEnhanceTools.executeSmartOrganizeSuggest(env, userId, args),
   };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -330,7 +334,9 @@ export class AgentToolExecutor {
             const fileId = args.fileId as string;
             if (fileId) {
               const db = getDb(this.env.DB);
-              const file = await db.select().from(files)
+              const file = await db
+                .select()
+                .from(files)
                 .where(and(eq(files.id, fileId), eq(files.userId, this.userId), isNull(files.deletedAt)))
                 .get();
               if (file) {
@@ -341,17 +347,27 @@ export class AgentToolExecutor {
                   let changeCount = 0;
 
                   if (toolName === 'edit_file_content') {
-                    const edits = args.edits as Array<{ operation: string; oldValue?: string; newValue?: string; position?: number }>;
+                    const edits = args.edits as Array<{
+                      operation: string;
+                      oldValue?: string;
+                      newValue?: string;
+                      position?: number;
+                    }>;
                     for (const edit of edits || []) {
                       if (edit.operation === 'replace' && edit.oldValue && edit.newValue !== undefined) {
-                        if (newContent.includes(edit.oldValue)) { changeCount++; }
+                        if (newContent.includes(edit.oldValue)) {
+                          changeCount++;
+                        }
                         newContent = newContent.replace(edit.oldValue, edit.newValue);
                       } else if (edit.operation === 'append' && edit.newValue) {
                         changeCount++;
                         newContent += '\n' + edit.newValue;
                       } else if (edit.operation === 'insert' && edit.newValue !== undefined) {
                         changeCount++;
-                        newContent = newContent.slice(0, edit.position ?? 0) + edit.newValue + newContent.slice(edit.position ?? 0);
+                        newContent =
+                          newContent.slice(0, edit.position ?? 0) +
+                          edit.newValue +
+                          newContent.slice(edit.position ?? 0);
                       } else if (edit.operation === 'delete' && edit.oldValue) {
                         changeCount++;
                         newContent = newContent.replace(edit.oldValue, '');
@@ -365,13 +381,16 @@ export class AgentToolExecutor {
                       const regex = new RegExp(findStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
                       const matches = originalContent.match(regex);
                       changeCount = matches ? matches.length : 0;
-                      newContent = replaceAll ? originalContent.replace(regex, replaceStr) : originalContent.replace(regex, replaceStr);
+                      newContent = replaceAll
+                        ? originalContent.replace(regex, replaceStr)
+                        : originalContent.replace(regex, replaceStr);
                     }
                   } else if (toolName === 'append_to_file') {
                     const content = args.content as string;
                     if (content) {
                       changeCount = 1;
-                      newContent = args.addNewline === false ? originalContent + content : originalContent + '\n' + content;
+                      newContent =
+                        args.addNewline === false ? originalContent + content : originalContent + '\n' + content;
                     }
                   }
 
@@ -533,6 +552,7 @@ export function getToolsByCategory(): Record<string, string[]> {
       'generate_summary',
       'generate_tags',
       'content_preview',
+      'analyze_file_collection',
     ],
     '📂 目录导航': [
       'navigate_path',
@@ -554,6 +574,7 @@ export function getToolsByCategory(): Record<string, string[]> {
       'create_text_file',
       'create_code_file',
       'create_file_from_template',
+      'draft_and_create_file',
       'edit_file_content',
       'append_to_file',
       'find_and_replace',
@@ -595,6 +616,7 @@ export function getToolsByCategory(): Record<string, string[]> {
       'set_folder_access_level',
       'list_user_groups',
       'manage_group_members',
+      'list_expired_permissions',
     ],
     '💾 存储管理': [
       'get_storage_usage',
@@ -625,6 +647,7 @@ export function getToolsByCategory(): Record<string, string[]> {
       'rebuild_vector_index',
       'ask_rag_question',
       'smart_rename_suggest',
+      'smart_organize_suggest',
     ],
   };
 

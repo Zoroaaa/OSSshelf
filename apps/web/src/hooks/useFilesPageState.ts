@@ -26,7 +26,6 @@ export function useFilesPageState() {
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
   const [renameFile, setRenameFile] = useState<FileItem | null>(null);
   const [moveFile, setMoveFile] = useState<FileItem | null>(null);
-  const [galleryMode, setGalleryMode] = useState(false);
   const [tagsFile, setTagsFile] = useState<FileItem | null>(null);
   const [permissionFile, setPermissionFile] = useState<FileItem | null>(null);
   const [folderSettingsFile, setFolderSettingsFile] = useState<FileItem | null>(null);
@@ -92,8 +91,6 @@ export function useFilesPageState() {
     setRenameFile,
     moveFile,
     setMoveFile,
-    galleryMode,
-    setGalleryMode,
     tagsFile,
     setTagsFile,
     permissionFile,

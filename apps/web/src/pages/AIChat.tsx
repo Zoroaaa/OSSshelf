@@ -31,6 +31,9 @@ import {
   X,
   AlertTriangle,
   ExternalLink,
+  Clock,
+  Lightbulb,
+  FilePlus,
 } from 'lucide-react';
 import { aiApi, filesApi, type AiChatMessage } from '@/services/api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -74,6 +77,8 @@ const TOOL_META: Record<string, { label: string; icon: React.ReactNode; category
   generate_summary: { label: '生成摘要', icon: <Sparkles className="h-3 w-3" />, category: '内容理解' },
   generate_tags: { label: '生成标签', icon: <Tag className="h-3 w-3" />, category: '内容理解' },
   content_preview: { label: '内容预览', icon: <Code className="h-3 w-3" />, category: '内容理解' },
+  smart_organize_suggest: { label: '智能整理建议', icon: <Lightbulb className="h-3 w-3" />, category: 'AI增强' },
+  analyze_file_collection: { label: '文件集合分析', icon: <Sparkles className="h-3 w-3" />, category: 'AI增强' },
 
   // 目录导航
   list_folder: { label: '浏览文件夹', icon: <FileText className="h-3 w-3" />, category: '目录导航' },
@@ -102,6 +107,7 @@ const TOOL_META: Record<string, { label: string; icon: React.ReactNode; category
   delete_file: { label: '删除文件', icon: <FileText className="h-3 w-3" />, category: '文件操作' },
   restore_file: { label: '恢复文件', icon: <RefreshCw className="h-3 w-3" />, category: '文件操作' },
   create_folder: { label: '创建文件夹', icon: <FileText className="h-3 w-3" />, category: '文件操作' },
+  draft_and_create_file: { label: '草稿创建文件', icon: <FilePlus className="h-3 w-3" />, category: '文件操作' },
   batch_rename: { label: '批量重命名', icon: <Code className="h-3 w-3" />, category: '文件操作' },
   star_file: { label: '收藏文件', icon: <Sparkles className="h-3 w-3" />, category: '文件操作' },
   unstar_file: { label: '取消收藏', icon: <Sparkles className="h-3 w-3" />, category: '文件操作' },
@@ -149,6 +155,7 @@ const TOOL_META: Record<string, { label: string; icon: React.ReactNode; category
   set_folder_access_level: { label: '设置访问级别', icon: <Code className="h-3 w-3" />, category: '权限管理' },
   list_user_groups: { label: '用户组列表', icon: <Code className="h-3 w-3" />, category: '权限管理' },
   manage_group_members: { label: '管理组成员', icon: <Code className="h-3 w-3" />, category: '权限管理' },
+  list_expired_permissions: { label: '过期权限列表', icon: <Clock className="h-3 w-3" />, category: '权限管理' },
 
   // 存储管理
   list_buckets: { label: '列出存储桶', icon: <Download className="h-3 w-3" />, category: '存储管理' },
@@ -322,7 +329,7 @@ export function AIChat() {
     }
   };
 
-  const MAX_QUERY_LENGTH = 2000;
+  const MAX_QUERY_LENGTH = 15000;
 
   const sendMessage = useCallback(
     async (query: string, regenerateFromId?: string) => {
@@ -383,9 +390,7 @@ export function AIChat() {
           onChunk: (raw: SseChunk) => {
             // 处理 reset 信号：清空当前 assistant 消息的已渲染内容
             if (raw.type === 'reset') {
-              setMessages((prev) =>
-                prev.map((m) => (m.id === assistantId ? { ...m, content: '', reasoning: '' } : m))
-              );
+              setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: '', reasoning: '' } : m)));
               return;
             }
 
@@ -645,7 +650,10 @@ export function AIChat() {
             )}
 
             {messages.map((msg, index) => (
-              <div key={msg.id} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'} group/message animate-in slide-in-from-bottom-2 duration-300`}>
+              <div
+                key={msg.id}
+                className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'} group/message animate-in slide-in-from-bottom-2 duration-300`}
+              >
                 {msg.role === 'assistant' && (
                   <div className="flex-shrink-0">
                     <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-violet-500 via-purple-500 to-fuchsia-500 flex items-center justify-center shadow-lg shadow-violet-500/25 ring-2 ring-white dark:ring-slate-800">
@@ -682,11 +690,15 @@ export function AIChat() {
                           </div>
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="font-bold text-amber-900 dark:text-amber-100 mb-1.5 text-[13px]">待确认操作</div>
+                          <div className="font-bold text-amber-900 dark:text-amber-100 mb-1.5 text-[13px]">
+                            待确认操作
+                          </div>
                           <div className="text-amber-800 dark:text-amber-200 break-words text-[13px] leading-relaxed">
                             {msg.pendingConfirm.summary}
                           </div>
-                          <div className="text-[11px] text-amber-600/70 dark:text-amber-400/70 mt-2 font-mono bg-amber-100/30 dark:bg-amber-900/20 px-2 py-1 rounded-md inline-block">{msg.pendingConfirm.toolName}</div>
+                          <div className="text-[11px] text-amber-600/70 dark:text-amber-400/70 mt-2 font-mono bg-amber-100/30 dark:bg-amber-900/20 px-2 py-1 rounded-md inline-block">
+                            {msg.pendingConfirm.toolName}
+                          </div>
                         </div>
                       </div>
                       <div className="flex gap-2.5 mt-3 justify-end">
@@ -733,7 +745,9 @@ export function AIChat() {
                             />
                           ))}
                         </div>
-                        <span className={`text-xs ml-1 ${msg.role === 'user' ? 'text-violet-200' : 'text-slate-500'} font-medium`}>
+                        <span
+                          className={`text-xs ml-1 ${msg.role === 'user' ? 'text-violet-200' : 'text-slate-500'} font-medium`}
+                        >
                           {msg.toolCalls && msg.toolCalls.some((t) => t.status === 'running')
                             ? '正在查询…'
                             : '正在思考…'}
@@ -760,8 +774,12 @@ export function AIChat() {
                   )}
 
                   {!msg.isLoading && (
-                    <div className={`flex items-center gap-2 pt-1 ${msg.role === 'user' ? 'justify-end' : 'justify-start'} opacity-0 group-hover/message:opacity-100 transition-opacity duration-200`}>
-                      <span className="text-[11px] text-slate-400 font-medium">{formatDate(msg.timestamp.toISOString())}</span>
+                    <div
+                      className={`flex items-center gap-2 pt-1 ${msg.role === 'user' ? 'justify-end' : 'justify-start'} opacity-0 group-hover/message:opacity-100 transition-opacity duration-200`}
+                    >
+                      <span className="text-[11px] text-slate-400 font-medium">
+                        {formatDate(msg.timestamp.toISOString())}
+                      </span>
                       {msg.role === 'assistant' && msg.content && (
                         <>
                           <button
@@ -885,7 +903,11 @@ function ExternalLinkIconSmall() {
       stroke="currentColor"
       strokeWidth={2}
     >
-      <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+      />
     </svg>
   );
 }

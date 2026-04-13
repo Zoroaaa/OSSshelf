@@ -17,7 +17,16 @@ import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useFileStore, type ViewMode } from '@/stores/files';
 import type { AdvancedSearchCondition } from '@/types/files';
 import { useAuthStore } from '@/stores/auth';
-import { filesApi, bucketsApi, permissionsApi, shareApi, searchApi, type StorageBucket, aiApi } from '@/services/api';
+import {
+  filesApi,
+  bucketsApi,
+  permissionsApi,
+  shareApi,
+  searchApi,
+  migrateApi,
+  type StorageBucket,
+  aiApi,
+} from '@/services/api';
 import { getPresignedDownloadUrl, presignUpload } from '@/services/presignUpload';
 import { useFileKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useFolderUpload } from '@/hooks/useFolderUpload';
@@ -40,10 +49,8 @@ import {
   CheckSquare,
   SortAsc,
   SortDesc,
-  Image as ImageIcon,
   FolderInput,
   RefreshCw,
-  Columns,
   CheckCircle2,
   Tag,
   X,
@@ -67,6 +74,8 @@ import { DirectLinkDialog } from '@/components/files/dialogs';
 import { VersionHistory } from '@/components/files/VersionHistory';
 import { FolderPickerDialog } from '@/components/files/dialogs';
 import { MigrateBucketDialog } from '@/components/files/dialogs';
+import { FileDetailPanel } from '@/components/files/dialogs';
+import { MobileDialog, MobileDialogFooter, MobileDialogAction } from '@/components/ui/MobileDialog';
 import { useFileMutations } from '@/hooks/useFileMutations';
 import { useFileDragDrop } from '@/hooks/useFileDragDrop';
 import { useFileSearch } from '@/hooks/useFileSearch';
@@ -92,8 +101,6 @@ export default function Files() {
     sortBy,
     sortOrder,
     setSort,
-    clipboard,
-    setClipboard,
     setFocusedFile,
     getNextFileId,
   } = useFileStore();
@@ -126,8 +133,6 @@ export default function Files() {
     setRenameFile,
     moveFile,
     setMoveFile,
-    galleryMode,
-    setGalleryMode,
     tagsFile,
     setTagsFile,
     permissionFile,
@@ -316,8 +321,6 @@ export default function Files() {
     moveMutation,
     shareMutation,
     batchDeleteMutation,
-    batchMoveMutation,
-    batchCopyMutation,
     batchZipMutation,
     checkTelegramLimit,
   } = fileMutations;
@@ -477,15 +480,23 @@ export default function Files() {
     [clearSelection, navigate, setPreviewFile]
   );
 
-  const handlePaste = useCallback(() => {
-    if (!clipboard || clipboard.files.length === 0) return;
-    const fileIds = clipboard.files.map((f) => f.id);
-    if (clipboard.type === 'cut') {
-      batchMoveMutation.mutate({ fileIds, targetParentId: folderId || null });
-    } else {
-      batchCopyMutation.mutate({ fileIds, targetParentId: folderId || null });
-    }
-  }, [clipboard, folderId, batchMoveMutation, batchCopyMutation]);
+  // ── 跨桶移动确认状态 ──────────────────────────────────────────────
+  const [crossBucketMove, setCrossBucketMove] = useState<{
+    fileIds: string[];
+    targetBucketId: string;
+    targetFolderId?: string;
+    sourceBucketId: string;
+  } | null>(null);
+
+  // ── 文件详情面板状态（功能4）──────────────────────────────────────
+  const [detailFile, setDetailFile] = useState<FileItem | null>(null);
+
+  // ── 换桶对话框状态（功能5）────────────────────────────────────────
+  const [migrateBucketFile, setMigrateBucketFile] = useState<FileItem | null>(null);
+  // ── 改默认桶对话框状态────────────────────────────────────────────
+  const [changeFolderBucketFile, setChangeFolderBucketFile] = useState<FileItem | null>(null);
+  const [changeFolderBucketTargetId, setChangeFolderBucketTargetId] = useState('');
+  const [changingFolderBucket, setChangingFolderBucket] = useState(false);
 
   const handleBatchDelete = useCallback(() => {
     if (!selectedFiles.length) return;
@@ -527,13 +538,11 @@ export default function Files() {
     onFolderSettings: (file: FileItem) => setFolderSettingsFile(file),
     onRename: (file: FileItem) => setRenameFile(file),
     onMove: (file: FileItem) => setMoveFile(file),
-    onCopy: (file: FileItem) => {
-      setClipboard('copy', [file], folderId || null);
-      toast({ title: '已复制到剪贴板' });
-    },
-    onCut: (file: FileItem) => {
-      setClipboard('cut', [file], folderId || null);
-      toast({ title: '已剪切到剪贴板' });
+    onDetail: (file: FileItem) => setDetailFile(file),
+    onMigrateBucket: (file: FileItem) => setMigrateBucketFile(file),
+    onChangeFolderBucket: (file: FileItem) => {
+      setChangeFolderBucketTargetId('');
+      setChangeFolderBucketFile(file);
     },
     onDelete: (file: FileItem) => {
       if (confirm(`将 "${decodeFileName(file.name)}" 移入回收站？`)) {
@@ -554,6 +563,7 @@ export default function Files() {
         toast({ title: '操作失败', variant: 'destructive' });
       }
     },
+    bucketsCount: allBuckets.length,
   };
 
   const backgroundContextMenuCallbacks = {
@@ -562,9 +572,6 @@ export default function Files() {
     onUpload: () => fileInputRef.current?.click(),
     onNewFolder: () => setShowNewFolderDialog(true),
     onNewFile: () => setShowNewFileDialog(true),
-    onPaste: handlePaste,
-    hasClipboard: !!clipboard && clipboard.files.length > 0,
-    clipboardCount: clipboard?.files.length || 0,
   };
 
   const onContextMenu = useCallback(
@@ -608,11 +615,9 @@ export default function Files() {
     onUpload: () => fileInputRef.current?.click(),
     onToggleGridView: () => {
       setViewMode('grid');
-      setGalleryMode(false);
     },
     onToggleListView: () => {
       setViewMode('list');
-      setGalleryMode(false);
     },
     onFocusSearch: () => searchInputRef.current?.focus(),
     selectedCount: selectedFiles.length,
@@ -624,7 +629,6 @@ export default function Files() {
   const viewModes: { mode: ViewMode; icon: typeof List; label: string }[] = [
     { mode: 'list', icon: List, label: '列表' },
     { mode: 'grid', icon: Grid, label: '网格' },
-    { mode: 'masonry', icon: Columns, label: '瀑布流' },
   ];
 
   const handleShareConfirm = useCallback(
@@ -748,15 +752,12 @@ export default function Files() {
 
         <MobileFilesToolbar
           viewMode={viewMode}
-          galleryMode={galleryMode}
           hasImages={hasImages}
           sortBy={sortBy}
           sortOrder={sortOrder}
           onViewModeChange={(mode) => {
             setViewMode(mode);
-            setGalleryMode(false);
           }}
-          onGalleryModeChange={setGalleryMode}
           onSort={handleSort}
           onNewFile={() => setShowNewFileDialog(true)}
           onNewFolder={() => setShowNewFolderDialog(true)}
@@ -1015,27 +1016,13 @@ export default function Files() {
                 key={mode}
                 variant="ghost"
                 size="icon"
-                className={cn('rounded-none h-9 w-9', viewMode === mode && !galleryMode && 'bg-accent')}
-                onClick={() => {
-                  setViewMode(mode);
-                  setGalleryMode(false);
-                }}
+                className={cn('rounded-none h-9 w-9', viewMode === mode && 'bg-accent')}
+                onClick={() => setViewMode(mode)}
                 title={label}
               >
                 <Icon className="h-4 w-4" />
               </Button>
             ))}
-            {hasImages && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn('rounded-none h-9 w-9 border-l', galleryMode && 'bg-accent')}
-                onClick={() => setGalleryMode(true)}
-                title="图库"
-              >
-                <ImageIcon className="h-4 w-4" />
-              </Button>
-            )}
           </div>
 
           <Button
@@ -1387,6 +1374,106 @@ export default function Files() {
       {/* Migrate bucket dialog */}
       {showMigrateDialog && <MigrateBucketDialog onClose={() => setShowMigrateDialog(false)} />}
 
+      {/* 文件详情面板（功能4）- Phase 4 实现 */}
+      {detailFile && <FileDetailPanel file={detailFile} onClose={() => setDetailFile(null)} />}
+
+      {/* 换桶对话框（功能5）- Phase 5 实现 */}
+      {migrateBucketFile && <MigrateBucketDialog file={migrateBucketFile} onClose={() => setMigrateBucketFile(null)} />}
+
+      {/* 改默认桶对话框 — 仅修改文件夹的 bucketId，不迁移实体文件 */}
+      {changeFolderBucketFile && (
+        <MobileDialog
+          open={!!changeFolderBucketFile}
+          onClose={() => setChangeFolderBucketFile(null)}
+          title="改默认桶"
+          mode="sheet"
+          className="sm:max-w-sm"
+        >
+          <div className="space-y-4 mt-2">
+            <p className="text-sm text-muted-foreground">
+              修改文件夹{' '}
+              <span className="font-medium text-foreground">「{decodeFileName(changeFolderBucketFile.name)}」</span>{' '}
+              的默认存储桶。 新上传到此文件夹的文件将使用新桶，<span className="font-medium">已有文件不会移动</span>。
+            </p>
+            <select
+              className="w-full h-9 px-3 text-sm border rounded-lg bg-background"
+              value={changeFolderBucketTargetId}
+              onChange={(e) => setChangeFolderBucketTargetId(e.target.value)}
+            >
+              <option value="">请选择目标存储桶...</option>
+              {allBuckets
+                .filter((b) => b.id !== (changeFolderBucketFile as any).bucketId)
+                .map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <MobileDialogFooter>
+            <MobileDialogAction variant="default" onClick={() => setChangeFolderBucketFile(null)}>
+              取消
+            </MobileDialogAction>
+            <MobileDialogAction
+              variant="primary"
+              disabled={!changeFolderBucketTargetId || changingFolderBucket}
+              onClick={async () => {
+                if (!changeFolderBucketTargetId) return;
+                setChangingFolderBucket(true);
+                try {
+                  const res = await filesApi.changeFolderBucket(changeFolderBucketFile.id, changeFolderBucketTargetId);
+                  if (res.data.success) {
+                    toast({ title: '默认桶已更新', description: res.data.data?.message });
+                    queryClient.invalidateQueries({ queryKey: ['files'] });
+                    setChangeFolderBucketFile(null);
+                  }
+                } catch {
+                  toast({ title: '更新失败', variant: 'destructive' });
+                } finally {
+                  setChangingFolderBucket(false);
+                }
+              }}
+            >
+              {changingFolderBucket ? '更新中...' : '确认'}
+            </MobileDialogAction>
+          </MobileDialogFooter>
+        </MobileDialog>
+      )}
+
+      {/* 跨桶移动确认对话框（功能1）*/}
+      {crossBucketMove && (
+        <MobileDialog open={!!crossBucketMove} onClose={() => setCrossBucketMove(null)} title="跨桶移动确认">
+          <p className="text-sm text-muted-foreground pb-2">目标文件夹位于不同存储桶，需要迁移文件内容。是否继续？</p>
+          <MobileDialogFooter>
+            <MobileDialogAction variant="default" onClick={() => setCrossBucketMove(null)}>
+              取消
+            </MobileDialogAction>
+            <MobileDialogAction
+              variant="primary"
+              onClick={() => {
+                migrateApi
+                  .start({
+                    sourceBucketId: crossBucketMove.sourceBucketId,
+                    targetBucketId: crossBucketMove.targetBucketId,
+                    fileIds: crossBucketMove.fileIds,
+                    targetFolderId: crossBucketMove.targetFolderId,
+                  })
+                  .then(() => {
+                    toast({ title: '迁移任务已启动' });
+                    setCrossBucketMove(null);
+                    refetch();
+                  })
+                  .catch(() => {
+                    toast({ title: '迁移启动失败', variant: 'destructive' });
+                  });
+              }}
+            >
+              确认迁移
+            </MobileDialogAction>
+          </MobileDialogFooter>
+        </MobileDialog>
+      )}
+
       {/* Direct link dialog */}
       {directLinkFile && (
         <DirectLinkDialog
@@ -1424,8 +1511,26 @@ export default function Files() {
         <MoveFolderPicker
           excludeIds={[moveFile.id]}
           isPending={moveMutation.isPending}
+          sourceBucketId={(moveFile as any).bucketId}
           onConfirm={(targetParentId) =>
-            moveMutation.mutate({ id: moveFile.id, targetParentId }, { onSuccess: () => setMoveFile(null) })
+            moveMutation.mutate(
+              { id: moveFile.id, targetParentId },
+              {
+                onSuccess: () => setMoveFile(null),
+                onError: (error: any) => {
+                  // 检查是否为跨桶移动错误
+                  if (error?.response?.data?.error?.code === 'CROSS_BUCKET') {
+                    setCrossBucketMove({
+                      fileIds: [moveFile.id],
+                      targetBucketId: error.response.data.error.targetBucketId,
+                      targetFolderId: targetParentId ?? undefined,
+                      sourceBucketId: error.response.data.error.sourceBucketId,
+                    });
+                    setMoveFile(null);
+                  }
+                },
+              }
+            )
           }
           onCancel={() => setMoveFile(null)}
         />
@@ -1445,8 +1550,9 @@ export default function Files() {
             // 编辑功能已集成在 FilePreview 内部
           }}
           onVersionHistory={(file) => {
-            setPreviewFile(null);
-            setVersionHistoryFile(file);
+            if (!file.isFolder) {
+              setVersionHistoryFile(file);
+            }
           }}
         />
       )}
@@ -1522,9 +1628,7 @@ export default function Files() {
 
       <FileListContainer
         viewMode={viewMode}
-        galleryMode={galleryMode}
         displayFiles={displayFiles}
-        imageFiles={imageFiles}
         isLoading={isLoading}
         searchQuery={searchQuery}
         selectedFiles={selectedFiles}

@@ -271,10 +271,7 @@ export class StatsTools {
         size: formatBytes(r.uploadSize || 0),
         sizeBytes: r.uploadSize || 0,
       })),
-      _next_actions: [
-        '如需查看最近上传了哪些文件，调用 get_recent_files',
-        '如需查看存储总量，调用 get_storage_stats',
-      ],
+      _next_actions: ['如需查看最近上传了哪些文件，调用 get_recent_files', '如需查看存储总量，调用 get_storage_stats'],
     };
   }
 

@@ -203,53 +203,6 @@
     }
   }
 
-  .masonry-grid {
-    column-count: 2;
-    column-gap: 0.5rem;
-  }
-
-  @media (min-width: 375px) {
-    .masonry-grid {
-      column-gap: 0.625rem;
-    }
-  }
-
-  @media (min-width: 640px) {
-    .masonry-grid {
-      column-count: 3;
-      column-gap: 0.75rem;
-    }
-  }
-
-  @media (min-width: 768px) {
-    .masonry-grid {
-      column-count: 4;
-    }
-  }
-
-  @media (min-width: 1024px) {
-    .masonry-grid {
-      column-count: 5;
-    }
-  }
-
-  @media (min-width: 1280px) {
-    .masonry-grid {
-      column-count: 6;
-    }
-  }
-
-  .masonry-item {
-    break-inside: avoid;
-    margin-bottom: 0.5rem;
-  }
-
-  @media (min-width: 640px) {
-    .masonry-item {
-      margin-bottom: 0.75rem;
-    }
-  }
-
   .mobile-sheet {
     @apply fixed bottom-0 left-0 right-0 z-50 bg-card border-t rounded-t-2xl;
     max-height: 85vh;

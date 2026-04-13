@@ -18,11 +18,7 @@ import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
-import {
-  checkPermissionWithCache,
-  invalidatePermissionCache,
-  type PermissionLevel,
-} from '../lib/permissionResolver';
+import { checkPermissionWithCache, invalidatePermissionCache, type PermissionLevel } from '../lib/permissionResolver';
 import { createNotification, sendNotification, getUserInfo } from '../lib/notificationUtils';
 
 export {
@@ -34,10 +30,7 @@ export {
   type ManageGroupMembersInput,
 } from '../lib/permissionService';
 
-import {
-  checkFilePermission,
-  inheritParentPermissions,
-} from '../lib/permissionService';
+import { checkFilePermission, inheritParentPermissions } from '../lib/permissionService';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);

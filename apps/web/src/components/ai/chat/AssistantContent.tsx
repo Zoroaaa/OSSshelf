@@ -55,7 +55,6 @@ function FileRefButton({
   );
 }
 
-
 function getMarkdownComponents() {
   return {
     p: (props: any) => <p className="mb-3 last:mb-0 leading-relaxed">{props.children}</p>,
@@ -65,9 +64,7 @@ function getMarkdownComponents() {
       </h1>
     ),
     h2: (props: any) => (
-      <h2 className="text-lg font-bold mb-3 mt-5 first:mt-0 text-slate-800 dark:text-slate-200">
-        {props.children}
-      </h2>
+      <h2 className="text-lg font-bold mb-3 mt-5 first:mt-0 text-slate-800 dark:text-slate-200">{props.children}</h2>
     ),
     h3: (props: any) => (
       <h3 className="text-base font-semibold mb-2 mt-4 first:mt-0 text-slate-800 dark:text-slate-200">
@@ -84,11 +81,7 @@ function getMarkdownComponents() {
         {props.children}
       </ol>
     ),
-    li: (props: any) => (
-      <li className="pl-1 leading-relaxed text-slate-700 dark:text-slate-300">
-        {props.children}
-      </li>
-    ),
+    li: (props: any) => <li className="pl-1 leading-relaxed text-slate-700 dark:text-slate-300">{props.children}</li>,
     code: (props: any) => {
       const isInline = !props.className;
       if (isInline) {
@@ -160,12 +153,8 @@ function getMarkdownComponents() {
         </a>
       );
     },
-    strong: (props: any) => (
-      <strong className="font-bold text-slate-900 dark:text-slate-100">{props.children}</strong>
-    ),
-    em: (props: any) => (
-      <em className="italic text-slate-700 dark:text-slate-300">{props.children}</em>
-    ),
+    strong: (props: any) => <strong className="font-bold text-slate-900 dark:text-slate-100">{props.children}</strong>,
+    em: (props: any) => <em className="italic text-slate-700 dark:text-slate-300">{props.children}</em>,
     hr: () => <hr className="my-6 border-t-2 border-slate-200 dark:border-slate-700" />,
     img: (props: any) => {
       const { src, alt } = props;
@@ -237,12 +226,10 @@ export function AssistantContent({ content, onFileClick }: AssistantContentProps
 
   return (
     <div className="prose prose-sm max-w-none dark:prose-invert">
-      {parts.length > 0 ? parts : (
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          rehypePlugins={[rehypeHighlight]}
-          components={components}
-        >
+      {parts.length > 0 ? (
+        parts
+      ) : (
+        <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={components}>
           {cleanedContent}
         </ReactMarkdown>
       )}

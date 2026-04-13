@@ -19,7 +19,6 @@ import { resolveTgConfig } from './features';
 import { tgDownloadFile } from '../telegramClient';
 import { tgDownloadChunked, isChunkedFileId } from '../telegramChunked';
 import type { AiFeatureType, ThinkingParamFormat } from './types';
-import { getVendorConfig, getModelConfig } from './vendorConfig';
 
 /**
  * 模型Thinking配置接口
@@ -111,41 +110,7 @@ export function buildThinkingConfig(
     }
   }
 
-  const vendorConfig = getVendorConfig(vendor);
-  if (!vendorConfig || !vendorConfig.thinkingConfig) {
-    return undefined;
-  }
-
-  const modelConfig = getModelConfig(vendor, modelId);
-  if (!modelConfig || !modelConfig.thinking) {
-    return undefined;
-  }
-
-  const thinkingConfig = vendorConfig.thinkingConfig;
-  const { paramFormat, paramName, nestedKey, enabledValue, disabledValue } = thinkingConfig;
-
-  const value = enableThinking ? enabledValue : disabledValue;
-
-  switch (paramFormat) {
-    case 'boolean':
-      return { [paramName]: value };
-
-    case 'string':
-      return { [paramName]: value };
-
-    case 'object':
-      if (nestedKey) {
-        return {
-          [paramName]: {
-            [nestedKey]: value,
-          },
-        };
-      }
-      return { [paramName]: value };
-
-    default:
-      return undefined;
-  }
+  return undefined;
 }
 
 /**
@@ -368,10 +333,7 @@ export function supportsReasoningContent(modelId: string, customConfig?: ModelTh
     return customConfig.supportsThinking ?? false;
   }
 
-  const vendor = detectModelVendor(modelId);
-  const modelConfig = getModelConfig(vendor, modelId);
-
-  return modelConfig?.thinking ?? false;
+  return false;
 }
 
 export interface VendorSpecificParams {

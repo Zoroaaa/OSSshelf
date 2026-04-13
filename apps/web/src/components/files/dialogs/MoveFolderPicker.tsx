@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { filesApi } from '@/services/api';
 import { Button } from '@/components/ui/Button';
-import { Folder, ChevronRight, Home, Loader2 } from 'lucide-react';
+import { Folder, ChevronRight, Home, Loader2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/utils';
 import type { FileItem } from '@osshelf/shared';
 
@@ -12,6 +12,8 @@ interface MoveFolderPickerProps {
   onConfirm: (targetParentId: string | null) => void;
   onCancel: () => void;
   isPending?: boolean;
+  /** 源文件/文件夹的 bucketId，用于检测跨桶移动 */
+  sourceBucketId?: string;
 }
 
 interface FolderNodeProps {
@@ -20,9 +22,10 @@ interface FolderNodeProps {
   selectedId: string | null | undefined; // undefined = not yet selected
   onSelect: (id: string | null) => void;
   depth: number;
+  sourceBucketId?: string;
 }
 
-function FolderNode({ parentId, excludeIds, selectedId, onSelect, depth }: FolderNodeProps) {
+function FolderNode({ parentId, excludeIds, selectedId, onSelect, depth, sourceBucketId }: FolderNodeProps) {
   const [expanded, setExpanded] = useState(depth === 0);
 
   const { data: items = [], isLoading } = useQuery<FileItem[]>({
@@ -83,6 +86,12 @@ function FolderNode({ parentId, excludeIds, selectedId, onSelect, depth }: Folde
             >
               <Folder className="h-4 w-4 flex-shrink-0 text-amber-400" />
               <span className="truncate">{folder.name}</span>
+              {sourceBucketId && folder.bucketId && folder.bucketId !== sourceBucketId && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                  <AlertTriangle className="h-3 w-3" />
+                  将跨桶迁移
+                </span>
+              )}
             </button>
           </div>
           {expanded && (
@@ -100,7 +109,13 @@ function FolderNode({ parentId, excludeIds, selectedId, onSelect, depth }: Folde
   );
 }
 
-export function MoveFolderPicker({ excludeIds, onConfirm, onCancel, isPending }: MoveFolderPickerProps) {
+export function MoveFolderPicker({
+  excludeIds,
+  onConfirm,
+  onCancel,
+  isPending,
+  sourceBucketId,
+}: MoveFolderPickerProps) {
   // undefined = nothing picked yet; null = root; string = folder id
   const [selected, setSelected] = useState<string | null | undefined>(undefined);
 
@@ -113,7 +128,14 @@ export function MoveFolderPicker({ excludeIds, onConfirm, onCancel, isPending }:
         </div>
 
         <div className="flex-1 overflow-y-auto p-2 min-h-0">
-          <FolderNode parentId={null} excludeIds={excludeIds} selectedId={selected} onSelect={setSelected} depth={0} />
+          <FolderNode
+            parentId={null}
+            excludeIds={excludeIds}
+            selectedId={selected}
+            onSelect={setSelected}
+            depth={0}
+            sourceBucketId={sourceBucketId}
+          />
         </div>
 
         {selected !== undefined && (

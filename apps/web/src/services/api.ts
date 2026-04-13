@@ -132,6 +132,11 @@ export interface DashboardStats {
 export const filesApi = {
   list: (params?: Partial<FileListParams>) => api.get<ApiResponse<FileItem[]>>('/api/files', { params }),
   get: (id: string) => api.get<ApiResponse<FileItem>>(`/api/files/${id}`),
+  /** 获取文件完整详情（Phase 4） */
+  getFileDetail: (id: string) => api.get<any>(`/api/files/${id}/detail`),
+  /** 更改文件夹存储桶（级联子文件夹） */
+  changeFolderBucket: (folderId: string, bucketId: string) =>
+    api.put<ApiResponse<{ message: string; updatedCount: number }>>(`/api/files/${folderId}/bucket`, { bucketId }),
   createFolder: (name: string, parentId?: string | null, bucketId?: string | null) =>
     api.post<ApiResponse<FileItem>>('/api/files', { name, parentId, bucketId }),
   createFile: (params: {
