@@ -444,6 +444,14 @@ export async function softDeleteFile(
   if (file.isFolder) await softDeleteFolder(db, fileId, now, env);
   await db.update(files).set({ deletedAt: now, updatedAt: now }).where(eq(files.id, fileId));
 
+  // 软删除时立即释放存储配额（避免用户反复上传-软删除导致配额误判）
+  if (!file.isFolder && file.size > 0) {
+    await updateUserStorage(db, userId, -file.size);
+    if (file.bucketId) {
+      await updateBucketStats(db, file.bucketId, -file.size, -1);
+    }
+  }
+
   await deleteFileVector(env, fileId);
 
   logger.info('FileService', '文件软删除成功', { fileId, fileName: file.name, isFolder: file.isFolder });
@@ -854,7 +862,6 @@ export async function getFilesByScope(
 
     if (!summary && !f.mimeType?.startsWith('image/') && !f.mimeType?.startsWith('video/')) {
       try {
-        const { readFileContent } = require('./fileContentHelper');
         const fileRecord = { id: f.id, r2Key: '', bucketId: null, mimeType: f.mimeType, size: f.size } as any;
         const readResult = await readFileContent(env, fileRecord, userId);
 
@@ -884,4 +891,111 @@ export async function getFilesByScope(
   });
 
   return { files: result, totalCount: fileList.length };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 文件夹大小统计（递归计算）
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface FolderSizeStats {
+  folderId: string;
+  totalSize: number;
+  fileCount: number;
+  folderCount: number;
+  childFiles: Array<{ id: string; name: string; size: number }>;
+  lastUpdated: string;
+}
+
+/**
+ * 计算文件夹的总大小（递归包含所有子文件夹）
+ * 使用 WITH RECURSIVE CTE 一次性查询，避免 N+1 问题
+ */
+export async function calculateFolderSize(
+  db: ReturnType<typeof getDb>,
+  folderId: string,
+  userId: string
+): Promise<FolderSizeStats> {
+  const now = new Date().toISOString();
+
+  // 查询直接子文件和子文件夹（第一层）
+  const directChildren = await db
+    .select({
+      id: files.id,
+      name: files.name,
+      isFolder: files.isFolder,
+      size: files.size,
+    })
+    .from(files)
+    .where(and(eq(files.parentId, folderId), isNull(files.deletedAt)))
+    .all();
+
+  const childFiles = directChildren.filter((f) => !f.isFolder);
+  const childFolders = directChildren.filter((f) => f.isFolder);
+
+  // 使用 WITH RECURSIVE 递归查询所有后代文件
+  let totalFileCount = childFiles.length;
+  let totalSize = childFiles.reduce((sum, f) => sum + Number(f.size || 0), 0);
+
+  try {
+    const recursiveResult = await db.run(sql`
+      WITH RECURSIVE file_tree AS (
+        SELECT id, isFolder, size, parentId
+        FROM files
+        WHERE id = ${folderId} AND deletedAt IS NULL AND userId = ${userId}
+        UNION ALL
+        SELECT f.id, f.isFolder, f.size, f.parentId
+        FROM files f
+        INNER JOIN file_tree ft ON f.parentId = ft.id
+        WHERE f.deletedAt IS NULL AND f.userId = ${userId}
+      )
+      SELECT COUNT(*) as totalCount, COALESCE(SUM(size), 0) as totalSize
+      FROM file_tree WHERE isFolder = 0
+    `);
+
+    const stats = recursiveResult as unknown as Array<{ totalCount: number; totalSize: number }>;
+    if (stats && stats.length > 0) {
+      totalFileCount = stats[0].totalCount ?? totalFileCount;
+      totalSize = stats[0].totalSize ?? totalSize;
+    }
+  } catch (error) {
+    logger.error('FileService', '递归查询文件夹大小失败，使用直接子文件统计', { folderId }, error as Error);
+  }
+
+  // 获取最大的几个子文件信息（用于展示）
+  const largestFiles = [...childFiles]
+    .sort((a, b) => Number(b.size) - Number(a.size))
+    .slice(0, 5)
+    .map((f) => ({ id: f.id, name: f.name, size: Number(f.size) }));
+
+  return {
+    folderId,
+    totalSize,
+    fileCount: totalFileCount,
+    folderCount: childFolders.length,
+    childFiles: largestFiles,
+    lastUpdated: now,
+  };
+}
+
+/**
+ * 批量计算多个文件夹的大小
+ * @returns Map<folderId, FolderSizeStats>
+ */
+export async function calculateFoldersSize(
+  db: ReturnType<typeof getDb>,
+  folderIds: string[],
+  userId: string
+): Promise<Map<string, FolderSizeStats>> {
+  const results = new Map<string, FolderSizeStats>();
+
+  for (const folderId of folderIds) {
+    try {
+      const stats = await calculateFolderSize(db, folderId, userId);
+      results.set(folderId, stats);
+    } catch (error) {
+      logger.error('FileService', '计算文件夹大小失败', { folderId }, error as Error);
+    }
+  }
+
+  return results;
 }

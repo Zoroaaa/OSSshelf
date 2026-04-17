@@ -30,8 +30,13 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId'],
       },
+      examples: [
+        { user_query: '这个文件有几个版本', tool_call: { fileId: '<file_id>' } },
+        { user_query: '看看之前的版本', tool_call: { fileId: '<doc_id>', limit: 10 } },
+      ],
     },
   },
+
   {
     type: 'function',
     function: {
@@ -48,6 +53,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId', 'versionId', '_confirmed'],
       },
+      examples: [
+        { user_query: '回滚到上一个版本', tool_call: { fileId: '<file_id>', versionId: '<v2_id>', _confirmed: true } },
+        { user_query: '恢复到修改前的状态', tool_call: { fileId: '<doc_id>', versionId: '<old_version_id>', _confirmed: true } },
+      ],
     },
   },
   {
@@ -65,8 +74,13 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId', 'versionA', 'versionB'],
       },
+      examples: [
+        { user_query: '对比版本1和版本3的差异', tool_call: { fileId: '<file_id>', versionA: 1, versionB: 3 } },
+        { user_query: '看看最近两个版本的差别', tool_call: { fileId: '<doc_id>', versionA: 4, versionB: 5 } },
+      ],
     },
   },
+
   {
     type: 'function',
     function: {
@@ -84,6 +98,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId'],
       },
+      examples: [
+        { user_query: '只保留5个版本', tool_call: { fileId: '<file_id>', maxVersions: 5 } },
+        { user_query: '设置保留策略为20个版本60天', tool_call: { fileId: '<doc_id>', maxVersions: 20, retentionDays: 60, _confirmed: true } },
+      ],
     },
   },
 ];

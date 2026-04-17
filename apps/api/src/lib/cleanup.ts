@@ -28,7 +28,7 @@ import { TRASH_RETENTION_DAYS, DEVICE_SESSION_EXPIRY, logger, logCleanupError } 
 import type { Env } from '../types/env';
 import { getAuditRetentionDays, hasTelegramAlert } from '../types/env';
 import { s3Delete, s3AbortMultipartUpload } from './s3client';
-import { resolveBucketConfig, updateBucketStats } from './bucketResolver';
+import { resolveBucketConfig, updateBucketStats, updateUserStorage } from './bucketResolver';
 import { getEncryptionKey } from './crypto';
 
 interface CleanupResult {
@@ -158,51 +158,54 @@ async function runTrashCleanup(
   retentionDate.setDate(retentionDate.getDate() - TRASH_RETENTION_DAYS);
   const threshold = retentionDate.toISOString();
 
-  const expiredFiles = await db
-    .select()
-    .from(files)
-    .where(and(isNotNull(files.deletedAt), lt(files.deletedAt, threshold)))
-    .all();
+  // 分批处理参数（防止单次 cron 超时）
+  const BATCH_SIZE = 100;
+  const MAX_BATCHES = 50; // 最多处理 5000 个文件，避免超长运行
 
   let deletedCount = 0;
   let freedBytes = 0;
-  const userStorageChanges: Map<string, number> = new Map();
+  let batchCount = 0;
 
-  for (const file of expiredFiles) {
-    if (!file.isFolder) {
-      try {
-        const bucketConfig = await resolveBucketConfig(db, file.userId, encKey, file.bucketId, file.parentId);
-        if (bucketConfig) {
-          await s3Delete(bucketConfig, file.r2Key);
-          await updateBucketStats(db, bucketConfig.id, -file.size, -1);
-        } else if (env.FILES) {
-          await env.FILES.delete(file.r2Key);
+  while (batchCount < MAX_BATCHES) {
+    // 分批查询过期文件（每次只取 BATCH_SIZE 条）
+    const batchFiles = await db
+      .select()
+      .from(files)
+      .where(and(isNotNull(files.deletedAt), lt(files.deletedAt, threshold)))
+      .limit(BATCH_SIZE)
+      .all();
+
+    if (batchFiles.length === 0) break; // 没有更多文件需要处理
+
+    for (const file of batchFiles) {
+      if (!file.isFolder) {
+        try {
+          const bucketConfig = await resolveBucketConfig(db, file.userId, encKey, file.bucketId, file.parentId);
+          if (bucketConfig) {
+            await s3Delete(bucketConfig, file.r2Key);
+            await updateBucketStats(db, bucketConfig.id, -file.size, -1);
+          } else if (env.FILES) {
+            await env.FILES.delete(file.r2Key);
+          }
+
+          // 使用原子方法更新用户存储配额
+          await updateUserStorage(db, file.userId, -file.size);
+          freedBytes += file.size;
+        } catch (error) {
+          logger.error('CLEANUP', '删除文件失败', { fileId: file.id, r2Key: file.r2Key }, error);
+          continue;
         }
-
-        const currentChange = userStorageChanges.get(file.userId) || 0;
-        userStorageChanges.set(file.userId, currentChange + file.size);
-        freedBytes += file.size;
-      } catch (error) {
-        logger.error('CLEANUP', '删除文件失败', { fileId: file.id, r2Key: file.r2Key }, error);
-        continue;
       }
+
+      await db.delete(files).where(eq(files.id, file.id));
+      deletedCount++;
     }
 
-    await db.delete(files).where(eq(files.id, file.id));
-    deletedCount++;
+    batchCount++;
   }
 
-  for (const [userId, freedSize] of userStorageChanges) {
-    const user = await db.select().from(users).where(eq(users.id, userId)).get();
-    if (user) {
-      await db
-        .update(users)
-        .set({
-          storageUsed: Math.max(0, user.storageUsed - freedSize),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(users.id, userId));
-    }
+  if (batchCount >= MAX_BATCHES) {
+    logger.warn('CLEANUP', `回收站清理达到批次上限 (${MAX_BATCHES} 批)，剩余文件将在下次 cron 处理`);
   }
 
   logger.info('CLEANUP', `回收站清理完成: ${deletedCount} 文件, ${(freedBytes / 1024 / 1024).toFixed(2)} MB`);

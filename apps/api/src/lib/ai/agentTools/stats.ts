@@ -34,6 +34,11 @@ export const definitions: ToolDefinition[] = [
         },
         required: [],
       },
+      examples: [
+        { user_query: '我用了多少空间', tool_call: {} },
+        { user_query: '按文件类型看空间分布', tool_call: { dimension: 'mimetype' } },
+        { user_query: '每月存储增长趋势', tool_call: { dimension: 'month' } },
+      ],
     },
   },
 
@@ -56,6 +61,11 @@ export const definitions: ToolDefinition[] = [
         },
         required: [],
       },
+      examples: [
+        { user_query: '最近上传了多少文件', tool_call: {} },
+        { user_query: '上周的活动情况', tool_call: { period: 'week', days: 7 } },
+        { user_query: '本月统计', tool_call: { period: 'month', days: 30 } },
+      ],
     },
   },
 
@@ -71,6 +81,10 @@ export const definitions: ToolDefinition[] = [
         properties: {},
         required: [],
       },
+      examples: [
+        { user_query: '我的存储配额使用情况', tool_call: {} },
+        { user_query: '还剩多少空间', tool_call: {} },
+      ],
     },
   },
 
@@ -93,6 +107,11 @@ export const definitions: ToolDefinition[] = [
         },
         required: [],
       },
+      examples: [
+        { user_query: '文件类型分布', tool_call: {} },
+        { user_query: '按扩展名统计', tool_call: { groupBy: 'extension' } },
+        { user_query: 'Top10文件类型', tool_call: { topN: 10 } },
+      ],
     },
   },
 
@@ -110,6 +129,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: [],
       },
+      examples: [
+        { user_query: '分享链接使用情况', tool_call: {} },
+        { user_query: '包括过期的也显示', tool_call: { includeExpired: true } },
+      ],
     },
   },
 ];

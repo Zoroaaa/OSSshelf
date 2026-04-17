@@ -18,99 +18,68 @@ import { getFileContent } from '../utils';
 import { resolveTgConfig } from './features';
 import { tgDownloadFile } from '../telegramClient';
 import { tgDownloadChunked, isChunkedFileId } from '../telegramChunked';
-import type { AiFeatureType, ThinkingParamFormat } from './types';
-
-/**
- * 模型Thinking配置接口
- * 用于控制模型的推理/思考模式
- */
-export interface ModelThinkingConfig {
-  supportsThinking?: boolean;
-  thinkingParamFormat?: ThinkingParamFormat;
-  thinkingParamName?: string;
-  thinkingEnabledValue?: string;
-  thinkingDisabledValue?: string;
-  thinkingNestedKey?: string;
-  disableThinkingForFeatures?: string;
-}
+import type { AiFeatureType, ModelConfig } from './types';
 
 /**
  * 构建Thinking模式配置
  *
- * 根据模型ID和功能类型，生成相应的Thinking参数配置。
- * 不同模型供应商使用不同的参数格式。
+ * 完全由数据库模型配置驱动，不做任何模型名硬编码判断。
  *
- * @param modelId - 模型ID，如 '@cf/meta/llama-3.3-70b-instruct'
  * @param featureType - 功能类型，默认为 'chat'
- * @param customConfig - 自定义Thinking配置
+ * @param config - 数据库中的模型配置
  * @returns Thinking参数对象，如果不支持则返回undefined
- *
- * @example
- * const config = buildThinkingConfig('@cf/meta/llama-3.3-70b-instruct', 'chat');
- * // 返回: { thinking: { type: 'enabled' } }
  */
 export function buildThinkingConfig(
-  modelId: string,
   featureType: AiFeatureType = 'chat',
-  customConfig?: ModelThinkingConfig
+  config?: Pick<
+    ModelConfig,
+    | 'supportsThinking'
+    | 'thinkingParamFormat'
+    | 'thinkingParamName'
+    | 'thinkingEnabledValue'
+    | 'thinkingDisabledValue'
+    | 'thinkingNestedKey'
+    | 'disableThinkingForFeatures'
+  >
 ): Record<string, unknown> | undefined {
-  const vendor = detectModelVendor(modelId);
+  if (!config?.supportsThinking) {
+    return undefined;
+  }
+
+  const { thinkingParamFormat, thinkingParamName, thinkingEnabledValue, thinkingDisabledValue, thinkingNestedKey } =
+    config;
+
+  if (!thinkingParamFormat || !thinkingParamName) {
+    return undefined;
+  }
 
   let disableThinkingFeatures: string[] = ['image_caption', 'image_tag', 'image_analysis', 'file_summary'];
-
-  if (customConfig?.disableThinkingForFeatures) {
+  if (config.disableThinkingForFeatures) {
     try {
-      disableThinkingFeatures = JSON.parse(customConfig.disableThinkingForFeatures);
+      disableThinkingFeatures = JSON.parse(config.disableThinkingForFeatures);
     } catch {
       // 使用默认值
     }
   }
 
-  const shouldEnableThinking = (feature: AiFeatureType): boolean => {
-    return !disableThinkingFeatures.includes(feature);
-  };
+  const enableThinking = !disableThinkingFeatures.includes(featureType);
+  const enabledVal = thinkingEnabledValue ?? 'enabled';
+  const disabledVal = thinkingDisabledValue ?? 'disabled';
+  const value = enableThinking ? enabledVal : disabledVal;
 
-  const enableThinking = shouldEnableThinking(featureType);
-
-  if (customConfig) {
-    if (!customConfig.supportsThinking) {
+  switch (thinkingParamFormat) {
+    case 'boolean':
+      return { [thinkingParamName]: value === 'true' || value === '1' };
+    case 'string':
+      return { [thinkingParamName]: value };
+    case 'object':
+      if (thinkingNestedKey) {
+        return { [thinkingParamName]: { [thinkingNestedKey]: value } };
+      }
+      return { [thinkingParamName]: value };
+    default:
       return undefined;
-    }
-
-    const { thinkingParamFormat, thinkingParamName, thinkingEnabledValue, thinkingDisabledValue, thinkingNestedKey } =
-      customConfig;
-
-    if (!thinkingParamFormat || !thinkingParamName) {
-      return undefined;
-    }
-
-    const enabledVal = thinkingEnabledValue ?? 'enabled';
-    const disabledVal = thinkingDisabledValue ?? 'disabled';
-    const value = enableThinking ? enabledVal : disabledVal;
-
-    switch (thinkingParamFormat) {
-      case 'boolean':
-        return { [thinkingParamName]: value === 'true' || value === '1' };
-
-      case 'string':
-        return { [thinkingParamName]: value };
-
-      case 'object':
-        if (thinkingNestedKey) {
-          return {
-            [thinkingParamName]: {
-              [thinkingNestedKey]: value,
-            },
-          };
-        }
-        return { [thinkingParamName]: value };
-
-      default:
-        return undefined;
-    }
   }
-
-  return undefined;
 }
 
 /**
@@ -224,68 +193,6 @@ export function getMimeTypeCategory(mimeType: string | null | undefined): string
 
 export type VisionMessageContent = Array<{ type: 'text' | 'image_url'; text?: string; image_url?: { url: string } }>;
 
-export type ModelVendor =
-  | 'openai'
-  | 'anthropic'
-  | 'zhipu'
-  | 'deepseek'
-  | 'alibaba'
-  | 'google'
-  | 'volcengine'
-  | 'baidu'
-  | 'tencent'
-  | 'moonshot'
-  | 'minimax'
-  | 'mistral'
-  | 'xai'
-  | 'groq'
-  | 'perplexity'
-  | 'siliconflow'
-  | 'openrouter'
-  | 'unknown';
-
-/**
- * 检测模型供应商
- *
- * 根据模型ID字符串识别模型供应商。
- * 支持主流AI模型供应商的自动识别。
- *
- * @param modelId - 模型ID，如 'gpt-4o', 'claude-3-opus', 'deepseek-chat'
- * @returns 模型供应商类型
- *
- * @example
- * detectModelVendor('gpt-4o'); // 返回: 'openai'
- * detectModelVendor('claude-3-opus'); // 返回: 'anthropic'
- * detectModelVendor('deepseek-chat'); // 返回: 'deepseek'
- */
-export function detectModelVendor(modelId: string): ModelVendor {
-  const id = modelId.toLowerCase();
-
-  if (id.includes('gpt') || id.includes('o1') || id.includes('o3')) return 'openai';
-  if (id.includes('claude')) return 'anthropic';
-  if (id.includes('glm')) return 'zhipu';
-  if (id.includes('deepseek')) return 'deepseek';
-  if (id.includes('qwen') || id.includes('qwq') || id.includes('tongyi')) return 'alibaba';
-  if (id.includes('gemini')) return 'google';
-  if (id.includes('doubao') || id.includes('seed')) return 'volcengine';
-  if (id.includes('ernie') || id.includes('x1')) return 'baidu';
-  if (id.includes('hunyuan') || id.includes('hy-') || id.startsWith('hy')) return 'tencent';
-  if (id.includes('kimi') || id.includes('moonshot')) return 'moonshot';
-  if (id.includes('minimax')) return 'minimax';
-  if (id.includes('mistral') || id.includes('codestral')) return 'mistral';
-  if (id.includes('grok')) return 'xai';
-  if (id.includes('llama-3') && id.includes('sonar')) return 'perplexity';
-  if (id.includes('llama-3') || id.includes('mixtral') || id.includes('gemma')) {
-    if (id.includes('groq')) return 'groq';
-  }
-  if (id.includes('siliconflow') || id.includes('silicon-flow')) return 'siliconflow';
-  if (id.includes('openrouter') || id.includes('anthropic/') || id.includes('openai/') || id.includes('google/')) {
-    return 'openrouter';
-  }
-
-  return 'unknown';
-}
-
 /**
  * 构建Vision消息内容
  *
@@ -316,67 +223,50 @@ export function buildVisionMessageContent(
 }
 
 /**
- * 检查模型是否支持推理内容
+ * 从模型响应中提取思考内容
  *
- * 判断指定模型是否支持Thinking/推理模式。
- * 用于决定是否启用深度推理功能。
+ * 某些模型（如 DeepSeek-R1）会在响应中使用 `` 标签包裹思考过程。
+ * 此函数将思考内容提取出来，并返回分离后的思考和正文内容。
  *
- * @param modelId - 模型ID
- * @param customConfig - 自定义Thinking配置
- * @returns 是否支持推理内容
+ * @param content - 模型原始响应内容
+ * @returns 包含 reasoning（思考内容）和 content（正文内容）的对象
  *
  * @example
- * supportsReasoningContent('@cf/meta/llama-3.3-70b-instruct'); // 返回: true
+ * const input = '<think>这是思考过程</think>这是正文内容';
+ * const result = extractThinkingContent(input);
+ * // result: { reasoning: '这是思考过程', content: '这是正文内容' }
  */
-export function supportsReasoningContent(modelId: string, customConfig?: ModelThinkingConfig): boolean {
-  if (customConfig) {
-    return customConfig.supportsThinking ?? false;
+export function extractThinkingContent(content: string): {
+  reasoning: string;
+  content: string;
+} {
+  if (!content) return { reasoning: '', content: '' };
+
+  const thinkingRegex = /<think>([\s\S]*?)<\/think>/g;
+  let reasoning = '';
+  let cleanedContent = content;
+
+  // 提取所有 `` 标签内容
+  let match;
+  while ((match = thinkingRegex.exec(content)) !== null) {
+    reasoning += match[1];
   }
 
-  return false;
+  // 移除所有 `` 标签及其内容
+  cleanedContent = content.replace(thinkingRegex, '').trim();
+
+  return {
+    reasoning: reasoning.trim(),
+    content: cleanedContent,
+  };
 }
 
-export interface VendorSpecificParams {
-  reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high';
-  thinking_budget?: number;
-  enable_thinking?: boolean;
-  thinking?: { type: 'enabled' | 'disabled' | 'auto' };
-}
-
-export function buildVendorSpecificParams(
-  modelId: string,
-  options?: {
-    enableThinking?: boolean;
-    thinkingBudget?: number;
-    reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
-  }
-): VendorSpecificParams | undefined {
-  const vendor = detectModelVendor(modelId);
-  const id = modelId.toLowerCase();
-  const params: VendorSpecificParams = {};
-
-  const thinkingBudget = options?.thinkingBudget;
-  const reasoningEffort = options?.reasoningEffort ?? 'medium';
-
-  if (vendor === 'volcengine') {
-    if (id.includes('doubao-seed-1-6-251015')) {
-      params.reasoning_effort = reasoningEffort;
-    }
-  }
-
-  if (vendor === 'alibaba') {
-    if (id.includes('qwq') || id.includes('qwen3')) {
-      if (thinkingBudget !== undefined) {
-        params.thinking_budget = thinkingBudget;
-      }
-    }
-  }
-
-  if (vendor === 'minimax') {
-    if (id.includes('m2') && thinkingBudget !== undefined) {
-      params.thinking_budget = thinkingBudget;
-    }
-  }
-
-  return Object.keys(params).length > 0 ? params : undefined;
+/**
+ * 检查内容是否包含思考标签
+ *
+ * @param content - 要检查的内容
+ * @returns 是否包含 `` 标签
+ */
+export function hasThinkingTags(content: string): boolean {
+  return /<think>/.test(content) && /<\/think>/.test(content);
 }

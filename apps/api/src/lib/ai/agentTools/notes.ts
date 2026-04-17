@@ -45,6 +45,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId', 'content'],
       },
+      examples: [
+        { user_query: '在这个文档上记个笔记', tool_call: { fileId: '<doc_id>', content: '重要：第3页的数据需要核实' } },
+        { user_query: '标注一下这个文件的重点', tool_call: { fileId: '<report_id>', content: '## 重点摘要\n- 项目进度：80%\n- 风险点：...' } },
+      ],
     },
   },
 
@@ -66,6 +70,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId'],
       },
+      examples: [
+        { user_query: '这个文件有什么备注', tool_call: { fileId: '<file_id>' } },
+        { user_query: '看看我之前记了什么', tool_call: { fileId: '<doc_id>', limit: 10 } },
+      ],
     },
   },
 
@@ -87,6 +95,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['noteId', 'content'],
       },
+      examples: [
+        { user_query: '更新一下之前的备注', tool_call: { noteId: '<note_id>', content: '更新后的笔记内容：数据已核实，可以提交' } },
+        { user_query: '修正笔记中的错误', tool_call: { noteId: '<note_id>', content: '修正：日期应为2026-04-16' } },
+      ],
     },
   },
 
@@ -104,6 +116,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['noteId'],
       },
+      examples: [
+        { user_query: '删除这条笔记', tool_call: { noteId: '<note_id>' } },
+        { user_query: '清理不需要的备注', tool_call: { noteId: '<old_note_id>' } },
+      ],
     },
   },
 
@@ -125,6 +141,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['query'],
       },
+      examples: [
+        { user_query: '找一下提到项目的笔记', tool_call: { query: '项目' } },
+        { user_query: '搜索包含会议的备注', tool_call: { query: '会议', limit: 30 } },
+      ],
     },
   },
 ];

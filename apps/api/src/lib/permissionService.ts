@@ -8,6 +8,8 @@
 import { eq, and, isNull, inArray, lt, or, desc, isNotNull } from 'drizzle-orm';
 import { getDb, files, filePermissions, users, userGroups, groupMembers } from '../db';
 import type { Env } from '../types/env';
+
+const PERMISSION_LEVELS = { read: 1, write: 2, admin: 3 } as const;
 import { logger } from '@osshelf/shared';
 import {
   checkPermissionWithCache,
@@ -76,10 +78,10 @@ export async function checkFilePermission(
         if (groupPermission.expiresAt && new Date(groupPermission.expiresAt) < new Date()) {
           return { hasAccess: false, permission: null, isOwner: false };
         }
-        const permissionLevels = { read: 1, write: 2, admin: 3 };
+        const PERMISSION_LEVELS = { read: 1, write: 2, admin: 3 };
         const hasAccess =
-          permissionLevels[groupPermission.permission as keyof typeof permissionLevels] >=
-          permissionLevels[requiredPermission];
+          PERMISSION_LEVELS[groupPermission.permission as keyof typeof PERMISSION_LEVELS] >=
+          PERMISSION_LEVELS[requiredPermission];
         return { hasAccess, permission: groupPermission.permission, isOwner: false };
       }
     }
@@ -91,9 +93,9 @@ export async function checkFilePermission(
     return { hasAccess: false, permission: null, isOwner: false };
   }
 
-  const permissionLevels = { read: 1, write: 2, admin: 3 };
+  const PERMISSION_LEVELS = { read: 1, write: 2, admin: 3 };
   const hasAccess =
-    permissionLevels[permission.permission as keyof typeof permissionLevels] >= permissionLevels[requiredPermission];
+    PERMISSION_LEVELS[permission.permission as keyof typeof PERMISSION_LEVELS] >= PERMISSION_LEVELS[requiredPermission];
 
   return { hasAccess, permission: permission.permission, isOwner: false };
 }

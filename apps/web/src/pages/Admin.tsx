@@ -9,9 +9,9 @@
  * - 系统统计与审计日志
  */
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { adminApi, type AdminUser } from '@/services/api';
+import { adminApi, type AdminUser, AITraceItem, ModelHealthInfo } from '@/services/api';
 import { useAuthStore } from '@/stores/auth';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -42,9 +42,10 @@ import {
   ToggleRight,
   Mail,
   Clock,
+  Brain,
 } from 'lucide-react';
 
-type TabKey = 'users' | 'registration' | 'email' | 'stats' | 'audit';
+type TabKey = 'users' | 'registration' | 'email' | 'stats' | 'audit' | 'ai-trace';
 
 export default function Admin() {
   const { user: currentUser } = useAuthStore();
@@ -70,6 +71,7 @@ export default function Admin() {
     { key: 'email', label: '邮件配置', icon: Mail },
     { key: 'audit', label: '审计日志', icon: FileText },
     { key: 'stats', label: '系统统计', icon: Server },
+    { key: 'ai-trace', label: 'AI 执行日志', icon: Brain },
   ];
 
   return (
@@ -105,6 +107,7 @@ export default function Admin() {
       {activeTab === 'email' && <EmailConfig />}
       {activeTab === 'audit' && <AuditLogTab />}
       {activeTab === 'stats' && <StatsTab />}
+      {activeTab === 'ai-trace' && <AITraceTab />}
     </div>
   );
 }
@@ -351,6 +354,318 @@ function UsersTab() {
       </CardContent>
     </Card>
   );
+}
+
+// ════════════════════════════════════════════════════════════════
+// AI 执行日志 Tab（可观测性）
+// ════════════════════════════════════════════════════════════════
+
+function AITraceTab() {
+  const { isMobile } = useResponsive();
+  const [page, setPage] = useState(1);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [selectedTrace, setSelectedTrace] = useState<string | null>(null);
+
+  const { data: tracesData, isLoading } = useQuery({
+    queryKey: ['admin', 'ai-traces', page, statusFilter],
+    queryFn: () =>
+      adminApi
+        .aiTraceList({ page, limit: 20, ...(statusFilter !== 'all' ? { status: statusFilter } : {}) })
+        .then((r) => r.data.data),
+  });
+
+  const { data: modelHealth } = useQuery({
+    queryKey: ['admin', 'ai-model-health'],
+    queryFn: () => adminApi.aiModelHealth().then((r) => r.data.data),
+    refetchInterval: 30000,
+  });
+
+  const traces = tracesData?.items ?? [];
+  const total = tracesData?.total ?? 0;
+  const totalPages = Math.ceil(total / 20);
+
+  const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
+    running: { label: '执行中', color: 'bg-blue-500/10 text-blue-500 border-blue-200 dark:border-blue-800' },
+    completed: { label: '已完成', color: 'bg-green-500/10 text-green-500 border-green-200 dark:border-green-800' },
+    error: { label: '错误', color: 'bg-red-500/10 text-red-500 border-red-200 dark:border-red-800' },
+    aborted: { label: '已中止', color: 'bg-gray-500/10 text-gray-500 border-gray-200 dark:border-gray-700' },
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <div className={cn('flex items-center gap-3', isMobile && 'flex-col items-start')}>
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                <Brain className="h-4 w-4 text-violet-500" />
+              </div>
+              <div>
+                <CardTitle className="text-base">AI Agent 执行日志</CardTitle>
+                <CardDescription>追踪 AI 对话的完整执行过程</CardDescription>
+              </div>
+            </div>
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setPage(1);
+              }}
+              className={cn('h-9 rounded-md border border-input bg-background px-3 py-1 text-sm', isMobile && 'w-full')}
+            >
+              <option value="all">全部状态</option>
+              <option value="running">执行中</option>
+              <option value="completed">已完成</option>
+              <option value="error">错误</option>
+              <option value="aborted">已中止</option>
+            </select>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : traces.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground text-sm">暂无 AI 执行记录</div>
+          ) : (
+            <div className="space-y-2">
+              {traces.map((trace) => {
+                const statusKey = (trace.status || 'completed') as keyof typeof STATUS_CONFIG;
+                const statusConfig: { label: string; color: string } = STATUS_CONFIG[statusKey]!;
+                return (
+                  <div
+                    key={trace.id}
+                    onClick={() => setSelectedTrace(selectedTrace === trace.id ? null : trace.id)}
+                    className={cn(
+                      'p-3 rounded-lg border cursor-pointer transition-all hover:shadow-sm',
+                      statusConfig.color,
+                      selectedTrace === trace.id && 'ring-2 ring-violet-400',
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{trace.query}</p>
+                        <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
+                          <span>{trace.userName || trace.userId}</span>
+                          <span>{trace.modelId}</span>
+                          <span>{trace.toolCallCount} 次工具调用</span>
+                          <span>{formatDuration(trace.durationMs)}</span>
+                          {trace.hasPlan && <span className="text-violet-500">📋 有计划</span>}
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className={cn('text-xs px-2 py-0.5 rounded-full', statusConfig.color)}>
+                          {statusConfig.label}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(trace.createdAt).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+
+                    {selectedTrace === trace.id && (
+                      <AITraceDetailPanel traceId={trace.traceId} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 mt-4">
+              <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
+                上一页
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                {page} / {totalPages}
+              </span>
+              <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
+                下一页
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 模型健康状态 */}
+      {modelHealth && modelHealth.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">模型健康状态</CardTitle>
+            <CardDescription>实时监控 AI 模型的可用性和性能</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {modelHealth.map((model) => (
+                <div
+                  key={model.modelId}
+                  className={cn(
+                    'p-4 rounded-lg border',
+                    model.status === 'healthy'
+                      ? 'border-green-200 bg-green-50/50 dark:bg-green-950/20'
+                      : model.status === 'degraded'
+                        ? 'border-yellow-200 bg-yellow-50/50 dark:bg-yellow-950/20'
+                        : 'border-red-200 bg-red-50/50 dark:bg-red-950/20',
+                  )}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-medium text-sm">{model.modelName}</span>
+                    <span
+                      className={cn(
+                        'text-xs px-2 py-0.5 rounded-full',
+                        model.status === 'healthy'
+                          ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+                          : model.status === 'degraded'
+                            ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
+                            : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
+                      )}
+                    >
+                      {model.circuitState === 'open' ? '熔断中' : model.status === 'healthy' ? '正常' : '降级'}
+                    </span>
+                  </div>
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    <div className="flex justify-between">
+                      <span>成功率</span>
+                      <span className={cn(model.successRate < 0.9 && 'text-red-500 font-medium')}>
+                        {(model.successRate * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>平均延迟</span>
+                      <span>{(model.avgLatencyMs / 1000).toFixed(2)}s</span>
+                    </div>
+                    {model.failureCount > 0 && (
+                      <div className="flex justify-between">
+                        <span>连续失败</span>
+                        <span className="text-orange-500">{model.failureCount} 次</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ═══ Trace 详情面板 ═══
+
+function AITraceDetailPanel({ traceId }: { traceId: string }) {
+  const { data: detail, isLoading } = useQuery({
+    queryKey: ['admin', 'ai-trace-detail', traceId],
+    queryFn: () => adminApi.aiTraceDetail(traceId).then((r) => r.data.data),
+    enabled: !!traceId,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="mt-3 p-3 bg-muted/30 rounded-lg flex items-center justify-center">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!detail) return null;
+
+  return (
+    <div className="mt-3 space-y-3 border-t pt-3">
+      {/* Token 用量 */}
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="p-2 bg-muted/30 rounded">
+          <div className="text-lg font-semibold">{detail.tokenUsage.input}</div>
+          <div className="text-xs text-muted-foreground">输入 Token</div>
+        </div>
+        <div className="p-2 bg-muted/30 rounded">
+          <div className="text-lg font-semibold">{detail.tokenUsage.output}</div>
+          <div className="text-xs text-muted-foreground">输出 Token</div>
+        </div>
+        <div className="p-2 bg-muted/30 rounded">
+          <div className="text-lg font-semibold">{formatDuration(detail.durationMs)}</div>
+          <div className="text-xs text-muted-foreground">总耗时</div>
+        </div>
+      </div>
+
+      {/* 计划信息 */}
+      {detail.plan && (
+        <div className="p-3 bg-violet-50/50 dark:bg-violet-950/20 rounded-lg">
+          <div className="text-xs font-medium text-violet-600 dark:text-violet-400 mb-2">📋 执行计划</div>
+          <div className="text-sm mb-2">{detail.plan.goal}</div>
+          <div className="space-y-1">
+            {detail.plan.steps.map((step) => (
+              <div key={step.id} className="flex items-center gap-2 text-xs">
+                <span
+                  className={cn(
+                    'w-2 h-2 rounded-full',
+                    step.status === 'done'
+                      ? 'bg-green-500'
+                      : step.status === 'running'
+                        ? 'bg-blue-500 animate-pulse'
+                        : step.status === 'skipped'
+                          ? 'bg-gray-400'
+                          : 'bg-gray-300',
+                  )}
+                />
+                <span className={step.status === 'skipped' ? 'line-through text-muted-foreground' : ''}>
+                  {step.description}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 工具调用链路 */}
+      {detail.toolCalls && detail.toolCalls.length > 0 && (
+        <div>
+          <div className="text-xs font-medium text-muted-foreground mb-2">工具调用链路 ({detail.toolCalls.length})</div>
+          <div className="space-y-1.5 max-h-60 overflow-y-auto">
+            {detail.toolCalls.map((tc, idx) => (
+              <div
+                key={idx}
+                className={cn(
+                  'flex items-center gap-2 p-2 rounded text-xs border-l-2',
+                  tc.status === 'success'
+                    ? 'border-green-400 bg-green-50/30 dark:bg-green-950/10'
+                    : 'border-red-400 bg-red-50/30 dark:bg-red-950/10',
+                )}
+              >
+                <span className="font-mono font-medium text-violet-600 dark:text-violet-400 min-w-[120px] truncate">
+                  {tc.name}
+                </span>
+                <span className="text-muted-foreground flex-1 truncate">
+                  {JSON.stringify(tc.args)?.slice(0, 60)}
+                </span>
+                <span className="text-muted-foreground">{formatDuration(tc.durationMs)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 召回的记忆 */}
+      {detail.memoryRecalled && detail.memoryRecalled.length > 0 && (
+        <div className="p-2 bg-amber-50/50 dark:bg-amber-950/20 rounded-lg">
+          <div className="text-xs font-medium text-amber-600 dark:text-amber-400 mb-1">🧠 召回记忆</div>
+          <ul className="space-y-0.5">
+            {detail.memoryRecalled.map((mem, i) => (
+              <li key={i} className="text-xs text-muted-foreground pl-2">• {mem}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
 }
 
 function RegistrationTab() {

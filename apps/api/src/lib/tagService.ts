@@ -118,11 +118,7 @@ export async function removeTagFromFile(
 // 与 routes/permissions.ts GET /tags/file/:fileId 逻辑一致
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function getFileTags(
-  env: Env,
-  userId: string,
-  fileId: string
-): Promise<TagResult[]> {
+export async function getFileTags(env: Env, userId: string, fileId: string): Promise<TagResult[]> {
   const db = getDb(env.DB);
 
   await checkFilePermission(db, fileId, userId, 'read', env);
@@ -196,10 +192,7 @@ export async function batchGetFileTags(
 // 获取标签使用统计（AgentTools专用扩展）
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function getTagStats(
-  env: Env,
-  userId: string
-): Promise<Array<{ name: string; count: number }>> {
+export async function getTagStats(env: Env, userId: string): Promise<Array<{ name: string; count: number }>> {
   const db = getDb(env.DB);
 
   const results = await db
@@ -254,11 +247,7 @@ export async function getImageFilesForAutoTagging(
 ): Promise<Array<{ id: string; name: string; mimeType: string | null }>> {
   const db = getDb(env.DB);
 
-  let conditions = [
-    eq(files.userId, userId),
-    isNull(files.deletedAt),
-    sql`${files.mimeType} LIKE 'image/%'`,
-  ];
+  const conditions = [eq(files.userId, userId), isNull(files.deletedAt), sql`${files.mimeType} LIKE 'image/%'`];
 
   if (fileIds && fileIds.length > 0) {
     conditions.push(inArray(files.id, fileIds));

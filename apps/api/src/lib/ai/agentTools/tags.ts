@@ -52,6 +52,11 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId', 'tags'],
       },
+      examples: [
+        { user_query: '给这个文件加上重要标签', tool_call: { fileId: '<file_id>', tags: ['重要'] } },
+        { user_query: '标记为工作和待处理', tool_call: { fileId: '<doc_id>', tags: ['工作', '待处理'] } },
+        { user_query: '批量标记这些文档', tool_call: { fileId: '<report_id>', tags: ['项目A', '2024Q4'] } },
+      ],
     },
   },
 
@@ -75,6 +80,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId', 'tagNames'],
       },
+      examples: [
+        { user_query: '去掉重要标签', tool_call: { fileId: '<file_id>', tagNames: ['重要'] } },
+        { user_query: '取消工作标记', tool_call: { fileId: '<doc_id>', tagNames: ['工作'] } },
+      ],
     },
   },
 
@@ -93,6 +102,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId'],
       },
+      examples: [
+        { user_query: '这个文件有什么标签', tool_call: { fileId: '<file_id>' } },
+        { user_query: '显示标签列表', tool_call: { fileId: '<doc_id>' } },
+      ],
     },
   },
 
@@ -115,6 +128,10 @@ export const definitions: ToolDefinition[] = [
           limit: { type: 'number', description: '返回数量（默认50）' },
         },
       },
+      examples: [
+        { user_query: '我有哪些标签', tool_call: {} },
+        { user_query: '按使用量排序显示标签', tool_call: { sortBy: 'usage_count', sortOrder: 'desc' } },
+      ],
     },
   },
 
@@ -134,6 +151,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['sourceTag', 'targetTag'],
       },
+      examples: [
+        { user_query: '把重要和紧急合并', tool_call: { sourceTag: '紧急', targetTag: '重要' } },
+        { user_query: '整理重复标签', tool_call: { sourceTag: '项目-A', targetTag: '项目A' } },
+      ],
     },
   },
 
@@ -158,6 +179,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['folderId', 'tags'],
       },
+      examples: [
+        { user_query: '给这个文件夹加上项目A标签', tool_call: { folderId: '<folder_id>', tags: ['项目A'] } },
+        { user_query: '批量标记整个目录为2024', tool_call: { folderId: '<docs_id>', tags: ['2024', '归档'], recursive: true } },
+      ],
     },
   },
 
@@ -183,6 +208,10 @@ AI会分析文件名、内容、类型等信息生成合适的标签`,
         },
         required: ['fileIds'],
       },
+      examples: [
+        { user_query: '自动给这些图片打标签', tool_call: { fileIds: ['<img1_id>', '<img2_id>'] } },
+        { user_query: '智能分类这批文档', tool_call: { fileIds: ['<doc1_id>', '<doc2_id>', '<doc3_id>'], maxTags: 3 } },
+      ],
     },
   },
 ];
@@ -196,7 +225,7 @@ export class TagsTools {
     if (!file) return { error: `文件不存在或无权访问: ${fileId}` };
 
     let addedCount = 0;
-    let skippedTags: string[] = [];
+    const skippedTags: string[] = [];
 
     for (const tagName of tags) {
       if (!tagName) continue;

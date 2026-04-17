@@ -10,14 +10,15 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, desc, sql, count } from 'drizzle-orm';
-import { getDb, aiChatSessions, aiChatMessages } from '../db';
+import { eq, and, desc, sql, count, inArray, isNull } from 'drizzle-orm';
+import { getDb, aiChatSessions, aiChatMessages, aiConfirmRequests, aiMemories, files } from '../db';
 import { authMiddleware } from '../middleware';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { ModelGateway, RagEngine } from '../lib/ai';
 import { AgentEngine, type AgentChunk } from '../lib/ai/agentEngine';
+import { AgentMemory } from '../lib/ai/agentMemory';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
@@ -118,16 +119,83 @@ app.get('/sessions/:sessionId', async (c) => {
     .orderBy(aiChatMessages.createdAt)
     .all();
 
+  const confirmRequests = await db
+    .select()
+    .from(aiConfirmRequests)
+    .where(eq(aiConfirmRequests.sessionId, sessionId))
+    .all();
+
+  const confirmStatusMap = new Map(
+    confirmRequests.map((cr) => [cr.id, cr.status as 'pending' | 'consumed' | 'cancelled' | 'expired'])
+  );
+
+  const mentionedFileIds = messages
+    .filter((m) => m.role === 'user' && m.mentionedFiles)
+    .flatMap((m) => {
+      try {
+        return JSON.parse(m.mentionedFiles!) as string[];
+      } catch {
+        return [];
+      }
+    });
+
+  const mentionedFileMap = new Map<string, string>();
+  if (mentionedFileIds.length > 0) {
+    const uniqueIds = [...new Set(mentionedFileIds)];
+    const fileRecords = await db
+      .select({ id: files.id, name: files.name })
+      .from(files)
+      .where(and(inArray(files.id, uniqueIds), eq(files.userId, userId), isNull(files.deletedAt)))
+      .all();
+    fileRecords.forEach((f) => mentionedFileMap.set(f.id, f.name));
+  }
+
   return c.json({
     success: true,
     data: {
       ...session,
-      messages: messages.map((m) => ({
-        ...m,
-        sources: m.sources ? JSON.parse(m.sources) : undefined,
-        toolCalls: m.toolCalls ? JSON.parse(m.toolCalls) : undefined,
-        reasoning: m.reasoning || undefined,
-      })),
+      messages: messages.map((m) => {
+        let toolCalls = m.toolCalls ? JSON.parse(m.toolCalls) : undefined;
+        if (toolCalls && Array.isArray(toolCalls)) {
+          toolCalls = toolCalls.map((tc: any) => {
+            if (tc.result && typeof tc.result === 'object' && (tc.result as any).status === 'pending_confirm') {
+              const confirmId = (tc.result as any).confirmId;
+              if (confirmId && confirmStatusMap.has(confirmId)) {
+                const dbStatus = confirmStatusMap.get(confirmId);
+                const confirmStatus =
+                  dbStatus === 'consumed' ? 'confirmed' : dbStatus === 'cancelled' ? 'cancelled' : 'pending';
+                return { ...tc, confirmStatus };
+              }
+            }
+            return tc;
+          });
+        }
+
+        let parsedMentionedFiles: Array<{ id: string; name: string }> | undefined;
+        if (m.role === 'user' && m.mentionedFiles) {
+          try {
+            const ids = JSON.parse(m.mentionedFiles) as string[];
+            parsedMentionedFiles = ids
+              .map((id) => {
+                const name = mentionedFileMap.get(id);
+                return name ? { id, name } : null;
+              })
+              .filter(Boolean) as Array<{ id: string; name: string }>;
+            if (parsedMentionedFiles.length === 0) parsedMentionedFiles = undefined;
+          } catch {
+            parsedMentionedFiles = undefined;
+          }
+        }
+
+        return {
+          ...m,
+          sources: m.sources ? JSON.parse(m.sources) : undefined,
+          toolCalls,
+          reasoning: m.reasoning || undefined,
+          aborted: m.aborted || false,
+          mentionedFiles: parsedMentionedFiles,
+        };
+      }),
     },
   });
 });
@@ -183,6 +251,8 @@ app.delete('/sessions/:sessionId', async (c) => {
 
   try {
     await db.delete(aiChatMessages).where(eq(aiChatMessages.sessionId, sessionId));
+    await db.delete(aiConfirmRequests).where(eq(aiConfirmRequests.sessionId, sessionId));
+    await db.delete(aiMemories).where(eq(aiMemories.sessionId, sessionId));
     await db.delete(aiChatSessions).where(eq(aiChatSessions.id, sessionId));
 
     return c.json({ success: true, data: { message: '会话已删除' } });
@@ -432,6 +502,7 @@ async function handleStreamChat(
       sessionId: actualSessionId,
       role: 'user',
       content: query,
+      mentionedFiles: contextFileIds && contextFileIds.length > 0 ? JSON.stringify(contextFileIds) : undefined,
       createdAt: new Date().toISOString(),
     });
 
@@ -450,6 +521,17 @@ async function handleStreamChat(
 
     const agentEngine = new AgentEngine(c.env);
 
+    // ── 占位消息：流开始前写入 DB，确保任何中断都有记录可更新 ──────────────
+    const assistantMsgId = crypto.randomUUID();
+    await db.insert(aiChatMessages).values({
+      id: assistantMsgId,
+      sessionId: actualSessionId!,
+      role: 'assistant',
+      content: '',
+      aborted: false,
+      createdAt: new Date().toISOString(),
+    });
+
     let fullText = '';
     let finalSources: Array<{ id: string; name: string; mimeType: string | null; score: number }> = [];
     const collectedToolCalls: Array<{
@@ -466,6 +548,29 @@ async function handleStreamChat(
     const streamDone = new Promise<void>((r) => {
       resolveStream = r;
     });
+
+    // ── 统一的消息更新函数，替代双路径 INSERT ────────────────────────────────
+    const saveAssistantMessage = async (opts: {
+      isAborted: boolean;
+      inputTokens?: number;
+      outputTokens?: number;
+      latencyMs: number;
+    }) => {
+      await db
+        .update(aiChatMessages)
+        .set({
+          content: fullText || (collectedToolCalls.length > 0 ? '(执行了工具操作)' : '(响应中断)'),
+          sources: JSON.stringify(finalSources),
+          toolCalls: collectedToolCalls.length > 0 ? JSON.stringify(collectedToolCalls) : null,
+          reasoning: collectedReasoning || null,
+          modelUsed: agentResult?.meta?.modelId || modelId || null,
+          latencyMs: opts.latencyMs,
+          inputTokens: opts.inputTokens ?? 0,
+          outputTokens: opts.outputTokens ?? 0,
+          aborted: opts.isAborted,
+        })
+        .where(eq(aiChatMessages.id, assistantMsgId));
+    };
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -565,67 +670,41 @@ async function handleStreamChat(
           }
         } catch (error) {
           logger.error('AI Agent', 'Stream failed', { userId }, error);
+          const isAborted = error instanceof Error && error.name === 'AbortError';
           const errorMessage = error instanceof Error ? error.message : 'AI 响应出错';
-          enqueue({ done: true, error: errorMessage, sessionId: actualSessionId, sources: finalSources });
+          enqueue({ done: true, error: isAborted ? '响应已中断' : errorMessage, sessionId: actualSessionId, sources: finalSources });
           try {
             controller.close();
           } catch {}
-          resolveStream();
-          if (actualSessionId && (fullText.trim() || collectedToolCalls.length > 0 || finalSources.length > 0)) {
-            try {
-              await db.insert(aiChatMessages).values({
-                id: crypto.randomUUID(),
-                sessionId: actualSessionId,
-                role: 'assistant',
-                content: fullText || '(响应中断)',
-                sources: JSON.stringify(finalSources),
-                toolCalls: collectedToolCalls.length > 0 ? JSON.stringify(collectedToolCalls) : null,
-                reasoning: collectedReasoning || null,
-                modelUsed: agentResult?.meta?.modelId || modelId || null,
-                latencyMs: Date.now() - startTime,
-                inputTokens: 0,
-                outputTokens: 0,
-                createdAt: new Date().toISOString(),
-              });
-              logger.info('AI Agent', 'Partial message saved after error', { sessionId: actualSessionId });
-            } catch (saveError) {
-              logger.error('AI Agent', 'Failed to save partial message', { userId }, saveError);
-            }
+          // ── abort/error 路径：立即更新占位消息，保存已输出的部分内容 ──────
+          try {
+            await saveAssistantMessage({ isAborted, latencyMs: Date.now() - startTime });
+            logger.info('AI Agent', 'Partial message saved after abort/error', { sessionId: actualSessionId, isAborted, contentLen: fullText.length });
+          } catch (saveError) {
+            logger.error('AI Agent', 'Failed to save partial message', { userId }, saveError);
           }
+          resolveStream();
         }
       },
     });
 
-    // Save assistant message after stream completes
+    // ── 正常完成路径：更新占位消息（含完整 tokens/latency 信息）────────────
     c.executionCtx.waitUntil(
       (async () => {
         await streamDone;
+        // abort 路径已在 catch 块中同步保存，此处跳过避免覆盖
+        if (!doneEmitted) return;
         try {
-          const hasContent = fullText.trim().length > 0;
-          const hasToolCalls = collectedToolCalls.length > 0;
-          const hasSources = finalSources.length > 0;
-          const hasReasoning = collectedReasoning.trim().length > 0;
-          if (!hasContent && !hasToolCalls && !hasSources && !hasReasoning) return;
           const latencyMs = Date.now() - startTime;
-          await db.insert(aiChatMessages).values({
-            id: crypto.randomUUID(),
-            sessionId: actualSessionId!,
-            role: 'assistant',
-            content: fullText || '(执行了工具操作)',
-            sources: JSON.stringify(finalSources),
-            toolCalls: hasToolCalls ? JSON.stringify(collectedToolCalls) : null,
-            reasoning: collectedReasoning || null,
-            modelUsed: agentResult?.meta?.modelId || modelId || null,
-            latencyMs,
+          await saveAssistantMessage({
+            isAborted: false,
             inputTokens: agentResult?.meta?.inputTokens ?? 0,
             outputTokens: agentResult?.meta?.outputTokens ?? 0,
-            createdAt: new Date().toISOString(),
+            latencyMs,
           });
           logger.info('AI Agent', 'Message saved', {
             sessionId: actualSessionId,
             latencyMs,
-            hasToolCalls,
-            hasSources,
             toolCallCount: agentResult?.meta?.toolCallCount ?? collectedToolCalls.length,
             inputTokens: agentResult?.meta?.inputTokens ?? 0,
             outputTokens: agentResult?.meta?.outputTokens ?? 0,
@@ -637,12 +716,16 @@ async function handleStreamChat(
               .update(aiChatSessions)
               .set({
                 modelId: agentResult.meta.modelId || modelId || null,
-                lastToolCallCount: agentResult.meta.toolCallCount,
+                lastToolCallCount: sql`last_tool_call_count + ${agentResult.meta.toolCallCount}`,
                 totalTokensUsed: sql`total_tokens_used + ${agentResult.meta.inputTokens + agentResult.meta.outputTokens}`,
                 updatedAt: new Date().toISOString(),
               })
               .where(eq(aiChatSessions.id, actualSessionId));
           }
+
+          const toolCallsStr = collectedToolCalls.map((tc) => `${tc.toolName}: ${JSON.stringify(tc.args)}`).join('\n');
+          const memory = new AgentMemory(new ModelGateway(c.env), c.env);
+          await memory.extractAndSaveMemories(userId, actualSessionId!, fullText, toolCallsStr);
         } catch (error) {
           logger.error('AI Agent', 'Failed to save message', { userId }, error);
         }
@@ -672,7 +755,44 @@ async function handleStreamChat(
   }
 }
 
-export default app;
+app.get('/memories', async (c) => {
+  const userId = c.get('userId')!;
+  const type = c.req.query('type');
+  const limit = parseInt(c.req.query('limit') || '50', 10);
+  const offset = parseInt(c.req.query('offset') || '0', 10);
+
+  try {
+    const memory = new AgentMemory(new ModelGateway(c.env), c.env);
+    const result = await memory.listMemories(userId, { type, limit, offset });
+    return c.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('AI Chat', 'List memories failed', { userId }, error);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '获取记忆列表失败' } },
+      500
+    );
+  }
+});
+
+app.delete('/memories/:id', async (c) => {
+  const userId = c.get('userId')!;
+  const memoryId = c.req.param('id');
+
+  try {
+    const memory = new AgentMemory(new ModelGateway(c.env), c.env);
+    const success = await memory.deleteMemory(memoryId, userId);
+    if (!success) {
+      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '记忆不存在' } }, 404);
+    }
+    return c.json({ success: true });
+  } catch (error) {
+    logger.error('AI Chat', 'Delete memory failed', { userId, memoryId }, error);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '删除记忆失败' } },
+      500
+    );
+  }
+});
 
 app.post('/confirm', async (c) => {
   const userId = c.get('userId')!;
@@ -709,3 +829,56 @@ app.post('/confirm', async (c) => {
     );
   }
 });
+
+app.post('/cancel', async (c) => {
+  const userId = c.get('userId')!;
+
+  try {
+    const body = await c.req.json();
+    const { confirmId } = body as { confirmId: string };
+
+    if (!confirmId) {
+      return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少 confirmId' } }, 400);
+    }
+
+    const db = getDb(c.env.DB);
+    const now = new Date().toISOString();
+
+    const result = await db
+      .update(aiConfirmRequests)
+      .set({ status: 'cancelled' })
+      .where(
+        and(
+          eq(aiConfirmRequests.id, confirmId),
+          eq(aiConfirmRequests.userId, userId),
+          eq(aiConfirmRequests.status, 'pending')
+        )
+      )
+      .returning();
+
+    if (!result || result.length === 0) {
+      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '确认请求不存在或已处理' } }, 404);
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        cancelledAt: now,
+      },
+    });
+  } catch (error) {
+    logger.error('AI Chat', 'Cancel action failed', { userId }, error);
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.INTERNAL_ERROR,
+          message: error instanceof Error ? error.message : '取消操作失败',
+        },
+      },
+      500
+    );
+  }
+});
+
+export default app;

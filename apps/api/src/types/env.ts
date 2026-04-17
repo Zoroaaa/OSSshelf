@@ -11,13 +11,20 @@
 import type { Context } from 'hono';
 
 export interface AiTaskMessage {
-  type: 'index' | 'summary' | 'tags';
+  type: 'index' | 'summary' | 'tags' | 'agent_batch';
   fileId: string;
   userId: string;
   taskId: string;
   retryCount?: number;
   /** tags/summary 完成后是否自动触发向量索引（上传自动处理时使用） */
   triggerIndexOnComplete?: boolean;
+  /** 是否支持断点续传（批量索引时标记） */
+  isResumable?: boolean;
+  /** agent_batch 操作类型（move/delete/rename） */
+  operation?: 'move' | 'delete' | 'rename';
+  /** agent_batch 操作参数 */
+  targetFolderId?: string;
+  newName?: string;
 }
 
 export interface Env {

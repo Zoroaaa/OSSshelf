@@ -188,6 +188,50 @@ export function isImageFile(mimeType: string | null): boolean {
   return mimeType?.startsWith('image/') ?? false;
 }
 
+/**
+ * 判断文件是否应该建立向量索引
+ *
+ * 核心原则：
+ * 1. 向量索引通过 buildFileTextForVector() 构建文本，会自动降级到元数据
+ * 2. 即使是图片/视频，如果有 AI 标签/摘要，索引也有意义
+ * 3. 只排除明确无意义的情况：超大文件、压缩包、二进制可执行文件
+ *
+ * 使用场景：
+ * - 文件上传时自动触发索引
+ * - 批量手动索引时过滤无效文件
+ */
+export function shouldIndexFile(mimeType: string | null, fileSize?: number): boolean {
+  // 文件大小限制：超过 10MB 不索引（嵌入 token 成本过高）
+  const MAX_INDEX_SIZE = 10 * 1024 * 1024;
+  if (fileSize && fileSize > MAX_INDEX_SIZE) {
+    return false;
+  }
+
+  // 无 MIME 类型时允许尝试（依赖文件名和元数据）
+  if (!mimeType) return true;
+
+  // 压缩包 → 无法提取有意义的内容，且文件名通常无语义价值
+  if (
+    mimeType === 'application/zip' ||
+    mimeType === 'application/x-rar-compressed' ||
+    mimeType === 'application/x-7z-compressed' ||
+    mimeType === 'application/x-tar' ||
+    mimeType === 'application/gzip'
+  ) {
+    return false;
+  }
+
+  // 可执行文件 → 无语义价值
+  if (mimeType === 'application/x-msdownload' || mimeType === 'application/x-dosexec') {
+    return false;
+  }
+
+  // 其余类型都允许索引：
+  // - text/*, application/json, PDF, 代码等 → 提取内容
+  // - image/video/audio → 降级使用文件名 + AI 标签 + AI 摘要
+  return true;
+}
+
 export function isAIConfigured(env: Env): boolean {
   return !!(env.AI || env.VECTORIZE);
 }
@@ -821,9 +865,14 @@ export async function enqueueAutoProcessFile(env: Env, fileId: string, userId?: 
     taskTypes.push('summary');
   }
 
+  // 向量索引：独立判断是否需要索引
+  // 即使不需要 summary/tags，只要文件内容可提取就应该建立索引
   const vectorIndexEnabled = await getAiConfigBoolean(env, 'ai.feature.vector_index_enabled', true);
-  if (env.VECTORIZE && taskTypes.length > 0 && vectorIndexEnabled) {
-    taskTypes.push('index');
+  if (env.VECTORIZE && vectorIndexEnabled) {
+    // 检查文件是否适合建立向量索引
+    if (shouldIndexFile(file.mimeType, file.size)) {
+      taskTypes.push('index');
+    }
   }
 
   if (taskTypes.length === 0) {
@@ -832,29 +881,48 @@ export async function enqueueAutoProcessFile(env: Env, fileId: string, userId?: 
 
   if (env.AI_TASKS_QUEUE) {
     try {
-      // 先创建 task 记录（processAiTaskMessage 会先查此记录，不存在则跳过）
-      // index 不单独入队 —— 由 tags/summary 各自完成后在 aiTaskQueue 里触发
+      // 分离内容任务和索引任务
       const contentTaskTypes = taskTypes.filter((t) => t !== 'index') as Array<'summary' | 'tags'>;
-      if (contentTaskTypes.length === 0) return;
+      const hasIndexOnly = contentTaskTypes.length === 0 && taskTypes.includes('index');
 
-      // 创建一个 task 记录，total = contentTaskTypes.length
-      // index 在所有内容任务完成后由队列处理器自动触发
+      // 纯索引任务：直接创建 index 任务并入队
+      if (hasIndexOnly) {
+        const task = await createTaskRecord(env, 'index', effectiveUserId, 1);
+        await (env.AI_TASKS_QUEUE as any).send({
+          body: {
+            type: 'index',
+            fileId,
+            userId: effectiveUserId,
+            taskId: task.id,
+          },
+        });
+        logger.info('AI', '文件向量索引任务已入队（纯索引）', { fileId, userId: effectiveUserId });
+        return;
+      }
+
+      // 混合任务：先执行 summary/tags，完成后自动触发 index
       const task = await createTaskRecord(env, contentTaskTypes[0], effectiveUserId, contentTaskTypes.length);
       const taskId = task.id;
+      const needIndex = taskTypes.includes('index');
 
-      const messages = contentTaskTypes.map((type) => ({
+      const messages = contentTaskTypes.map((type, index) => ({
         body: {
           type,
           fileId,
           userId: effectiveUserId,
           taskId,
-          // 标记需要在完成后触发 index
-          triggerIndexOnComplete: env.VECTORIZE ? true : false,
+          // 只有最后一个任务且需要索引时才触发（避免重复索引）
+          triggerIndexOnComplete: needIndex && index === contentTaskTypes.length - 1,
         } as import('../../types/env').AiTaskMessage,
       }));
 
       await env.AI_TASKS_QUEUE.sendBatch(messages);
-      logger.info('AI', '文件AI处理任务已入队', { fileId, taskTypes: contentTaskTypes, userId: effectiveUserId });
+      logger.info('AI', '文件AI处理任务已入队', {
+        fileId,
+        taskTypes: contentTaskTypes,
+        needIndex,
+        userId: effectiveUserId,
+      });
       return;
     } catch (error) {
       logger.warn('AI', '队列发送失败，降级为同步处理', { fileId }, error);

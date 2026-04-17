@@ -29,10 +29,10 @@ const createModelSchema = z
   .object({
     name: z.string().min(1).max(100),
     provider: z.enum(['workers_ai', 'openai_compatible']),
-    providerId: z.string().optional(),
+    providerId: z.string().nullable().optional(),
     modelId: z.string().min(1),
     apiEndpoint: z.string().max(500).optional(),
-    apiKey: z.string().min(1).optional(),
+    apiKey: z.union([z.string().min(1), z.literal('')]).optional(),
     capabilities: z.array(z.enum(['chat', 'completion', 'embedding', 'vision', 'function_calling'])).default(['chat']),
     temperature: z.number().min(0).max(2).default(0.7),
     systemPrompt: z.string().max(2000).optional(),

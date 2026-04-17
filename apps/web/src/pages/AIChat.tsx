@@ -17,7 +17,6 @@ import {
   Sparkles,
   StopCircle,
   Copy,
-  Check,
   CheckCircle2,
   RefreshCw,
   Search,
@@ -30,14 +29,15 @@ import {
   FolderOpen,
   X,
   AlertTriangle,
-  ExternalLink,
   Clock,
   Lightbulb,
   FilePlus,
+  AtSign,
+  Reply,
 } from 'lucide-react';
 import { aiApi, filesApi, type AiChatMessage } from '@/services/api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { formatDate } from '@/utils';
+import { formatDate, formatBytes } from '@/utils';
 import { FilePreview } from '@/components/files/FilePreview';
 import { useAuthStore } from '@/stores/auth';
 import { useToast } from '@/components/ui/useToast';
@@ -50,8 +50,9 @@ import {
   ChatSidebar,
   ChatHeader,
   WelcomeScreen,
+  PlanProgressBar,
 } from '@/components/ai/chat';
-import type { Message, ToolCallEvent, SseChunk, PendingConfirm } from '@/components/ai/types';
+import type { Message, ToolCallEvent, SseChunk, PendingConfirm, ExecutionPlan } from '@/components/ai/types';
 
 // ────────────────────────────────────────────────────────────
 // Tool name → label + icon
@@ -211,13 +212,177 @@ export function AIChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(urlSessionId || null);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [showSidebar, setShowSidebar] = useState(() => window.innerWidth >= 1024);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
   const [showToolInfo, setShowToolInfo] = useState(false);
+  const [executionPlans, setExecutionPlans] = useState<Map<string, ExecutionPlan>>(new Map());
+
+  // ═══ @文件引用功能状态 ═══
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [showMentionDropdown, setShowMentionDropdown] = useState(false);
+  const [mentionedFiles, setMentionedFiles] = useState<Array<{ id: string; name: string }>>([]);
+  const mentionedFilesRef = useRef<Array<{ id: string; name: string }>>([]);
+  const mentionDropdownRef = useRef<HTMLDivElement>(null);
+  const [mentionCursorPos, setMentionCursorPos] = useState(0);
+
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [quotedMessage, setQuotedMessage] = useState<{ id: string; content: string; role: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; messageId: string; content: string; role: string } | null>(null);
+  const inputAreaRef = useRef<HTMLDivElement>(null);
+
+  // ═══ @文件引用搜索查询 ═══
+  const { data: mentionSearchResults = [] } = useQuery({
+    queryKey: ['mention-files', mentionQuery],
+    queryFn: () =>
+      aiApi
+        .search(mentionQuery, { limit: 8 })
+        .then((r) => r.data?.data ?? []),
+    enabled: showMentionDropdown,
+    staleTime: 5000,
+  });
+
+  // 检测 @ 符号触发搜索
+  const detectMention = useCallback(
+    (value: string, cursorPos: number) => {
+      const textBeforeCursor = value.substring(0, cursorPos);
+      const atIndex = textBeforeCursor.lastIndexOf('@');
+
+      if (atIndex !== -1 && (atIndex === 0 || textBeforeCursor[atIndex - 1] === ' ' || textBeforeCursor[atIndex - 1] === '\n')) {
+        const query = textBeforeCursor.substring(atIndex + 1);
+        if (!query.includes(' ') && !query.includes('@')) {
+          setMentionQuery(query);
+          setShowMentionDropdown(true);
+          setMentionCursorPos(atIndex);
+          return;
+        }
+      }
+      setShowMentionDropdown(false);
+      setMentionQuery('');
+    },
+    [],
+  );
+
+  // 选择文件到引用列表
+  const selectMentionedFile = useCallback(
+    (fileId: string, fileName: string) => {
+      if (!mentionedFiles.find((f) => f.id === fileId)) {
+        setMentionedFiles((prev) => {
+          const next = [...prev, { id: fileId, name: fileName }];
+          mentionedFilesRef.current = next;
+          return next;
+        });
+      }
+      // 移除输入框中的 @xxx 文本
+      const currentInput = input;
+      const beforeMention = currentInput.substring(0, mentionCursorPos);
+      const afterCursor = currentInput.substring(mentionCursorPos + 1 + mentionQuery.length);
+      setInput(beforeMention + afterCursor);
+      setShowMentionDropdown(false);
+      setMentionQuery('');
+      inputRef.current?.focus();
+    },
+    [input, mentionedFiles, mentionCursorPos, mentionQuery],
+  );
+
+  // 移除已引用的文件
+  const removeMentionedFile = useCallback((fileId: string) => {
+    setMentionedFiles((prev) => {
+      const next = prev.filter((f) => f.id !== fileId);
+      mentionedFilesRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes('application/osshelf-file-ids')) {
+      setIsDragOver(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragOver(false);
+
+      const fileIdsData = e.dataTransfer.getData('application/osshelf-file-ids');
+      if (fileIdsData) {
+        try {
+          const droppedIds: Array<{ id: string; name: string }> = JSON.parse(fileIdsData);
+          setMentionedFiles((prev) => {
+            const newFiles = droppedIds.filter((df) => !prev.find((pf) => pf.id === df.id));
+            const next = [...prev, ...newFiles];
+            mentionedFilesRef.current = next;
+            return next;
+          });
+        } catch {
+          // ignore parse errors
+        }
+        return;
+      }
+
+      if (e.dataTransfer.files.length > 0) {
+        const files = Array.from(e.dataTransfer.files);
+        files.forEach((file) => {
+          const fileId = file.name.replace(/\.[^.]+$/, '');
+          if (!mentionedFilesRef.current.find((f) => f.id === fileId)) {
+            setMentionedFiles((prev) => {
+              const next = [...prev, { id: fileId, name: file.name }];
+              mentionedFilesRef.current = next;
+              return next;
+            });
+          }
+        });
+      }
+    },
+    [mentionedFiles]
+  );
+
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, messageId: string, content: string, role: string) => {
+      e.preventDefault();
+      setContextMenu({ x: e.clientX, y: e.clientY, messageId, content, role });
+    },
+    []
+  );
+
+  const handleQuoteMessage = useCallback((content: string) => {
+    const preview = content.length > 80 ? content.slice(0, 80) + '...' : content;
+    setQuotedMessage({ id: `quote_${Date.now()}`, content, role: 'user' });
+    setContextMenu(null);
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, []);
+
+  useEffect(() => {
+    const closeMenu = () => setContextMenu(null);
+    window.addEventListener('click', closeMenu);
+    return () => window.removeEventListener('click', closeMenu);
+  }, []);
+
+  // 点击外部关闭下拉框
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (mentionDropdownRef.current && !mentionDropdownRef.current.contains(e.target as Node)) {
+        setShowMentionDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -300,15 +465,21 @@ export function AIChat() {
       if (res.data.success && res.data.data) {
         setCurrentSessionId(sessionId);
         setMessages(
-          res.data.data.messages.map((m: AiChatMessage) => ({
-            id: m.id,
-            role: m.role as 'user' | 'assistant',
-            content: m.content,
-            sources: m.sources,
-            toolCalls: m.toolCalls || [],
-            reasoning: m.reasoning || undefined,
-            timestamp: new Date(m.createdAt),
-          }))
+          res.data.data.messages.map((m: AiChatMessage) => {
+            // 占位消息（content 为空且未标记 aborted）说明 Worker 意外终止，标记为中断
+            const isInterrupted =
+              m.role === 'assistant' && !m.content && !m.aborted;
+            return {
+              id: m.id,
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+              sources: m.sources,
+              toolCalls: m.toolCalls || [],
+              reasoning: m.reasoning || undefined,
+              aborted: m.aborted || isInterrupted,
+              timestamp: new Date(m.createdAt),
+            };
+          })
         );
       } else {
         toast({
@@ -344,23 +515,33 @@ export function AIChat() {
         return;
       }
 
+      const finalQuery = quotedMessage ? `[引用]: ${quotedMessage.content}\n\n${query}` : query;
+
+      let contextFileIdsForApi: string[] | undefined;
+
       if (regenerateFromId) {
         setMessages((prev) => {
           const idx = prev.findIndex((m) => m.id === regenerateFromId);
           return idx >= 0 ? prev.slice(0, idx) : prev;
         });
       } else {
+        const currentMentionedFiles = [...mentionedFilesRef.current];
+        contextFileIdsForApi = currentMentionedFiles.length > 0 ? currentMentionedFiles.map((f) => f.id) : undefined;
         setMessages((prev) => [
           ...prev,
           {
             id: crypto.randomUUID(),
             role: 'user',
-            content: query,
+            content: finalQuery,
+            mentionedFiles: currentMentionedFiles.length > 0 ? currentMentionedFiles : undefined,
             timestamp: new Date(),
           },
         ]);
         setInput('');
+        setMentionedFiles([]);
+        mentionedFilesRef.current = [];
         if (inputRef.current) inputRef.current.style.height = 'auto';
+        setQuotedMessage(null);
       }
 
       setIsLoading(true);
@@ -382,12 +563,30 @@ export function AIChat() {
       abortRef.current = new AbortController();
 
       try {
-        await aiApi.chatSession.chatStream(query, {
+        await aiApi.chatSession.chatStream(finalQuery, {
           sessionId: currentSessionId || undefined,
           maxFiles: 8,
           includeFileContent: false,
           contextFolderId,
+          contextFileIds: contextFileIdsForApi,
           onChunk: (raw: SseChunk) => {
+            if (raw.type === 'plan' && raw.plan) {
+              setExecutionPlans((prev) => new Map(prev).set(assistantId, raw.plan!));
+              return;
+            }
+
+            if (raw.type === 'plan_step_update' && raw.stepId && raw.status) {
+              setExecutionPlans((prev) => {
+                const currentPlan = prev.get(assistantId);
+                if (!currentPlan) return prev;
+                const updatedPlan = { ...currentPlan, steps: currentPlan.steps.map((s) => s.id === raw.stepId ? { ...s, status: raw.status as ExecutionPlan['steps'][number]['status'] } : s) };
+                const newMap = new Map(prev);
+                newMap.set(assistantId, updatedPlan);
+                return newMap;
+              });
+              return;
+            }
+
             // 处理 reset 信号：清空当前 assistant 消息的已渲染内容
             if (raw.type === 'reset') {
               setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: '', reasoning: '' } : m)));
@@ -414,13 +613,23 @@ export function AIChat() {
                 existing.result = raw.result;
                 existing.status = 'done';
               }
+              const resultObj =
+                raw.result && typeof raw.result === 'object' ? (raw.result as Record<string, unknown>) : null;
+              const isPendingConfirm = resultObj?.status === 'pending_confirm';
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantId
                     ? {
                         ...m,
                         toolCalls: (m.toolCalls || []).map((tc) =>
-                          tc.id === raw.toolCallId ? { ...tc, result: raw.result, status: 'done' as const } : tc
+                          tc.id === raw.toolCallId
+                            ? {
+                                ...tc,
+                                result: raw.result,
+                                status: 'done' as const,
+                                ...(isPendingConfirm ? { confirmStatus: 'pending' as const } : {}),
+                              }
+                            : tc
                         ),
                       }
                     : m
@@ -480,14 +689,25 @@ export function AIChat() {
         });
       } catch (e) {
         const name = (e as Error).name;
-        if (name !== 'AbortError') {
+        if (name === 'AbortError') {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? {
+                    ...m,
+                    isLoading: false,
+                    aborted: true,
+                    content: m.content || '',
+                  }
+                : m
+            )
+          );
+        } else {
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId ? { ...m, content: '抱歉，遇到了问题，请稍后再试。', isLoading: false } : m
             )
           );
-        } else {
-          setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, isLoading: false } : m)));
         }
       } finally {
         setIsLoading(false);
@@ -515,13 +735,16 @@ export function AIChat() {
                   isLoading: false,
                   pendingConfirm: undefined,
                   content: (m.content || '') + `\n\n✅ 操作执行成功:\n${resultStr}`,
-                  toolCalls: (m.toolCalls || []).map((tc) =>
-                    tc.result &&
-                    typeof tc.result === 'object' &&
-                    (tc.result as Record<string, unknown>).status === 'pending_confirm'
-                      ? { ...tc, result: resultData.result }
-                      : tc
-                  ),
+                  toolCalls: (m.toolCalls || []).map((tc) => {
+                    const resultObj =
+                      tc.result && typeof tc.result === 'object' ? (tc.result as Record<string, unknown>) : null;
+                    const wasPendingConfirm =
+                      tc.confirmStatus === 'pending' || (resultObj?.status === 'pending_confirm' && !tc.confirmStatus);
+                    if (wasPendingConfirm) {
+                      return { ...tc, result: resultData.result, confirmStatus: 'confirmed' as const };
+                    }
+                    return tc;
+                  }),
                 }
               : m
           )
@@ -536,13 +759,55 @@ export function AIChat() {
     }
   }, []);
 
-  const handleCancelConfirm = useCallback((msgId: string) => {
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === msgId ? { ...m, pendingConfirm: undefined, content: (m.content || '') + '\n\n⛔ 用户已取消操作' } : m
-      )
-    );
-  }, []);
+  const handleCancelConfirm = useCallback(
+    async (msgId: string, confirmId?: string) => {
+      const message = messages.find((m) => m.id === msgId);
+      const tc = message?.toolCalls?.find(
+        (t) =>
+          t.confirmStatus === 'pending' ||
+          (t.result &&
+            typeof t.result === 'object' &&
+            (t.result as Record<string, unknown>).status === 'pending_confirm' &&
+            !t.confirmStatus)
+      );
+      const actualConfirmId =
+        confirmId ||
+        (tc?.result && typeof tc.result === 'object'
+          ? ((tc.result as Record<string, unknown>).confirmId as string | undefined)
+          : undefined);
+
+      if (actualConfirmId) {
+        try {
+          await aiApi.chatSession.cancelAction(actualConfirmId);
+        } catch (e) {
+          console.error('Failed to cancel action:', e);
+        }
+      }
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === msgId
+            ? {
+                ...m,
+                pendingConfirm: undefined,
+                content: (m.content || '') + '\n\n⛔ 用户已取消操作',
+                toolCalls: (m.toolCalls || []).map((tc) => {
+                  const resultObj =
+                    tc.result && typeof tc.result === 'object' ? (tc.result as Record<string, unknown>) : null;
+                  const wasPendingConfirm =
+                    tc.confirmStatus === 'pending' || (resultObj?.status === 'pending_confirm' && !tc.confirmStatus);
+                  if (wasPendingConfirm) {
+                    return { ...tc, confirmStatus: 'cancelled' as const };
+                  }
+                  return tc;
+                }),
+              }
+            : m
+        )
+      );
+    },
+    [messages]
+  );
 
   const handleRegenerate = (msgId: string) => {
     const idx = messages.findIndex((m) => m.id === msgId);
@@ -653,6 +918,9 @@ export function AIChat() {
               <div
                 key={msg.id}
                 className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'} group/message animate-in slide-in-from-bottom-2 duration-300`}
+                onContextMenu={(e) => {
+                  if (msg.content) handleContextMenu(e, msg.id, msg.content, msg.role);
+                }}
               >
                 {msg.role === 'assistant' && (
                   <div className="flex-shrink-0">
@@ -663,6 +931,10 @@ export function AIChat() {
                 )}
 
                 <div className="max-w-[85%] min-w-0 space-y-2.5">
+                  {msg.role === 'assistant' && executionPlans.has(msg.id) && (
+                    <PlanProgressBar plan={executionPlans.get(msg.id)!} />
+                  )}
+
                   {msg.role === 'assistant' && msg.reasoning && <ReasoningSection content={msg.reasoning} />}
 
                   {msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0 && (
@@ -703,7 +975,7 @@ export function AIChat() {
                       </div>
                       <div className="flex gap-2.5 mt-3 justify-end">
                         <button
-                          onClick={() => handleCancelConfirm(msg.id)}
+                          onClick={() => handleCancelConfirm(msg.id, msg.pendingConfirm?.confirmId)}
                           disabled={msg.isLoading}
                           className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-600 transition-all duration-200 border border-slate-200 dark:border-slate-600 disabled:opacity-50 active:scale-95"
                         >
@@ -732,6 +1004,29 @@ export function AIChat() {
                       <AssistantContent content={msg.content} onFileClick={handleFileClick} />
                     ) : (
                       <span className="whitespace-pre-wrap">{msg.content}</span>
+                    )}
+
+                    {msg.role === 'user' && msg.mentionedFiles && msg.mentionedFiles.length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-white/20 flex flex-wrap gap-1.5">
+                        {msg.mentionedFiles.map((file) => (
+                          <span
+                            key={file.id}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/20 text-white/90 text-xs font-medium"
+                          >
+                            <AtSign className="h-3 w-3" />
+                            <span className="max-w-[120px] truncate">{file.name}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {msg.aborted && msg.role === 'assistant' && (
+                      <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+                        <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 text-xs">
+                          <StopCircle className="h-3.5 w-3.5" />
+                          <span>输出已中断</span>
+                        </div>
+                      </div>
                     )}
 
                     {msg.isLoading && !msg.content && (
@@ -780,7 +1075,7 @@ export function AIChat() {
                       <span className="text-[11px] text-slate-400 font-medium">
                         {formatDate(msg.timestamp.toISOString())}
                       </span>
-                      {msg.role === 'assistant' && msg.content && (
+                      {msg.role === 'assistant' && (msg.content || msg.aborted) && (
                         <>
                           <button
                             onClick={() => handleCopy(msg.id, msg.content)}
@@ -793,7 +1088,7 @@ export function AIChat() {
                               <Copy className="h-3.5 w-3.5" />
                             )}
                           </button>
-                          {index === lastAssistantIdx && !isLoading && (
+                          {(index === lastAssistantIdx || msg.aborted) && !isLoading && (
                             <button
                               onClick={() => handleRegenerate(msg.id)}
                               className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-violet-600 dark:hover:text-violet-400 transition-all duration-200"
@@ -818,26 +1113,76 @@ export function AIChat() {
               </div>
             ))}
             <div ref={messagesEndRef} />
+
+            {contextMenu && (
+              <div
+                className="fixed z-[100] min-w-[160px] bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 py-1.5 animate-in fade-in zoom-in-95 duration-150"
+                style={{ left: Math.min(contextMenu.x, window.innerWidth - 180), top: Math.min(contextMenu.y, window.innerHeight - 120) }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  onClick={() => handleQuoteMessage(contextMenu.content)}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-violet-50 dark:hover:bg-violet-950/30 hover:text-violet-700 dark:hover:text-violet-300 transition-colors"
+                >
+                  <Reply className="h-3.5 w-3.5" />
+                  引用此消息
+                </button>
+                <button
+                  onClick={() => {
+                    navigator.clipboard?.writeText(contextMenu.content);
+                    setContextMenu(null);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  复制内容
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="flex-shrink-0 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-3">
-          <div className="max-w-3xl mx-auto">
+        <div
+          className={`flex-shrink-0 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-3 relative transition-colors duration-200 ${isDragOver ? 'border-violet-400 bg-violet-50/50 dark:bg-violet-950/20' : ''}`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <div className="max-w-3xl mx-auto relative">
             <div className="flex items-end gap-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 focus-within:border-violet-400 dark:focus-within:border-violet-500 focus-within:ring-2 focus-within:ring-violet-400/20 transition-all px-3 py-2">
+              {quotedMessage && (
+                <div className="w-full mb-1 flex items-start gap-2 px-2 py-1.5 rounded-lg bg-violet-100/80 dark:bg-violet-900/30 text-sm">
+                  <Reply className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400 mt-0.5 flex-shrink-0" />
+                  <span className="flex-1 text-violet-700 dark:text-violet-300 line-clamp-2 italic">
+                    {quotedMessage.content.length > 120 ? quotedMessage.content.slice(0, 120) + '...' : quotedMessage.content}
+                  </span>
+                  <button
+                    onClick={() => setQuotedMessage(null)}
+                    className="flex-shrink-0 p-0.5 rounded hover:bg-violet-200 dark:hover:bg-violet-800 text-violet-500 hover:text-red-500 transition-colors"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
               <textarea
                 ref={inputRef}
                 value={input}
                 onChange={(e) => {
                   setInput(e.target.value);
                   autoResize(e.target);
+                  detectMention(e.target.value, e.target.selectionStart);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     sendMessage(input);
                   }
+                  // @mention 下拉框键盘导航
+                  if (showMentionDropdown && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter')) {
+                    e.preventDefault();
+                  }
                 }}
-                placeholder="问我任何关于你的文件的问题… (Enter 发送)"
+                placeholder="问我任何关于你的文件的问题… (@ 引用文件)"
                 className="flex-1 resize-none bg-transparent text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none min-h-[36px] max-h-40 py-0.5"
                 rows={1}
                 disabled={isLoading}
@@ -862,6 +1207,69 @@ export function AIChat() {
                 )}
               </div>
             </div>
+
+            {/* 已引用的文件 Chips */}
+            {mentionedFiles.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 max-w-3xl mx-auto mt-1.5">
+                {mentionedFiles.map((file) => (
+                  <span
+                    key={file.id}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 text-xs font-medium"
+                  >
+                    <AtSign className="h-3 w-3" />
+                    <span className="max-w-[120px] truncate">{file.name}</span>
+                    <button
+                      onClick={() => removeMentionedFile(file.id)}
+                      className="ml-0.5 hover:text-red-500 transition-colors"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {isDragOver && (
+              <div className="max-w-3xl mx-auto mt-1.5 py-3 border-2 border-dashed border-violet-400 dark:border-violet-500 rounded-xl bg-violet-50/80 dark:bg-violet-950/30 flex items-center justify-center gap-2 text-sm text-violet-600 dark:text-violet-400 animate-pulse">
+                <Download className="h-4 w-4" />
+                <span>释放以添加文件到对话上下文</span>
+              </div>
+            )}
+
+            {/* @mention 文件搜索下拉框 */}
+            {showMentionDropdown && (
+              <div
+                ref={mentionDropdownRef}
+                className="absolute bottom-full left-4 right-4 mb-1 max-w-3xl mx-auto bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 overflow-hidden z-50"
+              >
+                <div className="p-2">
+                  <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground mb-1">
+                    <AtSign className="h-3 w-3" />
+                    <span>搜索文件（{mentionQuery || '全部'}）</span>
+                  </div>
+                  {mentionSearchResults.length === 0 ? (
+                    <div className="px-3 py-4 text-center text-sm text-muted-foreground">未找到匹配的文件</div>
+                  ) : (
+                    <div className="max-h-48 overflow-y-auto">
+                      {mentionSearchResults.map((file: FileItem) => (
+                        <button
+                          key={file.id}
+                          onClick={() => selectMentionedFile(file.id, file.name)}
+                          className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 text-left transition-colors"
+                        >
+                          <FileText className="h-4 w-4 text-slate-400 flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{file.name}</p>
+                            <p className="text-xs text-muted-foreground truncate">{formatBytes(file.size)}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {input.length > 0 && <p className="text-[10px] text-slate-400 mt-1 text-right">{input.length} 字</p>}
           </div>
         </div>

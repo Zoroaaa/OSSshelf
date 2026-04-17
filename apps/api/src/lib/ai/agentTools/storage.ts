@@ -33,6 +33,10 @@ export const definitions: ToolDefinition[] = [
         properties: {},
         required: [],
       },
+      examples: [
+        { user_query: '我的空间用得怎么样', tool_call: {} },
+        { user_query: '还剩多少空间', tool_call: {} },
+      ],
     },
   },
 
@@ -55,6 +59,10 @@ export const definitions: ToolDefinition[] = [
           minSize: { type: 'number', description: '最小大小（字节），如 10*1024*1024=10MB' },
         },
       },
+      examples: [
+        { user_query: '找一下大文件', tool_call: {} },
+        { user_query: '超过50MB的文件有哪些', tool_call: { minSize: 52428800, limit: 30 } },
+      ],
     },
   },
 
@@ -75,6 +83,10 @@ export const definitions: ToolDefinition[] = [
           folderId: { type: 'string', description: '指定父文件夹（可选，不传则全局）' },
         },
       },
+      examples: [
+        { user_query: '哪个文件夹最大', tool_call: {} },
+        { user_query: '工作目录占多少空间', tool_call: { folderId: '<work_id>', topN: 20 } },
+      ],
     },
   },
 
@@ -95,6 +107,10 @@ export const definitions: ToolDefinition[] = [
         properties: {},
         required: [],
       },
+      examples: [
+        { user_query: '帮我清理一下空间', tool_call: {} },
+        { user_query: '有什么可以删的', tool_call: {} },
+      ],
     },
   },
 
@@ -113,6 +129,10 @@ export const definitions: ToolDefinition[] = [
           includeStats: { type: 'boolean', description: '是否包含使用统计（默认false）' },
         },
       },
+      examples: [
+        { user_query: '有哪些存储桶', tool_call: {} },
+        { user_query: '显示存储桶使用统计', tool_call: { includeStats: true } },
+      ],
     },
   },
 
@@ -132,6 +152,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['bucketId'],
       },
+      examples: [
+        { user_query: '这个存储桶的配置', tool_call: { bucketId: '<bucket_id>' } },
+        { user_query: '查看存储桶容量', tool_call: { bucketId: '<bucket_id>' } },
+      ],
     },
   },
 
@@ -149,6 +173,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['bucketId'],
       },
+      examples: [
+        { user_query: '把S3存储设为默认', tool_call: { bucketId: '<s3_bucket_id>' } },
+        { user_query: '切换默认存储位置', tool_call: { bucketId: '<backup_bucket_id>' } },
+      ],
     },
   },
 
@@ -169,6 +197,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId', 'targetBucketId'],
       },
+      examples: [
+        { user_query: '把这个文件移到S3存储', tool_call: { fileId: '<file_id>', targetBucketId: '<s3_bucket_id>' } },
+        { user_query: '迁移到备份存储桶', tool_call: { fileId: '<important_id>', targetBucketId: '<backup_id>' } },
+      ],
     },
   },
 ];

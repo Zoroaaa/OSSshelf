@@ -36,7 +36,7 @@ import {
   s3UploadPart,
   type MultipartPart,
 } from '../lib/s3client';
-import { resolveBucketConfig, updateBucketStats, checkBucketQuota } from '../lib/bucketResolver';
+import { resolveBucketConfig, updateBucketStats, checkBucketQuota, updateUserStorage } from '../lib/bucketResolver';
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 import { tgUploadFile, TG_MAX_CHUNKED_FILE_SIZE, type TelegramBotConfig } from '../lib/telegramClient';
 import { TG_CHUNK_SIZE, TG_CHUNK_THRESHOLD } from '../lib/telegramChunked';
@@ -872,13 +872,7 @@ app.post('/complete', async (c) => {
           });
         }
 
-        const user = await db.select().from(users).where(eq(users.id, userId)).get();
-        if (user) {
-          await db
-            .update(users)
-            .set({ storageUsed: user.storageUsed + task.fileSize, updatedAt: now })
-            .where(eq(users.id, userId));
-        }
+        await updateUserStorage(db, userId, task.fileSize);
         const physicalDelta = isDedupHit ? 0 : task.fileSize;
         await updateBucketStats(db, task.bucketId!, physicalDelta, 1);
       }
@@ -1003,13 +997,7 @@ app.post('/complete', async (c) => {
           });
         }
 
-        const user = await db.select().from(users).where(eq(users.id, userId)).get();
-        if (user) {
-          await db
-            .update(users)
-            .set({ storageUsed: user.storageUsed + task.fileSize, updatedAt: now })
-            .where(eq(users.id, userId));
-        }
+        await updateUserStorage(db, userId, task.fileSize);
         const physicalDelta = isDedupHit ? 0 : task.fileSize;
         await updateBucketStats(db, task.bucketId!, physicalDelta, 1);
       }
@@ -1122,13 +1110,7 @@ app.post('/complete', async (c) => {
       deletedAt: null,
     });
 
-    const user = await db.select().from(users).where(eq(users.id, userId)).get();
-    if (user) {
-      await db
-        .update(users)
-        .set({ storageUsed: user.storageUsed + task.fileSize, updatedAt: now })
-        .where(eq(users.id, userId));
-    }
+    await updateUserStorage(db, userId, task.fileSize);
 
     await updateBucketStats(db, task.bucketId, task.fileSize, 1);
 

@@ -61,6 +61,11 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId'],
       },
+      examples: [
+        { user_query: '看看这个文件写了什么', tool_call: { fileId: '<file_id>' } },
+        { user_query: '读一下配置文件', tool_call: { fileId: '<config_id>' } },
+        { user_query: '看看报告的第三段', tool_call: { fileId: '<report_id>', sectionIndex: 2 } },
+      ],
     },
   },
 
@@ -84,6 +89,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId'],
       },
+      examples: [
+        { user_query: '这张照片拍的什么', tool_call: { fileId: '<image_id>' } },
+        { user_query: '截图里显示了什么错误', tool_call: { fileId: '<screenshot_id>', question: '截图中的错误信息是什么？' } },
+      ],
     },
   },
 
@@ -107,6 +116,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileIdA', 'fileIdB'],
       },
+      examples: [
+        { user_query: '这两个版本有什么不同', tool_call: { fileIdA: '<v1_id>', fileIdB: '<v2_id>' } },
+        { user_query: '对比一下新旧配置', tool_call: { fileIdA: '<old_config>', fileIdB: '<new_config>' } },
+      ],
     },
   },
 
@@ -129,6 +142,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId'],
       },
+      examples: [
+        { user_query: '这张照片的拍摄信息', tool_call: { fileId: '<photo_id>' } },
+        { user_query: '这个文档的详细信息', tool_call: { fileId: '<doc_id>' } },
+      ],
     },
   },
 
@@ -152,6 +169,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId'],
       },
+      examples: [
+        { user_query: '为这个报告生成摘要', tool_call: { fileId: '<report_id>' } },
+        { user_query: '重新总结这份文档', tool_call: { fileId: '<doc_id>', forceRegenerate: true } },
+      ],
     },
   },
 
@@ -175,6 +196,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId'],
       },
+      examples: [
+        { user_query: '帮这个文件打标签', tool_call: { fileId: '<file_id>' } },
+        { user_query: '推荐3个标签就行', tool_call: { fileId: '<file_id>', maxTags: 3 } },
+      ],
     },
   },
 
@@ -199,6 +224,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId'],
       },
+      examples: [
+        { user_query: '简单看一下开头', tool_call: { fileId: '<file_id>' } },
+        { user_query: '预览前100行', tool_call: { fileId: '<code_id>', lines: 100 } },
+      ],
     },
   },
 
@@ -237,7 +266,12 @@ export const definitions: ToolDefinition[] = [
           maxFiles: { type: 'number', description: '最大文件数（默认20）' },
         },
         required: ['scope', 'analysisType'],
-      },
+        },
+        examples: [
+          { user_query: '分析这个文件夹的内容', tool_call: { scope: 'folder', folderId: '<folder_id>', analysisType: 'summary' } },
+          { user_query: '对比这些文件的异同', tool_call: { scope: 'folder', folderId: '<folder_id>', analysisType: 'compare', maxFiles: 10 } },
+          { user_query: '提取重要文件的共同点', tool_call: { scope: 'starred', analysisType: 'extract_common' } },
+        ],
     },
   },
 ];

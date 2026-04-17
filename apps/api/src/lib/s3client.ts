@@ -613,7 +613,7 @@ export async function s3Put(
  * Get an object from an S3-compatible bucket.
  * Returns the Response so the caller can stream the body.
  */
-export async function s3Get(config: S3BucketConfig, key: string): Promise<Response> {
+export async function s3Get(config: S3BucketConfig, key: string, options?: { range?: string }): Promise<Response> {
   const { url, host, canonicalUri } = buildObjectUrl(config, key);
   const region = config.region || 'us-east-1';
   const payloadHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'; // empty
@@ -630,7 +630,12 @@ export async function s3Get(config: S3BucketConfig, key: string): Promise<Respon
     region,
   });
 
-  const res = await fetch(signed.url, { method: 'GET', headers: signed.headers });
+  const fetchHeaders: Record<string, string> = { ...signed.headers };
+  if (options?.range) {
+    fetchHeaders['Range'] = options.range;
+  }
+
+  const res = await fetch(signed.url, { method: 'GET', headers: fetchHeaders });
 
   if (!res.ok && res.status !== 206) {
     throw new Error(`S3 GET 失败 (${res.status})`);

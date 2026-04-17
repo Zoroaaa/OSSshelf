@@ -33,6 +33,10 @@ export const definitions: ToolDefinition[] = [
         properties: {},
         required: [],
       },
+      examples: [
+        { user_query: '系统正常吗', tool_call: {} },
+        { user_query: '服务状态如何', tool_call: {} },
+      ],
     },
   },
 
@@ -54,6 +58,11 @@ export const definitions: ToolDefinition[] = [
           topic: { type: 'string', description: '具体主题（可选，如"搜索"、"分享"、"上传"）' },
         },
       },
+      examples: [
+        { user_query: '搜索功能怎么用', tool_call: { topic: '搜索' } },
+        { user_query: '有哪些功能', tool_call: {} },
+        { user_query: '分享操作的教程', tool_call: { topic: '分享' } },
+      ],
     },
   },
 
@@ -72,6 +81,10 @@ export const definitions: ToolDefinition[] = [
         properties: {},
         required: [],
       },
+      examples: [
+        { user_query: '当前版本是什么', tool_call: {} },
+        { user_query: '最近更新了什么功能', tool_call: {} },
+      ],
     },
   },
 
@@ -93,6 +106,11 @@ export const definitions: ToolDefinition[] = [
           category: { type: 'string', description: '问题分类（可选）' },
         },
       },
+      examples: [
+        { user_query: '上传失败怎么办', tool_call: { category: '上传' } },
+        { user_query: '搜索不到结果', tool_call: { category: '搜索' } },
+        { user_query: '常见问题', tool_call: {} },
+      ],
     },
   },
 
@@ -109,6 +127,10 @@ export const definitions: ToolDefinition[] = [
         type: 'object',
         properties: {},
       },
+      examples: [
+        { user_query: '我的账户信息', tool_call: {} },
+        { user_query: '查看个人设置', tool_call: {} },
+      ],
     },
   },
 
@@ -127,6 +149,10 @@ export const definitions: ToolDefinition[] = [
           includeExpired: { type: 'boolean', description: '是否包含已过期的（默认false）' },
         },
       },
+      examples: [
+        { user_query: '我有哪些API密钥', tool_call: {} },
+        { user_query: '包括过期的也显示', tool_call: { includeExpired: true } },
+      ],
     },
   },
 
@@ -146,6 +172,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['name'],
       },
+      examples: [
+        { user_query: '创建一个新的API密钥', tool_call: { name: '我的应用' } },
+        { user_query: '生成30天有效的密钥', tool_call: { name: '临时访问', expiresInDays: 30, permissions: ['read'] } },
+      ],
     },
   },
 
@@ -163,6 +193,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['keyId'],
       },
+      examples: [
+        { user_query: '撤销这个API密钥', tool_call: { keyId: '<key_id>' } },
+        { user_query: '删除不再使用的密钥', tool_call: { keyId: '<old_key_id>' } },
+      ],
     },
   },
 
@@ -179,6 +213,10 @@ export const definitions: ToolDefinition[] = [
         type: 'object',
         properties: {},
       },
+      examples: [
+        { user_query: '我配置了哪些回调', tool_call: {} },
+        { user_query: '显示所有Webhook', tool_call: {} },
+      ],
     },
   },
 
@@ -200,6 +238,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['url', 'events'],
       },
+      examples: [
+        { user_query: '文件上传后通知我的服务', tool_call: { url: 'https://myapp.com/webhook', events: ['file.uploaded'] } },
+        { user_query: '配置自动化流程', tool_call: { url: 'https://api.example.com/handler', events: ['file.uploaded', 'file.deleted'], secret: 'mysecret' } },
+      ],
     },
   },
 
@@ -222,6 +264,11 @@ export const definitions: ToolDefinition[] = [
           limit: { type: 'number', description: '返回数量（默认50）' },
         },
       },
+      examples: [
+        { user_query: '最近有什么操作', tool_call: {} },
+        { user_query: '查看登录记录', tool_call: { action: 'login', limit: 20 } },
+        { user_query: '本月的安全审计日志', tool_call: { startDate: '2026-04-01', endDate: '2026-04-16', limit: 100 } },
+      ],
     },
   },
 ];

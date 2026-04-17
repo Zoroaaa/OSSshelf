@@ -26,6 +26,7 @@ import {
   Database,
   Layers,
   Sliders,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import {
@@ -41,7 +42,7 @@ import { aiApi, type AiModel, type AiProviderItem, type AiSystemConfigItem } fro
 import type { AIIndexTask, AISummarizeTask, AITagsTask, AIIndexStats } from '@/services/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
-type TabType = 'models' | 'providers' | 'index' | 'vectors' | 'advanced';
+type TabType = 'models' | 'providers' | 'index' | 'vectors' | 'advanced' | 'memory';
 
 export function AISettings() {
   const navigate = useNavigate();
@@ -75,6 +76,10 @@ export function AISettings() {
 
   const [editingConfigKey, setEditingConfigKey] = useState<string | null>(null);
   const [configEditValue, setConfigEditValue] = useState('');
+
+  const [memoryTypeFilter, setMemoryTypeFilter] = useState<string>('');
+  const [memoryPage, setMemoryPage] = useState(1);
+  const [deletingMemoryId, setDeletingMemoryId] = useState<string | null>(null);
 
   const { data: models = [], isLoading: modelsLoading } = useQuery({
     queryKey: ['ai-models'],
@@ -247,6 +252,23 @@ export function AISettings() {
     },
   });
 
+  const { data: memoriesData, isLoading: isLoadingMemories } = useQuery({
+    queryKey: ['ai-memories', memoryTypeFilter, memoryPage],
+    queryFn: () => aiApi.memories.list({ type: memoryTypeFilter || undefined, limit: 20, offset: (memoryPage - 1) * 20 }).then((r) => r.data.data),
+    staleTime: 30000,
+  });
+
+  const deleteMemoryMutation = useMutation({
+    mutationFn: (memoryId: string) => aiApi.memories.delete(memoryId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ai-memories'] });
+      setDeletingMemoryId(null);
+    },
+    onError: () => {
+      setDeletingMemoryId(null);
+    },
+  });
+
   const handleFeatureConfigChange = (feature: string, value: string) => {
     if (!featureConfig) return;
     const newConfig = { ...featureConfig, [feature]: value === '__default__' ? null : value };
@@ -384,6 +406,7 @@ export function AISettings() {
     { id: 'providers', label: '可用模型', icon: Zap },
     { id: 'index', label: '索引与处理', icon: Database },
     { id: 'vectors', label: '向量库', icon: Layers },
+    { id: 'memory', label: '记忆管理', icon: MessageSquare },
     { id: 'advanced', label: '高级配置', icon: Sliders },
   ];
 
@@ -673,6 +696,117 @@ export function AISettings() {
             onRefresh={() => refetchVectors()}
             onPageChange={setVectorPage}
           />
+        )}
+
+        {activeTab === 'memory' && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <h2 className="text-lg sm:text-xl font-semibold">AI 记忆管理</h2>
+              <div className="flex items-center gap-2">
+                <select
+                  value={memoryTypeFilter}
+                  onChange={(e) => { setMemoryTypeFilter(e.target.value); setMemoryPage(1); }}
+                  className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
+                >
+                  <option value="">全部类型</option>
+                  <option value="operation">操作记录</option>
+                  <option value="preference">用户偏好</option>
+                  <option value="path">常用路径</option>
+                  <option value="file_ref">文件引用</option>
+                </select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => queryClient.invalidateQueries({ queryKey: ['ai-memories'] })}
+                  className="gap-2"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  刷新
+                </Button>
+              </div>
+            </div>
+
+            {isLoadingMemories ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : !memoriesData || memoriesData.items.length === 0 ? (
+              <div className="text-center py-12 border-2 border-dashed rounded-lg">
+                <MessageSquare className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-base sm:text-lg font-medium mb-2">暂无记忆数据</h3>
+                <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                  与 AI 对话后，系统会自动提取并保存有价值的记忆信息
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="text-sm text-muted-foreground mb-2">
+                  共 {memoriesData.total} 条记忆
+                </div>
+                <div className="space-y-2">
+                  {memoriesData.items.map((m) => (
+                    <div
+                      key={m.id}
+                      className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors group"
+                    >
+                      <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                        m.type === 'operation' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
+                        m.type === 'preference' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' :
+                        m.type === 'path' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' :
+                        'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                      }`}>
+                        {m.type === 'operation' ? '操作' : m.type === 'preference' ? '偏好' : m.type === 'path' ? '路径' : '引用'}
+                      </span>
+                      <p className="flex-1 text-sm text-slate-700 dark:text-slate-300 leading-relaxed">{m.summary}</p>
+                      <span className="flex-shrink-0 text-[11px] text-slate-400 whitespace-nowrap">
+                        {new Date(m.createdAt).toLocaleDateString()}
+                      </span>
+                      <button
+                        onClick={() => {
+                          if (confirm('确定要删除这条记忆吗？')) {
+                            setDeletingMemoryId(m.id);
+                            deleteMemoryMutation.mutate(m.id);
+                          }
+                        }}
+                        disabled={deletingMemoryId === m.id && deleteMemoryMutation.isPending}
+                        className="flex-shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 hover:text-red-500 transition-all"
+                        title="删除记忆"
+                      >
+                        {deletingMemoryId === m.id && deleteMemoryMutation.isPending ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <X className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {memoriesData.total > 20 && (
+                  <div className="flex items-center justify-center gap-2 pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={memoryPage <= 1}
+                      onClick={() => setMemoryPage((p) => Math.max(1, p - 1))}
+                    >
+                      上一页
+                    </Button>
+                    <span className="text-sm text-muted-foreground">
+                      {memoryPage} / {Math.ceil(memoriesData.total / 20)}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={memoryPage >= Math.ceil(memoriesData.total / 20)}
+                      onClick={() => setMemoryPage((p) => p + 1)}
+                    >
+                      下一页
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         )}
 
         {activeTab === 'advanced' && (

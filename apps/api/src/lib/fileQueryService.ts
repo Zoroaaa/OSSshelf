@@ -19,11 +19,7 @@ import { checkFilePermission } from './permissionService';
 // 复用 permissionService.checkFilePermission 进行权限验证
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function getFileById(
-  env: Env,
-  userId: string,
-  fileId: string
-): Promise<typeof files.$inferSelect | null> {
+export async function getFileById(env: Env, userId: string, fileId: string): Promise<typeof files.$inferSelect | null> {
   const db = getDb(env.DB);
 
   const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', env);
@@ -42,12 +38,12 @@ export async function getFilesByIds(
   env: Env,
   userId: string,
   fileIds: string[]
-): Promise<typeof files.$inferSelect[]> {
+): Promise<(typeof files.$inferSelect)[]> {
   if (fileIds.length === 0) return [];
 
   const db = getDb(env.DB);
 
-  const permittedFiles: typeof files.$inferSelect[] = [];
+  const permittedFiles: (typeof files.$inferSelect)[] = [];
   for (const fid of fileIds) {
     const { hasAccess } = await checkFilePermission(db, fid, userId, 'read', env);
     if (hasAccess) {
@@ -81,17 +77,10 @@ export async function validateFileAccess(
 // 获取文件的父目录路径
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function getParentPath(
-  env: Env,
-  parentId: string
-): Promise<string | null> {
+export async function getParentPath(env: Env, parentId: string): Promise<string | null> {
   const db = getDb(env.DB);
 
-  const parent = await db
-    .select({ path: files.path })
-    .from(files)
-    .where(eq(files.id, parentId))
-    .get();
+  const parent = await db.select({ path: files.path }).from(files).where(eq(files.id, parentId)).get();
 
   return parent?.path || null;
 }

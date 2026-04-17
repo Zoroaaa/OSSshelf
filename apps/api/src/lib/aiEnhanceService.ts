@@ -32,11 +32,7 @@ export interface FileAiInfo {
 // 复用 permissionService.checkFilePermission 进行权限验证
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function getFileBasicInfo(
-  env: Env,
-  userId: string,
-  fileId: string
-): Promise<FileAiInfo | null> {
+export async function getFileBasicInfo(env: Env, userId: string, fileId: string): Promise<FileAiInfo | null> {
   const db = getDb(env.DB);
 
   const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', env);
@@ -123,11 +119,7 @@ export async function getFilesForVectorIndex(
 ): Promise<Array<{ id: string }>> {
   const db = getDb(env.DB);
 
-  let conditions = [
-    eq(files.userId, userId),
-    isNull(files.deletedAt),
-    eq(files.isFolder, false),
-  ];
+  const conditions = [eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false)];
 
   if (!forceAll) {
     conditions.push(sql`${files.vectorIndexedAt} IS NULL`);

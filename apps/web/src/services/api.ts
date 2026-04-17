@@ -185,7 +185,63 @@ export const filesApi = {
 
   star: (id: string) => api.post<ApiResponse<{ message: string; isStarred: boolean }>>(`/api/files/${id}/star`),
   unstar: (id: string) => api.delete<ApiResponse<{ message: string; isStarred: boolean }>>(`/api/files/${id}/star`),
+
+  // ── 文件夹大小统计（批量）──
+  /** 批量获取文件夹大小统计 */
+  getFoldersSize: (folderIds: string[]) =>
+    api.post<ApiResponse<Record<string, FolderSizeStats>>>('/api/files/folders/size', { folderIds }),
+
+  // ── 文件夹 Zip 下载 ──
+  /** 文件夹打包下载为 ZIP */
+  downloadFolderAsZip: (folderId: string, fileIds?: string[]) => {
+    const params = fileIds ? `?fileIds=${fileIds.join(',')}` : '';
+    return api.get(`/api/files/${folderId}/zip${params}`, { responseType: 'blob' });
+  },
+
+  // ── 文件访问日志 ──
+  /** 获取文件的访问日志（分页） */
+  getFileLogs: (fileId: string, params?: { limit?: number; offset?: number; action?: string }) =>
+    api.get<ApiResponse<FileAccessLogResponse>>(`/api/files/${fileId}/logs`, { params }),
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 新增类型定义
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 文件夹大小统计信息 */
+export interface FolderSizeStats {
+  folderId: string;
+  totalSize: number;
+  fileCount: number;
+  folderCount: number;
+  childFiles: Array<{ id: string; name: string; size: number }>;
+  lastUpdated: string;
+}
+
+/** 文件访问日志响应 */
+export interface FileAccessLogResponse {
+  fileId: string;
+  fileName: string;
+  logs: Array<{
+    id: string;
+    userId: string | null;
+    action: string;
+    ipAddress: string | null;
+    userAgent: string | null;
+    status: 'success' | 'failed';
+    errorMessage: string | null;
+    details: string | null;
+    createdAt: string;
+    user: { name: string | null; email: string } | null;
+  }>;
+  stats: Array<{ action: string; count: number }>;
+  pagination: {
+    limit: number;
+    offset: number;
+    total: number;
+    totalPages: number;
+  };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Share — 下载分享 + 文件夹浏览 + 上传链接
@@ -633,7 +689,67 @@ export const adminApi = {
       '/api/admin/email/broadcast',
       data
     ),
+
+  // ── AI Agent 可观测性 ──
+  aiTraceList: (params?: {
+    userId?: string;
+    sessionId?: string;
+    modelId?: string;
+    page?: number;
+    limit?: number;
+  }) =>
+    api.get<ApiResponse<{ items: AITraceItem[]; total: number; page: number; limit: number }>>('/api/admin/ai/traces', {
+      params,
+    }),
+  aiTraceDetail: (traceId: string) =>
+    api.get<ApiResponse<AITraceDetail>>(`/api/admin/ai/traces/${traceId}`),
+  aiModelHealth: () => api.get<ApiResponse<ModelHealthInfo[]>>('/api/admin/ai/models/health'),
 };
+
+// ── AI Trace 类型定义 ──
+export interface AITraceItem {
+  id: string;
+  traceId: string;
+  userId: string;
+  userName?: string;
+  sessionId: string;
+  query: string;
+  modelId: string;
+  status: 'running' | 'completed' | 'error' | 'aborted';
+  toolCallCount: number;
+  tokenUsage: { input: number; output: number };
+  durationMs: number;
+  createdAt: string;
+  hasPlan: boolean;
+}
+
+export interface AITraceDetail extends AITraceItem {
+  toolCalls: Array<{
+    name: string;
+    args: Record<string, unknown>;
+    result?: unknown;
+    durationMs: number;
+    status: 'success' | 'error';
+    timestamp: string;
+  }>;
+  plan?: {
+    goal: string;
+    steps: Array<{ id: string; description: string; status: string }>;
+  };
+  reasoning?: string;
+  memoryRecalled?: string[];
+}
+
+export interface ModelHealthInfo {
+  modelId: string;
+  modelName: string;
+  status: 'healthy' | 'degraded' | 'down';
+  circuitState: 'closed' | 'open' | 'half-open';
+  successRate: number;
+  avgLatencyMs: number;
+  failureCount: number;
+  lastFailureAt?: string;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tasks
@@ -1397,6 +1513,9 @@ export const aiApi = {
     confirmAction: (confirmId: string) =>
       api.post<ApiResponse<{ result: unknown; confirmedAt: string }>>('/api/ai-chat/confirm', { confirmId }),
 
+    cancelAction: (confirmId: string) =>
+      api.post<ApiResponse<{ cancelledAt: string }>>('/api/ai-chat/cancel', { confirmId }),
+
     chatStream: async (
       query: string,
       options: {
@@ -1422,6 +1541,7 @@ export const aiApi = {
           confirmId?: string;
           summary?: string;
           reasoning?: boolean;
+          reset?: boolean;
         }) => void;
         onError?: (error: Error) => void;
         signal?: AbortSignal;
@@ -1437,6 +1557,10 @@ export const aiApi = {
 
       while (retryCount <= MAX_RETRIES) {
         try {
+          if (options.signal?.aborted) {
+            throw new DOMException('The operation was aborted.', 'AbortError');
+          }
+
           const response = await fetch(`${baseUrl}/api/ai-chat/chat`, {
             method: 'POST',
             headers: {
@@ -1471,6 +1595,15 @@ export const aiApi = {
           let streamDone = false;
 
           while (!streamDone) {
+            if (options.signal?.aborted) {
+              try {
+                await reader.cancel();
+              } catch {
+                // 忽略取消读取时的错误
+              }
+              throw new DOMException('The operation was aborted.', 'AbortError');
+            }
+
             const { done, value } = await reader.read();
             if (done) {
               streamDone = true;
@@ -1507,8 +1640,8 @@ export const aiApi = {
           return;
         } catch (error) {
           lastError = error instanceof Error ? error : new Error(String(error));
-          if (options.signal?.aborted) {
-            throw lastError;
+          if (options.signal?.aborted || lastError.name === 'AbortError') {
+            throw new DOMException('The operation was aborted.', 'AbortError');
           }
           if (retryCount >= MAX_RETRIES) {
             options.onError?.(lastError);
@@ -1523,6 +1656,13 @@ export const aiApi = {
         throw lastError;
       }
     },
+  },
+
+  memories: {
+    list: (params?: { type?: string; limit?: number; offset?: number }) =>
+      api.get<ApiResponse<{ items: Array<{ id: string; type: string; summary: string; sessionId: string; createdAt: string }>; total: number }>>('/api/ai-chat/memories', { params }),
+    delete: (memoryId: string) =>
+      api.delete<ApiResponse<{ success: boolean }>>(`/api/ai-chat/memories/${memoryId}`),
   },
 };
 
@@ -1690,6 +1830,7 @@ export interface AiChatMessage {
   reasoning?: string;
   modelUsed?: string;
   latencyMs?: number;
+  aborted?: boolean;
   createdAt: string;
 }
 

@@ -2,6 +2,172 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v4.7.0] - 2026-04-17
+
+### Added - AI Agent 全面增强：Planning 层、跨会话记忆、交互体验升级 🧠
+
+**核心功能 - Agent 能力增强（4 项重大改进）**
+
+#### 1. Planning 层——结构化任务规划（1.1）
+
+- **agentEngine.ts 改动**
+  - 新增 `ExecutionPlan` 和 `ExecutionPlanStep` 接口定义
+    ```typescript
+    interface ExecutionPlan {
+      goal: string;
+      steps: Array<{
+        id: string;           // step-1, step-2 ...
+        description: string;  // 人类可读描述
+        toolHint?: string;    // 预期使用的工具
+        dependsOn?: string[]; // 依赖哪些步骤完成
+        status: 'pending' | 'running' | 'done' | 'skipped';
+      }>;
+      estimatedToolCalls: number;
+    }
+    ```
+  - 新增 `planPhase()` 方法：复杂任务触发时让 LLM 输出结构化 JSON 计划
+  - 新增 `formatPlanContext()` 方法：将计划状态注入每轮执行上下文
+  - 每步完成后更新 `step.status`，超出 `maxToolCalls` 时优先完成当前步骤再暂停
+  - 意图复杂度判断：在 `run()` 入口处通过关键词 + LLM 快速判断是否为多步任务
+
+- **SSE 新增 chunk 类型**
+  - `{ type: 'plan', plan: ExecutionPlan, done: false }` — 推送完整执行计划
+  - `{ type: 'plan_step_update', stepId: string, status: string, done: false }` — 步骤状态更新
+  - 前端可实时渲染执行计划进度条（PlanProgressBar 组件）
+
+#### 2. 跨会话语义记忆系统（1.2）
+
+- **新增 agentMemory.ts 模块**
+  - 双存储架构：D1（结构化查询）+ Vectorize（语义检索）
+  - 命名空间隔离：`memory:{userId}` 区别于文件索引的 `file:{userId}`
+  - MemoryFact 类型支持 4 种记忆类型：operation / preference / path / file_ref
+
+- **Memory 写入**（对话结束时触发）
+  - 用 LLM 从对话全文 + 工具调用记录中提取 3-5 条结构化事实
+  - 写入 D1 `ai_memories` 表：id, userId, sessionId, type, summary, embeddingId, createdAt
+  - 使用 `@cf/baai/bge-m3` 模型生成向量嵌入
+
+- **Memory 召回**（每次对话开始时）
+  - 在 `agentEngine.run()` 里 RAG 检索时并行召回 memory（top-3）
+  - 召回策略：时间优先 + 向量语义匹配兜底
+  - 拼入 system prompt 末尾的 `[历史记忆]` 区域（低权重）
+  - 置信度低时不注入，避免噪音
+
+- **新增 API**
+  - `GET /api/ai/memories`：列出用户记忆条目（支持 type 筛选、分页）
+  - `DELETE /api/ai/memories/:id`：删除单条记忆
+
+- **前端 AISettings.tsx 新增「记忆管理」Tab**
+  - 记忆类型筛选（operation/preference/path/file_ref）
+  - 分页浏览，单条删除操作
+  - 显示总记忆条数和空状态引导
+
+#### 3. 工具定义 Few-shot Examples（1.3）
+
+- **types.ts 扩展 ToolDefinition schema**
+  - 新增 `examples?: Array<{ user_query: string; tool_call: object }>` 字段
+  - 为高频/易误用工具补充 2-3 个 examples（search_files、smart_search、filter_files、draft_and_create_file、move_file 等）
+  - examples 在 prompt-based 路径中注入到 PROMPT_BASED_SYSTEM_PROMPT
+
+- **工具数量扩展至 100+**
+  - WRITE_TOOLS 集合包含 40+ 个写操作工具标记
+  - 覆盖文件操作、标签管理、分享管理、版本管理、笔记管理、权限管理、存储桶管理等模块
+
+#### 4. 长任务队列打通——批量操作增强（1.4）
+
+- **fileops.ts 新增批量工具**
+  - `batch_move`：批量移动文件（超过阈值自动入队）
+  - `batch_delete`：批量删除文件（超过阈值自动入队）
+  - BATCH_THRESHOLD = 20（文件数超过此值时触发队列模式）
+
+- **队列集成**
+  - 超过阈值时调用 `enqueueAgentBatchOperation()` 写入任务队列
+  - 返回 `{ status: 'queued', taskId, message, totalFiles, estimatedMinutes }`
+  - 队列失败时自动降级为同步执行
+  - 支持 `agent_batch` 任务类型的进度追踪
+
+**核心功能 - 交互体验提升（3 项）**
+
+#### 5. 文件拖拽注入（2.2）
+
+- **AIChat.tsx 改动**
+  - 新增 `onDragOver` / `onDragLeave` / `onDrop` 事件处理器
+  - 用户从文件列表拖拽文件到对话框 → 自动填入 `contextFileIds`
+  - 消息框显示「附带文件：xxx.pdf」Chip 样式
+  - 支持多文件拖拽，显示已引用文件列表
+
+#### 6. @文件快捷引用（2.2）
+
+- **AIChat.tsx 改动**
+  - 输入 `@` 触发文件搜索下拉框（debounce 300ms）
+  - 下拉框展示搜索结果文件列表（名称 + 路径 + 图标）
+  - 键盘导航支持（ArrowDown/ArrowUp/Enter 选择）
+  - 选择后注入 fileId 到引用列表，消息框显示 Chip
+  - 点击 Chip 可移除已引用文件
+  - 参考 LobeChat 的 @mention 交互设计
+
+#### 7. 对话消息引用/追问（2.2）
+
+- **AIChat.tsx 改动**
+  - 新增 `quotedMessage` state（存储被引用的消息 id/content/role）
+  - 右键/长按消息弹出上下文菜单，选择「引用此消息」
+  - 引用后输入框顶部显示引用内容预览条（可关闭）
+  - 发送时自动拼接 `[引用]: 原始消息内容\n\n用户问题` 到 finalQuery
+  - Agent 可针对历史消息进行追问和上下文延续
+
+**核心功能 - 工程优化（3 项）**
+
+#### 8. Reasoning 展示优化（2.3）
+
+- **ReasoningSection.tsx 改动**
+  - 默认折叠，streaming 时自动展开并滚动
+  - 完成后保持折叠，标题显示 reasoning 总字数（「思考了 xxx 字」）
+  - 视觉上与正文区分：左侧竖线 + 半透明背景
+
+#### 9. 模型熔断器（3.3）
+
+- **新增 circuitBreaker.ts 模块**
+  - 三态状态机：closed（正常）→ open（熔断）→ half-open（半开探测）
+  - FAILURE_THRESHOLD = 3（连续失败次数阈值）
+  - RECOVERY_TIMEOUT_MS = 10 分钟（熔断恢复时间）
+  - 错误分类：model_error 触发熔断，network_timeout 不触发
+  - 导出函数：`classifyError()`、`isModelAvailable()`、`recordModelFailure()`、`recordModelSuccess()`、`getModelHealthStatus()`
+
+- **agentEngine.ts 集成熔断器**
+  - Native 路径：循环前检查 `isModelAvailable()`，失败时 `recordModelFailure()`，成功时 `recordModelSuccess()`
+  - Prompt-Based 路径：同样的 4 个集成点
+  - 熔断打开时自动阻止对故障模型的调用
+
+#### 10. 工具定义统一规范（3.1）
+
+- **ToolDefinition schema 标准化**
+  - 统一必填字段：name / description / parameters / examples（可选）/ category
+  - 所有工具补齐 description 和 examples 字段
+  - types.ts 中 ToolDefinition 接口与 agentTools/types.ts 保持一致
+
+### Fixed - 缺陷修复
+
+- **vectorizeQuery 参数类型对齐**：agentEngine.ts 和 agentMemory.ts 中 `_vectorizeQuery` 参数类型统一为 `Record<string, string | number | boolean>`
+- **Vectorize.query 调用修正**：`returnMetadata` 从 `'id'` 改为 `true`，`filter` 参数添加 `as any` 类型断言
+- **circuitBreaker 集成修复**：从完全隔离状态（无任何导入）改为完整集成到 agentEngine.ts 的 native 和 prompt-based 两条路径
+- **AISettings X 图标导入**：memory tab 新增后补充 lucide-react 的 `X` 图标导入
+
+### Technical Details
+
+- **新增文件**：
+  - `apps/api/src/lib/ai/agentMemory.ts` — 跨会话记忆管理模块
+  - `apps/api/src/lib/ai/circuitBreaker.ts` — 模型调用熔断器
+- **修改文件**：
+  - `apps/api/src/lib/ai/agentEngine.ts` — Planning 层、熔断器集成、记忆召回、SSE plan 事件
+  - `apps/api/src/lib/ai/agentTools/types.ts` — ToolDefinition examples 字段
+  - `apps/api/src/lib/ai/agentTools/fileops.ts` — batch_move/batch_delete 工具
+  - `apps/web/src/pages/AIChat.tsx` — 拖拽注入、@mention、消息引用
+  - `apps/web/src/pages/AISettings.tsx` — 记忆管理 Tab
+- **数据库变更**：
+  - 新增 `ai_memories` 表（id, userId, sessionId, type, summary, embeddingId, createdAt）
+
+---
+
 ## [v4.6.0] - 2026-04-13
 
 ### Added - 用户体验全面优化与AI能力增强 🚀

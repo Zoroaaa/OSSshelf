@@ -83,6 +83,7 @@ const previewAuthMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (decoded) {
     c.set('userId', decoded.userId);
     c.set('user', { id: decoded.userId, email: decoded.email, role: decoded.role });
+    c.header('Cache-Control', 'private, no-store, no-cache, must-revalidate');
     return next();
   }
   return authMiddleware(c, next);
@@ -339,17 +340,9 @@ app.get('/:id/stream', async (c) => {
     );
   }
 
-  const headers: Record<string, string> = {
-    'Content-Type': file.mimeType || 'application/octet-stream',
-    'Content-Length': file.size.toString(),
-    'Accept-Ranges': 'bytes',
-  };
+  const range = c.req.header('Range');
 
-  if (type === 'video' || type === 'audio') {
-    headers['Content-Disposition'] = 'inline';
-  }
-
-  // ── Telegram 桶预览路径 ───────────────────────────────────────────────
+  // ── Telegram 桶路径 ───────────────────────────────────────────────
   if (file.bucketId) {
     const bkt = await db.select().from(storageBuckets).where(eq(storageBuckets.id, file.bucketId)).get();
     if (bkt?.provider === 'telegram') {
@@ -368,30 +361,83 @@ app.get('/:id/stream', async (c) => {
         const body = isChunkedFileId(ref.tgFileId)
           ? await tgDownloadChunked(tgConfig, ref.tgFileId, db)
           : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
-        return new Response(body, { headers });
+        const buf = await new Response(body).arrayBuffer();
+        const fileSize = file.size || buf.byteLength;
+
+        if (range) {
+          const parts = range.replace(/bytes=/, '').split('-');
+          const start = parseInt(parts[0] || '0', 10);
+          const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+          return new Response(buf.slice(start, end + 1), {
+            status: 206,
+            headers: {
+              'Content-Type': file.mimeType || 'application/octet-stream',
+              'Content-Length': String(end - start + 1),
+              'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+              'Accept-Ranges': 'bytes',
+              'Cache-Control': 'private, max-age=300',
+            },
+          });
+        }
+        return new Response(buf, {
+          headers: {
+            'Content-Type': file.mimeType || 'application/octet-stream',
+            'Content-Length': String(fileSize),
+            'Accept-Ranges': 'bytes',
+            'Cache-Control': 'private, max-age=300',
+          },
+        });
       } catch (e: any) {
         throwAppError('TG_DOWNLOAD_FAILED', String(e?.message || 'Telegram 下载失败'));
       }
     }
   }
 
+  // ── S3/R2/OSS 等标准存储路径 ───────────────────────────────────
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
   if (!bucketConfig) {
     return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶未配置' } }, 500);
   }
 
-  const s3Res = await s3Get(bucketConfig, file.r2Key);
+  const rangeHeader = range ? `bytes=${range.replace(/bytes=/, '')}` : undefined;
+  const s3Res = await s3Get(bucketConfig, file.r2Key, rangeHeader ? { range: rangeHeader } : undefined);
 
-  if (!s3Res.ok) throwAppError('FILE_CONTENT_NOT_FOUND');
+  if (!s3Res.ok && s3Res.status !== 206) throwAppError('FILE_CONTENT_NOT_FOUND');
 
-  return new Response(s3Res.body, { headers });
+  const fileSize = file.size || parseInt(s3Res.headers.get('content-length') || '0', 10);
+
+  if (s3Res.status === 206 || range) {
+    const parts = range!.replace(/bytes=/, '').split('-');
+    const start = parseInt(parts[0] || '0', 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+    return new Response(s3Res.body, {
+      status: 206,
+      headers: {
+        'Content-Type': file.mimeType || 'application/octet-stream',
+        'Content-Length': String(end - start + 1),
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'private, max-age=300',
+      },
+    });
+  }
+
+  return new Response(s3Res.body, {
+    headers: {
+      'Content-Type': file.mimeType || 'application/octet-stream',
+      'Content-Length': String(fileSize),
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'private, max-age=300',
+    },
+  });
 });
 
 app.get('/:id/thumbnail', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('id');
-  const width = parseInt(c.req.query('width') || '256', 10);
-  const height = parseInt(c.req.query('height') || '256', 10);
+  const width = Math.min(Math.max(parseInt(c.req.query('width') || '256', 10), 16), 2048);
+  const height = Math.min(Math.max(parseInt(c.req.query('height') || '256', 10), 16), 2048);
 
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
@@ -437,8 +483,9 @@ app.get('/:id/thumbnail', async (c) => {
         return new Response(imageBuffer, {
           headers: {
             'Content-Type': file.mimeType,
-            'Cache-Control': 'public, max-age=31536000',
+            'Cache-Control': 'private, max-age=3600',
             'X-Thumbnail-Size': `${width}x${height}`,
+            'X-Thumbnail-Note': 'original-image-resize-not-implemented',
           },
         });
       } catch (e: any) {
@@ -460,8 +507,9 @@ app.get('/:id/thumbnail', async (c) => {
   return new Response(imageBuffer, {
     headers: {
       'Content-Type': file.mimeType,
-      'Cache-Control': 'public, max-age=31536000',
+      'Cache-Control': 'private, max-age=3600',
       'X-Thumbnail-Size': `${width}x${height}`,
+      'X-Thumbnail-Note': 'original-image-resize-not-implemented',
     },
   });
 });

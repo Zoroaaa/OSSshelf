@@ -11,7 +11,7 @@
  */
 
 import { eq, and, isNull, desc } from 'drizzle-orm';
-import { getDb, files, userGroups, groupMembers } from '../../../db';
+import { getDb, files, filePermissions, userGroups, groupMembers } from '../../../db';
 import type { Env } from '../../../types/env';
 import { logger } from '@osshelf/shared';
 import type { ToolDefinition } from './types';
@@ -35,8 +35,13 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId'],
       },
+      examples: [
+        { user_query: '这个文件夹谁能访问', tool_call: { fileId: '<folder_id>' } },
+        { user_query: '看看文件的共享情况', tool_call: { fileId: '<doc_id>' } },
+      ],
     },
   },
+
   {
     type: 'function',
     function: {
@@ -60,6 +65,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId', 'permissionLevel'],
       },
+      examples: [
+        { user_query: '给张三读写权限', tool_call: { fileId: '<folder_id>', targetUserId: '<zhangsan_id>', permissionLevel: 'write', _confirmed: true } },
+        { user_query: '允许李四只读访问30天', tool_call: { fileId: '<doc_id>', permissionLevel: 'read', expiresInDays: 30, _confirmed: true } },
+      ],
     },
   },
   {
@@ -78,8 +87,13 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId', '_confirmed'],
       },
+      examples: [
+        { user_query: '撤销李四的访问权限', tool_call: { fileId: '<folder_id>', targetUserId: '<lisi_id>', _confirmed: true } },
+        { user_query: '取消某人的写入权限', tool_call: { fileId: '<doc_id>', reason: '权限调整', _confirmed: true } },
+      ],
     },
   },
+
   {
     type: 'function',
     function: {
@@ -99,8 +113,13 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['folderId', 'accessLevel', '_confirmed'],
       },
+      examples: [
+        { user_query: '设为仅团队成员可访问', tool_call: { folderId: '<folder_id>', accessLevel: 'team', _confirmed: true } },
+        { user_query: '改为公开可读', tool_call: { folderId: '<public_id>', accessLevel: 'public_read', _confirmed: true } },
+      ],
     },
   },
+
   {
     type: 'function',
     function: {
@@ -115,6 +134,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: [],
       },
+      examples: [
+        { user_query: '看看有哪些用户组', tool_call: {} },
+        { user_query: '开发组有哪些人', tool_call: { includeMembers: true, limit: 10 } },
+      ],
     },
   },
   {
@@ -142,8 +165,14 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['groupId', 'action', 'userId'],
       },
+      examples: [
+        { user_query: '把王五加到开发组', tool_call: { groupId: '<dev_group_id>', action: 'add', userId: '<wangwu_id>', _confirmed: true } },
+        { user_query: '从测试组移除赵六', tool_call: { groupId: '<test_group_id>', action: 'remove', userId: '<zhaoliu_id>', _confirmed: true } },
+        { user_query: '提升为管理员', tool_call: { groupId: '<team_id>', action: 'change_role', userId: '<user_id>', role: 'admin', _confirmed: true } },
+      ],
     },
   },
+
   {
     type: 'function',
     function: {
@@ -158,6 +187,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: [],
       },
+      examples: [
+        { user_query: '哪些授权过期了', tool_call: {} },
+        { user_query: '7天内要过期的权限', tool_call: { includeExpiringSoon: true, withinDays: 7 } },
+      ],
     },
   },
 ];
@@ -206,12 +239,10 @@ export class PermissionTools {
       return { error: '需要提供 targetUserId 或 targetEmail' };
     }
 
-    // ── 处理 expiresInDays → expiresAt ─────────────────────
     let expiresAt: string | undefined;
     if (expiresInDays && expiresInDays > 0) {
       expiresAt = new Date(Date.now() + expiresInDays * 86400000).toISOString();
     }
-    // ───────────────────────────────────────────────────────
 
     const db = getDb(env.DB);
     const file = await db
@@ -221,30 +252,72 @@ export class PermissionTools {
       .get();
     if (!file) return { error: '文件不存在或无权访问' };
 
-    logger.info('AgentTool', 'Granted permission', {
-      fileId,
-      fileName: file.name,
-      targetUserId: targetUserId || '(by email)',
-      targetEmail,
-      permissionLevel,
-      expiresInDays,
-      expiresAt,
-    });
+    try {
+      const now = new Date().toISOString();
+      const finalTargetUserId = targetUserId || crypto.randomUUID();
 
-    return {
-      success: true,
-      message: `已为 ${targetEmail || targetUserId} 授予 ${permissionLevel} 权限${expiresAt ? `，${expiresInDays}天后过期` : ''}`,
-      fileId,
-      fileName: file.name,
-      grantedTo: targetEmail || targetUserId,
-      permissionLevel,
-      ...(expiresAt && { expiresAt, expiresInDays }),
-      _next_actions: [
-        '✅ 权限已授予',
-        '可通过 get_file_permissions 查看当前权限状态',
-        '可通过 revoke_permission 撤销权限',
-      ],
-    };
+      const existing = await db
+        .select()
+        .from(filePermissions)
+        .where(and(eq(filePermissions.fileId, fileId), eq(filePermissions.userId, finalTargetUserId)))
+        .get();
+
+      if (existing) {
+        await db
+          .update(filePermissions)
+          .set({
+            permission: permissionLevel as 'read' | 'write' | 'admin',
+            expiresAt: expiresAt || null,
+            updatedAt: now,
+          })
+          .where(eq(filePermissions.id, existing.id));
+      } else {
+        await db.insert(filePermissions).values({
+          id: crypto.randomUUID(),
+          fileId,
+          userId: finalTargetUserId,
+          permission: permissionLevel as 'read' | 'write' | 'admin',
+          grantedBy: userId,
+          subjectType: 'user',
+          expiresAt: expiresAt || null,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      logger.info('AgentTool', 'Granted permission (completed)', {
+        fileId,
+        fileName: file.name,
+        targetUserId: finalTargetUserId,
+        targetEmail,
+        permissionLevel,
+        expiresInDays,
+        expiresAt,
+      });
+
+      return {
+        success: true,
+        message: `已为 ${targetEmail || finalTargetUserId} 授予 ${permissionLevel} 权限${expiresAt ? `，${expiresInDays}天后过期` : ''}`,
+        fileId,
+        fileName: file.name,
+        grantedTo: targetEmail || finalTargetUserId,
+        permissionLevel,
+        ...(expiresAt && { expiresAt, expiresInDays }),
+        _next_actions: [
+          '✅ 权限已授予',
+          '可通过 get_file_permissions 查看当前权限状态',
+          '可通过 revoke_permission 撤销权限',
+        ],
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      logger.error('AgentTool', 'Failed to grant permission', { fileId, targetUserId, targetEmail }, error);
+      return {
+        error: `权限授予失败: ${errorMsg}`,
+        code: 'GRANT_PERMISSION_FAILED',
+        hint: '请检查目标用户是否存在，或联系管理员',
+      };
+    }
   }
 
   static async executeRevokePermission(env: Env, userId: string, args: Record<string, unknown>) {
@@ -253,19 +326,53 @@ export class PermissionTools {
     const reason = args.reason as string | undefined;
     const db = getDb(env.DB);
 
-    logger.info('AgentTool', 'Revoked permission', {
-      fileId,
-      targetUserId,
-      reason: reason || '(none)',
-    });
+    const file = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+      .get();
+    if (!file) return { error: '文件不存在或无权访问' };
 
-    return {
-      success: true,
-      message: '权限已撤销',
-      fileId,
-      revokedFrom: targetUserId || '(当前会话)',
-      reason,
-    };
+    try {
+      let whereClause;
+
+      if (targetUserId) {
+        whereClause = and(eq(filePermissions.fileId, fileId), eq(filePermissions.userId, targetUserId));
+      } else {
+        whereClause = eq(filePermissions.fileId, fileId);
+      }
+
+      const deleted = await db.delete(filePermissions).where(whereClause);
+
+      logger.info('AgentTool', 'Revoked permission (completed)', {
+        fileId,
+        fileName: file.name,
+        targetUserId: targetUserId || '(all)',
+        reason: reason || '(none)',
+        deletedCount: typeof deleted === 'number' ? deleted : 0,
+      });
+
+      return {
+        success: true,
+        message: targetUserId ? `已撤销 ${targetUserId} 的权限` : '已撤销该文件的所有共享权限',
+        fileId,
+        revokedFrom: targetUserId || '(所有用户)',
+        reason,
+        _next_actions: [
+          '✅ 权限已撤销',
+          '可通过 get_file_permissions 查看当前权限状态',
+          '如需重新授权，可使用 grant_permission',
+        ],
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      logger.error('AgentTool', 'Failed to revoke permission', { fileId, targetUserId }, error);
+      return {
+        error: `权限撤销失败: ${errorMsg}`,
+        code: 'REVOKE_PERMISSION_FAILED',
+        hint: '请检查权限记录是否存在，或联系管理员',
+      };
+    }
   }
 
   static async executeSetFolderAccessLevel(env: Env, userId: string, args: Record<string, unknown>) {

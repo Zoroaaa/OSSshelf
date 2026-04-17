@@ -42,8 +42,13 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId'],
       },
+      examples: [
+        { user_query: '为这个文件生成AI摘要', tool_call: { fileId: '<file_id>' } },
+        { user_query: '重新生成摘要', tool_call: { fileId: '<doc_id>', forceRegenerate: true } },
+      ],
     },
   },
+
   {
     type: 'function',
     function: {
@@ -61,6 +66,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId'],
       },
+      examples: [
+        { user_query: '为这张图片生成智能标签', tool_call: { fileId: '<image_id>' } },
+        { user_query: '生成3个标签就行', tool_call: { fileId: '<photo_id>', maxTags: 3 } },
+      ],
     },
   },
   {
@@ -79,8 +88,14 @@ export const definitions: ToolDefinition[] = [
         },
         required: [],
       },
+      examples: [
+        { user_query: '重建这个文件的索引', tool_call: { fileId: '<file_id>' } },
+        { user_query: '重建所有文件索引', tool_call: { forceAll: true, _confirmed: true } },
+        { user_query: '搜索结果不准确，重新索引', tool_call: {} },
+      ],
     },
   },
+
   {
     type: 'function',
     function: {
@@ -108,6 +123,11 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['question'],
       },
+      examples: [
+        { user_query: '合同里违约金怎么规定', tool_call: { question: '我的合同里关于违约金是怎么规定的？' } },
+        { user_query: '去年服务器花费多少', tool_call: { question: '去年我花了多少钱在服务器上？', scope: 'recent' } },
+        { user_query: '项目用了什么技术', tool_call: { question: '项目中使用了哪些技术栈？', topK: 3 } },
+      ],
     },
   },
   {
@@ -133,6 +153,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId'],
       },
+      examples: [
+        { user_query: '帮这个文件改个规范的名字', tool_call: { fileId: '<img_id>' } },
+        { user_query: '用日期前缀格式重命名', tool_call: { fileId: '<doc_id>', style: 'date_prefix' } },
+      ],
     },
   },
 
@@ -162,6 +186,11 @@ export const definitions: ToolDefinition[] = [
         },
         required: [],
       },
+      examples: [
+        { user_query: '帮我整理文件', tool_call: {} },
+        { user_query: '分析这个文件夹的问题', tool_call: { scope: 'folder', folderId: '<folder_id>' } },
+        { user_query: '找需要打标签的文件', tool_call: { scope: 'untagged' } },
+      ],
     },
   },
 ];
@@ -189,7 +218,11 @@ export class AiEnhanceTools {
       const { generateFileSummary } = await import('../features');
       await generateFileSummary(env, fileId, undefined, userId);
 
-      logger.info('AgentTool', 'Triggered AI summary generation (completed)', { fileId, fileName: file.name, forceRegenerate });
+      logger.info('AgentTool', 'Triggered AI summary generation (completed)', {
+        fileId,
+        fileName: file.name,
+        forceRegenerate,
+      });
 
       const updatedFile = await getFileUpdatedAiInfo(env, fileId);
 
@@ -307,10 +340,7 @@ export class AiEnhanceTools {
           message: `已为 "${file.name}" 完成向量索引重建`,
           fileId,
           fileName: file.name,
-          _next_actions: [
-            '现在可以使用 search_files 或 smart_search 进行语义搜索',
-            '搜索结果会更加准确和相关',
-          ],
+          _next_actions: ['现在可以使用 search_files 或 smart_search 进行语义搜索', '搜索结果会更加准确和相关'],
         };
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
@@ -343,7 +373,12 @@ export class AiEnhanceTools {
       const fileIds = filesToIndex.map((f) => f.id);
       await enqueueAiTasks(env, 'index', fileIds, userId, task.id);
 
-      logger.info('AgentTool', 'Started batch vector index rebuild', { userId, fileCount: filesToIndex.length, forceAll, taskId: task.id });
+      logger.info('AgentTool', 'Started batch vector index rebuild', {
+        userId,
+        fileCount: filesToIndex.length,
+        forceAll,
+        taskId: task.id,
+      });
 
       return {
         success: true,
@@ -373,7 +408,7 @@ export class AiEnhanceTools {
   }
 
   static async executeAskRagQuestion(env: Env, userId: string, args: Record<string, unknown>) {
-    const question = (args.question as string || '').trim();
+    const question = ((args.question as string) || '').trim();
     const scope = (args.scope as string) || 'all';
     const folderId = args.folderId as string | undefined;
     const topK = Math.min((args.topK as number) || 5, 10);
@@ -426,7 +461,10 @@ export class AiEnhanceTools {
         temperature: 0.3,
       } as any);
 
-      const answer = typeof completion === 'string' ? completion : (completion as any)?.content || (completion as any)?.choices?.[0]?.message?.content || '无法生成答案';
+      const answer =
+        typeof completion === 'string'
+          ? completion
+          : (completion as any)?.content || (completion as any)?.choices?.[0]?.message?.content || '无法生成答案';
 
       logger.info('AgentTool', 'RAG question answered', {
         userId,
@@ -456,7 +494,11 @@ export class AiEnhanceTools {
       const errorMsg = error instanceof Error ? error.message : String(error);
       logger.error('AgentTool', 'RAG question failed', { userId, question: question.slice(0, 50) }, error);
 
-      if (errorMsg.includes('No relevant documents') || errorMsg.includes('no relevant') || errorMsg.includes('未找到')) {
+      if (
+        errorMsg.includes('No relevant documents') ||
+        errorMsg.includes('no relevant') ||
+        errorMsg.includes('未找到')
+      ) {
         return {
           error: `未找到与问题相关的文档。建议：1) 先上传相关文件 2) 确保文件已建立向量索引 3) 尝试更具体的问题`,
           code: 'NO_RELEVANT_DOCUMENTS',
@@ -507,7 +549,18 @@ export class AiEnhanceTools {
     const limit = Math.min((args.limit as number) || 200, 500);
 
     const fileList = await getFilesForVectorIndex(env, userId, true).then((files) =>
-      files.slice(0, limit).map((f) => ({ id: f.id, name: '', mimeType: '', path: '', parentId: '', aiTags: '', aiSummary: '', size: 0, isFolder: false, createdAt: new Date() }))
+      files.slice(0, limit).map((f) => ({
+        id: f.id,
+        name: '',
+        mimeType: '',
+        path: '',
+        parentId: '',
+        aiTags: '',
+        aiSummary: '',
+        size: 0,
+        isFolder: false,
+        createdAt: new Date(),
+      }))
     );
 
     // ── 四维度分析 ───────────────────────────────────────

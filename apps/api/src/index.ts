@@ -68,8 +68,7 @@ app.use(
       ];
       const allOrigins = [...new Set([...defaultOrigins, ...allowedOrigins])];
       if (allOrigins.includes(origin)) return origin;
-      if (allowedOrigins.length > 0) return allowedOrigins[0];
-      return defaultOrigins[0];
+      return undefined;
     },
     allowMethods: [
       'GET',

@@ -49,6 +49,17 @@ import {
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+async function resolveTgBucketConfig(
+  db: ReturnType<typeof getDb>,
+  bucketId: string,
+  encKey: string
+): Promise<{ botToken: string; chatId: string; apiBase?: string } | null> {
+  const bucket = await db.select().from(storageBuckets).where(eq(storageBuckets.id, bucketId)).get();
+  if (!bucket || bucket.provider !== 'telegram') return null;
+  const botToken = await decryptSecret(bucket.accessKeyId, encKey);
+  return { botToken, chatId: bucket.bucketName, apiBase: bucket.endpoint || undefined };
+}
+
 // ── Validation schemas ─────────────────────────────────────────────────────
 
 const createShareSchema = z.object({
@@ -73,11 +84,28 @@ const createUploadLinkSchema = z.object({
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
+async function timingSafeEqual(a: string, b: string): Promise<boolean> {
+  if (a.length !== b.length) return false;
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode('timing-safe-compare'),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify']
+  );
+  const sigA = await crypto.subtle.sign('HMAC', key, encoder.encode(a));
+  const sigB = await crypto.subtle.sign('HMAC', key, encoder.encode(b));
+  const validA = await crypto.subtle.verify('HMAC', key, sigB, encoder.encode(a));
+  const validB = await crypto.subtle.verify('HMAC', key, sigA, encoder.encode(b));
+  return validA && validB;
+}
+
 /**
  * 验证分享链接有效性（expiry + password），返回 share 记录或 error。
  * 适用于下载类分享（is_upload_link = false）。
  */
-async function resolveDownloadShare(db: ReturnType<typeof getDb>, shareId: string, password?: string) {
+async function resolveDownloadShare(db: ReturnType<typeof getDb>, shareId: string, password?: string, env?: Env) {
   const share = await db.select().from(shares).where(eq(shares.id, shareId)).get();
   if (!share) return { error: { code: ERROR_CODES.NOT_FOUND, message: '分享链接不存在' }, status: 404 as const };
   if (share.isUploadLink)
@@ -92,11 +120,29 @@ async function resolveDownloadShare(db: ReturnType<typeof getDb>, shareId: strin
     if (password === undefined) {
       return { error: { code: ERROR_CODES.SHARE_PASSWORD_REQUIRED, message: '需要密码访问' }, status: 401 as const };
     }
+    if (env) {
+      const rateKey = `share_pwd_attempt:${shareId}`;
+      const count = await env.KV.get(rateKey);
+      if (count && parseInt(count) >= 10) {
+        return {
+          error: { code: 'RATE_LIMIT_EXCEEDED', message: '密码尝试次数过多，请稍后再试' },
+          status: 429 as const,
+        };
+      }
+    }
     const valid = share.password.startsWith('pbkdf2:')
       ? await verifyPassword(password, share.password)
-      : share.password === password; // 兼容旧明文记录
+      : await timingSafeEqual(share.password, password);
     if (!valid) {
+      if (env) {
+        const rateKey = `share_pwd_attempt:${shareId}`;
+        const prev = await env.KV.get(rateKey);
+        await env.KV.put(rateKey, String(parseInt(prev || '0') + 1), { expirationTtl: 300 });
+      }
       return { error: { code: ERROR_CODES.SHARE_PASSWORD_INVALID, message: '密码错误' }, status: 401 as const };
+    }
+    if (env) {
+      await env.KV.delete(`share_pwd_attempt:${shareId}`);
     }
   }
   return { share };
@@ -122,7 +168,7 @@ async function resolveUploadShare(db: ReturnType<typeof getDb>, uploadToken: str
     }
     const valid = share.password.startsWith('pbkdf2:')
       ? await verifyPassword(password, share.password)
-      : share.password === password; // 兼容旧明文记录
+      : await timingSafeEqual(share.password, password); // 兼容旧明文记录，使用常量时间比较
     if (!valid) {
       return { error: { code: ERROR_CODES.SHARE_PASSWORD_INVALID, message: '密码错误' }, status: 401 as const };
     }
@@ -193,18 +239,19 @@ async function fetchFileContent(
 async function collectFolderFiles(
   db: ReturnType<typeof getDb>,
   folderId: string,
-  basePath = ''
+  basePath: string,
+  userId: string
 ): Promise<Array<{ file: typeof files.$inferSelect; relativePath: string }>> {
   const children = await db
     .select()
     .from(files)
-    .where(and(eq(files.parentId, folderId), isNull(files.deletedAt)))
+    .where(and(eq(files.parentId, folderId), eq(files.userId, userId), isNull(files.deletedAt)))
     .all();
 
   const result: Array<{ file: typeof files.$inferSelect; relativePath: string }> = [];
   for (const child of children) {
     if (child.isFolder) {
-      const sub = await collectFolderFiles(db, child.id, `${basePath}${child.name}/`);
+      const sub = await collectFolderFiles(db, child.id, `${basePath}${child.name}/`, userId);
       result.push(...sub);
     } else {
       result.push({ file: child, relativePath: `${basePath}${child.name}` });
@@ -364,7 +411,7 @@ app.get('/:id', async (c) => {
   const password = c.req.query('password');
   const db = getDb(c.env.DB);
 
-  const resolved = await resolveDownloadShare(db, shareId, password);
+  const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
     return c.json({ success: false, error: resolved.error }, resolved.status);
   }
@@ -470,7 +517,7 @@ app.get('/:id/folder/:folderId', async (c) => {
   const password = c.req.query('password');
   const db = getDb(c.env.DB);
 
-  const resolved = await resolveDownloadShare(db, shareId, password);
+  const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
     return c.json({ success: false, error: resolved.error }, resolved.status);
   }
@@ -537,7 +584,7 @@ app.get('/:id/preview', async (c) => {
   const password = c.req.query('password');
   const db = getDb(c.env.DB);
 
-  const resolved = await resolveDownloadShare(db, shareId, password);
+  const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
     return c.json({ success: false, error: resolved.error }, resolved.status);
   }
@@ -577,7 +624,7 @@ app.get('/:id/stream', async (c) => {
   const password = c.req.query('password');
   const db = getDb(c.env.DB);
 
-  const resolved = await resolveDownloadShare(db, shareId, password);
+  const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
     return c.json({ success: false, error: resolved.error }, resolved.status);
   }
@@ -597,21 +644,68 @@ app.get('/:id/stream', async (c) => {
   const range = c.req.header('Range');
 
   try {
-    const buf = await fetchFileContent(c.env, db, encKey, file);
-    const fileSize = buf.byteLength;
+    // ── Telegram 桶路径 ───────────────────────────────────────────────
+    if (file.bucketId) {
+      const bkt = await db.select().from(storageBuckets).where(eq(storageBuckets.id, file.bucketId)).get();
+      if (bkt?.provider === 'telegram') {
+        const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, file.id)).get();
+        if (!ref) throwAppError('TG_REF_NOT_FOUND', '未找到 Telegram 文件引用');
+        const tgConfig = await resolveTgBucketConfig(db, file.bucketId, encKey);
+        if (!tgConfig) throwAppError('TG_CONFIG_ERROR', '无法加载 Telegram 配置');
 
-    if (range) {
-      const parts = range.replace(/bytes=/, '').split('-');
+        const body = isChunkedFileId(ref.tgFileId)
+          ? await tgDownloadChunked(tgConfig, ref.tgFileId, db)
+          : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
+        const buf = await new Response(body).arrayBuffer();
+        const fileSize = file.size || buf.byteLength;
+
+        if (range) {
+          const parts = range.replace(/bytes=/, '').split('-');
+          const start = parseInt(parts[0] || '0', 10);
+          const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+          return new Response(buf.slice(start, end + 1), {
+            status: 206,
+            headers: {
+              'Content-Type': file.mimeType!,
+              'Content-Length': String(end - start + 1),
+              'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+              'Accept-Ranges': 'bytes',
+              'Cache-Control': 'private, max-age=300',
+            },
+          });
+        }
+        return new Response(buf, {
+          headers: {
+            'Content-Type': file.mimeType!,
+            'Content-Length': String(fileSize),
+            'Accept-Ranges': 'bytes',
+            'Cache-Control': 'private, max-age=300',
+          },
+        });
+      }
+    }
+
+    // ── S3/R2/OSS 等标准存储路径 ───────────────────────────────────
+    const bucketConfig = await resolveBucketConfig(db, share.userId, encKey, file.bucketId, file.parentId);
+    if (!bucketConfig) throwAppError('NO_STORAGE_CONFIGURED', '存储桶未配置');
+
+    const rangeHeader = range ? `bytes=${range.replace(/bytes=/, '')}` : undefined;
+    const s3Res = await s3Get(bucketConfig, file.r2Key, rangeHeader ? { range: rangeHeader } : undefined);
+    if (!s3Res.ok && s3Res.status !== 206) throwAppError('FILE_CONTENT_NOT_FOUND');
+
+    const fileSize = file.size || parseInt(s3Res.headers.get('content-length') || '0', 10);
+
+    if (s3Res.status === 206 || range) {
+      const parts = range!.replace(/bytes=/, '').split('-');
       const start = parseInt(parts[0] || '0', 10);
       const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
       const chunkSize = end - start + 1;
-      const chunk = buf.slice(start, end + 1);
 
-      return new Response(chunk, {
+      return new Response(s3Res.body, {
         status: 206,
         headers: {
           'Content-Type': file.mimeType!,
-          'Content-Length': chunkSize.toString(),
+          'Content-Length': String(chunkSize),
           'Content-Range': `bytes ${start}-${end}/${fileSize}`,
           'Accept-Ranges': 'bytes',
           'Cache-Control': 'private, max-age=300',
@@ -619,10 +713,10 @@ app.get('/:id/stream', async (c) => {
       });
     }
 
-    return new Response(buf, {
+    return new Response(s3Res.body, {
       headers: {
         'Content-Type': file.mimeType!,
-        'Content-Length': fileSize.toString(),
+        'Content-Length': String(fileSize),
         'Accept-Ranges': 'bytes',
         'Cache-Control': 'private, max-age=300',
       },
@@ -638,7 +732,7 @@ app.get('/:id/raw', async (c) => {
   const password = c.req.query('password');
   const db = getDb(c.env.DB);
 
-  const resolved = await resolveDownloadShare(db, shareId, password);
+  const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
     return c.json({ success: false, error: resolved.error }, resolved.status);
   }
@@ -692,7 +786,7 @@ app.get('/:id/preview-info', async (c) => {
   const password = c.req.query('password');
   const db = getDb(c.env.DB);
 
-  const resolved = await resolveDownloadShare(db, shareId, password);
+  const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
     return c.json({ success: false, error: resolved.error }, resolved.status);
   }
@@ -723,18 +817,12 @@ app.get('/:id/download', async (c) => {
   const password = c.req.query('password');
   const db = getDb(c.env.DB);
 
-  const resolved = await resolveDownloadShare(db, shareId, password);
+  const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
     return c.json({ success: false, error: resolved.error }, resolved.status);
   }
 
   const { share } = resolved;
-  if (share.downloadLimit && share.downloadCount >= share.downloadLimit) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.SHARE_DOWNLOAD_LIMIT_EXCEEDED, message: '下载次数已达上限' } },
-      403
-    );
-  }
 
   const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
   if (!file) throwAppError('FILE_NOT_FOUND');
@@ -745,10 +833,17 @@ app.get('/:id/download', async (c) => {
     );
   }
 
-  await db
+  const atomicIncrement = await db
     .update(shares)
     .set({ downloadCount: sql`${shares.downloadCount} + 1` })
-    .where(eq(shares.id, shareId));
+    .where(and(eq(shares.id, shareId), sql`(download_limit IS NULL OR download_count < download_limit)`))
+    .run();
+  if (atomicIncrement.meta.changes === 0) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.SHARE_DOWNLOAD_LIMIT_EXCEEDED, message: '下载次数已达上限' } },
+      403
+    );
+  }
 
   const encKey = getEncryptionKey(c.env);
   try {
@@ -796,18 +891,12 @@ app.get('/:id/zip', async (c) => {
   const fileIdsParam = c.req.query('fileIds'); // 可选：逗号分隔的文件 ID
   const db = getDb(c.env.DB);
 
-  const resolved = await resolveDownloadShare(db, shareId, password);
+  const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
     return c.json({ success: false, error: resolved.error }, resolved.status);
   }
 
   const { share } = resolved;
-  if (share.downloadLimit && share.downloadCount >= share.downloadLimit) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.SHARE_DOWNLOAD_LIMIT_EXCEEDED, message: '下载次数已达上限' } },
-      403
-    );
-  }
 
   const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
   if (!folder) throwAppError('FOLDER_NOT_FOUND');
@@ -829,7 +918,7 @@ app.get('/:id/zip', async (c) => {
       .all();
     entries = selectedFiles.filter((f) => !f.isFolder).map((f) => ({ file: f, relativePath: f.name }));
   } else {
-    entries = await collectFolderFiles(db, folder.id, '');
+    entries = await collectFolderFiles(db, folder.id, '', share.userId);
   }
 
   if (entries.length === 0) {
@@ -883,11 +972,18 @@ app.get('/:id/zip', async (c) => {
     throwAppError('FILE_DOWNLOAD_FAILED', '所有文件下载失败');
   }
 
-  // 更新下载计数（整个 ZIP 算一次下载）
-  await db
+  // 更新下载计数（整个 ZIP 算一次下载）— 原子操作，防止超额下载
+  const atomicIncrement = await db
     .update(shares)
     .set({ downloadCount: sql`${shares.downloadCount} + 1` })
-    .where(eq(shares.id, shareId));
+    .where(and(eq(shares.id, shareId), sql`(download_limit IS NULL OR download_count < download_limit)`))
+    .run();
+  if (atomicIncrement.meta.changes === 0) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.SHARE_DOWNLOAD_LIMIT_EXCEEDED, message: '下载次数已达上限' } },
+      403
+    );
+  }
 
   const zipBytes = zip.finalize();
   const zipName = `${folder.name}.zip`;
@@ -910,7 +1006,7 @@ app.get('/:id/file/:fileId/download', async (c) => {
   const password = c.req.query('password');
   const db = getDb(c.env.DB);
 
-  const resolved = await resolveDownloadShare(db, shareId, password);
+  const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
     return c.json({ success: false, error: resolved.error }, resolved.status);
   }
@@ -954,7 +1050,7 @@ app.get('/:id/file/:fileId/preview', async (c) => {
   const password = c.req.query('password');
   const db = getDb(c.env.DB);
 
-  const resolved = await resolveDownloadShare(db, shareId, password);
+  const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
     return c.json({ success: false, error: resolved.error }, resolved.status);
   }
@@ -1011,7 +1107,7 @@ app.get('/:id/file/:fileId/stream', async (c) => {
   const password = c.req.query('password');
   const db = getDb(c.env.DB);
 
-  const resolved = await resolveDownloadShare(db, shareId, password);
+  const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
     return c.json({ success: false, error: resolved.error }, resolved.status);
   }
@@ -1039,21 +1135,68 @@ app.get('/:id/file/:fileId/stream', async (c) => {
   const range = c.req.header('Range');
 
   try {
-    const buf = await fetchFileContent(c.env, db, encKey, childFile);
-    const fileSize = buf.byteLength;
+    // ── Telegram 桶路径 ───────────────────────────────────────────────
+    if (childFile.bucketId) {
+      const bkt = await db.select().from(storageBuckets).where(eq(storageBuckets.id, childFile.bucketId)).get();
+      if (bkt?.provider === 'telegram') {
+        const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, childFile.id)).get();
+        if (!ref) throwAppError('TG_REF_NOT_FOUND', '未找到 Telegram 文件引用');
+        const tgConfig = await resolveTgBucketConfig(db, childFile.bucketId, encKey);
+        if (!tgConfig) throwAppError('TG_CONFIG_ERROR', '无法加载 Telegram 配置');
 
-    if (range) {
-      const parts = range.replace(/bytes=/, '').split('-');
+        const body = isChunkedFileId(ref.tgFileId)
+          ? await tgDownloadChunked(tgConfig, ref.tgFileId, db)
+          : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
+        const buf = await new Response(body).arrayBuffer();
+        const fileSize = childFile.size || buf.byteLength;
+
+        if (range) {
+          const parts = range.replace(/bytes=/, '').split('-');
+          const start = parseInt(parts[0] || '0', 10);
+          const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+          return new Response(buf.slice(start, end + 1), {
+            status: 206,
+            headers: {
+              'Content-Type': childFile.mimeType!,
+              'Content-Length': String(end - start + 1),
+              'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+              'Accept-Ranges': 'bytes',
+              'Cache-Control': 'private, max-age=300',
+            },
+          });
+        }
+        return new Response(buf, {
+          headers: {
+            'Content-Type': childFile.mimeType!,
+            'Content-Length': String(fileSize),
+            'Accept-Ranges': 'bytes',
+            'Cache-Control': 'private, max-age=300',
+          },
+        });
+      }
+    }
+
+    // ── S3/R2/OSS 等标准存储路径 ───────────────────────────────────
+    const bucketConfig = await resolveBucketConfig(db, share.userId, encKey, childFile.bucketId, childFile.parentId);
+    if (!bucketConfig) throwAppError('NO_STORAGE_CONFIGURED', '存储桶未配置');
+
+    const rangeHeader = range ? `bytes=${range.replace(/bytes=/, '')}` : undefined;
+    const s3Res = await s3Get(bucketConfig, childFile.r2Key, rangeHeader ? { range: rangeHeader } : undefined);
+    if (!s3Res.ok && s3Res.status !== 206) throwAppError('FILE_CONTENT_NOT_FOUND');
+
+    const fileSize = childFile.size || parseInt(s3Res.headers.get('content-length') || '0', 10);
+
+    if (s3Res.status === 206 || range) {
+      const parts = range!.replace(/bytes=/, '').split('-');
       const start = parseInt(parts[0] || '0', 10);
       const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
       const chunkSize = end - start + 1;
-      const chunk = buf.slice(start, end + 1);
 
-      return new Response(chunk, {
+      return new Response(s3Res.body, {
         status: 206,
         headers: {
           'Content-Type': childFile.mimeType!,
-          'Content-Length': chunkSize.toString(),
+          'Content-Length': String(chunkSize),
           'Content-Range': `bytes ${start}-${end}/${fileSize}`,
           'Accept-Ranges': 'bytes',
           'Cache-Control': 'private, max-age=300',
@@ -1061,7 +1204,7 @@ app.get('/:id/file/:fileId/stream', async (c) => {
       });
     }
 
-    return new Response(buf, {
+    return new Response(s3Res.body, {
       headers: {
         'Content-Type': childFile.mimeType!,
         'Content-Length': fileSize.toString(),
@@ -1082,7 +1225,7 @@ app.get('/:id/file/:fileId/raw', async (c) => {
   const password = c.req.query('password');
   const db = getDb(c.env.DB);
 
-  const resolved = await resolveDownloadShare(db, shareId, password);
+  const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
     return c.json({ success: false, error: resolved.error }, resolved.status);
   }
@@ -1289,6 +1432,16 @@ app.post('/upload/:token', async (c) => {
 
   if (!bucketConfig && !c.env.FILES) {
     throwAppError('NO_STORAGE_CONFIGURED', '存储桶未配置');
+  }
+
+  // 检查文件所有者的个人存储配额（防止通过分享链接绕过限制）
+  const ownerUser = await db.select().from(users).where(eq(users.id, folderOwnerId)).get();
+  if (
+    ownerUser &&
+    ownerUser.storageQuota !== null &&
+    (ownerUser.storageUsed ?? 0) + uploadFile.size > (ownerUser.storageQuota ?? 0)
+  ) {
+    throwAppError('QUOTA_EXCEEDED', '文件所有者存储空间不足，无法上传');
   }
 
   const fileId = crypto.randomUUID();

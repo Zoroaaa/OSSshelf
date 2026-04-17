@@ -22,14 +22,16 @@ app.get('/storage-breakdown', async (c) => {
   const userId = c.get('userId')!;
   const db = getDb(c.env.DB);
 
-  const userFiles = await db
+  // 使用 SQL GROUP BY 聚合，避免全量拉取
+  const typeBreakdown = await db
     .select({
       mimeType: files.mimeType,
-      size: files.size,
-      isFolder: files.isFolder,
+      totalCount: sql<number>`COUNT(*)`.as('totalCount'),
+      totalSize: sql<number>`SUM(${files.size})`.as('totalSize'),
     })
     .from(files)
     .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
+    .groupBy(files.mimeType)
     .all();
 
   const byType: Record<string, { count: number; size: number }> = {};
@@ -38,24 +40,30 @@ app.get('/storage-breakdown', async (c) => {
   let totalFiles = 0;
   let totalFolders = 0;
 
-  for (const file of userFiles) {
-    if (file.isFolder) {
-      totalFolders++;
-      continue;
-    }
-    totalFiles++;
-    totalSize += file.size;
+  for (const row of typeBreakdown) {
+    if (!row.mimeType) continue;
 
-    const type = file.mimeType?.split('/')[0] || 'other';
+    totalFiles += row.totalCount;
+    totalSize += row.totalSize;
+
+    const type = row.mimeType.split('/')[0] || 'other';
     if (!byType[type]) byType[type] = { count: 0, size: 0 };
-    byType[type].count++;
-    byType[type].size += file.size;
+    byType[type].count += row.totalCount;
+    byType[type].size += row.totalSize;
 
-    const mime = file.mimeType || 'unknown';
+    const mime = row.mimeType;
     if (!byMimeType[mime]) byMimeType[mime] = { count: 0, size: 0 };
-    byMimeType[mime].count++;
-    byMimeType[mime].size += file.size;
+    byMimeType[mime].count += row.totalCount;
+    byMimeType[mime].size += row.totalSize;
   }
+
+  // 单独查询文件夹数量
+  const folderCountResult = await db
+    .select({ count: sql<number>`COUNT(*)`.as('count') })
+    .from(files)
+    .where(and(eq(files.userId, userId), eq(files.isFolder, true), isNull(files.deletedAt)))
+    .get();
+  totalFolders = folderCountResult?.count ?? 0;
 
   const typeList = Object.entries(byType)
     .map(([type, data]) => ({ type, ...data }))

@@ -37,6 +37,8 @@ import { eq, and, gte, isNull, inArray } from 'drizzle-orm';
 import { classifyIntent } from './ragEngine';
 import { selectTools, needsWriteTools, TOOL_GROUPS } from './agentTools/toolSelector';
 import { buildFolderPath } from '../../lib/utils';
+import { AgentMemory } from './agentMemory';
+import { isModelAvailable, recordModelFailure, recordModelSuccess } from './circuitBreaker';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 默认配置常量（当数据库配置不可用时使用）
@@ -298,12 +300,28 @@ async function consumePendingConfirm(
 // 类型
 // ─────────────────────────────────────────────────────────────────────────────
 
+export interface ExecutionPlanStep {
+  id: string;
+  description: string;
+  toolHint?: string;
+  dependsOn?: string[];
+  status: 'pending' | 'running' | 'done' | 'skipped';
+}
+
+export interface ExecutionPlan {
+  goal: string;
+  steps: ExecutionPlanStep[];
+  estimatedToolCalls: number;
+}
+
 export type AgentChunk =
   | { type: 'text'; content: string; done: false }
   | { type: 'reasoning'; content: string; done: false }
   | { type: 'tool_start'; toolName: string; toolCallId: string; args: Record<string, unknown>; done: false }
   | { type: 'tool_result'; toolCallId: string; toolName: string; result: unknown; done: false }
   | { type: 'reset'; done: false }
+  | { type: 'plan'; plan: ExecutionPlan; done: false }
+  | { type: 'plan_step_update'; stepId: string; status: string; done: false }
   | {
       type: 'confirm_request';
       confirmId: string;
@@ -323,6 +341,7 @@ export interface AgentSource {
 }
 
 export interface AgentRunMeta {
+  actualTraceId: string;
   toolCallCount: number;
   modelId: string;
   inputTokens: number;
@@ -501,6 +520,46 @@ export const PROMPT_BASED_SYSTEM_PROMPT = `${AGENT_SYSTEM_PROMPT}
 3. 不要解释你要调用什么工具，直接输出代码块
 4. 等待工具结果返回后，再决定下一步行动`;
 
+const COMPLEX_TASK_PATTERNS = [
+  /批量|全部|所有|每个|逐一/g,
+  /归档|整理|分类|分组|排序/g,
+  /重复|去重|合并/g,
+  /先.*再.*然后|第一步|第二步|首先|接着/g,
+  /超过\s*\d+\s*(年|月|天|小时)/g,
+  /按.*条件.*(处理|操作|移动|删除|重命名)/g,
+  /多步|分步|逐步|依次/g,
+];
+
+function isComplexTask(query: string): boolean {
+  const lowerQuery = query.toLowerCase();
+  return COMPLEX_TASK_PATTERNS.some((pattern) => pattern.test(lowerQuery));
+}
+
+const PLANNING_SYSTEM_PROMPT = `你是一个任务规划专家。根据用户的需求，生成结构化的执行计划。
+
+## 输出格式
+严格输出以下 JSON 格式，不要输出其他内容：
+{
+  "goal": "一句话概括任务目标",
+  "steps": [
+    {
+      "id": "step-1",
+      "description": "人类可读的步骤描述",
+      "toolHint": "预期使用的工具名（可选）",
+      "dependsOn": [],
+      "status": "pending"
+    }
+  ],
+  "estimatedToolCalls": 预估的工具调用次数（数字）
+}
+
+## 规则
+1. 步骤数控制在 2-8 个之间
+2. 每个步骤应该是原子操作（不可再分的单一动作）
+3. 步骤间如有依赖关系，在 dependsOn 中注明前置步骤 id
+4. estimatedToolCalls 要合理估算（搜索=1, 批量操作=文件数*1.5）
+5. 对于简单查询类问题，只返回 1 个步骤`;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Agent Engine
 // ─────────────────────────────────────────────────────────────────────────────
@@ -528,14 +587,90 @@ export class AgentEngine {
         : await this.gateway.getActiveModel(userId);
       if (!config) return { nativeToolCalling: false, vision: false, resolvedModelId: modelId };
       const caps: string[] = config.capabilities || [];
+      const supportsFunctionCalling = caps.includes('function_calling');
+      const isSupportedProvider = config.provider === 'openai_compatible' || config.provider === 'workers_ai';
       return {
-        nativeToolCalling: config.provider === 'openai_compatible' && caps.includes('function_calling'),
+        nativeToolCalling: isSupportedProvider && supportsFunctionCalling,
         vision: caps.includes('vision'),
         resolvedModelId: config.modelId || modelId,
       };
     } catch {
       return { nativeToolCalling: false, vision: false, resolvedModelId: modelId };
     }
+  }
+
+  /**
+   * 规划阶段：为复杂任务生成结构化执行计划
+   *
+   * @param userId - 用户ID
+   * @param query - 用户原始查询
+   * @param modelId - 模型ID（可选）
+   * @returns 结构化执行计划，解析失败时返回 null
+   *
+   * 工作流程：
+   * 1. 调用 LLM 生成 JSON 格式的执行计划
+   * 2. 解析并验证计划结构（goal + steps[]）
+   * 3. 为每个步骤补充默认值（id、status 等）
+   * 4. 估算总工具调用次数
+   *
+   * 使用场景：
+   * - 用户请求涉及多步操作（批量整理、条件归档等）
+   * - isComplexQuery 判断为 true 时触发
+   * - 生成的计划将注入后续执行的上下文中
+   */
+  private async planPhase(
+    userId: string,
+    query: string,
+    modelId: string | undefined
+  ): Promise<ExecutionPlan | null> {
+    try {
+      const response = await this.gateway.chatCompletion(userId, {
+        messages: [
+          { role: 'system', content: PLANNING_SYSTEM_PROMPT },
+          { role: 'user', content: `请为以下用户请求生成执行计划：\n${query}` },
+        ],
+        temperature: 0.2,
+      }, modelId);
+
+      const jsonMatch = response.content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        logger.warn('AgentEngine', 'planPhase: failed to parse LLM output as JSON');
+        return null;
+      }
+
+      const plan = JSON.parse(jsonMatch[0]) as ExecutionPlan;
+      if (!plan.goal || !Array.isArray(plan.steps) || plan.steps.length === 0) {
+        logger.warn('AgentEngine', 'planPhase: invalid plan structure');
+        return null;
+      }
+
+      const validatedSteps: ExecutionPlanStep[] = plan.steps.map((step, idx) => ({
+        id: step.id || `step-${idx + 1}`,
+        description: step.description || `步骤 ${idx + 1}`,
+        toolHint: step.toolHint,
+        dependsOn: step.dependsOn || [],
+        status: 'pending' as const,
+      }));
+
+      logger.info('AgentEngine', 'Plan generated', { goal: plan.goal, stepCount: validatedSteps.length });
+
+      return {
+        goal: plan.goal,
+        steps: validatedSteps,
+        estimatedToolCalls: plan.estimatedToolCalls || validatedSteps.length * 2,
+      };
+    } catch (error) {
+      logger.error('AgentEngine', 'planPhase failed', { query: query.slice(0, 80) }, error);
+      return null;
+    }
+  }
+
+  private formatPlanContext(plan: ExecutionPlan | null): string {
+    if (!plan) return '';
+    const stepsInfo = plan.steps
+      .map((s) => `- [${s.status}] ${s.id}: ${s.description}${s.toolHint ? ` (工具: ${s.toolHint})` : ''}`)
+      .join('\n');
+    return `\n\n## 当前执行计划\n目标：${plan.goal}\n步骤进度：\n${stepsInfo}\n请根据计划逐步执行，每完成一步更新对应状态。`;
   }
 
   async run(
@@ -550,6 +685,10 @@ export class AgentEngine {
     contextFileIds?: string[]
   ): Promise<{ fullText: string; sources: AgentSource[]; pendingConfirmId?: string; meta: AgentRunMeta }> {
     this.executor.setUserId(userId);
+    const traceId = `trace_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+    const startTime = Date.now();
+
+    logger.info('AgentEngine', 'Run started', { traceId, userId, sessionId, queryLength: query.length });
 
     const [caps, config] = await Promise.all([this.getModelCapabilities(modelId, userId), loadAgentConfig(this.env)]);
 
@@ -588,7 +727,33 @@ export class AgentEngine {
       }
     }
 
+    const memory = new AgentMemory(this.gateway, this.env);
+    const vectorizeQuery = async (namespace: string, values: number[], metadata?: Record<string, string | number | boolean>): Promise<string | null> => {
+      try {
+        if (!this.env.VECTORIZE) return null;
+        const results = await this.env.VECTORIZE.query(values, { topK: 1, filter: metadata as any, namespace, returnMetadata: true });
+        return results.matches?.[0]?.id || null;
+      } catch (e) {
+        logger.warn('AgentEngine', 'vectorizeQuery failed', {}, e);
+        return null;
+      }
+    };
+    const memoryContext = await memory.recallMemories(userId, query, vectorizeQuery);
+    if (memoryContext) {
+      contextPrompt += memoryContext;
+    }
+
     const resolvedModelId = caps.resolvedModelId || modelId || 'default';
+
+    let executionPlan: ExecutionPlan | null = null;
+    if (isComplexTask(query)) {
+      logger.info('AgentEngine', 'Complex task detected, generating plan', { query: query.slice(0, 60) });
+      executionPlan = await this.planPhase(userId, query, modelId);
+      if (executionPlan) {
+        onChunk({ type: 'plan', plan: executionPlan, done: false });
+        contextPrompt += this.formatPlanContext(executionPlan);
+      }
+    }
 
     if (caps.nativeToolCalling) {
       // ── Native 路径：完全信任模型，注入全量工具，不做意图分类和裁剪 ──────
@@ -611,11 +776,13 @@ export class AgentEngine {
         signal,
         sessionId,
         TOOL_DEFINITIONS, // 全量工具，让模型自己选
-        contextPrompt
+        contextPrompt,
+        executionPlan,
+        traceId
       );
       return {
         ...result,
-        meta: result.meta ?? { toolCallCount: 0, modelId: resolvedModelId, inputTokens: 0, outputTokens: 0 },
+        meta: result.meta ?? { actualTraceId: traceId, toolCallCount: 0, modelId: resolvedModelId, inputTokens: 0, outputTokens: 0 },
       };
     }
 
@@ -646,11 +813,13 @@ export class AgentEngine {
       signal,
       sessionId,
       filteredTools,
-      contextPrompt
+      contextPrompt,
+      executionPlan,
+      traceId
     );
     return {
       ...result,
-      meta: result.meta ?? { toolCallCount: 0, modelId: resolvedModelId, inputTokens: 0, outputTokens: 0 },
+      meta: result.meta ?? { actualTraceId: traceId || 'unknown', toolCallCount: 0, modelId: resolvedModelId, inputTokens: 0, outputTokens: 0 },
     };
   }
 
@@ -668,15 +837,24 @@ export class AgentEngine {
     sessionId?: string,
     filteredTools: typeof TOOL_DEFINITIONS = TOOL_DEFINITIONS,
     contextPrompt: string = '',
-    fallbackCount: number = 0
+    executionPlan?: ExecutionPlan | null,
+    traceId?: string
   ): Promise<{ fullText: string; sources: AgentSource[]; pendingConfirmId?: string; meta: AgentRunMeta }> {
-    const MAX_FALLBACK_ATTEMPTS = 1; // 最大降级重试次数（防止无限循环）
+    const actualTraceId = traceId || 'unknown';
     const systemContent = AGENT_SYSTEM_PROMPT + contextPrompt;
     const messages: Array<{ role: string; content?: string; toolCalls?: any[]; toolCallId?: string }> = [
       { role: 'system', content: systemContent },
       ...this.buildHistory(conversationHistory, query, config),
       { role: 'user', content: query },
     ];
+
+    const updatePlanStep = (stepId: string, status: string) => {
+      if (executionPlan) {
+        const step = executionPlan.steps.find((s) => s.id === stepId);
+        if (step) step.status = status as ExecutionPlanStep['status'];
+        onChunk({ type: 'plan_step_update', stepId, status, done: false });
+      }
+    };
 
     let fullText = '';
     const sources: AgentSource[] = [];
@@ -690,6 +868,12 @@ export class AgentEngine {
     const resolvedModelId = caps.resolvedModelId || modelId || 'default';
     let inputTokens = estimateTokens(AGENT_SYSTEM_PROMPT + query);
     let outputTokens = 0;
+
+    if (!(await isModelAvailable(resolvedModelId))) {
+      logger.warn('AgentEngine', 'Model circuit breaker OPEN, skipping', { modelId: resolvedModelId });
+      onChunk({ type: 'error', message: `模型 ${resolvedModelId} 暂时不可用，请稍后重试或切换模型`, done: true });
+      return { fullText: '', sources: [], meta: { actualTraceId: traceId || 'unknown', toolCallCount: 0, modelId: resolvedModelId, inputTokens, outputTokens } };
+    }
 
     while (toolCallCount < config.maxToolCalls) {
       if (signal?.aborted) break;
@@ -751,65 +935,19 @@ export class AgentEngine {
           { modelId, signal: combinedSignal }
         );
       } catch (err) {
-        if (isExpectedAbort(err, hasToolCalls)) {
-          /* ok */
-        } else if (!isAbortError(err)) {
-          logger.error('AgentEngine', 'LLM stream error (native)', {}, err);
-          // 仅在第 0 轮（尚未产生任何工具调用）才允许 fallback
-          if (toolCallCount === 0) {
-            if (fullText.length > 0) {
-              onChunk({ type: 'reset', done: false }); // 通知前端清空已渲染内容
-              fullText = '';
-            }
-            logger.warn('AgentEngine', 'Native tool calling failed, falling back to prompt-based');
-            return this.runPromptBased(
-              userId,
-              query,
-              conversationHistory,
-              modelId,
-              caps,
-              config,
-              onChunk,
-              signal,
-              sessionId,
-              filteredTools,
-              contextPrompt
-            );
-          } else {
-            // 已有工具调用轮次，不 fallback，直接报错
-            onChunk({ type: 'error', message: 'AI 模型调用失败', done: true });
-            return { fullText, sources, meta: { toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens } };
-          }
+        if (isAbortError(err)) {
+          logger.info('AgentEngine', 'Stream aborted by client (native)', { toolCallCount, hasContent: fullText.length > 0 });
+          throw err;
         }
-      }
-
-      // 过滤掉 name 为空的残缺工具调用（流式解析不完整时的防御）
-      const collected = Array.from(collectedMap.values()).filter((tc) => tc.name);
-
-      if (!hasToolCalls) {
-        // native模式第一轮无工具调用：除非是明确的闲聊，否则直接降级到prompt-based
-        // 原因：native模型有能力调工具，第一轮没调说明模型跳过了，不需要猜测意图
-        if (toolCallCount === 0 && !isPureChitchat(query)) {
-          if (fallbackCount >= MAX_FALLBACK_ATTEMPTS) {
-            logger.warn('AgentEngine', 'Max fallback attempts reached, accepting response without tool call', {
-              modelId: resolvedModelId,
-              query: query.slice(0, 100),
-            });
-            messages.push({ role: 'assistant', content: streamContent });
-            break;
-          }
-
-          logger.warn('AgentEngine', 'Native model skipped tool call, falling back to prompt-based', {
-            modelId: resolvedModelId,
-            query: query.slice(0, 100),
-            responsePreview: streamContent.slice(0, 150),
-          });
-
+        logger.error('AgentEngine', 'LLM stream error (native)', {}, err);
+        recordModelFailure(resolvedModelId, err);
+        // 仅在第 0 轮（尚未产生任何工具调用）才允许降级到 prompt-based
+        if (toolCallCount === 0) {
           if (fullText.length > 0) {
-            onChunk({ type: 'reset', done: false });
+            onChunk({ type: 'reset', done: false }); // 通知前端清空已渲染内容
             fullText = '';
           }
-
+          logger.warn('AgentEngine', 'Native tool calling failed, falling back to prompt-based');
           return this.runPromptBased(
             userId,
             query,
@@ -822,10 +960,20 @@ export class AgentEngine {
             sessionId,
             filteredTools,
             contextPrompt,
-            fallbackCount + 1
+            undefined,
+            traceId
           );
+        } else {
+          // 已有工具调用轮次，不降级，直接报错
+          onChunk({ type: 'error', message: 'AI 模型调用失败', done: true });
+          return { fullText, sources, meta: { actualTraceId, toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens } };
         }
+      }
 
+      // 过滤掉 name 为空的残缺工具调用（流式解析不完整时的防御）
+      const collected = Array.from(collectedMap.values()).filter((tc) => tc.name);
+
+      if (!hasToolCalls) {
         messages.push({ role: 'assistant', content: streamContent });
         break;
       }
@@ -898,13 +1046,26 @@ export class AgentEngine {
               fullText,
               sources,
               pendingConfirmId: confirmId,
-              meta: { toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens },
+              meta: { actualTraceId, toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens },
             };
           }
 
-          roundNewData = mergeSourcesFromResult(result, sources) || roundNewData;
+          mergeSourcesFromResult(result, sources);
+          // 工具成功执行就算有效轮次（不依赖是否返回文件），重置 idleRounds
+          roundNewData = true;
           // 工具结果注入估算（工具名 + 结果 JSON）
           inputTokens += estimateTokens(tc.name + JSON.stringify(result));
+
+          if (executionPlan && executionPlan.steps.length > 0) {
+            const currentPendingStep = executionPlan.steps.find((s) => s.status === 'running');
+            if (currentPendingStep) {
+              updatePlanStep(currentPendingStep.id, 'done');
+            }
+            const nextPendingStep = executionPlan.steps.find((s) => s.status === 'pending');
+            if (nextPendingStep) {
+              updatePlanStep(nextPendingStep.id, 'running');
+            }
+          }
         } catch (err) {
           result = { error: err instanceof Error ? err.message : '工具执行失败' };
         }
@@ -945,7 +1106,7 @@ export class AgentEngine {
         }
       }
 
-      // 空转检测：没有有效新数据时递增（包括全部被跳过的情况）
+      // 空转检测：本轮有工具成功执行则重置，只有全部被跳过（重复调用）才递增
       if (!roundNewData) {
         idleRounds++;
         if (idleRounds >= config.maxIdleRounds) break;
@@ -954,10 +1115,11 @@ export class AgentEngine {
       }
     }
 
-    return { fullText, sources, meta: { toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens } };
+    recordModelSuccess(resolvedModelId);
+    return { fullText, sources, meta: { actualTraceId, toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens } };
   }
 
-  // ── Prompt-Based Fallback ──────────────────────────────────────────────────
+  // ── Prompt-Based Mode（用于不支持 native tool calling 的模型）──────────────────
 
   private async runPromptBased(
     userId: string,
@@ -971,13 +1133,61 @@ export class AgentEngine {
     sessionId?: string,
     filteredTools: typeof TOOL_DEFINITIONS = TOOL_DEFINITIONS,
     contextPrompt: string = '',
-    fallbackCount: number = 0
+    executionPlan?: ExecutionPlan | null,
+    traceId?: string
   ): Promise<{ fullText: string; sources: AgentSource[]; pendingConfirmId?: string; meta: AgentRunMeta }> {
-    const MAX_FALLBACK_ATTEMPTS = 1;
-    // 只注入工具名列表，不加完整描述，避免token暴增导致LLM失效
+    const actualTraceId = traceId || 'unknown';
+
+    const updatePlanStep = (stepId: string, status: string) => {
+      if (executionPlan) {
+        const step = executionPlan.steps.find((s) => s.id === stepId);
+        if (step) step.status = status as ExecutionPlanStep['status'];
+        onChunk({ type: 'plan_step_update', stepId, status, done: false });
+      }
+    };
+
+    // 工具列表：注入工具名 + 高频工具的参数示例，帮助小模型正确构造调用
+    // 不注入完整 description，避免 token 暴增导致小模型上下文溢出失效
+    const TOOL_PARAM_EXAMPLES: Record<string, string> = {
+      search_files: '{"query": "关键词"}',
+      filter_files: '{"mimeTypePrefix": "image/", "limit": 20}',
+      get_storage_stats: '{}',
+      get_starred_files: '{}',
+      list_folder: '{"folderId": null}',
+      get_folder_tree: '{}',
+      get_recent_files: '{"limit": 10}',
+      list_shares: '{}',
+      get_file_tags: '{"fileId": "<id>"}',
+      get_activity_stats: '{}',
+      read_file_text: '{"fileId": "<id>"}',
+      get_file_details: '{"fileId": "<id>"}',
+      search_by_tag: '{"tagNames": ["标签名"]}',
+      get_storage_usage: '{}',
+    };
+
+    const examplesSection = filteredTools
+      .filter((t) => t.function.examples && t.function.examples.length > 0)
+      .map(
+        (t) =>
+          `\n### ${t.function.name}\n` +
+          t.function.examples!
+            .map((ex) => `- 用户问："${ex.user_query}" → 调用 \`${t.function.name}(${JSON.stringify(ex.tool_call)})\``)
+            .join('\n')
+      )
+      .join('\n');
+
     const toolListHint =
       filteredTools.length > 0
-        ? `\n\n## 当前可用工具（只能调用以下工具名，工具名必须完全匹配）\n${filteredTools.map((t) => `- ${t.function.name}`).join('\n')}`
+        ? `\n\n## 当前可用工具（只能调用以下工具名，工具名必须完全匹配）\n` +
+          filteredTools
+            .map((t) => {
+              const ex = TOOL_PARAM_EXAMPLES[t.function.name];
+              return ex ? `- ${t.function.name}  示例参数: ${ex}` : `- ${t.function.name}`;
+            })
+            .join('\n') +
+          (examplesSection.length > 0
+            ? `\n\n## 工具调用示例（参考这些示例来构造正确的调用参数）\n${examplesSection}`
+            : '')
         : '';
     const systemContent = PROMPT_BASED_SYSTEM_PROMPT + contextPrompt + toolListHint;
     const messages: Array<{ role: string; content: string }> = [
@@ -991,12 +1201,17 @@ export class AgentEngine {
     const callSignatures = new Set<string>();
     let toolCallCount = 0;
     let idleRounds = 0;
-    let hasInjectedForcedHint = false; // 防止强制提示重复注入导致循环
 
     // token 累计（估算）
     const resolvedModelId = caps.resolvedModelId || modelId || 'default';
     let inputTokens = estimateTokens(PROMPT_BASED_SYSTEM_PROMPT + query);
     let outputTokens = 0;
+
+    if (!(await isModelAvailable(resolvedModelId))) {
+      logger.warn('AgentEngine', 'Model circuit breaker OPEN (prompt-based), skipping', { modelId: resolvedModelId });
+      onChunk({ type: 'error', message: `模型 ${resolvedModelId} 暂时不可用，请稍后重试或切换模型`, done: true });
+      return { fullText, sources, meta: { actualTraceId: traceId || 'unknown', toolCallCount: 0, modelId: resolvedModelId, inputTokens, outputTokens } };
+    }
 
     while (toolCallCount < config.maxToolCalls) {
       if (signal?.aborted) break;
@@ -1039,42 +1254,17 @@ export class AgentEngine {
           { modelId, signal: combinedSignal }
         );
       } catch (err) {
-        if (isExpectedAbort(err, foundToolCall)) {
-          /* ok */
-        } else if (!isAbortError(err)) {
-          logger.error('AgentEngine', 'LLM stream error (prompt)', {}, err);
-          onChunk({ type: 'error', message: 'AI 模型调用失败，请检查模型配置', done: true });
-          return { fullText, sources, meta: { toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens } };
+        if (isAbortError(err)) {
+          logger.info('AgentEngine', 'Stream aborted by client (prompt)', { toolCallCount, hasContent: fullText.length > 0 });
+          throw err;
         }
+        logger.error('AgentEngine', 'LLM stream error (prompt)', {}, err);
+        recordModelFailure(resolvedModelId, err);
+        onChunk({ type: 'error', message: 'AI 模型调用失败，请检查模型配置', done: true });
+        return { fullText, sources, meta: { actualTraceId, toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens } };
       }
 
       if (!foundToolCall) {
-        // prompt-based第一轮无工具调用：非闲聊则注入强制提示重试一次
-        if (toolCallCount === 0 && !isPureChitchat(query) && !hasInjectedForcedHint) {
-          logger.warn('AgentEngine', 'Prompt-based model skipped tool call, injecting forced hint', {
-            modelId: resolvedModelId,
-            query: query.slice(0, 100),
-          });
-
-          if (fullText.length > 0) {
-            onChunk({ type: 'reset', done: false });
-            fullText = '';
-            forwardedUpTo = 0;
-          }
-
-          messages.push({ role: 'assistant', content: buffer });
-          messages.push({
-            role: 'user',
-            content: `[系统提示] 这个问题需要查询真实数据，请调用合适的工具获取后再回答。直接输出工具调用代码块，不要解释。`,
-          });
-
-          buffer = '';
-          forwardedUpTo = 0;
-          hasInjectedForcedHint = true;
-          continue;
-        }
-
-        // 真正的最终回答
         if (buffer.length > forwardedUpTo) {
           const tail = buffer.slice(forwardedUpTo);
           onChunk({ type: 'text', content: tail, done: false });
@@ -1127,7 +1317,7 @@ export class AgentEngine {
       messages.push({ role: 'assistant', content: buffer });
 
       let result: unknown;
-      let roundNewData = false;
+      let toolSucceeded = false;
       try {
         result = await this.executor.execute(toolName, toolArgs);
 
@@ -1154,13 +1344,26 @@ export class AgentEngine {
             fullText,
             sources,
             pendingConfirmId: confirmId,
-            meta: { toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens },
+            meta: { actualTraceId, toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens },
           };
         }
 
-        roundNewData = mergeSourcesFromResult(result, sources);
+        mergeSourcesFromResult(result, sources);
+        // 工具成功执行就算有效轮次，重置 idleRounds
+        toolSucceeded = true;
         // 工具结果注入估算
         inputTokens += estimateTokens(toolName + JSON.stringify(result));
+
+        if (executionPlan && executionPlan.steps.length > 0) {
+          const currentRunningStep = executionPlan.steps.find((s) => s.status === 'running');
+          if (currentRunningStep) {
+            updatePlanStep(currentRunningStep.id, 'done');
+          }
+          const nextPendingStep = executionPlan.steps.find((s) => s.status === 'pending');
+          if (nextPendingStep) {
+            updatePlanStep(nextPendingStep.id, 'running');
+          }
+        }
       } catch (err) {
         result = { error: err instanceof Error ? err.message : '工具执行失败' };
       }
@@ -1178,8 +1381,8 @@ export class AgentEngine {
         content: `[工具 ${toolName} 结果]\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\`\n${INJECTION_GUARD}${hintText}\n\n请根据以上结果继续回答用户问题。`,
       });
 
-      // 空转检测：与 Native 模式保持一致，使用 mergeSourcesFromResult 判断是否有新数据
-      if (!roundNewData) {
+      // 空转检测：工具成功执行则重置，只有工具被跳过（重复调用）才递增
+      if (!toolSucceeded) {
         idleRounds++;
         if (idleRounds >= config.maxIdleRounds) break;
       } else {
@@ -1187,7 +1390,8 @@ export class AgentEngine {
       }
     }
 
-    return { fullText, sources, meta: { toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens } };
+    recordModelSuccess(resolvedModelId);
+    return { fullText, sources, meta: { actualTraceId, toolCallCount, modelId: resolvedModelId, inputTokens, outputTokens } };
   }
 
   // ── 自动链式调用（图片搜索结果 → analyze_image）────────────────────────────
@@ -1394,11 +1598,33 @@ function mergeSourcesFromResult(result: unknown, sources: AgentSource[]): boolea
   return hasNew;
 }
 
+/**
+ * 计算 buffer 中可以安全向前端 flush 的最大位置。
+ *
+ * 问题：模型可能在流式输出中混入普通代码块（如 ```python ...```），
+ * 原逻辑对所有 ``` 都停住，导致代码类回复流式显示严重滞后。
+ *
+ * 修复：只有当 ``` 后紧跟 tool_call 关键字时才停住，
+ * 其他代码块（```python / ```json / ``` 等）不阻断 flush。
+ *
+ * 保守策略：若 ``` 后内容不足以判断（流还没接收完标识符），
+ * 停在该 ``` 前等待更多数据，防止误判后需要回退。
+ */
 function safeForwardPoint(buffer: string): number {
   const pos = buffer.lastIndexOf('```');
   if (pos === -1) return buffer.length;
+
+  // ``` 之后的内容（去掉前导空白）
   const after = buffer.slice(pos + 3).trimStart();
-  return after.startsWith('tool_call') || after.startsWith('tool\n') || after.startsWith('tool ') ? pos : buffer.length;
+
+  // 已确认是 tool_call 块：停在 ``` 前不 flush
+  if (after.startsWith('tool_call')) return pos;
+
+  // 后缀不足 9 字符（'tool_call' 长度），无法确认是否为 tool_call，保守等待
+  if (after.length < 9 && !after.includes('\n')) return pos;
+
+  // 其余情况（普通代码块 ```python / ```json / 空行等）：正常 flush
+  return buffer.length;
 }
 
 function isAbortError(err: unknown): boolean {
@@ -1411,26 +1637,6 @@ function isExpectedAbort(err: unknown, hadToolCalls: boolean): boolean {
 
 function randomId(): string {
   return `tc_${crypto.randomUUID().slice(0, 8)}`;
-}
-
-/**
- * 判断是否是不需要工具的纯闲聊
- * 用于 native 模式：第一轮无工具调用时，只有明确是闲聊才放行，否则直接降级
- */
-function isPureChitchat(query: string): boolean {
-  const q = query.trim();
-  // 极短的问候/感谢/确认
-  if (
-    q.length < 15 &&
-    /^(你好|hi|hello|谢谢|感谢|好的|明白|知道了|ok|okay|嗯|哦|是的|对的|没事|不用了)[\s!！。.]*$/i.test(q)
-  ) {
-    return true;
-  }
-  // 明确的通用知识问题（不涉及文件系统）
-  if (/^(什么是|怎么理解|帮我解释|介绍一下|讲讲)\S/.test(q) && !/文件|文档|目录|存储|上传|分享|收藏|标签/.test(q)) {
-    return true;
-  }
-  return false;
 }
 
 /** 从回复文本中提取文件引用（前端渲染卡片用） */

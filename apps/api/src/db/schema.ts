@@ -599,12 +599,9 @@ export const aiProviders = sqliteTable(
     id: text('id').primaryKey(),
     userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
-    nameEn: text('name_en'),
-    type: text('type').notNull().default('openai_compatible'),
     apiEndpoint: text('api_endpoint'),
     description: text('description'),
     thinkingConfig: text('thinking_config'),
-    features: text('features').default('{"thinking":false,"functionCalling":true,"streaming":true,"vision":false}'),
     isSystem: integer('is_system', { mode: 'boolean' }).notNull().default(false),
     isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
@@ -693,6 +690,8 @@ export const aiChatMessages = sqliteTable(
     reasoning: text('reasoning'),
     inputTokens: integer('input_tokens').default(0),
     outputTokens: integer('output_tokens').default(0),
+    aborted: integer('aborted', { mode: 'boolean' }).default(false),
+    mentionedFiles: text('mentioned_files'),
     createdAt: text('created_at').notNull(),
   },
   (table) => ({
@@ -776,3 +775,24 @@ export const aiConfig = sqliteTable(
 
 export type AiConfig = typeof aiConfig.$inferSelect;
 export type File = typeof files.$inferSelect;
+
+export const aiMemories = sqliteTable(
+  'ai_memories',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    sessionId: text('session_id').notNull(),
+    type: text('type').notNull().default('operation'),
+    summary: text('summary').notNull(),
+    embeddingId: text('embedding_id'),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => ({
+    userCreatedIdx: index('idx_memories_user_created').on(table.userId, table.createdAt),
+    userTypeIdx: index('idx_memories_user_type').on(table.userId, table.type),
+  })
+);
+
+export type AiMemory = typeof aiMemories.$inferSelect;

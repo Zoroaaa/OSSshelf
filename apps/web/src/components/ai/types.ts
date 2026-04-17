@@ -19,6 +19,7 @@ export interface ToolCallEvent {
   args: Record<string, unknown>;
   result?: unknown;
   status: 'running' | 'done' | 'error' | 'pending_confirm';
+  confirmStatus?: 'pending' | 'confirmed' | 'cancelled';
 }
 
 export interface PreviewDiff {
@@ -44,10 +45,12 @@ export interface Message {
   pendingConfirm?: PendingConfirm;
   timestamp: Date;
   isLoading?: boolean;
+  aborted?: boolean;
+  mentionedFiles?: Array<{ id: string; name: string }>;
 }
 
 export interface SseChunk {
-  type?: 'reset';
+  type?: 'reset' | 'plan' | 'plan_step_update';
   content?: string;
   done?: boolean;
   sessionId?: string;
@@ -64,4 +67,21 @@ export interface SseChunk {
   confirmRequest?: boolean;
   confirmId?: string;
   summary?: string;
+  plan?: ExecutionPlan;
+  stepId?: string;
+  status?: string;
+}
+
+export interface ExecutionPlanStep {
+  id: string;
+  description: string;
+  toolHint?: string;
+  dependsOn?: string[];
+  status: 'pending' | 'running' | 'done' | 'skipped';
+}
+
+export interface ExecutionPlan {
+  goal: string;
+  steps: ExecutionPlanStep[];
+  estimatedToolCalls: number;
 }

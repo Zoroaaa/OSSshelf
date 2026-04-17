@@ -22,6 +22,7 @@ import {
   groupMembers,
   userStars,
   shares,
+  auditLogs,
 } from '../db';
 import { checkFilePermission } from './permissions';
 import { inheritParentPermissions } from './permissions';
@@ -31,6 +32,8 @@ import {
   moveFile as serviceMoveFile,
   softDeleteFile as serviceSoftDeleteFile,
   toggleStar as serviceToggleStar,
+  calculateFoldersSize,
+  type FolderSizeStats,
 } from '../lib/fileService';
 import { authMiddleware } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
@@ -297,6 +300,199 @@ app.get('/:id/download', async (c) => {
   }
   throwAppError('NO_STORAGE_CONFIGURED', '存储桶未配置');
 });
+
+// ── Folder download as ZIP ───────────────────────────────────────────────
+// GET /:id/zip?fileIds=id1,id2,...
+// 文件夹打包下载（支持选择部分文件）
+app.get('/:id/zip', async (c) => {
+  const userId = c.get('userId')!;
+  const fileId = c.req.param('id');
+  const fileIdsParam = c.req.query('fileIds'); // 可选：逗号分隔的文件 ID
+  const db = getDb(c.env.DB);
+
+  // 查询文件夹
+  const folder = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, fileId), eq(files.userId, userId), eq(files.isFolder, true), isNull(files.deletedAt)))
+    .get();
+
+  if (!folder) throwAppError('FILE_NOT_FOUND');
+
+  const encKey = getEncryptionKey(c.env);
+
+  // 收集要打包的文件
+  let entries: Array<{ file: typeof files.$inferSelect; relativePath: string }>;
+
+  if (fileIdsParam) {
+    // 仅打包用户指定的文件（需验证属于此文件夹）
+    const selectedIds = fileIdsParam.split(',').filter(Boolean);
+    const selectedFiles = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.parentId, fileId), inArray(files.id, selectedIds), isNull(files.deletedAt)))
+      .all();
+    entries = selectedFiles.filter((f) => !f.isFolder).map((f) => ({ file: f, relativePath: f.name }));
+  } else {
+    // 打包整个文件夹（递归收集）
+    entries = await collectFolderFiles(db, fileId, '', userId);
+  }
+
+  if (entries.length === 0) {
+    throwAppError('VALIDATION_ERROR', '文件夹为空或无可下载文件');
+  }
+
+  // 安全限制
+  const MAX_ZIP_FILES = 200;
+  const MAX_ZIP_BYTES = 500 * 1024 * 1024; // 500MB
+
+  if (entries.length > MAX_ZIP_FILES) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.VALIDATION_ERROR,
+          message: `ZIP 打包最多 ${MAX_ZIP_FILES} 个文件，当前 ${entries.length} 个`,
+        },
+      },
+      400
+    );
+  }
+
+  const totalBytes = entries.reduce((n, e) => n + e.file.size, 0);
+  if (totalBytes > MAX_ZIP_BYTES) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.VALIDATION_ERROR,
+          message: `ZIP 打包总大小不超过 500MB，当前 ${(totalBytes / 1024 / 1024).toFixed(1)}MB`,
+        },
+      },
+      400
+    );
+  }
+
+  // 构建 ZIP
+  const { ZipBuilder } = await import('../lib/zipStream');
+  const zip = new ZipBuilder();
+  const errors: string[] = [];
+
+  for (const { file, relativePath } of entries) {
+    try {
+      const buf = await fetchFileContent(c.env, db, encKey, file);
+      zip.addFile(relativePath, buf, new Date(file.updatedAt));
+    } catch (error) {
+      errors.push(`${relativePath}: ${error instanceof Error ? error.message : '未知错误'}`);
+      logger.error('FILES', '获取文件内容失败', { relativePath }, error);
+    }
+  }
+
+  if (errors.length === entries.length) {
+    throwAppError('FILE_DOWNLOAD_FAILED', '所有文件下载失败');
+  }
+
+  const zipBytes = zip.finalize();
+  const zipName = `${folder.name}.zip`;
+
+  return new Response(zipBytes.buffer as ArrayBuffer, {
+    headers: {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(zipName)}`,
+      'Content-Length': zipBytes.length.toString(),
+      ...(errors.length > 0 ? { 'X-Partial-Zip': String(errors.length) } : {}),
+    },
+  });
+});
+
+/**
+ * 递归收集文件夹下的所有非文件夹文件
+ */
+async function collectFolderFiles(
+  db: ReturnType<typeof getDb>,
+  folderId: string,
+  basePath: string,
+  userId: string
+): Promise<Array<{ file: typeof files.$inferSelect; relativePath: string }>> {
+  const children = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.parentId, folderId), eq(files.userId, userId), isNull(files.deletedAt)))
+    .all();
+
+  const result: Array<{ file: typeof files.$inferSelect; relativePath: string }> = [];
+
+  for (const child of children) {
+    if (child.isFolder) {
+      const sub = await collectFolderFiles(db, child.id, `${basePath}${child.name}/`, userId);
+      result.push(...sub);
+    } else {
+      result.push({ file: child, relativePath: `${basePath}${child.name}` });
+    }
+  }
+
+  return result;
+}
+
+/**
+ * 从对象存储中获取文件内容
+ */
+async function fetchFileContent(
+  env: Env,
+  db: ReturnType<typeof getDb>,
+  encKey: string,
+  file: typeof files.$inferSelect
+): Promise<ArrayBuffer> {
+  if (file.bucketId) {
+    const bkt = await db.select().from(storageBuckets).where(eq(storageBuckets.id, file.bucketId)).get();
+    if (bkt?.provider === 'telegram') {
+      const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, file.id)).get();
+      if (!ref) throw new Error(`Telegram 文件引用不存在: ${file.id}`);
+
+      const botToken = await decryptSecret(bkt.accessKeyId, encKey);
+      const tgConfig = { botToken, chatId: bkt.bucketName, apiBase: bkt.endpoint || undefined };
+
+      if (isChunkedFileId(ref.tgFileId)) {
+        const { tgDownloadChunked } = await import('../lib/telegramChunked');
+        const stream = await tgDownloadChunked(tgConfig, ref.tgFileId, db);
+        const reader = stream.getReader();
+        const chunks: Uint8Array[] = [];
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) chunks.push(value);
+        }
+        const total = chunks.reduce((n, c) => n + c.length, 0);
+        const out = new Uint8Array(total);
+        let pos = 0;
+        for (const c of chunks) {
+          out.set(c, pos);
+          pos += c.length;
+        }
+        return out.buffer;
+      }
+
+      const { tgDownloadFile } = await import('../lib/telegramClient');
+      const resp = await tgDownloadFile(tgConfig, ref.tgFileId);
+      return resp.arrayBuffer();
+    }
+
+    const bucketCfg = await resolveBucketConfig(db, file.userId, encKey, file.bucketId, file.parentId);
+    if (bucketCfg) {
+      const { s3Get } = await import('../lib/s3client');
+      const resp = await s3Get(bucketCfg, file.r2Key);
+      return resp.arrayBuffer();
+    }
+  }
+
+  if (env.FILES) {
+    const obj = await env.FILES.get(file.r2Key);
+    if (!obj) throw new Error(`文件内容不存在: ${file.r2Key}`);
+    return obj.arrayBuffer();
+  }
+
+  throw new Error('存储桶未配置');
+}
 
 app.use('*', authMiddleware);
 
@@ -569,9 +765,16 @@ app.get('/', async (c) => {
   const userId = c.get('userId')!;
   const parentId = c.req.query('parentId') || null;
   const search = c.req.query('search') || '';
-  const sortBy = (c.req.query('sortBy') || 'createdAt') as keyof typeof files.$inferSelect;
+  const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'name', 'size'] as const;
+  const sortByRaw = c.req.query('sortBy') || 'createdAt';
+  const sortBy = ALLOWED_SORT_FIELDS.includes(sortByRaw as any) ? sortByRaw : 'createdAt';
   const sortOrder = c.req.query('sortOrder') || 'desc';
   const starred = c.req.query('starred') === 'true';
+
+  // 分页参数（默认第1页，每页50条，最大100条）
+  const page = Math.max(1, parseInt(c.req.query('page') || '1', 10));
+  const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '50', 10)));
+  const offset = (page - 1) * limit;
 
   const db = getDb(c.env.DB);
 
@@ -584,7 +787,7 @@ app.get('/', async (c) => {
   }
 
   // 构建查询条件
-  const conditions: any[] = [isNull(files.deletedAt)];
+  const conditions: Array<ReturnType<typeof isNull> | ReturnType<typeof eq>> = [isNull(files.deletedAt)];
 
   // 收藏文件筛选
   if (starred) {
@@ -648,30 +851,54 @@ app.get('/', async (c) => {
     // - 或被授权访问的文件 (id IN permittedIds)
     const ownershipCondition = or(
       and(eq(files.userId, userId), isNull(files.parentId)),
-      permittedIds.size > 0 ? inArray(files.id, Array.from(permittedIds)) : undefined
+      permittedIds.size > 0 ? inArray(files.id, Array.from(permittedIds)) : sql`0=1`
     );
-    conditions.push(ownershipCondition);
+    if (ownershipCondition) conditions.push(ownershipCondition);
   } else {
     // 收藏筛选时，只返回用户自己的收藏文件
     conditions.push(eq(files.userId, userId));
   }
 
-  if (search) conditions.push(like(files.name, `%${search}%`));
+  if (search) {
+    // 转义 LIKE 特殊字符（% _ \），防止搜索词变成通配符
+    const escapedSearch = search.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+    conditions.push(like(files.name, `%${escapedSearch}%`));
+  }
+
+  // 查询总数（用于分页）
+  const totalCountResult = await db
+    .select({ count: count() })
+    .from(files)
+    .where(and(...conditions.filter(Boolean)))
+    .get();
+  const total = totalCountResult?.count ?? 0;
+
+  // 使用 SQL 排序和分页，避免内存爆炸
+  const orderColumn = (() => {
+    switch (sortBy) {
+      case 'updatedAt':
+        return files.updatedAt;
+      case 'name':
+        return files.name;
+      case 'size':
+        return files.size;
+      default:
+        return files.createdAt;
+    }
+  })();
+  const orderDir = sortOrder === 'asc' ? sql`ASC` : sql`DESC`;
 
   const items = await db
     .select()
     .from(files)
     .where(and(...conditions.filter(Boolean)))
+    .orderBy(sql`${orderColumn} ${orderDir}`)
+    .limit(limit)
+    .offset(offset)
     .all();
-  const sorted = [...items].sort((a, b) => {
-    const aVal = a[sortBy] ?? '';
-    const bVal = b[sortBy] ?? '';
-    if (sortOrder === 'asc') return aVal > bVal ? 1 : -1;
-    return aVal < bVal ? 1 : -1;
-  });
 
   // 批量查询存储桶信息（避免 N+1）
-  const bucketIds = [...new Set(sorted.map((f) => f.bucketId).filter(Boolean))] as string[];
+  const bucketIds = [...new Set(items.map((f) => f.bucketId).filter(Boolean))] as string[];
   const bucketMap: Record<string, { id: string; name: string; provider: string }> = {};
   if (bucketIds.length > 0) {
     const bucketRows = await db
@@ -683,7 +910,7 @@ app.get('/', async (c) => {
   }
 
   // 批量查询文件归属人信息（避免 N+1）
-  const ownerIds = [...new Set(sorted.map((f) => f.userId).filter(Boolean))] as string[];
+  const ownerIds = [...new Set(items.map((f) => f.userId).filter(Boolean))] as string[];
   const ownerMap: Record<string, { id: string; name: string | null; email: string }> = {};
   if (ownerIds.length > 0) {
     const ownerRows = await db
@@ -696,7 +923,7 @@ app.get('/', async (c) => {
 
   // 权限信息
   const permissionsMap: Record<string, { permission: string | null; isOwner: boolean }> = {};
-  for (const file of sorted) {
+  for (const file of items) {
     const isOwner = file.userId === userId;
     permissionsMap[file.id] = {
       permission: isOwner ? 'admin' : null,
@@ -704,14 +931,82 @@ app.get('/', async (c) => {
     };
   }
 
-  const withBucket = sorted.map((f) => ({
+  const withBucket = items.map((f) => ({
     ...f,
     bucket: f.bucketId ? (bucketMap[f.bucketId] ?? null) : null,
     owner: ownerMap[f.userId] ?? null,
     accessPermission: permissionsMap[f.id]?.permission,
     isOwner: permissionsMap[f.id]?.isOwner,
   }));
-  return c.json({ success: true, data: withBucket });
+
+  return c.json({
+    success: true,
+    data: withBucket,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  });
+});
+
+// ── Batch folder size stats ──────────────────────────────────────────────
+// POST /api/files/folders/size
+// Body: { folderIds: string[] }
+// 批量获取文件夹大小统计（避免前端 N+1 请求）
+app.post('/folders/size', async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+  const body = await c.req.json();
+
+  const schema = z.object({
+    folderIds: z.array(z.string().min(1)).max(50).default([]),
+  });
+  const result = schema.safeParse(body);
+  if (!result.success) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
+  }
+
+  const { folderIds } = result.data;
+
+  if (folderIds.length === 0) {
+    return c.json({ success: true, data: {} });
+  }
+
+  // 验证所有文件夹都属于当前用户且存在
+  const folderRecords = await db
+    .select({ id: files.id })
+    .from(files)
+    .where(
+      and(inArray(files.id, folderIds), eq(files.userId, userId), eq(files.isFolder, true), isNull(files.deletedAt))
+    )
+    .all();
+
+  const validFolderIds = folderRecords.map((f) => f.id);
+
+  if (validFolderIds.length === 0) {
+    return c.json({ success: true, data: {}, message: '未找到有效文件夹' });
+  }
+
+  // 批量计算文件夹大小
+  const sizeStats = await calculateFoldersSize(db, validFolderIds, userId);
+
+  // 转换为普通对象
+  const data: Record<string, FolderSizeStats> = {};
+  for (const [folderId, stats] of sizeStats) {
+    data[folderId] = stats;
+  }
+
+  return c.json({
+    success: true,
+    data,
+    requested: folderIds.length,
+    found: validFolderIds.length,
+  });
 });
 
 // ── Trash: list ────────────────────────────────────────────────────────────
@@ -1285,6 +1580,106 @@ app.get('/:id/detail', async (c) => {
 
       // 文件夹专属
       ...folderStats,
+    },
+  });
+});
+
+// ── File access logs ───────────────────────────────────────────────────
+// GET /:id/logs?limit=50&action=download
+// 获取文件的访问日志（谁在什么时候访问/下载/修改了这个文件）
+app.get('/:id/logs', async (c) => {
+  const userId = c.get('userId')!;
+  const fileId = c.req.param('id');
+  const db = getDb(c.env.DB);
+
+  // 分页和筛选参数
+  const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '50', 10)));
+  const offset = Math.max(0, parseInt(c.req.query('offset') || '0', 10));
+  const action = c.req.query('action'); // 可选：过滤特定操作类型
+
+  // 权限检查
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
+  if (!hasAccess) {
+    throwAppError('FILE_ACCESS_DENIED', '无权查看此文件日志');
+  }
+
+  // 查询文件是否存在
+  const file = await db.select().from(files).where(eq(files.id, fileId)).get();
+  if (!file) throwAppError('FILE_NOT_FOUND');
+
+  // 构建查询条件
+  const conditions = [eq(auditLogs.resourceId, fileId), eq(auditLogs.resourceType, 'file')];
+
+  if (action) {
+    conditions.push(eq(auditLogs.action, action));
+  }
+
+  // 查询总数
+  const totalCountResult = await db
+    .select({ count: count() })
+    .from(auditLogs)
+    .where(and(...conditions))
+    .get();
+  const total = totalCountResult?.count ?? 0;
+
+  // 查询日志（按时间倒序）
+  const logs = await db
+    .select({
+      id: auditLogs.id,
+      userId: auditLogs.userId,
+      action: auditLogs.action,
+      ipAddress: auditLogs.ipAddress,
+      userAgent: auditLogs.userAgent,
+      status: auditLogs.status,
+      errorMessage: auditLogs.errorMessage,
+      details: auditLogs.details,
+      createdAt: auditLogs.createdAt,
+    })
+    .from(auditLogs)
+    .where(and(...conditions))
+    .orderBy(sql`${auditLogs.createdAt} DESC`)
+    .limit(limit)
+    .offset(offset)
+    .all();
+
+  // 批量查询用户信息
+  const userIds = [...new Set(logs.map((l) => l.userId).filter(Boolean))] as string[];
+  const userMap: Record<string, { name: string | null; email: string }> = {};
+  if (userIds.length > 0) {
+    const userRows = await db
+      .select({ id: users.id, name: users.name, email: users.email })
+      .from(users)
+      .where(inArray(users.id, userIds))
+      .all();
+    for (const u of userRows) userMap[u.id] = { name: u.name, email: u.email };
+  }
+
+  // 统计各操作类型的数量
+  const actionStatsResult = await db.run(sql`
+    SELECT action, COUNT(*) as count
+    FROM audit_logs
+    WHERE resource_id = ${fileId} AND resource_type = 'file'
+    GROUP BY action
+    ORDER BY count DESC
+  `);
+  const actionStats = (actionStatsResult?.results as Array<{ action: string; count: number }>) || [];
+
+  return c.json({
+    success: true,
+    data: {
+      fileId,
+      fileName: file.name,
+      logs: logs.map((log) => ({
+        ...log,
+        user: log.userId ? (userMap[log.userId] ?? null) : null,
+      })),
+      stats: actionStats,
+      pagination: {
+        limit,
+        offset,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
     },
   });
 });

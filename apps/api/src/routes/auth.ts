@@ -21,6 +21,8 @@ import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getRegConfig } from '../lib/utils';
 import { throwAppError } from '../middleware/error';
 import { sendNotification } from '../lib/notificationUtils';
+
+const DEFAULT_STORAGE_QUOTA_BYTES = 10 * 1024 * 1024 * 1024; // 10GB
 import {
   sendEmail,
   emailTemplates,
@@ -232,7 +234,7 @@ app.post('/register', async (c) => {
     passwordHash,
     name: name || null,
     role,
-    storageQuota: 10737418240,
+    storageQuota: DEFAULT_STORAGE_QUOTA_BYTES,
     storageUsed: 0,
     emailVerified: isFirstUser ? true : false,
     emailPreferences: '{}',
@@ -296,7 +298,7 @@ app.post('/register', async (c) => {
         email,
         name: name || null,
         role,
-        storageQuota: 10737418240,
+        storageQuota: DEFAULT_STORAGE_QUOTA_BYTES,
         storageUsed: 0,
         emailVerified: isFirstUser ? true : false,
         createdAt: now,
@@ -782,7 +784,7 @@ app.get('/stats', authMiddleware, async (c) => {
       folderCount,
       trashCount,
       storageUsed: totalStorageUsed,
-      storageQuota: userRow?.storageQuota ?? 10737418240,
+      storageQuota: userRow?.storageQuota ?? DEFAULT_STORAGE_QUOTA_BYTES,
       recentFiles,
       typeBreakdown,
       bucketBreakdown,

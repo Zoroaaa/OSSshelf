@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-green.svg)](https://nodejs.org)
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers-orange.svg)](https://workers.cloudflare.com)
-[![Version](https://img.shields.io/badge/version-4.6.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.7.0-blue.svg)](CHANGELOG.md)
 [![zread](https://img.shields.io/badge/Ask_Zread-_.svg?style=flat&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS4zMTM1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff)](https://zread.ai/Zoroaaa/OSSshelf)
 
 [功能特性](#-功能特性) • [快速开始](#-快速开始) • [部署指南](#-部署指南) • [API文档](#-api-文档)
@@ -49,105 +49,62 @@
 
 详细的版本更新日志请参阅 [CHANGELOG.md](CHANGELOG.md)。
 
-### 最新版本 v4.6.0 - 用户体验全面优化与AI能力增强 🚀
+### 最新版本 v4.7.0 - AI Agent 全面增强：Planning 层、跨会话记忆、交互体验升级 🧠
 
 **核心更新**：
 
-#### 🎨 非AI功能优化（5项重大改进）
+#### 🧠 Agent 能力增强（4 项重大改进）
 
-- **📋 移除复制/剪切，跨桶移动智能提示**
-  - 删除复制/剪切/粘贴文件操作（避免数据错位风险）
-  - 新增跨桶移动检测：自动识别并提示用户使用迁移功能
-  - MoveFolderPicker 显示"将跨桶迁移"Badge，引导正确操作
-  - 技术优势：防止误操作导致的数据不一致问题
+- **📋 Planning 层——结构化任务规划**
+  - 新增 `ExecutionPlan` 接口：目标、步骤列表、依赖关系、状态追踪
+  - `planPhase()` 方法：复杂任务自动生成结构化执行计划
+  - SSE 新增 `plan` / `plan_step_update` 事件类型，前端实时渲染进度条
+  - 超出 `maxToolCalls` 时优先完成当前步骤再暂停
+  - 技术优势：复杂多步任务不再中途截断，执行过程可视化
 
-- **🖼️ 简化展示模式 + 列表图片缩略图**
-  - ViewMode 简化为 `'list' | 'grid'`（删除 masonry/gallery 模式）
-  - 列表模式新增图片缩略图预览（40×40px，rounded，object-cover）
-  - 删除 GalleryItem.tsx 和 MasonryItem.tsx 组件
-  - 技术优势：简化代码架构，提升列表视觉体验
+- **🧠 跨会话语义记忆系统**
+  - 双存储架构：D1（结构化查询）+ Vectorize（语义检索）
+  - 对话结束时自动提取 3-5 条结构化事实（操作/偏好/路径/文件引用）
+  - 每次对话开始时召回相关历史记忆注入上下文（top-3）
+  - 命名空间隔离：`memory:{userId}` 区别于文件索引
+  - 前端 AISettings 新增「记忆管理」Tab（浏览/筛选/删除）
+  - 技术优势：Agent 具备跨会话上下文记忆能力
 
-- **📱 移动端预览全屏体验**
-  - 预览时底部操作栏默认隐藏（tap-to-toggle 交互）
-  - 最大化预览区域，沉浸式查看体验
-  - ImagePreview 支持 onTap 回调事件
-  - 技术优势：移动端屏幕利用率提升30%+
+- **🔧 工具定义 Few-shot Examples**
+  - ToolDefinition schema 新增 `examples` 字段
+  - 为高频工具补充 2-3 个典型调用示例
+  - 弱模型工具选择准确率显著提升
+  - 工具总数扩展至 **100+**，覆盖 13+ 个功能模块
 
-- **📄 文件/文件夹详情面板**
-  - 新增 `GET /:id/detail` API（基础信息、存储信息、AI信息、分享状态）
-  - FileDetailPanel 组件（Sheet 形式，桌面端右侧/移动端底部弹出）
-  - 右键菜单新增"详情"入口
-  - 文件夹专属：子文件数、递归统计、总体积
-  - 技术优势：集中展示元数据，操作效率提升
+- **📦 长任务队列打通——批量操作增强**
+  - 新增 `batch_move` / `batch_delete` 工具
+  - BATCH_THRESHOLD = 20：超过阈值自动入队，返回 taskId 追踪进度
+  - 队列失败时自动降级为同步执行
+  - 支持 `agent_batch` 任务类型在 Task Center 展示
 
-- **🔄 文件/文件夹换桶操作**
-  - 新增 MigrateBucketDialog 组件（目标桶选择、迁移提示）
-  - 右键菜单新增"换桶"入口（多桶用户可见）
-  - 支持单文件/文件夹粒度迁移
-  - 技术优势：简化跨桶迁移流程，支持细粒度操作
+#### 💬 交互体验提升（3 项）
 
-#### 🤖 AI功能增强（4项新能力）
+- **🖱️ 文件拖拽注入**
+  - 从文件列表拖拽文件到对话框 → 自动填入 contextFileIds
+  - 消息框显示「附带文件」Chip 样式，支持多文件拖拽
 
-- **💬 对话式权限管理**
-  - `grant_permission` 新增 `expiresInDays` 参数（自然语言过期时间）
-  - 新增 `list_expired_permissions` 工具（查询已过期/快过期授权）
-  - PERMISSION_PATTERNS 新增口语化表达匹配
-  - 示例："把设计文件夹给小明只读，30天后过期"
+- **@️ @文件快捷引用**
+  - 输入 `@` 触发文件搜索下拉框（debounce 300ms）
+  - 键盘导航 + 点击选择，选中后显示 Chip 可移除
+  - 参考 LobeChat 的 @mention 交互设计
 
-- **✍️ 对话式文件创建（含草稿预览）**
-  - 新增 `draft_and_create_file` 工具（多轮起草→确认→创建流程）
-  - DraftPreview 组件支持 Markdown/代码/纯文本渲染
-  - ToolCallCard 集成草稿预览区域
-  - 示例："帮我写一个 README" → 草稿预览 → 确认创建
+- **💭 对话消息引用/追问**
+  - 右键/长按消息 → 选择「引用此消息」
+  - 输入框顶部显示引用预览条，发送时自动拼接 `[引用]` 前缀
+  - Agent 可针对历史消息进行追问和上下文延续
 
-- **🔍 智能整理建议**
-  - 新增 `smart_organize_suggest` 工具（四维度分析）
-    - 命名问题：IMG_/DSC_/截图等不规范命名检测
-    - 标签缺失：aiTags 为空但 aiSummary 存在的文件
-    - 归类建议：根目录文件归类建议
-    - 结构问题：单文件夹>100子文件、路径层级>5检测
-  - 返回可执行的操作建议列表
+#### ⚙️ 工程优化（3 项）
 
-- **📊 文件集合分析**
-  - 新增 `analyze_file_collection` 工具（多场景分析）
-    - 分析类型：summary（整体报告）、compare（对比异同）、extract_common（提取共同主题）、timeline（时间脉络）
-    - 支持 folder/tag/starred 三种范围
-    - 优先使用 aiSummary 减少实际文件读取
-  - 示例："分析这个文件夹的内容脉络"
+- **🧠 Reasoning 展示优化**：默认折叠，streaming 时自动展开，完成后显示字数统计
+- **🛡️ 模型熔断器**：连续失败 3 次自动熔断，10 分钟后恢复探测，区分模型错误/网络超时
+- **📐 工具定义统一规范**：标准化 name/description/parameters/examples 字段，启动校验缺失字段
 
-#### 🗑️ 已移除的冗余功能
-
-- **复制/剪切/粘贴文件操作**：避免跨桶场景数据错位
-- **Masonry/Gallery 展示模式**：简化视图模式，降低维护成本
-- **相关组件**：
-  - `GalleryItem.tsx`（瀑布流图库组件）
-  - `MasonryItem.tsx`（瀑布流卡片组件）
-  - `batchCopyMutation` 及相关 API hook
-  - Ctrl+C/X/V 快捷键注册
-
-#### ⚡ 懒加载性能优化
-
-**实现方式**：
-- **路由级代码分割**：React.lazy() + Suspense 按需加载页面组件
-- **组件级懒加载**：大型组件（FilePreview、AIChat）延迟加载
-- **图片懒加载**：Intersection Observer API + loading="lazy"
-- **虚拟滚动**：大列表使用虚拟化技术（仅渲染可视区域）
-
-**使用场景**：
-- 文件列表超过100项时的虚拟滚动
-- 图片缩略图的按需加载
-- AI对话组件的延迟加载
-- 详情面板的动态导入
-
-**技术优势**：
-- 首屏加载时间减少40%+
-- 内存占用降低60%（大文件夹场景）
-- 移动端流畅度显著提升
-- 带宽消耗优化（按需加载资源）
-
-详细说明请参阅 [docs/OSSshelf-功能开发大纲.md](docs/OSSshelf-功能开发大纲.md)。
-
-### 历史版本 v4.5.0 - AI 模型库大幅扩展与引擎优化 🚀
+### 历史版本 v4.6.0 - 用户体验全面优化与AI能力增强 🚀
 
 **核心更新**：
 

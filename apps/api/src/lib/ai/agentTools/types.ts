@@ -23,6 +23,10 @@ export interface ToolDefinition {
       properties: Record<string, unknown>;
       required?: string[];
     };
+    examples?: Array<{
+      user_query: string;
+      tool_call: Record<string, unknown>;
+    }>;
   };
 }
 

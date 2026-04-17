@@ -9,7 +9,20 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X, Plus, Edit2, Trash2, Star, Loader2, Link, FileText } from 'lucide-react';
+import {
+  X,
+  Plus,
+  Edit2,
+  Trash2,
+  Star,
+  Loader2,
+  Link,
+  FileText,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Check,
+} from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { aiApi, type AiProviderItem, type CreateAiProviderParams } from '@/services/api';
 
@@ -208,6 +221,8 @@ export function ProviderManageModal({ onClose, onProviderChange }: ProviderManag
                 <p className="text-xs text-muted-foreground mt-1">
                   JSON格式的思考模式配置，包含参数格式、参数名称等。可选字段。
                 </p>
+
+                <ThinkingFormatExamples onSelect={(config) => setFormData({ ...formData, thinkingConfig: config })} />
               </div>
 
               <div className="flex items-center gap-2">
@@ -355,6 +370,169 @@ export function ProviderManageModal({ onClose, onProviderChange }: ProviderManag
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+interface ThinkingFormatExamplesProps {
+  onSelect: (config: string) => void;
+}
+
+const THINKING_FORMATS = [
+  {
+    id: 'object',
+    name: '嵌套对象格式 (object)',
+    description: '参数值为嵌套对象，需要在请求体中添加 thinking 参数',
+    providers: ['火山引擎豆包', '智谱GLM', 'DeepSeek R1', '月之暗面Kimi', 'xAI Grok'],
+    config:
+      '{"paramFormat":"object","paramName":"thinking","nestedKey":"type","enabledValue":"enabled","disabledValue":"disabled"}',
+    example: `{
+  "model": "your-model",
+  "messages": [...],
+  "thinking": {
+    "type": "enabled"
+  }
+}`,
+  },
+  {
+    id: 'boolean',
+    name: '布尔值格式 (boolean)',
+    description: '参数值为布尔值 true/false',
+    providers: ['阿里通义千问', 'SiliconFlow 硅基流动', '百度文心一言'],
+    config: '{"paramFormat":"boolean","paramName":"enable_thinking","enabledValue":true,"disabledValue":false}',
+    example: `{
+  "model": "your-model",
+  "messages": [...],
+  "enable_thinking": true
+}`,
+  },
+  {
+    id: 'string',
+    name: '字符串格式 (string)',
+    description: '参数值为字符串，表示推理强度级别',
+    providers: ['OpenAI o1/o3 系列'],
+    config: '{"paramFormat":"string","paramName":"reasoning_effort","enabledValue":"medium","disabledValue":"low"}',
+    example: `{
+  "model": "your-model",
+  "messages": [...],
+  "reasoning_effort": "medium"
+}`,
+  },
+];
+
+function ThinkingFormatExamples({ onSelect }: ThinkingFormatExamplesProps) {
+  const [expanded, setExpanded] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopy = async (text: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch (err) {
+      console.error('复制失败:', err);
+    }
+  };
+
+  return (
+    <div className="mt-2 border rounded-lg overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+      >
+        <span className="flex items-center gap-1.5">
+          <FileText className="h-3.5 w-3.5" />
+          查看三种思考模式格式示例
+        </span>
+        {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+      </button>
+
+      {expanded && (
+        <div className="p-3 space-y-4 bg-slate-50/50 dark:bg-slate-900/30">
+          {THINKING_FORMATS.map((format) => (
+            <div key={format.id} className="border rounded-lg p-3 bg-background">
+              <div className="flex items-start justify-between mb-2">
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{format.name}</h4>
+                  <p className="text-xs text-muted-foreground mt-0.5">{format.description}</p>
+                </div>
+              </div>
+
+              <div className="mb-2 flex flex-wrap gap-1">
+                {format.providers.map((provider) => (
+                  <span
+                    key={provider}
+                    className="px-1.5 py-0.5 text-[10px] bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded border border-blue-200 dark:border-blue-800"
+                  >
+                    {provider}
+                  </span>
+                ))}
+              </div>
+
+              <div className="space-y-2">
+                <div className="relative group">
+                  <div className="text-[10px] font-medium text-muted-foreground mb-1">请求示例：</div>
+                  <pre className="p-2 bg-slate-900 text-slate-100 rounded text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all">
+                    {format.example}
+                  </pre>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(format.example, `${format.id}-example`)}
+                    className="absolute top-1.5 right-1.5 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity bg-slate-700 hover:bg-slate-600"
+                    title="复制示例"
+                  >
+                    {copiedId === `${format.id}-example` ? (
+                      <Check className="h-3.5 w-3.5 text-green-400" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5 text-slate-300" />
+                    )}
+                  </button>
+                </div>
+
+                <div className="relative group">
+                  <div className="text-[10px] font-medium text-muted-foreground mb-1">配置 JSON（点击使用）：</div>
+                  <pre
+                    className="p-2 bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 rounded text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all cursor-pointer hover:bg-emerald-950/50 transition-colors border border-emerald-200 dark:border-emerald-800"
+                    onClick={() => onSelect(format.config)}
+                    title="点击填入配置"
+                  >
+                    {format.config}
+                  </pre>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopy(format.config, `${format.id}-config`);
+                    }}
+                    className="absolute top-1.5 right-1.5 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity bg-emerald-800 hover:bg-emerald-700"
+                    title="复制配置"
+                  >
+                    {copiedId === `${format.id}-config` ? (
+                      <Check className="h-3.5 w-3.5 text-green-400" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5 text-emerald-300" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => onSelect(format.config)}
+                className="mt-2 w-full py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 rounded border border-emerald-200 dark:border-emerald-800 transition-colors"
+              >
+                使用此格式
+              </button>
+            </div>
+          ))}
+
+          <p className="text-xs text-muted-foreground pt-2 border-t">
+            💡 提示：如果您的提供商不在上述列表中，请根据其 API
+            文档自行填写配置。不在三种标准格式内的，可以留空或自定义。
+          </p>
+        </div>
+      )}
     </div>
   );
 }

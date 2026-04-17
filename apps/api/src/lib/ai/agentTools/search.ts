@@ -57,6 +57,11 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['query'],
       },
+      examples: [
+        { user_query: '找需求文档', tool_call: { query: '需求文档' } },
+        { user_query: '找上个季度的项目总结报告', tool_call: { query: '季度报告 项目总结' } },
+        { user_query: '找最近的图片文件', tool_call: { query: '照片', mimeTypePrefix: 'image/', limit: 20 } },
+      ],
     },
   },
 
@@ -88,6 +93,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['query'],
       },
+      examples: [
+        { user_query: '帮我找那个关于项目进展的东西', tool_call: { query: '帮我找那个关于项目进展的东西' } },
+        { user_query: '最近上传的大文件', tool_call: { query: '最近上传的大文件', context: '用户想找最近上传的文件' } },
+      ],
     },
   },
 
@@ -142,6 +151,11 @@ export const definitions: ToolDefinition[] = [
           },
         },
       },
+      examples: [
+        { user_query: '找出所有图片', tool_call: { mimeTypePrefix: 'image/', limit: 50 } },
+        { user_query: '找出超过100MB的文件', tool_call: { minSize: 104857600, sortBy: 'size', sortOrder: 'desc' } },
+        { user_query: '最近一个月的PDF文档', tool_call: { mimeTypePrefix: 'application/pdf', dateFrom: '2026-03-16', limit: 30 } },
+      ],
     },
   },
 
@@ -165,6 +179,11 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['tag'],
       },
+      examples: [
+        { user_query: '找所有标记为重要的文件', tool_call: { tag: '重要' } },
+        { user_query: '带工作标签的文档有哪些', tool_call: { tag: '工作', limit: 30 } },
+        { user_query: '待处理的内容', tool_call: { tag: '待处理' } },
+      ],
     },
   },
 
@@ -188,6 +207,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId'],
       },
+      examples: [
+        { user_query: '找和这份报告类似的文档', tool_call: { fileId: '<report_id>' } },
+        { user_query: '还有没有像这样的图片', tool_call: { fileId: '<image_id>', limit: 15 } },
+      ],
     },
   },
 
@@ -210,6 +233,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId'],
       },
+      examples: [
+        { user_query: '这个文件的详细信息', tool_call: { fileId: '<file_id>' } },
+        { user_query: '看看这个文档的属性', tool_call: { fileId: '<doc_id>' } },
+      ],
     },
   },
 
@@ -233,6 +260,11 @@ export const definitions: ToolDefinition[] = [
           limit: { type: 'number', description: '返回数量（默认20）' },
         },
       },
+      examples: [
+        { user_query: '有没有重复的文件', tool_call: {} },
+        { user_query: '下载文件夹里找重复的', tool_call: { folderId: '<downloads_id>' } },
+        { user_query: '清理相似文件', tool_call: { includeSimilar: true, limit: 50 } },
+      ],
     },
   },
 ];

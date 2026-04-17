@@ -24,7 +24,8 @@ export type WebhookEvent =
   | 'ai.summary_complete'
   | 'ai.tags_generated'
   | 'ai.index_complete'
-  | 'ai.insight_triggered';
+  | 'ai.insight_triggered'
+  | 'ai.agent_batch_complete';
 
 export interface WebhookPayload {
   event: WebhookEvent;
@@ -45,6 +46,7 @@ export const WEBHOOK_EVENTS: Array<{ value: WebhookEvent | '*'; label: string; d
   { value: 'ai.tags_generated', label: 'AI 标签生成', description: '图片 AI 标签生成完成时触发' },
   { value: 'ai.index_complete', label: 'AI 索引完成', description: '向量索引构建完成时触发' },
   { value: 'ai.insight_triggered', label: 'AI 洞察提醒', description: '检测到异常时触发（预留）' },
+  { value: 'ai.agent_batch_complete', label: 'AI 批量操作完成', description: 'Agent 批量操作（移动/删除/重命名）完成时触发' },
 ];
 
 export async function dispatchWebhook(

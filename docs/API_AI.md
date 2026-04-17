@@ -1,7 +1,7 @@
 # OSSshelf AI API 文档
 
-**版本**: v4.6.0
-**更新日期**: 2026-04-13
+**版本**: v4.7.0
+**更新日期**: 2026-04-17
 
 ---
 
@@ -34,6 +34,7 @@
 | AI 功能   | `/api/ai/summarize`, `/api/ai/tags` 等 | 摘要、标签、重命名             |
 | 向量索引  | `/api/ai/index`                        | 向量索引管理                   |
 | AI 配置   | `/api/ai/config`                       | 系统配置管理                   |
+| 记忆管理  | `/api/ai/memories`                     | 跨会话记忆 CRUD（v4.7.0 新增） |
 
 ---
 
@@ -320,7 +321,7 @@ GET /api/ai/agent/tools
       }
     }
   ],
-  "total": 95
+  "total": 100+
 }
 ```
 
@@ -757,6 +758,63 @@ Content-Type: application/json
 
 ---
 
+## 记忆管理 API（v4.7.0 新增）
+
+跨会话语义记忆系统，支持 Agent 跨对话记住用户偏好、操作历史、常用路径等信息。
+
+### 获取记忆列表
+
+```http
+GET /api/ai/memories?type=operation&limit=20&offset=0
+```
+
+**查询参数**：
+
+| 参数   | 类型   | 必填 | 说明                                     |
+| ------ | ------ | ---- | ---------------------------------------- |
+| type   | string | 否   | 记忆类型筛选：operation/preference/path/file_ref |
+| limit  | number | 否   | 每页数量（默认 50）                      |
+| offset | number | 否   | 偏移量（默认 0）                         |
+
+**响应**：
+
+```json
+{
+  "data": {
+    "items": [
+      {
+        "id": "memory-uuid",
+        "userId": "user-uuid",
+        "sessionId": "session-uuid",
+        "type": "operation",
+        "summary": "用户将设计文件夹归档到 /Archive/2024/Design",
+        "embeddingId": "vector-uuid",
+        "createdAt": "2026-04-15T10:00:00Z"
+      }
+    ],
+    "total": 25
+  }
+}
+```
+
+### 删除单条记忆
+
+```http
+DELETE /api/ai/memories/:memoryId
+```
+
+**响应**：
+
+```json
+{
+  "success": true
+}
+```
+
+**注意**：只能删除当前用户的记忆，跨用户操作返回 403。
+
+---
+
 ## SSE 事件格式
 
 v4.3.0 Agent 引擎使用 SSE（Server-Sent Events）进行流式响应。
@@ -852,6 +910,51 @@ data: {
 }
 ```
 
+#### 执行计划事件（v4.7.0 新增）
+
+```
+event: plan
+data: {
+  "plan": {
+    "goal": "整理下载文件夹中的文件",
+    "steps": [
+      {
+        "id": "step-1",
+        "description": "扫描下载文件夹获取所有文件列表",
+        "toolHint": "filter_files",
+        "status": "pending"
+      },
+      {
+        "id": "step-2",
+        "description": "按文件类型分类归档",
+        "dependsOn": ["step-1"],
+        "status": "pending"
+      }
+    ],
+    "estimatedToolCalls": 8
+  },
+  "done": false
+}
+```
+
+#### 步骤状态更新事件（v4.7.0 新增）
+
+```
+event: plan_step_update
+data: {
+  "stepId": "step-1",
+  "status": "running",
+  "done": false
+}
+
+event: plan_step_update
+data: {
+  "stepId": "step-1",
+  "status": "done",
+  "done": false
+}
+```
+
 ### 前端使用示例
 
 ```typescript
@@ -891,6 +994,16 @@ eventSource.addEventListener('error', (e) => {
   const data = JSON.parse(e.data);
   showError(data.message);
   eventSource.close();
+});
+
+eventSource.addEventListener('plan', (e) => {
+  const data = JSON.parse(e.data);
+  showExecutionPlan(data.plan);
+});
+
+eventSource.addEventListener('plan_step_update', (e) => {
+  const data = JSON.parse(e.data);
+  updatePlanStepStatus(data.stepId, data.status);
 });
 ```
 
@@ -966,11 +1079,18 @@ try {
 
 ---
 
-## v4.6.0 新增工具 API
+## v4.7.0 新增工具 API
 
-> **v4.6.0 更新**: Agent 工具集从 95 个扩展至 99+ 个，新增 4 个工具。
+> **v4.7.0 更新**: Agent 工具集从 99+ 个扩展至 **100+** 个，新增 2 个批量操作工具。同时为所有高频工具补充了 `examples` 字段（Few-shot 示例），提升弱模型工具选择准确率。
 
-### 新增工具列表
+### v4.7.0 新增工具列表
+
+| 工具名称        | 模块       | 说明                                     | 版本    |
+| --------------- | ---------- | ---------------------------------------- | ------- |
+| `batch_move`    | fileops.ts | 批量移动文件（超阈值自动入队）           | v4.7.0  |
+| `batch_delete`  | fileops.ts | 批量删除文件（超阈值自动入队）           | v4.7.0  |
+
+### v4.6.0 工具列表（保留）
 
 | 工具名称                    | 模块         | 说明                                     | 版本    |
 | --------------------------- | ------------ | ---------------------------------------- | ------- |
@@ -1211,6 +1331,100 @@ try {
 - **灵活范围**：支持 folder/tag/starred 三种筛选方式
 - **智能截断**：超过 maxFiles 时优先保留有 aiSummary 的文件
 - **Agent 驱动**：返回的 _next_actions 指导 Agent 进行下一步分析
+
+### 5. batch_move（v4.7.0 新增）
+
+批量移动文件到目标文件夹，超过阈值时自动入队执行。
+
+**参数**：
+
+```typescript
+{
+  fileIds: string[],        // 要移动的文件 ID 数组（必填）
+  targetFolderId: string    // 目标文件夹 ID（必填）
+}
+```
+
+**响应（文件数 ≤ 20，同步执行）**：
+
+```json
+{
+  "status": "completed",
+  "message": "批量移动完成：15 成功，0 失败",
+  "totalFiles": 15,
+  "successCount": 15,
+  "failCount": 0,
+  "_next_actions": ["✅ 已将 15 个文件移到目标文件夹"]
+}
+```
+
+**响应（文件数 > 20，异步入队）**：
+
+```json
+{
+  "status": "queued",
+  "taskId": "task-uuid",
+  "message": "批量移动任务已提交到队列（共 50 个文件），预计 3 分钟完成",
+  "totalFiles": 50,
+  "estimatedMinutes": 3,
+  "_next_actions": [
+    "✅ 批量移动任务已入队（taskId: task-uuid）",
+    "可通过 GET /api/ai/index/task 查看进度"
+  ]
+}
+```
+
+**关键特性**：
+- **BATCH_THRESHOLD = 20**：文件数超过此值自动入队
+- **降级机制**：队列失败时自动降级为同步执行
+- **任务追踪**：返回 taskId 可通过 Task Center 查看进度
+
+### 6. batch_delete（v4.7.0 新增）
+
+批量删除文件（软删除，移入回收站），超过阈值时自动入队执行。
+
+**参数**：
+
+```typescript
+{
+  fileIds: string[],     // 要删除的文件 ID 数组（必填）
+  reason?: string        // 删除原因（可选）
+}
+```
+
+**响应（文件数 ≤ 20，同步执行）**：
+
+```json
+{
+  "status": "completed",
+  "message": "批量删除完成：10 成功，0 失败",
+  "totalFiles": 10,
+  "successCount": 10,
+  "failCount": 0,
+  "_next_actions": ["✅ 已将 10 个文件移入回收站"]
+}
+```
+
+**响应（文件数 > 20，异步入队）**：
+
+```json
+{
+  "status": "queued",
+  "taskId": "task-uuid",
+  "message": "批量删除任务已提交到队列（共 100 个文件），预计 5 分钟完成。文件将被移入回收站，可通过 restore_file 恢复",
+  "totalFiles": 100,
+  "estimatedMinutes": 5,
+  "_next_actions": [
+    "✅ 批量删除任务已入队（taskId: task-uuid）",
+    "删除的文件可在回收站中恢复"
+  ]
+}
+```
+
+**关键特性**：
+- **软删除**：文件移入回收站而非永久删除，可通过 `restore_file` 恢复
+- **BATCH_THRESHOLD = 20**：与 batch_move 相同的阈值
+- **可恢复性**：明确提示用户可在回收站中恢复
 
 ---
 

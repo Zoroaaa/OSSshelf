@@ -291,7 +291,7 @@ app.get('/:token/preview', async (c) => {
   const pvHeaders = {
     'Content-Type': file.mimeType || 'application/octet-stream',
     'Content-Length': file.size.toString(),
-    'Cache-Control': 'public, max-age=3600',
+    'Cache-Control': 'private, max-age=3600',
   };
 
   if (file.bucketId) {
@@ -361,12 +361,22 @@ app.get('/:token', async (c) => {
     throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '文件夹不支持直链访问');
   }
 
+  // 直链速率限制：每IP每分钟最多60次请求，防止滥用为免费CDN
+  const clientIp = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For')?.split(',')[0] || 'unknown';
+  const dlRateKey = `directlink_rate:${token}:${clientIp}`;
+  const dlRateCount = await c.env.KV.get(dlRateKey);
+  if (dlRateCount && parseInt(dlRateCount) >= 60) {
+    return c.json({ success: false, error: { code: 'RATE_LIMIT_EXCEEDED', message: '下载频率过高，请稍后再试' } }, 429);
+  }
+  const prevDl = await c.env.KV.get(dlRateKey);
+  await c.env.KV.put(dlRateKey, String(parseInt(prevDl || '0') + 1), { expirationTtl: 60 });
+
   const encKey = getEncryptionKey(c.env);
   const dlHeaders = {
     'Content-Type': file.mimeType || 'application/octet-stream',
     'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
     'Content-Length': file.size.toString(),
-    'Cache-Control': 'public, max-age=3600',
+    'Cache-Control': 'private, max-age=3600',
   };
 
   if (file.bucketId) {

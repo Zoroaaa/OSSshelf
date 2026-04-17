@@ -47,6 +47,11 @@ export const definitions: ToolDefinition[] = [
           folderId: { type: 'string', description: '目标文件夹ID（优先使用此参数）' },
         },
       },
+      examples: [
+        { user_query: '打开工作文件夹', tool_call: { path: '/工作' } },
+        { user_query: '进入项目文档目录', tool_call: { folderId: '<project_folder_id>' } },
+        { user_query: '回到上一级', tool_call: { path: '..' } },
+      ],
     },
   },
 
@@ -73,6 +78,11 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['folderId'],
       },
+      examples: [
+        { user_query: '这个文件夹里有什么', tool_call: { folderId: '<folder_id>' } },
+        { user_query: '按时间倒序排列文件', tool_call: { folderId: '<folder_id>', sortBy: 'updated_at', sortOrder: 'desc' } },
+        { user_query: '只看图片文件', tool_call: { folderId: '<folder_id>', mimeTypePrefix: 'image/' } },
+      ],
     },
   },
 
@@ -95,6 +105,11 @@ export const definitions: ToolDefinition[] = [
           days: { type: 'number', description: '时间范围（天），默认7天' },
         },
       },
+      examples: [
+        { user_query: '我最近编辑了什么', tool_call: {} },
+        { user_query: '最近3天的文件', tool_call: { days: 3, limit: 30 } },
+        { user_query: '刚才操作的文件', tool_call: { days: 1, limit: 5 } },
+      ],
     },
   },
 
@@ -117,6 +132,10 @@ export const definitions: ToolDefinition[] = [
           includeFolders: { type: 'boolean', description: '是否包含收藏的文件夹（默认true）' },
         },
       },
+      examples: [
+        { user_query: '我的收藏有哪些', tool_call: {} },
+        { user_query: '重要的文件在哪里', tool_call: { limit: 20, includeFolders: false } },
+      ],
     },
   },
 
@@ -139,6 +158,10 @@ export const definitions: ToolDefinition[] = [
         },
         required: ['fileId'],
       },
+      examples: [
+        { user_query: '这个文件在哪个目录下', tool_call: { fileId: '<file_id>' } },
+        { user_query: '显示完整路径', tool_call: { fileId: '<doc_id>' } },
+      ],
     },
   },
 
@@ -159,6 +182,10 @@ export const definitions: ToolDefinition[] = [
           depth: { type: 'number', description: '展开深度（默认2，最大5）' },
         },
       },
+      examples: [
+        { user_query: '显示目录结构', tool_call: {} },
+        { user_query: '展开工作目录3层', tool_call: { folderId: '<work_id>', depth: 3 } },
+      ],
     },
   },
 
@@ -179,6 +206,10 @@ export const definitions: ToolDefinition[] = [
           includeFileTypes: { type: 'boolean', description: '是否包含文件类型分布（默认true）' },
         },
       },
+      examples: [
+        { user_query: '我用了多少空间', tool_call: {} },
+        { user_query: '存储使用情况详情', tool_call: { topN: 20, includeFileTypes: true } },
+      ],
     },
   },
 ];

@@ -24,7 +24,7 @@
  */
 
 import { Hono, Context } from 'hono';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, like } from 'drizzle-orm';
 import { getDb, files, users } from '../db';
 import type { File } from '../db/schema';
 import { s3Put, s3Get, s3Delete } from '../lib/s3client';
@@ -61,7 +61,6 @@ app.use('*', async (c, next) => {
   const authHeader = c.req.header('Authorization');
 
   if (!authHeader || !authHeader.startsWith('Basic ')) {
-    // 修复：401 必须携带 DAV 头，Windows Mini-Redirector 依此判断服务器是否支持 WebDAV
     return new Response('Unauthorized', {
       status: 401,
       headers: {
@@ -72,6 +71,16 @@ app.use('*', async (c, next) => {
   }
 
   try {
+    const clientIp = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For')?.split(',')[0] || 'unknown';
+    const rateKey = `webdav_auth_attempt:${clientIp}`;
+    const rateCount = await c.env.KV.get(rateKey);
+    if (rateCount && parseInt(rateCount) >= 10) {
+      return new Response('Too Many Requests', {
+        status: 429,
+        headers: { ...DAV_BASE_HEADERS, 'Retry-After': '300' },
+      });
+    }
+
     const credentials = atob(authHeader.slice(6));
     const colonIndex = credentials.indexOf(':');
     if (colonIndex === -1) throw new Error('Invalid credentials');
@@ -83,6 +92,8 @@ app.use('*', async (c, next) => {
     const user = await db.select().from(users).where(eq(users.email, email)).get();
 
     if (!user || !(await verifyPassword(password, user.passwordHash))) {
+      const prev = await c.env.KV.get(rateKey);
+      await c.env.KV.put(rateKey, String(parseInt(prev || '0') + 1), { expirationTtl: 300 });
       return new Response('Unauthorized', {
         status: 401,
         headers: {
@@ -92,6 +103,7 @@ app.use('*', async (c, next) => {
       });
     }
 
+    await c.env.KV.delete(rateKey);
     c.set('userId', user.id);
     await next();
   } catch {
@@ -536,8 +548,20 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   if (existingFile) {
     const sizeDelta = body.byteLength - existingFile.size;
     if (sizeDelta > 0) {
-      const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
-      if (userRow && userRow.storageUsed + sizeDelta > userRow.storageQuota) {
+      // 使用原子查询避免 snapshot 值问题
+      const quotaCheck = await db
+        .select({
+          storageUsed: users.storageUsed,
+          storageQuota: users.storageQuota,
+        })
+        .from(users)
+        .where(eq(users.id, userId))
+        .get();
+      if (
+        quotaCheck &&
+        quotaCheck.storageQuota !== null &&
+        (quotaCheck.storageUsed ?? 0) + sizeDelta > (quotaCheck.storageQuota ?? 0)
+      ) {
         return new Response('Insufficient Storage', { status: 507, headers: DAV_BASE_HEADERS });
       }
       if (bucketCfgP) {
@@ -546,8 +570,20 @@ async function handlePut(c: AppContext, userId: string, path: string) {
       }
     }
   } else {
-    const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
-    if (userRow && userRow.storageUsed + body.byteLength > userRow.storageQuota) {
+    // 使用原子查询避免 snapshot 值问题
+    const quotaCheck = await db
+      .select({
+        storageUsed: users.storageUsed,
+        storageQuota: users.storageQuota,
+      })
+      .from(users)
+      .where(eq(users.id, userId))
+      .get();
+    if (
+      quotaCheck &&
+      quotaCheck.storageQuota !== null &&
+      (quotaCheck.storageUsed ?? 0) + body.byteLength > (quotaCheck.storageQuota ?? 0)
+    ) {
       return new Response('Insufficient Storage', { status: 507, headers: DAV_BASE_HEADERS });
     }
     if (bucketCfgP) {
@@ -675,13 +711,11 @@ async function handleDelete(c: AppContext, userId: string, path: string) {
 
   if (file.isFolder) {
     const folderPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
-    const allFiles = await db
+    const childFiles = await db
       .select()
       .from(files)
-      .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
+      .where(and(eq(files.userId, userId), like(files.path, `${folderPath}/%`), isNull(files.deletedAt)))
       .all();
-
-    const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(folderPath + '/'));
 
     for (const child of childFiles) {
       if (!child.isFolder) {
@@ -753,13 +787,11 @@ async function handleMove(c: AppContext, userId: string, path: string) {
     .where(eq(files.id, file.id));
 
   if (file.isFolder) {
-    const allFiles = await db
+    const childFiles = await db
       .select()
       .from(files)
-      .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
+      .where(and(eq(files.userId, userId), like(files.path, `${oldPath}/%`), isNull(files.deletedAt)))
       .all();
-
-    const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(oldPath + '/'));
     for (const child of childFiles) {
       const newChildPath = destPath + child.path.slice(oldPath.length);
       await db.update(files).set({ path: newChildPath, updatedAt: now }).where(eq(files.id, child.id));
@@ -884,13 +916,11 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
       deletedAt: null,
     });
 
-    const allFiles = await db
+    const childFiles = await db
       .select()
       .from(files)
-      .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
+      .where(and(eq(files.userId, userId), like(files.path, `${srcFolderPath}/%`), isNull(files.deletedAt)))
       .all();
-
-    const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(srcFolderPath + '/'));
 
     const idMapping: Map<string, string> = new Map();
     idMapping.set(file.id, newFolderId);

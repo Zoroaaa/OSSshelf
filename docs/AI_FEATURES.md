@@ -1,7 +1,7 @@
 # OSSshelf AI 功能说明文档
 
-**版本**: v4.6.0
-**更新日期**: 2026-04-13
+**版本**: v4.7.0
+**更新日期**: 2026-04-17
 
 ---
 
@@ -26,41 +26,222 @@
 
 ## 功能概述
 
-v4.6.0 版本对 AI 模块进行了全面升级，核心变化如下：
+v4.7.0 版本对 AI 模块进行了全面升级，核心变化如下：
 
 | 功能                  | 说明                                             | 版本                |
 | --------------------- | ------------------------------------------------ | ------------------- |
+| **Planning 层**       | 结构化任务规划、ExecutionPlan 接口、SSE 实时进度   | v4.7.0 新增         |
+| **跨会话语义记忆**    | D1+Vectorize 双存储、自动提取/召回、记忆管理 UI     | v4.7.0 新增         |
+| **工具 Few-shot Examples** | ToolDefinition examples 字段、弱模型准确率提升  | v4.7.0 新增         |
+| **批量操作队列打通**  | batch_move/batch_delete、BATCH_THRESHOLD=20        | v4.7.0 新增         |
+| **文件拖拽注入**      | 拖拽文件到对话框、自动填入 contextFileIds          | v4.7.0 新增         |
+| **@文件快捷引用**     | @mention 下拉框、键盘导航、Chip 展示               | v4.7.0 新增         |
+| **对话消息引用/追问** | 右键引用消息、[引用] 前缀拼接                      | v4.7.0 新增         |
+| **模型熔断器**        | 三态状态机、连续失败3次熔断、10分钟恢复            | v4.7.0 新增         |
+| **Reasoning 展示优化** | 默认折叠、streaming 自动展开、字数统计             | v4.7.0 增强         |
 | **对话式权限管理**     | 自然语言授权、expiresInDays参数、已过期权限查询      | v4.6.0 新增         |
 | **对话式文件创建**     | 草稿预览、多轮起草流程、DraftPreview组件            | v4.6.0 新增         |
 | **智能整理建议**       | 四维度分析（命名/标签/归类/结构）、可执行建议        | v4.6.0 新增         |
 | **文件集合分析**       | 多场景分析（对比/总结/时间脉络）、aiSummary代理     | v4.6.0 新增         |
+| **100+ 个智能工具**   | 覆盖文件操作、权限管理、分享链接等 13+ 个模块       | v4.3.0 新增, v4.7.0 扩展 |
 | **模型库大幅扩展**    | 16 个厂商 80+ 个模型，覆盖 2025 年最新推理/视觉模型 | v4.5.0 新增         |
 | **Agent 引擎增强**    | Token 预算管理、降级机制改进、统计增强              | v4.5.0 增强         |
-| **模型网关增强**      | providerId 关联、排序、只读模式、Thinking 完善     | v4.5.0 增强         |
-| **API 完善**           | 设置默认提供商接口、排序和激活状态支持               | v4.5.0 增强         |
 | **AI 提供商管理**     | 16 个系统内置提供商，支持自定义提供商               | v4.4.0 新增         |
-| **Thinking Config**   | 各提供商独立推理模式配置                            | v4.4.0 新增         |
-| **模型分组展示**      | 按提供商分组，支持排序                              | v4.4.0 新增         |
-| **对话记录增强**      | 支持工具调用和推理内容存储                          | v4.4.0 新增         |
 | **Agent 引擎重构**    | ReAct 架构，多轮推理，链式调用                      | v4.3.0 重构         |
-| **99+ 个智能工具**    | 覆盖文件操作、权限管理、分享链接等 13+ 个模块       | v4.3.0 新增, v4.6.0 扩展 |
 | **智能意图识别**      | 自动识别搜索、视觉、内容理解等意图                  | v4.3.0 新增         |
-| **链式推理**          | 工具结果驱动下一步行动                              | v4.3.0 新增         |
-| **视觉分析增强**      | 图片搜索结果自动触发视觉分析                        | v4.3.0 新增         |
 | **写操作确认**        | 敏感操作需用户确认后执行                            | v4.3.0 新增         |
-| **草稿预览支持**      | 文件创建前支持 Markdown/代码/纯文本草稿预览         | v4.6.0 新增         |
-| **AI 系统配置**       | 可配置默认模型、参数、限制、重试策略、提示词模板     | v4.2.0              |
-| **向量库管理**        | 查看和删除向量索引，支持分页和搜索                   | v4.2.0              |
-| **任务中心**          | 统一显示所有任务状态，实时进度监控                   | v4.2.0              |
-| **全局 AI 聊天**      | 悬浮式 AI 聊天组件，支持会话切换                    | v4.2.0              |
-| **自定义模型**        | 支持任意 Workers AI 模型 ID                         | v4.2.0              |
-| **AI 对话**           | 基于 RAG 的智能问答，支持文件内容理解                | v4.1.0              |
-| **多模型架构**        | 支持 Workers AI + OpenAI 兼容 API + 80+ 预设模型    | v4.1.0, v4.5.0 增强 |
-| **文件摘要**          | 自动生成文本文件内容摘要                             | v3.7.0, v4.1.0 增强 |
-| **图片描述**          | 识别图片内容并生成文字描述                           | v3.7.0, v4.1.0 增强 |
-| **图片标签**          | 自动识别图片内容标签                                 | v3.7.0, v4.1.0 增强 |
-| **语义搜索**          | 基于向量索引的相似度搜索                             | v3.7.0              |
-| **智能重命名**        | 根据文件内容推荐文件名                               | v3.7.0, v4.1.0 增强 |
+
+### v4.7.0 AI 新功能详解
+
+#### 1. Planning 层——结构化任务规划（1.1）
+
+**核心能力**：
+
+- 复杂任务自动生成结构化执行计划
+- SSE 实时推送计划进度，前端渲染 PlanProgressBar
+- 超出 `maxToolCalls` 时优先完成当前步骤再暂停
+
+**ExecutionPlan 接口**：
+
+```typescript
+interface ExecutionPlan {
+  goal: string;  // 任务目标
+  steps: Array<{
+    id: string;           // step-1, step-2 ...
+    description: string;  // 人类可读描述
+    toolHint?: string;    // 预期使用的工具
+    dependsOn?: string[]; // 依赖哪些步骤完成
+    status: 'pending' | 'running' | 'done' | 'skipped';
+  }>;
+  estimatedToolCalls: number;  // 预估工具调用次数
+}
+```
+
+**工作流程**：
+
+```
+用户输入复杂任务
+       ↓
+意图复杂度判断（关键词 + LLM）
+       ↓
+planPhase() → LLM 输出 JSON 计划
+       ↓
+SSE 推送 { type: 'plan', plan: ExecutionPlan }
+       ↓
+前端渲染 PlanProgressBar
+       ↓
+逐步执行 → 每步完成推送 plan_step_update
+```
+
+#### 2. 跨会话语义记忆系统（1.2）
+
+**架构设计**：
+
+| 特性         | 说明                                     |
+| ------------ | ---------------------------------------- |
+| 双存储       | D1（结构化查询）+ Vectorize（语义检索）   |
+| 命名空间隔离 | `memory:{userId}` 区别于 `file:{userId}` |
+| 记忆类型     | operation / preference / path / file_ref  |
+| 召回策略     | 时间优先 + 向量语义匹配兜底              |
+| 召回数量     | top-3（每次对话注入）                    |
+
+**MemoryFact 接口**：
+
+```typescript
+interface MemoryFact {
+  type: 'operation' | 'preference' | 'path' | 'file_ref';
+  summary: string;  // 一句话概括
+  sessionId: string;
+  createdAt: string;
+}
+```
+
+**记忆生命周期**：
+
+```
+对话进行中 → 用户操作、偏好表达
+       ↓
+对话结束（waitUntil）
+       ↓
+LLM 提取 3-5 条结构化事实
+       ↓
+写入 D1 ai_memories 表 + Vectorize memory:{userId}
+       ↓
+下次对话开始时 → recallMemories() 召回 top-3
+       ↓
+拼入 system prompt [历史记忆] 区域
+```
+
+**API 端点**：
+
+- `GET /api/ai/memories?type=operation&limit=20&offset=0`
+- `DELETE /api/ai/memories/:memoryId`
+
+**前端管理界面**：AISettings 页面新增「记忆管理」Tab
+
+#### 3. 工具定义 Few-shot Examples（1.3）
+
+**ToolDefinition schema 扩展**：
+
+```typescript
+interface ToolDefinition {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: { type: 'object'; properties: Record<string, unknown>; required?: string[] };
+    examples?: Array<{           // v4.7.0 新增
+      user_query: string;        // 触发这个工具的典型用户问题
+      tool_call: object;         // 对应的参数示例
+    }>;
+  };
+}
+```
+
+**覆盖工具**：search_files、smart_search、filter_files、draft_and_create_file、move_file 等
+
+**效果**：弱模型工具选择准确率显著提升
+
+#### 4. 批量操作队列打通（1.4）
+
+**新增工具**：
+
+| 工具名称       | 功能               | 阈值   | 降级策略         |
+| -------------- | ------------------ | ------ | ---------------- |
+| `batch_move`   | 批量移动文件       | 20 个  | 队列失败→同步执行 |
+| `batch_delete` | 批量删除文件（软删） | 20 个 | 队列失败→同步执行 |
+
+**返回格式（异步入队）**：
+
+```json
+{
+  "status": "queued",
+  "taskId": "task-uuid",
+  "message": "批量移动任务已提交到队列（共 50 个文件），预计 3 分钟完成",
+  "totalFiles": 50,
+  "estimatedMinutes": 3,
+  "_next_actions": ["可通过 GET /api/ai/index/task 查看进度"]
+}
+```
+
+#### 5. 文件拖拽注入（2.2）
+
+**交互方式**：从文件列表拖拽文件到对话框
+
+**实现细节**：
+- `onDragOver` / `onDragLeave` / `onDrop` 事件处理
+- 自动填入 `contextFileIds`
+- 消息框显示「附带文件：xxx.pdf」Chip 样式
+- 支持多文件拖拽
+
+#### 6. @文件快捷引用（2.2）
+
+**交互方式**：输入 `@` 触发下拉框
+
+**实现细节**：
+- debounce 300ms 防抖搜索
+- 下拉框展示文件列表（名称 + 路径 + 图标）
+- 键盘导航支持（ArrowDown/ArrowUp/Enter）
+- 选中后显示 Chip，点击可移除
+
+#### 7. 对话消息引用/追问（2.2）
+
+**交互方式**：右键/长按消息 → 选择「引用此消息」
+
+**实现细节**：
+- 输入框顶部显示引用预览条（可关闭）
+- 发送时拼接 `[引用]: 原始消息内容\n\n用户问题`
+- Agent 可针对历史消息追问和上下文延续
+
+#### 8. 模型熔断器（3.3）
+
+**状态机**：
+
+```
+closed（正常）──失败计数≥3──→ open（熔断）
+     ↑                            │
+     │                     10分钟超时
+     │                            ↓
+     └──── half-open（半开探测）←──┘
+                │
+          试探成功 → closed
+          试探失败 → open
+```
+
+**配置参数**：
+
+| 参数                  | 值            | 说明                   |
+| --------------------- | ------------- | ---------------------- |
+| FAILURE_THRESHOLD     | 3             | 连续失败次数阈值       |
+| RECOVERY_TIMEOUT_MS   | 10 * 60 * 1000 | 熔断恢复时间（10分钟）|
+| CIRCUIT_BREAKER_PREFIX | 'circuit:'   | KV 存储键前缀          |
+
+**错误分类**：
+- `model_error`：触发熔断（模型本身错误、429 限流等）
+- `network_timeout`：不触发熔断（直接重试）
+- `unknown`：记录日志
+
+**集成位置**：agentEngine.ts 的 native 和 prompt-based 两条路径
 
 ### v4.6.0 AI 新功能详解
 
@@ -406,6 +587,12 @@ Agent 调用 delete_file 工具
 // 确认请求（写操作）
 { type: "confirm_request", confirmId: "xxx", toolName: "delete_file", args: {...}, summary: "删除文件", done: true }
 
+// 执行计划（v4.7.0 新增）
+{ type: "plan", plan: ExecutionPlan, done: false }
+
+// 步骤状态更新（v4.7.0 新增）
+{ type: "plan_step_update", stepId: "step-1", status: "running", done: false }
+
 // 完成
 { type: "done", sessionId: "xxx", sources: [...] }
 ```
@@ -424,7 +611,7 @@ Agent 调用 delete_file 工具
 
 ## 智能工具集
 
-v4.3.0 提供了 **95 个智能工具**，分为 13 个功能模块：
+v4.3.0 提供了 **100+ 个智能工具**，分为 13 个功能模块：
 
 ### 工具模块总览
 
@@ -1028,7 +1215,9 @@ apps/api/src/lib/ai/
 ├── index.ts                    # 模块导出
 ├── types.ts                    # 类型定义
 ├── modelGateway.ts             # 模型网关（核心）
-├── agentEngine.ts              # Agent 引擎 (v4.3.0 重构)
+├── agentEngine.ts              # Agent 引擎 (v4.3.0 重构, v4.7.0 增强)
+├── agentMemory.ts              # 跨会话记忆管理 (v4.7.0 新增)
+├── circuitBreaker.ts           # 模型调用熔断器 (v4.7.0 新增)
 ├── aiConfigService.ts          # AI 配置服务
 ├── ragEngine.ts                # RAG 引擎
 ├── features.ts                 # 文件处理功能
@@ -1038,15 +1227,15 @@ apps/api/src/lib/ai/
     ├── workersAiAdapter.ts     # Workers AI 适配器
     └── openAiCompatibleAdapter.ts # OpenAI 兼容适配器
 
-apps/api/src/lib/ai/agentTools/   # 工具模块 (v4.3.0 新增)
+apps/api/src/lib/ai/agentTools/   # 工具模块 (v4.3.0 新增, v4.7.0 扩展)
 ├── index.ts                    # 工具统一入口
-├── types.ts                    # 工具类型定义
+├── types.ts                    # 工具类型定义 (含 examples 字段)
 ├── agentToolUtils.ts           # 工具通用函数
 ├── search.ts                   # 搜索工具 (6个)
 ├── content.ts                  # 内容理解工具 (7个)
 ├── navigation.ts               # 导航工具 (4个)
 ├── stats.ts                    # 统计工具 (5个)
-├── fileops.ts                  # 文件操作工具 (15个)
+├── fileops.ts                  # 文件操作工具 (17个, 含 batch_move/batch_delete)
 ├── tags.ts                     # 标签管理工具 (6个)
 ├── share.ts                    # 分享链接工具 (10个)
 ├── version.ts                  # 版本管理工具 (4个)
@@ -1058,17 +1247,19 @@ apps/api/src/lib/ai/agentTools/   # 工具模块 (v4.3.0 新增)
 
 apps/web/src/
 ├── pages/
-│   ├── AIChat.tsx              # AI 对话页面
-│   └── AISettings.tsx          # AI 设置页面
+│   ├── AIChat.tsx              # AI 对话页面 (v4.7.0 增强: 拖拽/@mention/引用)
+│   └── AISettings.tsx          # AI 设置页面 (v4.7.0 增强: 记忆管理 Tab)
 └── components/ai/
     ├── AIChatWidget.tsx        # 全局悬浮聊天组件
     ├── chat/
     │   ├── AssistantContent.tsx
     │   ├── ChatHeader.tsx
     │   ├── ChatSidebar.tsx
-    │   ├── ReasoningSection.tsx
+    │   ├── ReasoningSection.tsx  # 推理展示 (v4.7.0 优化)
     │   ├── ToolCallCard.tsx    # 工具调用卡片 (v4.3.0 增强)
     │   ├── ToolInfoModal.tsx
+    │   ├── DraftPreview.tsx    # 草稿预览 (v4.6.0 新增)
+    │   ├── PlanProgressBar.tsx # 计划进度条 (v4.7.0 新增)
     │   └── WelcomeScreen.tsx
     └── settings/
         ├── AdvancedConfigPanel.tsx
@@ -1079,7 +1270,8 @@ apps/web/src/
         ├── StatsCard.tsx
         ├── TaskProgress.tsx
         ├── TasksCenter.tsx
-        └── VectorsTable.tsx
+        ├── VectorsTable.tsx
+        └── MemoryManagementTab.tsx  # 记忆管理 (v4.7.0 新增)
 ```
 
 ### 核心类/函数

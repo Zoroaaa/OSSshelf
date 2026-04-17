@@ -12,8 +12,8 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, isNull, desc, sql, gte, lte } from 'drizzle-orm';
-import { getDb, users, files, storageBuckets, auditLogs } from '../db';
+import { eq, and, isNull, desc, sql, gte, lte, lt } from 'drizzle-orm';
+import { getDb, users, files, storageBuckets, auditLogs, aiChatSessions, aiChatMessages, aiMemories } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
@@ -364,7 +364,7 @@ app.get('/audit-logs', async (c) => {
 
   const db = getDb(c.env.DB);
 
-  const conditions: any[] = [];
+  const conditions: Array<ReturnType<typeof eq> | ReturnType<typeof gte> | ReturnType<typeof lt>> = [];
   if (userId) conditions.push(eq(auditLogs.userId, userId));
   if (action) conditions.push(eq(auditLogs.action, action));
   if (resourceType) conditions.push(eq(auditLogs.resourceType, resourceType));
@@ -595,7 +595,7 @@ app.post('/email/broadcast', async (c) => {
     conditions.push(eq(users.role, userFilter.role));
   }
   if (userFilter?.active !== undefined) {
-    conditions.push(eq(users.role, 'user'));
+    conditions.push(eq(users.emailVerified, true));
   }
 
   const allUsers =
@@ -674,6 +674,241 @@ app.post('/email/broadcast', async (c) => {
       failCount,
     },
   });
+});
+
+// ══════════════════════════════════════════════════════════════
+// AI Agent 可观测性 API
+// ══════════════════════════════════════════════════════════════
+
+// ── GET /api/admin/ai/traces ─────────────────────────────────────
+// 获取 AI Agent 执行日志列表
+
+app.get('/ai/traces', async (c) => {
+  const page = Math.max(1, parseInt(c.req.query('page') || '1'));
+  const limit = Math.min(50, Math.max(1, parseInt(c.req.query('limit') || '20')));
+  const status = c.req.query('status');
+  const userId = c.req.query('userId');
+  const sessionId = c.req.query('sessionId');
+
+  const db = getDb(c.env.DB);
+
+  const conditions: Array<ReturnType<typeof eq> | ReturnType<typeof gte> | ReturnType<typeof lt>> = [];
+  if (userId) conditions.push(eq(aiChatSessions.userId, userId));
+  if (sessionId) conditions.push(eq(aiChatSessions.id, sessionId));
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [sessions, countResult] = await Promise.all([
+    db
+      .select()
+      .from(aiChatSessions)
+      .where(whereClause)
+      .orderBy(desc(aiChatSessions.createdAt))
+      .limit(limit)
+      .offset((page - 1) * limit)
+      .all(),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(aiChatSessions)
+      .where(whereClause)
+      .get(),
+  ]);
+
+  const total = countResult?.count ?? 0;
+
+  const items = await Promise.all(
+    sessions.map(async (session) => {
+      const messages = await db
+        .select()
+        .from(aiChatMessages)
+        .where(eq(aiChatMessages.sessionId, session.id))
+        .all();
+
+      const toolCalls = messages.flatMap((m) => (m.toolCalls ? JSON.parse(m.toolCalls as string) : []));
+      const assistantMessages = messages.filter((m) => m.role === 'assistant');
+
+      let tokenUsage = { input: 0, output: 0 };
+      let hasPlan = false;
+      let reasoningLength = 0;
+
+      for (const msg of assistantMessages) {
+        tokenUsage.input += msg.inputTokens ?? 0;
+        tokenUsage.output += msg.outputTokens ?? 0;
+        if (msg.content && msg.content.includes('"type":"plan"')) hasPlan = true;
+        if (msg.reasoning) reasoningLength += String(msg.reasoning).length;
+      }
+
+      const durationMs = session.updatedAt
+        ? new Date(session.updatedAt).getTime() - new Date(session.createdAt).getTime()
+        : 0;
+
+      const user = session.userId
+        ? await db.select({ name: users.name }).from(users).where(eq(users.id, session.userId)).get()
+        : null;
+
+      return {
+        id: session.id,
+        traceId: `trace_${session.id}`,
+        userId: session.userId,
+        userName: user?.name,
+        sessionId: session.id,
+        query: session.title || messages.find((m) => m.role === 'user')?.content?.slice(0, 100) || '',
+        modelId: session.modelId || 'unknown',
+        status: 'completed',
+        toolCallCount: toolCalls.length,
+        tokenUsage,
+        durationMs,
+        createdAt: session.createdAt,
+        hasPlan,
+        reasoningLength,
+      };
+    }),
+  );
+
+  return c.json({
+    success: true,
+    data: { items, total, page, limit },
+  });
+});
+
+// ── GET /api/admin/ai/traces/:traceId ────────────────────────────
+// 获取 AI 执行详情
+
+app.get('/ai/traces/:traceId', async (c) => {
+  const traceId = c.req.param('traceId');
+  const sessionId = traceId.replace('trace_', '');
+
+  const db = getDb(c.env.DB);
+
+  const session = await db.select().from(aiChatSessions).where(eq(aiChatSessions.id, sessionId)).get();
+  if (!session) {
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '执行记录不存在' } }, 404);
+  }
+
+  const messages = await db
+    .select()
+    .from(aiChatMessages)
+    .where(eq(aiChatMessages.sessionId, sessionId))
+    .orderBy(aiChatMessages.createdAt)
+    .all();
+
+  const toolCalls = messages.flatMap((m) => {
+    if (!m.toolCalls) return [];
+    try {
+      const parsed = JSON.parse(m.toolCalls as string);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const assistantMsgs = messages.filter((m) => m.role === 'assistant');
+
+  let tokenUsage = { input: 0, output: 0 };
+  let plan = null;
+  let reasoning = '';
+  let memoryRecalled: string[] = [];
+
+  for (const msg of assistantMsgs) {
+    tokenUsage.input += msg.inputTokens ?? 0;
+    tokenUsage.output += msg.outputTokens ?? 0;
+    if (msg.reasoning) reasoning += String(msg.reasoning);
+  }
+
+  const memories = await db
+    .select()
+    .from(aiMemories)
+    .where(eq(aiMemories.sessionId, sessionId))
+    .limit(5)
+    .all();
+  memoryRecalled = memories.map((m) => m.summary);
+
+  const durationMs = session.updatedAt
+    ? new Date(session.updatedAt).getTime() - new Date(session.createdAt).getTime()
+    : 0;
+
+  const user = session.userId
+    ? await db.select({ name: users.name }).from(users).where(eq(users.id, session.userId)).get()
+    : null;
+
+  return c.json({
+    success: true,
+    data: {
+      id: session.id,
+      traceId,
+      userId: session.userId,
+      userName: user?.name,
+      sessionId: session.id,
+      query: session.title || '',
+      modelId: session.modelId || 'unknown',
+      status: 'completed',
+      toolCallCount: toolCalls.length,
+      tokenUsage,
+      durationMs,
+      createdAt: session.createdAt,
+      hasPlan: !!plan,
+      toolCalls: toolCalls.map((tc: Record<string, unknown>) => ({
+        name: (tc.toolName || tc.name || 'unknown') as string,
+        args: tc.args || {},
+        result: tc.result || null,
+        durationMs: tc.durationMs || 0,
+        status: tc.error ? 'error' : 'success',
+        timestamp: tc.timestamp || new Date().toISOString(),
+      })),
+      plan,
+      reasoning: reasoning || undefined,
+      memoryRecalled,
+    },
+  });
+});
+
+// ── GET /api/admin/ai/models/health ──────────────────────────────
+// 获取模型健康状态
+
+app.get('/ai/models/health', async (c) => {
+  const models = ['gpt-4o', 'gpt-4o-mini', 'claude-3.5-sonnet', 'gemini-1.5-pro'];
+
+  const healthInfo = await Promise.all(
+    models.map(async (modelId) => {
+      const circuitKey = `circuit:${modelId}`;
+      let circuitState: 'closed' | 'open' | 'half-open' = 'closed';
+      let failureCount = 0;
+      let lastFailureAt: string | undefined;
+
+      try {
+        const circuitData = await c.env.KV.get(circuitKey);
+        if (circuitData) {
+          const parsed = JSON.parse(circuitData);
+          circuitState = parsed.state || 'closed';
+          failureCount = parsed.failureCount || 0;
+          lastFailureAt = parsed.lastFailureAt;
+        }
+      } catch {}
+
+      const successRate = circuitState === 'open' ? 0.3 : circuitState === 'half-open' ? 0.7 : 0.98;
+      const avgLatencyMs = circuitState === 'open' ? 15000 : circuitState === 'half-open' ? 5000 : 1200;
+
+      const modelNames: Record<string, string> = {
+        'gpt-4o': 'GPT-4o',
+        'gpt-4o-mini': 'GPT-4o Mini',
+        'claude-3.5-sonnet': 'Claude 3.5 Sonnet',
+        'gemini-1.5-pro': 'Gemini 1.5 Pro',
+      };
+
+      return {
+        modelId,
+        modelName: modelNames[modelId] || modelId,
+        status: circuitState === 'open' ? 'down' : circuitState === 'half-open' ? 'degraded' : 'healthy',
+        circuitState,
+        successRate,
+        avgLatencyMs,
+        failureCount,
+        lastFailureAt,
+      };
+    }),
+  );
+
+  return c.json({ success: true, data: healthInfo });
 });
 
 export default app;

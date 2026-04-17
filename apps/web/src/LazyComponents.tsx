@@ -25,9 +25,7 @@ export const LazyPermissions = lazy(() => import('./pages/Permissions'));
 export const LazyAnalytics = lazy(() => import('./pages/Analytics'));
 export const LazyStarred = lazy(() => import('./pages/Starred'));
 export const LazyAIChat = lazy(() => import('./pages/AIChat').then((m) => ({ default: m.AIChat })));
-export const LazyAISettings = lazy(() =>
-  import('./pages/AISettings').then((m) => ({ default: m.AISettings }))
-);
+export const LazyAISettings = lazy(() => import('./pages/AISettings').then((m) => ({ default: m.AISettings })));
 
 interface LazyWrapperProps {
   children: React.ReactNode;

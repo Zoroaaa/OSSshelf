@@ -18,7 +18,7 @@ import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { s3Put } from '../lib/s3client';
-import { resolveBucketConfig, updateBucketStats, checkBucketQuota } from '../lib/bucketResolver';
+import { resolveBucketConfig, updateBucketStats, checkBucketQuota, updateUserStorage } from '../lib/bucketResolver';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getEncryptionKey } from '../lib/crypto';
 
@@ -160,10 +160,7 @@ async function runDownload({ db, userId, taskId, task, bucketConfig, env }: RunD
       deletedAt: null,
     });
 
-    await db
-      .update(users)
-      .set({ storageUsed: freshUser.storageUsed + totalSize, updatedAt: now })
-      .where(eq(users.id, userId));
+    await updateUserStorage(db, userId, totalSize);
 
     await updateBucketStats(db, bucketConfig.id, totalSize, 1);
 
