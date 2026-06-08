@@ -9,7 +9,7 @@
  * - 分享链接统计（新增）
  */
 
-import { eq, and, isNull, isNotNull, gte, lte, count, sql, desc, or } from 'drizzle-orm';
+import { eq, and, isNull, gte, count, sql, desc, or } from 'drizzle-orm';
 import { getDb, files, shares } from '../../../db';
 import type { Env } from '../../../types/env';
 import type { ToolDefinition } from './types';

@@ -1,7 +1,7 @@
 # OSSshelf AI API 文档
 
-**版本**: v4.7.0
-**更新日期**: 2026-04-17
+**版本**: v5.0.0
+**更新日期**: 2026-06-08
 
 ---
 
@@ -770,11 +770,11 @@ GET /api/ai/memories?type=operation&limit=20&offset=0
 
 **查询参数**：
 
-| 参数   | 类型   | 必填 | 说明                                     |
-| ------ | ------ | ---- | ---------------------------------------- |
+| 参数   | 类型   | 必填 | 说明                                             |
+| ------ | ------ | ---- | ------------------------------------------------ |
 | type   | string | 否   | 记忆类型筛选：operation/preference/path/file_ref |
-| limit  | number | 否   | 每页数量（默认 50）                      |
-| offset | number | 否   | 偏移量（默认 0）                         |
+| limit  | number | 否   | 每页数量（默认 50）                              |
+| offset | number | 否   | 偏移量（默认 0）                                 |
 
 **响应**：
 
@@ -1005,6 +1005,25 @@ eventSource.addEventListener('plan_step_update', (e) => {
   const data = JSON.parse(e.data);
   updatePlanStepStatus(data.stepId, data.status);
 });
+
+// v4.7.0 新增：中断处理
+// 当用户手动停止或连接中断时，前端应保留已接收内容
+const abortController = new AbortController();
+eventSource.addEventListener('error', async (e) => {
+  // 检查是否为用户主动中断
+  if (abortController.signal.aborted) {
+    // 保留已输出内容，标记 aborted 状态
+    markMessageAsAborted(lastMessageId);
+    showAbortIndicator();
+  }
+  eventSource.close();
+});
+
+// 手动停止
+function stopGeneration() {
+  abortController.abort();
+  // API 层会抛出 DOMException('AbortError')，前端统一捕获
+}
 ```
 
 ---
@@ -1027,24 +1046,25 @@ eventSource.addEventListener('plan_step_update', (e) => {
 
 ### 错误码
 
-| 错误码                | 说明             | HTTP 状态码 |
-| --------------------- | ---------------- | ----------- |
-| `UNAUTHORIZED`        | 未认证           | 401         |
-| `FORBIDDEN`           | 无权限           | 403         |
-| `NOT_FOUND`           | 资源不存在       | 404         |
-| `VALIDATION_ERROR`    | 参数验证失败     | 400         |
-| `MODEL_NOT_FOUND`     | 模型不存在       | 404         |
-| `MODEL_INACTIVE`      | 模型未激活       | 400         |
-| `MODEL_TEST_FAILED`   | 模型测试失败     | 500         |
-| `FILE_NOT_FOUND`      | 文件不存在       | 404         |
-| `FILE_NOT_TEXT`       | 文件不是文本类型 | 400         |
-| `FILE_NOT_IMAGE`      | 文件不是图片类型 | 400         |
-| `VECTORIZE_ERROR`     | 向量化失败       | 500         |
-| `AI_REQUEST_FAILED`   | AI 请求失败      | 500         |
-| `RATE_LIMIT_EXCEEDED` | 请求频率超限     | 429         |
-| `TASK_RUNNING`        | 任务正在运行     | 409         |
-| `CONFIRM_EXPIRED`     | 确认请求已过期   | 400         |
-| `CONFIRM_CONSUMED`    | 确认请求已使用   | 400         |
+| 错误码                | 说明                               | HTTP 状态码 |
+| --------------------- | ---------------------------------- | ----------- |
+| `UNAUTHORIZED`        | 未认证                             | 401         |
+| `FORBIDDEN`           | 无权限                             | 403         |
+| `NOT_FOUND`           | 资源不存在                         | 404         |
+| `VALIDATION_ERROR`    | 参数验证失败                       | 400         |
+| `MODEL_NOT_FOUND`     | 模型不存在                         | 404         |
+| `MODEL_INACTIVE`      | 模型未激活                         | 400         |
+| `MODEL_TEST_FAILED`   | 模型测试失败                       | 500         |
+| `FILE_NOT_FOUND`      | 文件不存在                         | 404         |
+| `FILE_NOT_TEXT`       | 文件不是文本类型                   | 400         |
+| `FILE_NOT_IMAGE`      | 文件不是图片类型                   | 400         |
+| `VECTORIZE_ERROR`     | 向量化失败                         | 500         |
+| `AI_REQUEST_FAILED`   | AI 请求失败                        | 500         |
+| `RATE_LIMIT_EXCEEDED` | 请求频率超限                       | 429         |
+| `TASK_RUNNING`        | 任务正在运行                       | 409         |
+| `CONFIRM_EXPIRED`     | 确认请求已过期                     | 400         |
+| `CONFIRM_CONSUMED`    | 确认请求已使用                     | 400         |
+| `TOKEN_EXPIRED`       | Token 已过期（v4.7.0 修正为 A006） | 401         |
 
 ### 错误处理最佳实践
 
@@ -1077,6 +1097,61 @@ try {
 }
 ```
 
+### v4.7.0 中断处理机制（流式输出稳定性）
+
+**问题背景**：v4.7.0 修复了 AI 对话流式输出中断时内容丢失的问题。
+
+**消息类型扩展（aborted 字段）**
+
+```typescript
+interface AiChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  sources?: Array<{ id: string; fileName: string; score?: number }>;
+  toolCalls?: Array<{
+    id: string;
+    toolName: string;
+    args: Record<string, unknown>;
+    result?: unknown;
+    status: 'running' | 'done' | 'error';
+  }>;
+  reasoning?: string;
+  modelUsed?: string;
+  latencyMs?: number;
+  aborted?: boolean; // v4.7.0 新增：标记消息是否被中断
+  mentionedFiles?: Array<{
+    // v4.7.0 新增：@mention 引用的文件列表
+    id: string;
+    name: string;
+  }>;
+  createdAt: string;
+}
+```
+
+**中断处理流程**
+
+```
+用户点击停止 / 连接超时
+       ↓
+AbortController.abort() → signal.aborted = true
+       ↓
+API 层检测到 signal → 抛出 DOMException('AbortError')
+       ↓
+前端 catch AbortError → 保留已接收的 content
+       ↓
+设置 aborted: true + 显示"输出已中断"提示
+       ↓
+显示"重新生成"按钮（可基于当前上下文重新发起）
+```
+
+**前端实现要点**
+
+1. `api.ts` 中请求开始前检查 `signal.aborted`
+2. 流式读取循环中每轮检查中断信号，及时取消 `reader`
+3. 统一抛出标准 `DOMException('AbortError')`，避免被重试逻辑误捕获
+4. `AIChat.tsx` 中中断时设置 `content: m.content || ''`（保留已输出内容）
+
 ---
 
 ## v4.7.0 新增工具 API
@@ -1085,19 +1160,19 @@ try {
 
 ### v4.7.0 新增工具列表
 
-| 工具名称        | 模块       | 说明                                     | 版本    |
-| --------------- | ---------- | ---------------------------------------- | ------- |
-| `batch_move`    | fileops.ts | 批量移动文件（超阈值自动入队）           | v4.7.0  |
-| `batch_delete`  | fileops.ts | 批量删除文件（超阈值自动入队）           | v4.7.0  |
+| 工具名称       | 模块       | 说明                           | 版本   |
+| -------------- | ---------- | ------------------------------ | ------ |
+| `batch_move`   | fileops.ts | 批量移动文件（超阈值自动入队） | v4.7.0 |
+| `batch_delete` | fileops.ts | 批量删除文件（超阈值自动入队） | v4.7.0 |
 
 ### v4.6.0 工具列表（保留）
 
-| 工具名称                    | 模块         | 说明                                     | 版本    |
-| --------------------------- | ------------ | ---------------------------------------- | ------- |
-| `list_expired_permissions`  | permission.ts | 查询已过期/快过期的文件授权              | v4.6.0  |
-| `draft_and_create_file`     | fileops.ts    | 对话式文件创建（支持草稿预览）           | v4.6.0  |
-| `smart_organize_suggest`    | ai-enhance.ts | 智能整理建议（四维度分析）               | v4.6.0  |
-| `analyze_file_collection`   | content.ts    | 文件集合分析（多场景分析）               | v4.6.0  |
+| 工具名称                   | 模块          | 说明                           | 版本   |
+| -------------------------- | ------------- | ------------------------------ | ------ |
+| `list_expired_permissions` | permission.ts | 查询已过期/快过期的文件授权    | v4.6.0 |
+| `draft_and_create_file`    | fileops.ts    | 对话式文件创建（支持草稿预览） | v4.6.0 |
+| `smart_organize_suggest`   | ai-enhance.ts | 智能整理建议（四维度分析）     | v4.6.0 |
+| `analyze_file_collection`  | content.ts    | 文件集合分析（多场景分析）     | v4.6.0 |
 
 ### 1. list_expired_permissions
 
@@ -1140,6 +1215,7 @@ try {
 ```
 
 **使用场景**：
+
 - 定期清理已过期授权
 - 查找即将到期的授权并通知用户
 - 批量撤销不再需要的权限
@@ -1160,7 +1236,7 @@ try {
 }
 ```
 
-**响应（_confirmed = false）**：
+**响应（\_confirmed = false）**：
 
 ```json
 {
@@ -1175,7 +1251,7 @@ try {
 }
 ```
 
-**响应（_confirmed = true）**：
+**响应（\_confirmed = true）**：
 
 ```json
 {
@@ -1189,12 +1265,14 @@ try {
 ```
 
 **工作流程**：
-1. Agent 调用工具生成草稿（_confirmed=false）
+
+1. Agent 调用工具生成草稿（\_confirmed=false）
 2. 前端渲染 DraftPreview 组件展示草稿
-3. 用户确认后再次调用（_confirmed=true）
+3. 用户确认后再次调用（\_confirmed=true）
 4. 文件创建完成
 
 **支持的预览格式**：
+
 - `.md` → Markdown 渲染
 - `.py/.js/.ts/.json` → 代码高亮
 - 其他 → 纯文本显示
@@ -1249,11 +1327,7 @@ try {
         "suggestion": "建议按类型拆分为多个文件夹"
       }
     ],
-    "_next_actions": [
-      "可调用 batch_rename 修复命名问题",
-      "可调用 auto_tag_files 补充标签",
-      "可调用 move_file 归类文件"
-    ]
+    "_next_actions": ["可调用 batch_rename 修复命名问题", "可调用 auto_tag_files 补充标签", "可调用 move_file 归类文件"]
   }
 }
 ```
@@ -1318,19 +1392,19 @@ try {
 
 **analysisType 类型说明**：
 
-| 类型             | 说明                           | 输出示例                     |
-| ---------------- | ------------------------------ | ---------------------------- |
-| `summary`        | 生成整体报告                   | 文件夹概览、主要主题、统计信息 |
-| `compare`        | 对比异同点                     | 文档差异、版本对比、优缺点对比 |
-| `extract_common` | 提取共同主题/条款/关键词        | 合同要点、论文共同观点、API规范 |
-| `timeline`       | 按时间顺序梳理脉络              | 项目进展、事件时间线、变更历史 |
+| 类型             | 说明                     | 输出示例                        |
+| ---------------- | ------------------------ | ------------------------------- |
+| `summary`        | 生成整体报告             | 文件夹概览、主要主题、统计信息  |
+| `compare`        | 对比异同点               | 文档差异、版本对比、优缺点对比  |
+| `extract_common` | 提取共同主题/条款/关键词 | 合同要点、论文共同观点、API规范 |
+| `timeline`       | 按时间顺序梳理脉络       | 项目进展、事件时间线、变更历史  |
 
 **技术特点**：
 
 - **性能优化**：优先使用 aiSummary 字段，减少实际文件读取
 - **灵活范围**：支持 folder/tag/starred 三种筛选方式
 - **智能截断**：超过 maxFiles 时优先保留有 aiSummary 的文件
-- **Agent 驱动**：返回的 _next_actions 指导 Agent 进行下一步分析
+- **Agent 驱动**：返回的 \_next_actions 指导 Agent 进行下一步分析
 
 ### 5. batch_move（v4.7.0 新增）
 
@@ -1367,14 +1441,12 @@ try {
   "message": "批量移动任务已提交到队列（共 50 个文件），预计 3 分钟完成",
   "totalFiles": 50,
   "estimatedMinutes": 3,
-  "_next_actions": [
-    "✅ 批量移动任务已入队（taskId: task-uuid）",
-    "可通过 GET /api/ai/index/task 查看进度"
-  ]
+  "_next_actions": ["✅ 批量移动任务已入队（taskId: task-uuid）", "可通过 GET /api/ai/index/task 查看进度"]
 }
 ```
 
 **关键特性**：
+
 - **BATCH_THRESHOLD = 20**：文件数超过此值自动入队
 - **降级机制**：队列失败时自动降级为同步执行
 - **任务追踪**：返回 taskId 可通过 Task Center 查看进度
@@ -1414,14 +1486,12 @@ try {
   "message": "批量删除任务已提交到队列（共 100 个文件），预计 5 分钟完成。文件将被移入回收站，可通过 restore_file 恢复",
   "totalFiles": 100,
   "estimatedMinutes": 5,
-  "_next_actions": [
-    "✅ 批量删除任务已入队（taskId: task-uuid）",
-    "删除的文件可在回收站中恢复"
-  ]
+  "_next_actions": ["✅ 批量删除任务已入队（taskId: task-uuid）", "删除的文件可在回收站中恢复"]
 }
 ```
 
 **关键特性**：
+
 - **软删除**：文件移入回收站而非永久删除，可通过 `restore_file` 恢复
 - **BATCH_THRESHOLD = 20**：与 batch_move 相同的阈值
 - **可恢复性**：明确提示用户可在回收站中恢复

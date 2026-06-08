@@ -295,21 +295,32 @@ async function handleAgentBatchTask(env: Env, message: AiTaskMessage): Promise<{
     logger.info('AI_QUEUE', 'Processing agent_batch operation', { operation, fileId, taskId });
 
     switch (operation) {
-      case 'move':
+      case 'move': {
         const targetFolderId = (message as any).targetFolderId;
         if (targetFolderId) {
-          await db.update(files).set({ parentId: targetFolderId, updatedAt: new Date().toISOString() }).where(eq(files.id, fileId));
+          await db
+            .update(files)
+            .set({ parentId: targetFolderId, updatedAt: new Date().toISOString() })
+            .where(eq(files.id, fileId));
         }
         break;
+      }
       case 'delete':
-        await db.update(files).set({ deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() }).where(eq(files.id, fileId));
+        await db
+          .update(files)
+          .set({ deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+          .where(eq(files.id, fileId));
         break;
-      case 'rename':
+      case 'rename': {
         const newName = (message as any).newName;
         if (newName) {
-          await db.update(files).set({ name: newName, updatedAt: new Date().toISOString() }).where(eq(files.id, fileId));
+          await db
+            .update(files)
+            .set({ name: newName, updatedAt: new Date().toISOString() })
+            .where(eq(files.id, fileId));
         }
         break;
+      }
       default:
         logger.warn('AI_QUEUE', 'Unknown agent_batch operation', { operation });
     }
@@ -487,8 +498,6 @@ export async function enqueueAiTasks(
   const BATCH_SIZE = 50;
 
   // ── 断点续传：检查是否有未完成的历史任务 ──
-  const processedFileIds = new Set<string>();
-
   if (resumeFrom) {
     // 从指定的历史任务恢复
     const previousTask = await getTaskRecord(env, resumeFrom);

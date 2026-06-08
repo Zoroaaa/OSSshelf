@@ -146,39 +146,6 @@ app.post('/', async (c) => {
   });
 });
 
-app.get('/:id', async (c) => {
-  const userId = c.get('userId')!;
-  const keyId = c.req.param('id');
-  const db = getDb(c.env.DB);
-
-  const key = await db
-    .select({
-      id: apiKeys.id,
-      name: apiKeys.name,
-      keyPrefix: apiKeys.keyPrefix,
-      scopes: apiKeys.scopes,
-      lastUsedAt: apiKeys.lastUsedAt,
-      expiresAt: apiKeys.expiresAt,
-      isActive: apiKeys.isActive,
-      createdAt: apiKeys.createdAt,
-    })
-    .from(apiKeys)
-    .where(and(eq(apiKeys.id, keyId), eq(apiKeys.userId, userId)))
-    .get();
-
-  if (!key) {
-    throwAppError('API_KEY_NOT_FOUND', 'API Key 不存在');
-  }
-
-  return c.json({
-    success: true,
-    data: {
-      ...key,
-      scopes: JSON.parse(key.scopes),
-    },
-  });
-});
-
 app.patch('/:id', async (c) => {
   const userId = c.get('userId')!;
   const keyId = c.req.param('id');

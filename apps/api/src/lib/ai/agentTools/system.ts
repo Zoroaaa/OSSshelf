@@ -239,8 +239,18 @@ export const definitions: ToolDefinition[] = [
         required: ['url', 'events'],
       },
       examples: [
-        { user_query: '文件上传后通知我的服务', tool_call: { url: 'https://myapp.com/webhook', events: ['file.uploaded'] } },
-        { user_query: '配置自动化流程', tool_call: { url: 'https://api.example.com/handler', events: ['file.uploaded', 'file.deleted'], secret: 'mysecret' } },
+        {
+          user_query: '文件上传后通知我的服务',
+          tool_call: { url: 'https://myapp.com/webhook', events: ['file.uploaded'] },
+        },
+        {
+          user_query: '配置自动化流程',
+          tool_call: {
+            url: 'https://api.example.com/handler',
+            events: ['file.uploaded', 'file.deleted'],
+            secret: 'mysecret',
+          },
+        },
       ],
     },
   },

@@ -13,9 +13,6 @@ import { Bell, BellOff, WifiOff } from 'lucide-react';
 import { notificationsApi } from '../../services/api';
 import { NotificationList } from './NotificationList';
 import { cn } from '../../utils';
-import { useAuthStore } from '../../stores/auth';
-
-const API_BASE = import.meta.env.VITE_API_URL || '';
 
 interface NotificationBellProps {
   className?: string;
@@ -37,17 +34,8 @@ export function NotificationBell({ className, align = 'right', direction = 'down
     const connectSSE = async () => {
       try {
         controller = new AbortController();
-        const token = useAuthStore.getState().token;
 
-        const response = await fetch(`${API_BASE}/api/notifications/stream`, {
-          method: 'GET',
-          headers: {
-            Authorization: token ? `Bearer ${token}` : '',
-            Accept: 'text/event-stream',
-          },
-          credentials: 'include',
-          signal: controller.signal,
-        });
+        const response = await notificationsApi.stream({ signal: controller.signal });
 
         if (!response.ok) {
           throw new Error(`SSE connection failed: ${response.status}`);

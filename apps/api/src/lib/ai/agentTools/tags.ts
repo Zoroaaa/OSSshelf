@@ -181,7 +181,10 @@ export const definitions: ToolDefinition[] = [
       },
       examples: [
         { user_query: '给这个文件夹加上项目A标签', tool_call: { folderId: '<folder_id>', tags: ['项目A'] } },
-        { user_query: '批量标记整个目录为2024', tool_call: { folderId: '<docs_id>', tags: ['2024', '归档'], recursive: true } },
+        {
+          user_query: '批量标记整个目录为2024',
+          tool_call: { folderId: '<docs_id>', tags: ['2024', '归档'], recursive: true },
+        },
       ],
     },
   },

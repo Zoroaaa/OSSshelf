@@ -1,7 +1,7 @@
 # OSSshelf 架构文档
 
-**版本**: v4.7.0
-**更新日期**: 2026-04-17
+**版本**: v5.0.0
+**更新日期**: 2026-06-08
 
 ---
 
@@ -205,6 +205,38 @@ OSSshelf/
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### 4. 团队协作模块 (v5.0.0 新增)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      团队协作架构                             │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌─────────────────┐  ┌─────────────────┐                   │
+│  │   团队管理       │  │   成员管理       │                   │
+│  │  (teamService)  │  │(memberService)  │                   │
+│  │ • 创建/解散团队  │  │ • 邀请/移除成员  │                   │
+│  │ • 团队配置      │  │ • 角色分配       │                   │
+│  └────────┬────────┘  └────────┬────────┘                   │
+│           │                    │                            │
+│           ▼                    ▼                            │
+│  ┌─────────────────────────────────────────┐                │
+│  │            权限引擎                      │                │
+│  │  ┌──────────────────┐ ┌──────────────┐ │                │
+│  │  │ permissionResolver│ │permissionSvc │ │                │
+│  │  │ (team 维度扩展)   │ │(审批/批量)   │ │                │
+│  │  └──────────────────┘ └──────────────┘ │                │
+│  └─────────────────────────────────────────┘                │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**核心服务**：
+
+- **teamService.ts** — 团队管理服务（创建、更新、解散、资源挂载）
+- **permissionResolver** — 权限解析器，扩展支持 team 维度的 RBAC 判断
+- **permissionService** — 权限服务，新增权限申请/审批流程、批量权限操作、角色模板管理
 
 ---
 
@@ -745,6 +777,76 @@ CREATE TABLE ai_system_config (
 );
 ```
 
+#### 团队相关 (v5.0.0 新增)
+
+```sql
+-- 团队表
+CREATE TABLE teams (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    owner_id TEXT NOT NULL,
+    avatar_url TEXT,
+    storage_quota INTEGER DEFAULT 0,  -- 0 表示不限制
+    settings TEXT,  -- JSON: 团队配置
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- 团队成员表
+CREATE TABLE team_members (
+    id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'member',  -- 'owner' | 'admin' | 'member' | 'viewer'
+    status TEXT NOT NULL DEFAULT 'active',  -- 'active' | 'pending' | 'suspended'
+    invited_by TEXT,
+    joined_at TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (team_id, user_id)
+);
+
+-- 团队资源挂载表
+CREATE TABLE team_resources (
+    id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL,
+    resource_type TEXT NOT NULL,  -- 'bucket' | 'folder'
+    resource_id TEXT NOT NULL,
+    mount_path TEXT NOT NULL,  -- 团队空间内的挂载路径
+    permissions TEXT NOT NULL,  -- JSON: 该资源对团队成员的默认权限
+    created_at TEXT NOT NULL,
+    UNIQUE (team_id, resource_type, resource_id)
+);
+
+-- 权限申请表
+CREATE TABLE permission_requests (
+    id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL,
+    requester_id TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    requested_role TEXT NOT NULL,
+    reason TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',  -- 'pending' | 'approved' | 'rejected'
+    reviewer_id TEXT,
+    reviewed_at TEXT,
+    expires_at TEXT,
+    created_at TEXT NOT NULL
+);
+
+-- 角色模板表
+CREATE TABLE role_templates (
+    id TEXT PRIMARY KEY,
+    team_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    permissions TEXT NOT NULL,  -- JSON: 权限定义
+    is_system INTEGER NOT NULL DEFAULT 0,  -- 是否系统内置模板
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+```
+
 ---
 
 ## API 设计
@@ -769,6 +871,41 @@ DELETE /api/resource/:id      # 删除
 | 分享   | `/api/shares`  | 分享链接管理         |
 | AI     | `/api/ai`      | AI 功能              |
 | 用户   | `/api/user`    | 用户配置             |
+| 团队   | `/api/teams`   | 团队管理 (v5.0.0)   |
+| 权限   | `/api/permissions` | 权限管理 (v5.0.0 扩展) |
+
+### 团队管理 API (v5.0.0 新增)
+
+`/api/teams` — 12 个端点：
+
+| 方法   | 路径                        | 说明           |
+| ------ | --------------------------- | -------------- |
+| POST   | `/api/teams`                | 创建团队       |
+| GET    | `/api/teams`                | 列出我的团队   |
+| GET    | `/api/teams/:id`            | 团队详情       |
+| PATCH  | `/api/teams/:id`            | 更新团队信息   |
+| DELETE | `/api/teams/:id`            | 解散团队       |
+| POST   | `/api/teams/:id/members`    | 邀请成员       |
+| GET    | `/api/teams/:id/members`    | 成员列表       |
+| PATCH  | `/api/teams/:id/members/:userId` | 更新成员角色 |
+| DELETE | `/api/teams/:id/members/:userId` | 移除成员     |
+| POST   | `/api/teams/:id/resources`  | 挂载资源       |
+| GET    | `/api/teams/:id/resources`  | 资源列表       |
+| DELETE | `/api/teams/:id/resources/:resourceId` | 卸载资源 |
+
+### 权限扩展 API (v5.0.0 新增)
+
+`/api/permissions` — 7 个新端点：
+
+| 方法   | 路径                              | 说明           |
+| ------ | --------------------------------- | -------------- |
+| POST   | `/api/permissions/requests`       | 提交权限申请   |
+| GET    | `/api/permissions/requests`       | 申请列表       |
+| PATCH  | `/api/permissions/requests/:id`   | 审批权限申请   |
+| POST   | `/api/permissions/batch`          | 批量权限操作   |
+| GET    | `/api/roles/templates`            | 角色模板列表   |
+| POST   | `/api/roles/templates`            | 创建角色模板   |
+| PUT    | `/api/roles/templates/:id`        | 更新角色模板   |
 
 ### 响应格式
 
@@ -825,6 +962,53 @@ DELETE /api/resource/:id      # 删除
 - **文件访问**：检查文件所有者
 - **分享访问**：验证分享密码和有效期
 - **API 访问**：验证 API Key 权限
+
+### v4.7.0 安全增强（22 项修复）
+
+**安全防护层新增**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                 v4.7.0 安全防护层                            │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌─────────────────┐  ┌─────────────────┐                   │
+│  │ CORS 防护       │  │ 时序攻击防护     │                   │
+│  │ • 未知origin拒绝 │  │ • timingSafeEqual│                  │
+│  │ • 不回退白名单   │  │ • KV 5min/10次  │                   │
+│  └─────────────────┘  └─────────────────┘                   │
+│                                                              │
+│  ┌─────────────────┐  ┌─────────────────┐                   │
+│  │ SQL 注入防护    │  │ 暴力破解防护     │                   │
+│  │ • 字段白名单     │  │ • IP维KV限流     │                   │
+│  │ • switch映射     │  │ • WebDAV 5min/10次│                 │
+│  └─────────────────┘  └─────────────────┘                   │
+│                                                              │
+│  ┌─────────────────┐  ┌─────────────────┐                   │
+│  │ OOM 防护        │  │ 竞态条件防护     │                   │
+│  │ • SQL替代内存加载│  │ • 原子CAS操作    │                   │
+│  │ • Response透传   │  │ • 单条SQL完成    │                   │
+│  └─────────────────┘  └─────────────────┘                   │
+│                                                              │
+│  ┌─────────────────────────────────────────────────┐        │
+│  │ 中断恢复机制（AI 流式输出）                      │        │
+│  │ • AbortController + signal.aborted 检测         │        │
+│  │ • DOMException('AbortError') 标准化             │        │
+│  │ • aborted: true 状态标记 + 内容保留            │        │
+│  └─────────────────────────────────────────────────┘        │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**关键安全组件（v4.7.0 新增）**
+
+| 组件                  | 文件                                       | 功能                           |
+| --------------------- | ------------------------------------------ | ------------------------------ |
+| `timingSafeEqual()`   | `routes/share.ts`                          | HMAC 常量时间比较，防时序攻击  |
+| `ALLOWED_SORT_FIELDS` | `routes/files.ts`                          | sortBy 字段白名单，防 SQL 注入 |
+| IP KV 速率限制器      | `routes/webdav.ts`, `routes/directLink.ts` | 按 IP 维度限流防暴力破解       |
+| 原子 CAS 计数器       | `routes/share.ts`                          | 下载计数原子更新，防 TOCTOU    |
+| AbortController 链路  | `services/api.ts`, `pages/AIChat.tsx`      | AI 流式中断内容保留            |
 
 ---
 

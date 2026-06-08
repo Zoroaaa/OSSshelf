@@ -14,14 +14,10 @@
  */
 
 import { eq, and, isNull, desc, asc, like, sql, count } from 'drizzle-orm';
-import type { InferSelectModel } from 'drizzle-orm';
 import { getDb, files } from '../../../db';
 import type { Env } from '../../../types/env';
-import { logger } from '@osshelf/shared';
 import type { ToolDefinition, AgentFile } from './types';
 import { formatBytes, getMimeTypeCategory } from '../utils';
-import { validateFolderAccess, createSuccessResponse, createErrorResponse } from './agentToolUtils';
-import { splitKeywords } from '../../../lib/keywordSplitter';
 
 export const definitions: ToolDefinition[] = [
   // 1. navigate_path — 智能路径导航
@@ -80,7 +76,10 @@ export const definitions: ToolDefinition[] = [
       },
       examples: [
         { user_query: '这个文件夹里有什么', tool_call: { folderId: '<folder_id>' } },
-        { user_query: '按时间倒序排列文件', tool_call: { folderId: '<folder_id>', sortBy: 'updated_at', sortOrder: 'desc' } },
+        {
+          user_query: '按时间倒序排列文件',
+          tool_call: { folderId: '<folder_id>', sortBy: 'updated_at', sortOrder: 'desc' },
+        },
         { user_query: '只看图片文件', tool_call: { folderId: '<folder_id>', mimeTypePrefix: 'image/' } },
       ],
     },

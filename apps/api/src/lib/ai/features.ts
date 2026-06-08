@@ -15,21 +15,19 @@
  */
 
 import type { Env } from '../../types/env';
-import { getDb, files, fileVersions, telegramFileRefs, storageBuckets } from '../../db';
-import { eq, desc } from 'drizzle-orm';
-import { getFileContent } from '../utils';
+import { getDb, files, storageBuckets, fileVersions } from '../../db';
+import { eq, desc, and } from 'drizzle-orm';
 import { getEncryptionKey } from '../crypto';
 import { isEditableFile, logger, logAiError } from '@osshelf/shared';
 import { indexFileVector, buildFileTextForVector } from './vectorIndex';
 import { createTaskRecord } from './aiTaskQueue';
 import { ModelGateway } from './modelGateway';
-import type { ChatCompletionRequest, ModelConfig } from './types';
-import { tgDownloadFile, type TelegramBotConfig } from '../telegramClient';
-import { tgDownloadChunked, isChunkedFileId } from '../telegramChunked';
+import type { ChatCompletionRequest } from './types';
 import { decryptSecret } from '../s3client';
-import { initializeAiConfig, getAiConfigString, getAiConfigNumber, getAiConfigBoolean } from './aiConfigService';
+import { getAiConfigString, getAiConfigNumber, getAiConfigBoolean } from './aiConfigService';
 import { uint8ArrayToBase64, fetchFileBuffer, buildVisionMessageContent } from './utils';
 import type { AiFeatureType } from './types';
+import type { TelegramBotConfig } from '../telegramClient';
 
 const SUMMARY_PROMPTS: Record<string, string> = {
   default: '你是文件助手。请用简洁的中文（不超过3句话）概括文件主要内容。',
@@ -201,11 +199,10 @@ export function isImageFile(mimeType: string | null): boolean {
  * - 批量手动索引时过滤无效文件
  */
 export function shouldIndexFile(mimeType: string | null, fileSize?: number): boolean {
-  // 文件大小限制：超过 10MB 不索引（嵌入 token 成本过高）
-  const MAX_INDEX_SIZE = 10 * 1024 * 1024;
-  if (fileSize && fileSize > MAX_INDEX_SIZE) {
-    return false;
-  }
+  // 注意：不做文件大小限制。
+  // buildFileTextForVector 内部已对内容截断至 50000 字符，
+  // 分块上限 20 块，实际送给 embedding 的 token 量是固定的，
+  // 大文件不会增加嵌入成本。
 
   // 无 MIME 类型时允许尝试（依赖文件名和元数据）
   if (!mimeType) return true;
@@ -798,27 +795,6 @@ export async function resolveTgConfig(env: Env, bucketId: string): Promise<Teleg
   const encKey = getEncryptionKey(env);
   const botToken = await decryptSecret(bucket.accessKeyId, encKey);
   return { botToken, chatId: bucket.bucketName, apiBase: bucket.endpoint || undefined };
-}
-
-function parseImageTags(result: unknown): string[] {
-  if (!result) return [];
-
-  const tags: string[] = [];
-
-  if (Array.isArray(result)) {
-    for (const item of result) {
-      if (item && typeof item === 'object' && 'label' in item && typeof item.label === 'string') {
-        tags.push(item.label.trim());
-      }
-    }
-  } else if (typeof result === 'object' && result !== null) {
-    const obj = result as Record<string, unknown>;
-    if (typeof obj.label === 'string') {
-      tags.push(...obj.label.split(',').map((t: string) => t.trim()));
-    }
-  }
-
-  return [...new Set(tags)].slice(0, 5);
 }
 
 export async function autoProcessFile(env: Env, fileId: string, userId?: string): Promise<void> {

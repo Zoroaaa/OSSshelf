@@ -2,7 +2,7 @@
 
 本文档基于项目实际配置文件，提供完整的部署指南，确保您能够一次性成功部署 OSSshelf。
 
-**当前版本**: v4.6.0
+**当前版本**: v5.0.0
 
 ---
 
@@ -72,6 +72,50 @@
 ## 版本更新说明
 
 详细的版本更新日志请参阅 [CHANGELOG.md](../CHANGELOG.md)。
+
+### v5.0.0 (2026-06-08)
+
+本次更新为**重大版本升级**，核心变化：权限管理系统重构为团队协作能力。
+
+**团队协作功能（6 项）**
+
+1. **团队管理** — 创建/编辑/删除团队，成员管理（添加/移除/角色变更）
+2. **资源挂载** — 将文件/文件夹挂载到团队，成员自动获得继承权限
+3. **角色模板** — viewer(只读)/editor(读写)/manager(管理) 三级角色
+4. **权限申请审批** — 用户可申请访问权限，管理员审批后自动授权
+5. **批量操作** — 批量授权/批量撤销（1-50 个文件）
+6. **8 级权限解析链** — owner > user > group > team > inherited(user/group/team) > no access
+
+**API 文档改造**
+
+- 删除冗余的 `src/routes/v1` 目录（~800 行）
+- 改为基于路由内省的自动文档生成（Scalar UI）
+- 访问 `/api/docs` 查看在线 API 文档
+
+**数据库迁移**
+
+- 新增迁移文件 `100_team_collaboration.sql`
+  - 新增 5 张表：teams、team_members、team_resources、permission_requests、role_templates
+  - 扩展 file_permissions 表增加 team_id 字段
+
+**升级步骤**
+
+```bash
+# 1. 拉取最新代码
+git pull origin main
+
+# 2. 运行数据库迁移（重要！新增 5 张表）
+pnpm db:migrate
+
+# 3. 重新构建前端
+pnpm build:web
+
+# 4. 部署后端
+pnpm deploy:api
+
+# 5. 部署前端
+wrangler pages deploy apps/web/dist --project-name=ossshelf-web
+```
 
 ### v4.6.0 (2026-04-13)
 
@@ -560,6 +604,7 @@ pnpm db:migrate
 - `0018_email.sql` - 邮件通知系统 (v4.0.0)
 - `0020_ai_models_config.sql` - AI 模型配置 (v4.1.0)
 - `0021_ai_system_config.sql` - AI 系统配置 (v4.2.0)
+- `100_team_collaboration.sql` - 团队协作功能 (v5.0.0)
 
 ### Step 5: 设置加密密钥
 

@@ -10,8 +10,8 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, inArray, like, isNull } from 'drizzle-orm';
-import { getDb, files, filePermissions, users, fileTags, userGroups, groupMembers } from '../db';
+import { eq, and, inArray, like, isNull, count, desc } from 'drizzle-orm';
+import { getDb, files, filePermissions, users, fileTags, userGroups, groupMembers, teams, teamMembers, permissionRequests, roleTemplates } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
@@ -20,6 +20,7 @@ import { z } from 'zod';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { checkPermissionWithCache, invalidatePermissionCache, type PermissionLevel } from '../lib/permissionResolver';
 import { createNotification, sendNotification, getUserInfo } from '../lib/notificationUtils';
+import { TAG_COLORS } from '@osshelf/shared';
 
 export {
   checkFilePermission,
@@ -30,7 +31,7 @@ export {
   type ManageGroupMembersInput,
 } from '../lib/permissionService';
 
-import { checkFilePermission, inheritParentPermissions } from '../lib/permissionService';
+import { checkFilePermission, inheritParentPermissions, grantWithRoleTemplate, createPermissionRequest, approvePermissionRequest, listPermissionRequests, batchGrantPermissions, batchRevokePermissions } from '../lib/permissionService';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -39,8 +40,9 @@ const grantPermissionSchema = z.object({
   fileId: z.string().min(1),
   userId: z.string().optional(),
   groupId: z.string().optional(),
+  teamId: z.string().optional(),
   permission: z.enum(['read', 'write', 'admin']),
-  subjectType: z.enum(['user', 'group']).default('user'),
+  subjectType: z.enum(['user', 'group', 'team']).default('user'),
   expiresAt: z.string().optional(),
 });
 
@@ -48,6 +50,7 @@ const revokePermissionSchema = z.object({
   fileId: z.string().min(1),
   userId: z.string().optional(),
   groupId: z.string().optional(),
+  teamId: z.string().optional(),
 });
 
 const addTagSchema = z.object({
@@ -201,7 +204,7 @@ app.post('/grant', async (c) => {
     );
   }
 
-  const { fileId, userId: targetUserId, groupId, permission, subjectType, expiresAt } = result.data;
+  const { fileId, userId: targetUserId, groupId, teamId, permission, subjectType, expiresAt } = result.data;
 
   if (subjectType === 'user' && !targetUserId) {
     return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '用户ID不能为空' } }, 400);
@@ -209,6 +212,10 @@ app.post('/grant', async (c) => {
 
   if (subjectType === 'group' && !groupId) {
     return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '用户组ID不能为空' } }, 400);
+  }
+
+  if (subjectType === 'team' && !teamId) {
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '团队ID不能为空' } }, 400);
   }
 
   const db = getDb(c.env.DB);
@@ -227,7 +234,7 @@ app.post('/grant', async (c) => {
     if (!targetUser) {
       throwAppError('USER_NOT_FOUND', '目标用户不存在');
     }
-  } else {
+  } else if (subjectType === 'group') {
     const group = await db.select().from(userGroups).where(eq(userGroups.id, groupId!)).get();
     if (!group) {
       throwAppError('GROUP_NOT_FOUND', '用户组不存在');
@@ -242,15 +249,36 @@ app.post('/grant', async (c) => {
     if (!membership || membership.role !== 'admin') {
       throwAppError('FORBIDDEN', '只有组管理员可以授权');
     }
+  } else {
+    // subjectType === 'team': 验证团队存在且操作者是 admin/owner
+    const team = await db.select().from(teams).where(eq(teams.id, teamId!)).get();
+    if (!team) {
+      throwAppError('TEAM_NOT_FOUND', '团队不存在');
+    }
+
+    const teamMembership = await db
+      .select()
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, teamId!), eq(teamMembers.userId, userId)))
+      .get();
+
+    if (!teamMembership || (teamMembership.role !== 'admin' && teamMembership.role !== 'owner')) {
+      throwAppError('FORBIDDEN', '只有团队管理员可以授予团队权限');
+    }
   }
 
   const now = new Date().toISOString();
 
   const grantPermissionForFile = async (fId: string) => {
-    const whereClause =
-      subjectType === 'user'
-        ? and(eq(filePermissions.fileId, fId), eq(filePermissions.userId, targetUserId!))
-        : and(eq(filePermissions.fileId, fId), eq(filePermissions.groupId, groupId!));
+    let whereClause;
+    if (subjectType === 'user') {
+      whereClause = and(eq(filePermissions.fileId, fId), eq(filePermissions.userId, targetUserId!));
+    } else if (subjectType === 'group') {
+      whereClause = and(eq(filePermissions.fileId, fId), eq(filePermissions.groupId, groupId!));
+    } else {
+      // team
+      whereClause = and(eq(filePermissions.fileId, fId), eq(filePermissions.teamId, teamId!));
+    }
 
     const existing = await db.select().from(filePermissions).where(whereClause).get();
 
@@ -269,6 +297,7 @@ app.post('/grant', async (c) => {
         fileId: fId,
         userId: subjectType === 'user' ? targetUserId! : null,
         groupId: subjectType === 'group' ? groupId! : null,
+        teamId: subjectType === 'team' ? teamId! : null,
         subjectType,
         permission,
         grantedBy: userId,
@@ -379,7 +408,7 @@ app.post('/revoke', async (c) => {
     );
   }
 
-  const { fileId, userId: targetUserId, groupId } = result.data;
+  const { fileId, userId: targetUserId, groupId, teamId } = result.data;
   const db = getDb(c.env.DB);
 
   const file = await db
@@ -391,9 +420,14 @@ app.post('/revoke', async (c) => {
     throwAppError('FILE_NOT_FOUND', '文件不存在或无权限');
   }
 
-  const whereClause = targetUserId
-    ? and(eq(filePermissions.fileId, fileId), eq(filePermissions.userId, targetUserId))
-    : and(eq(filePermissions.fileId, fileId), eq(filePermissions.groupId, groupId!));
+  let whereClause;
+  if (targetUserId) {
+    whereClause = and(eq(filePermissions.fileId, fileId), eq(filePermissions.userId, targetUserId));
+  } else if (teamId) {
+    whereClause = and(eq(filePermissions.fileId, fileId), eq(filePermissions.teamId, teamId));
+  } else {
+    whereClause = and(eq(filePermissions.fileId, fileId), eq(filePermissions.groupId, groupId!));
+  }
 
   await db.delete(filePermissions).where(whereClause);
 
@@ -411,6 +445,57 @@ app.post('/revoke', async (c) => {
   });
 
   return c.json({ success: true, data: { message: '权限已撤销' } });
+});
+
+app.post('/tags/create', async (c) => {
+  const userId = c.get('userId')!;
+  const body = await c.req.json();
+
+  const createSchema = z.object({
+    name: z.string().min(1).max(50),
+    color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  });
+  const result = createSchema.safeParse(body);
+  if (!result.success) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
+  }
+
+  const { name, color } = result.data;
+  const db = getDb(c.env.DB);
+
+  // 检查是否已存在同名标签
+  const existing = await db
+    .select()
+    .from(fileTags)
+    .where(and(eq(fileTags.userId, userId), eq(fileTags.name, name)))
+    .get();
+  if (existing) {
+    return c.json({ success: false, error: { code: 'TAG_EXISTS', message: '标签名称已存在' } }, 409);
+  }
+
+  const tagId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const resolvedColor = color || TAG_COLORS[Math.floor(Math.random() * TAG_COLORS.length)] || '#6366f1';
+
+  // 插入一条"种子"记录（fileId 为空字符串表示这是标签定义）
+  await db.insert(fileTags).values({
+    id: tagId,
+    fileId: '',
+    userId,
+    name,
+    color: resolvedColor,
+    createdAt: now,
+  });
+
+  logger.info('Permissions', 'Tag created', { userId, name, color: resolvedColor });
+
+  return c.json({
+    success: true,
+    data: { id: tagId, name, color: resolvedColor, createdAt: now },
+  });
 });
 
 app.post('/tags/add', async (c) => {
@@ -600,6 +685,90 @@ app.get('/tags/file/:fileId', async (c) => {
   return c.json({ success: true, data: tags });
 });
 
+// ── 标签统计（按使用次数排序）──
+app.get('/tags/stats', async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+
+  const results = await db
+    .select({ name: fileTags.name, count: count() })
+    .from(fileTags)
+    .where(eq(fileTags.userId, userId))
+    .groupBy(fileTags.name)
+    .orderBy(desc(count()))
+    .limit(100)
+    .all();
+
+  return c.json({
+    success: true,
+    data: results.map((r) => ({ name: r.name, count: Number(r.count) })),
+  });
+});
+
+// ── 重命名标签（批量更新该用户所有同名标签）──
+const renameTagSchema = z.object({
+  oldName: z.string().min(1).max(50),
+  newName: z.string().min(1).max(50),
+});
+
+app.put('/tags/rename', async (c) => {
+  const userId = c.get('userId')!;
+  const body = await c.req.json();
+  const result = renameTagSchema.safeParse(body);
+
+  if (!result.success) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
+  }
+
+  const { oldName, newName } = result.data;
+
+  if (oldName === newName) {
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '新名称与原名称相同' } }, 400);
+  }
+
+  const db = getDb(c.env.DB);
+
+  // 检查新名称是否已存在
+  const existing = await db
+    .select()
+    .from(fileTags)
+    .where(and(eq(fileTags.userId, userId), eq(fileTags.name, newName)))
+    .get();
+
+  if (existing) {
+    return c.json({ success: false, error: { code: 'TAG_EXISTS', message: `标签 "${newName}" 已存在` } }, 409);
+  }
+
+  // 批量更新
+  await db
+    .update(fileTags)
+    .set({ name: newName })
+    .where(and(eq(fileTags.userId, userId), eq(fileTags.name, oldName)));
+
+  logger.info('Permissions', 'Tag renamed', { userId, oldName, newName });
+
+  return c.json({ success: true, data: { message: '标签已重命名' } });
+});
+
+// ── 删除标签（从该用户所有文件中移除）──
+app.delete('/tags/:tagName', async (c) => {
+  const userId = c.get('userId')!;
+  const tagName = decodeURIComponent(c.req.param('tagName'));
+  const db = getDb(c.env.DB);
+
+  const result = await db
+    .delete(fileTags)
+    .where(and(eq(fileTags.userId, userId), eq(fileTags.name, tagName)))
+    .run();
+
+  logger.info('Permissions', 'Tag deleted', { userId, tagName, affectedRows: result.meta.changes });
+
+  return c.json({ success: true, data: { message: '标签已删除', affectedRows: result.meta.changes } });
+});
+
 app.get('/check/:fileId', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('fileId');
@@ -741,6 +910,184 @@ app.delete('/:permissionId', async (c) => {
   });
 
   return c.json({ success: true, data: { message: '权限已删除' } });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 权限申请相关路由
+// ─────────────────────────────────────────────────────────────────────────────
+
+const createPermissionRequestSchema = z.object({
+  fileId: z.string().min(1),
+  requestedPermission: z.enum(['read', 'write', 'admin']),
+  reason: z.string().optional(),
+  targetTeamId: z.string().optional(),
+});
+
+app.post('/requests', async (c) => {
+  const userId = c.get('userId')!;
+  const body = await c.req.json();
+  const result = createPermissionRequestSchema.safeParse(body);
+  if (!result.success) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
+  }
+
+  try {
+    const requestResult = await createPermissionRequest(c.env, userId, result.data);
+    return c.json({ success: true, data: requestResult });
+  } catch (error) {
+    logger.error('PERMISSIONS', '创建权限申请失败', { userId }, error);
+    throwAppError('INTERNAL_ERROR', '创建权限申请失败');
+  }
+});
+
+app.get('/requests/my', async (c) => {
+  const userId = c.get('userId')!;
+  const page = parseInt(c.req.query('page') || '1', 10);
+  const limit = parseInt(c.req.query('limit') || '20', 10);
+
+  try {
+    const result = await listPermissionRequests(c.env, userId, { type: 'my', page, limit });
+    return c.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('PERMISSIONS', '获取我的权限申请失败', { userId }, error);
+    throwAppError('INTERNAL_ERROR', '获取权限申请列表失败');
+  }
+});
+
+app.get('/requests/pending', async (c) => {
+  const userId = c.get('userId')!;
+  const page = parseInt(c.req.query('page') || '1', 10);
+  const limit = parseInt(c.req.query('limit') || '20', 10);
+
+  try {
+    const result = await listPermissionRequests(c.env, userId, { type: 'pending', page, limit });
+    return c.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('PERMISSIONS', '获取待审批申请失败', { userId }, error);
+    throwAppError('INTERNAL_ERROR', '获取待审批申请列表失败');
+  }
+});
+
+const reviewRequestSchema = z.object({
+  action: z.enum(['approve', 'reject']),
+  comment: z.string().optional(),
+});
+
+app.put('/requests/:requestId/review', async (c) => {
+  const userId = c.get('userId')!;
+  const requestId = c.req.param('requestId');
+  const body = await c.req.json();
+  const result = reviewRequestSchema.safeParse(body);
+  if (!result.success) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
+  }
+
+  try {
+    const reviewResult = await approvePermissionRequest(c.env, userId, { requestId, ...result.data });
+    return c.json({ success: true, data: reviewResult });
+  } catch (error) {
+    logger.error('PERMISSIONS', '审批权限申请失败', { userId, requestId }, error);
+    throwAppError('INTERNAL_ERROR', '审批权限申请失败');
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 批量操作路由
+// ─────────────────────────────────────────────────────────────────────────────
+
+const batchGrantSchema = z.object({
+  fileIds: z.array(z.string().min(1)).min(1).max(50),
+  targetUserId: z.string().optional(),
+  targetGroupId: z.string().optional(),
+  targetTeamId: z.string().optional(),
+  permission: z.enum(['read', 'write', 'admin']),
+  subjectType: z.enum(['user', 'group', 'team']).default('user'),
+});
+
+app.post('/batch-grant', async (c) => {
+  const userId = c.get('userId')!;
+  const body = await c.req.json();
+  const result = batchGrantSchema.safeParse(body);
+  if (!result.success) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
+  }
+
+  try {
+    const batchResult = await batchGrantPermissions(c.env, userId, result.data);
+    return c.json({ success: true, data: batchResult });
+  } catch (error) {
+    logger.error('PERMISSIONS', '批量授权失败', { userId }, error);
+    throwAppError('INTERNAL_ERROR', '批量授权失败');
+  }
+});
+
+const batchRevokeSchema = z.object({
+  fileIds: z.array(z.string().min(1)).min(1).max(50),
+  targetUserId: z.string().optional(),
+  targetGroupId: z.string().optional(),
+  targetTeamId: z.string().optional(),
+  subjectType: z.enum(['user', 'group', 'team']).default('user'),
+});
+
+app.post('/batch-revoke', async (c) => {
+  const userId = c.get('userId')!;
+  const body = await c.req.json();
+  const result = batchRevokeSchema.safeParse(body);
+  if (!result.success) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      400
+    );
+  }
+
+  try {
+    const batchResult = await batchRevokePermissions(c.env, userId, result.data);
+    return c.json({ success: true, data: batchResult });
+  } catch (error) {
+    logger.error('PERMISSIONS', '批量撤销失败', { userId }, error);
+    throwAppError('INTERNAL_ERROR', '批量撤销失败');
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 角色模板路由
+// ─────────────────────────────────────────────────────────────────────────────
+
+app.get('/roles/templates', async (c) => {
+  const db = getDb(c.env.DB);
+
+  const templates = await db
+    .select({
+      id: roleTemplates.id,
+      name: roleTemplates.name,
+      slug: roleTemplates.slug,
+      permissions: roleTemplates.permissions,
+      isBuiltin: roleTemplates.isBuiltin,
+      description: roleTemplates.description,
+    })
+    .from(roleTemplates)
+    .orderBy(roleTemplates.name)
+    .all();
+
+  const formattedTemplates = templates.map((t) => ({
+    id: t.id,
+    name: t.name,
+    slug: t.slug,
+    permissions: typeof t.permissions === 'string' ? JSON.parse(t.permissions) : t.permissions,
+    isBuiltin: t.isBuiltin,
+    description: t.description,
+  }));
+
+  return c.json({ success: true, data: formattedTemplates });
 });
 
 export default app;

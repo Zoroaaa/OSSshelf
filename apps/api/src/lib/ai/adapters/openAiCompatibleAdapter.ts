@@ -182,6 +182,7 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
       const toolCallMap = new Map<number, { id?: string; name?: string; arguments: string }>();
       let lastEmittedReasoningLen = 0; // 追踪已 emit 的 reasoning 长度，避免 <think> 未闭合时重复发送
 
+      // eslint-disable-next-line no-constant-condition -- 流式读取标准模式
       while (true) {
         const { done, value } = await reader.read();
         if (done || signal?.aborted) break;

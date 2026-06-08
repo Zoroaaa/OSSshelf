@@ -5,3 +5,6 @@
 
 export { default as GlobalPermissions } from './GlobalPermissions';
 export { default as PermissionHelpDialog } from './PermissionHelpDialog';
+export { PermissionRequestButton } from './PermissionRequestButton';
+export { PermissionRequestDialog } from './PermissionRequestDialog';
+export { ApprovalPanel } from './ApprovalPanel';

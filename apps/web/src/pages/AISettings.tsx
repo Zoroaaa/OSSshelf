@@ -12,7 +12,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
   Cpu,
   Plus,
@@ -27,8 +27,14 @@ import {
   Layers,
   Sliders,
   X,
+  FileText,
+  Sparkles,
+  XCircle,
+  ChevronDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { useToast } from '@/components/ui/useToast';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import {
   ModelCard,
   ModelFormModal,
@@ -45,11 +51,18 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 type TabType = 'models' | 'providers' | 'index' | 'vectors' | 'advanced' | 'memory';
 
 export function AISettings() {
+  const { tab: urlTab } = useParams<{ tab?: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<TabType>('models');
+  const [activeTab, setActiveTab] = useState<TabType>((urlTab as TabType) || 'models');
   const [showAddModal, setShowAddModal] = useState(false);
+
+  const handleTabChange = (tabId: TabType) => {
+    setActiveTab(tabId);
+    navigate(`/ai-settings/${tabId}`, { replace: true });
+  };
   const [showProviderModal, setShowProviderModal] = useState(false);
   const [editingModel, setEditingModel] = useState<AiModel | null>(null);
   const [expandedModelId, setExpandedModelId] = useState<string | null>(null);
@@ -169,7 +182,7 @@ export function AISettings() {
   });
 
   const deleteVectorMutation = useMutation({
-    mutationFn: (fileId: string) => aiApi.deleteVector(fileId),
+    mutationFn: (fileId: string) => aiApi.deleteIndex(fileId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ai-vectors'] });
       setDeletingVectorId(null);
@@ -190,6 +203,24 @@ export function AISettings() {
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  };
+
+  // 向量索引详情相关状态
+  const [sampleData, setSampleData] = useState<any>(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  const handleViewDetail = async (fileId: string) => {
+    setLoadingDetail(true);
+    try {
+      const res = await aiApi.getIndexSample(fileId);
+      setSampleData(res.data.data);
+      setShowDetailModal(true);
+    } catch (error) {
+      toast({ title: '加载失败', description: '无法获取向量索引详情', variant: 'destructive' });
+    } finally {
+      setLoadingDetail(false);
+    }
   };
 
   const [testResult, setTestResult] = useState<{
@@ -254,7 +285,10 @@ export function AISettings() {
 
   const { data: memoriesData, isLoading: isLoadingMemories } = useQuery({
     queryKey: ['ai-memories', memoryTypeFilter, memoryPage],
-    queryFn: () => aiApi.memories.list({ type: memoryTypeFilter || undefined, limit: 20, offset: (memoryPage - 1) * 20 }).then((r) => r.data.data),
+    queryFn: () =>
+      aiApi.memories
+        .list({ type: memoryTypeFilter || undefined, limit: 20, offset: (memoryPage - 1) * 20 })
+        .then((r) => r.data.data),
     staleTime: 30000,
   });
 
@@ -483,7 +517,7 @@ export function AISettings() {
                 return (
                   <button
                     key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
+                    onClick={() => handleTabChange(tab.id)}
                     className={`flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 ${
                       activeTab === tab.id
                         ? 'bg-primary text-primary-foreground shadow-md'
@@ -693,6 +727,7 @@ export function AISettings() {
             totalRecords={vectorsData?.pagination.total || 0}
             formatFileSize={formatFileSize}
             onDeleteVector={handleDeleteVector}
+            onViewDetail={handleViewDetail}
             onRefresh={() => refetchVectors()}
             onPageChange={setVectorPage}
           />
@@ -705,7 +740,10 @@ export function AISettings() {
               <div className="flex items-center gap-2">
                 <select
                   value={memoryTypeFilter}
-                  onChange={(e) => { setMemoryTypeFilter(e.target.value); setMemoryPage(1); }}
+                  onChange={(e) => {
+                    setMemoryTypeFilter(e.target.value);
+                    setMemoryPage(1);
+                  }}
                   className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
                 >
                   <option value="">全部类型</option>
@@ -740,22 +778,31 @@ export function AISettings() {
               </div>
             ) : (
               <>
-                <div className="text-sm text-muted-foreground mb-2">
-                  共 {memoriesData.total} 条记忆
-                </div>
+                <div className="text-sm text-muted-foreground mb-2">共 {memoriesData.total} 条记忆</div>
                 <div className="space-y-2">
                   {memoriesData.items.map((m) => (
                     <div
                       key={m.id}
                       className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors group"
                     >
-                      <span className={`flex-shrink-0 px-2 py-0.5 rounded-full text-[10px] font-medium ${
-                        m.type === 'operation' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
-                        m.type === 'preference' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' :
-                        m.type === 'path' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' :
-                        'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-                      }`}>
-                        {m.type === 'operation' ? '操作' : m.type === 'preference' ? '偏好' : m.type === 'path' ? '路径' : '引用'}
+                      <span
+                        className={`flex-shrink-0 px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                          m.type === 'operation'
+                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                            : m.type === 'preference'
+                              ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+                              : m.type === 'path'
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                                : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                        }`}
+                      >
+                        {m.type === 'operation'
+                          ? '操作'
+                          : m.type === 'preference'
+                            ? '偏好'
+                            : m.type === 'path'
+                              ? '路径'
+                              : '引用'}
                       </span>
                       <p className="flex-1 text-sm text-slate-700 dark:text-slate-300 leading-relaxed">{m.summary}</p>
                       <span className="flex-shrink-0 text-[11px] text-slate-400 whitespace-nowrap">
@@ -893,6 +940,174 @@ export function AISettings() {
             queryClient.invalidateQueries({ queryKey: ['ai-providers'] });
           }}
         />
+      )}
+
+      {/* 向量索引详情弹窗 */}
+      {showDetailModal && sampleData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowDetailModal(false)}>
+          <div
+            className="bg-background rounded-lg shadow-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <Database className="h-5 w-5" />
+                  向量索引详情
+                </h2>
+                <button
+                  onClick={() => setShowDetailModal(false)}
+                  className="rounded-sm opacity-70 hover:opacity-100 transition-opacity"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <p className="text-sm text-muted-foreground mb-6">查看文件的向量化详细信息</p>
+
+              <div className="space-y-4">
+                {/* 文件基本信息卡片 */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <FileText className="h-4 w-4" />
+                      文件信息
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">文件名:</span>
+                        <span className="font-medium truncate ml-2 max-w-[200px]" title={sampleData.file?.name}>
+                          {sampleData.file?.name || '-'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">文件类型:</span>
+                        <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">
+                          {sampleData.file?.mimeType || '-'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-muted-foreground">索引状态:</span>
+                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium ${
+                          !!sampleData.file?.vectorIndexedAt
+                            ? 'bg-green-100 text-green-700 dark:bg-green-800 dark:text-green-300'
+                            : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                        }`}>
+                          {!!sampleData.file?.vectorIndexedAt ? (
+                            <>
+                              <CheckCircle className="h-3 w-3" />
+                              已索引
+                            </>
+                          ) : (
+                            <>
+                              <XCircle className="h-3 w-3" />
+                              未索引
+                            </>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* 索引状态卡片 */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Sparkles className="h-4 w-4" />
+                      索引状态
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {!!sampleData.file?.vectorIndexedAt ? (
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">索引时间:</span>
+                          <span>
+                            {sampleData.file?.vectorIndexedAt
+                              ? new Date(sampleData.file.vectorIndexedAt).toLocaleString('zh-CN', {
+                                  year: 'numeric',
+                                  month: '2-digit',
+                                  day: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              : '-'}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">文本长度:</span>
+                          <span>{sampleData.indexedText?.length?.toLocaleString() || 0} 字符</span>
+                        </div>
+                        {sampleData.vectorize?.metadata && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">向量元数据:</span>
+                            <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded max-w-[200px] truncate" title={JSON.stringify(sampleData.vectorize.metadata)}>
+                              {Object.keys(sampleData.vectorize.metadata).join(', ') || '-'}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground italic">
+                        该文件尚未建立向量索引
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* 索引文本预览卡片 */}
+                {sampleData.indexedText && (
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <FileText className="h-4 w-4" />
+                        索引文本预览
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="bg-muted/50 rounded-lg p-4 max-h-[300px] overflow-y-auto border">
+                        <pre className="text-xs whitespace-pre-wrap font-mono leading-relaxed">
+                          {sampleData.indexedText.length > 1000
+                            ? `${sampleData.indexedText.substring(0, 1000)}...`
+                            : sampleData.indexedText}
+                        </pre>
+                      </div>
+                      {sampleData.indexedText.length > 1000 && (
+                        <p className="text-xs text-muted-foreground mt-2 text-center">
+                          已截断显示，完整内容共 {sampleData.indexedText.length.toLocaleString()} 字符
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* 元数据JSON卡片 */}
+                {sampleData.vectorize?.metadata && Object.keys(sampleData.vectorize.metadata).length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <details className="cursor-pointer group">
+                        <summary className="flex items-center gap-2 list-none">
+                          <Layers className="h-4 w-4" />
+                          <CardTitle className="text-base inline-flex items-center gap-2 group-hover:text-primary transition-colors">
+                            元数据 (JSON)
+                            <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+                          </CardTitle>
+                        </summary>
+                      </details>
+                    </CardHeader>
+                    <CardContent>
+                      <pre className="bg-muted rounded-lg p-4 text-xs overflow-x-auto font-mono border">
+                        {JSON.stringify(sampleData.vectorize.metadata, null, 2)}
+                      </pre>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

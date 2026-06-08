@@ -487,7 +487,13 @@ function BucketCard({
         <span className="flex items-center gap-1">
           <Database className="h-3.5 w-3.5" />
           {formatBytes(bucket.storageUsed)}
-          {bucket.storageQuota && <span className="opacity-50">/ {formatBytes(bucket.storageQuota)}</span>}
+          {bucket.storageQuota && bucket.storageQuota < 999999 * 1024 ** 3 && (
+            <span className="opacity-50">/ {formatBytes(bucket.storageQuota)}</span>
+          )}
+          {!bucket.storageQuota && <span className="opacity-50">/ 无限制</span>}
+          {bucket.storageQuota && bucket.storageQuota >= 999999 * 1024 ** 3 && (
+            <span className="opacity-50">/ 无限制</span>
+          )}
         </span>
         <span>{bucket.fileCount} 个文件</span>
         {bucket.region && <span className="font-mono">{bucket.region}</span>}

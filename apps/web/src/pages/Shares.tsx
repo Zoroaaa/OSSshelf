@@ -4,6 +4,7 @@
  */
 
 import { useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { shareApi } from '@/services/api';
 import { formatBytes, formatDate } from '@/utils';
@@ -32,9 +33,16 @@ type Tab = 'download' | 'upload';
 export default function Shares() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<Tab>('download');
+  const { tab: urlTab } = useParams<{ tab?: string }>();
+  const navigate = useNavigate();
+  const [tab, setTab] = useState<Tab>((urlTab as Tab) || 'download');
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [uploadFolderMeta, setUploadFolderMeta] = useState<{ id: string; name: string } | null>(null);
+
+  const handleTabChange = (newTab: Tab) => {
+    setTab(newTab);
+    navigate(`/shares/${newTab}`, { replace: true });
+  };
 
   const { data: shares = [], isLoading } = useQuery({
     queryKey: ['shares'],
@@ -107,7 +115,7 @@ export default function Shares() {
         ).map(({ key, label, count, icon: Icon }) => (
           <button
             key={key}
-            onClick={() => setTab(key)}
+            onClick={() => handleTabChange(key)}
             className={cn(
               'flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
               tab === key

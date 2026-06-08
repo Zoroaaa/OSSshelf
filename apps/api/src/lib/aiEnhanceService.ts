@@ -10,10 +10,9 @@
  * - 文件查询复用 permissionService
  */
 
-import { eq, and, isNull, inArray, sql } from 'drizzle-orm';
+import { eq, and, isNull, sql } from 'drizzle-orm';
 import { getDb, files } from '../db';
 import type { Env } from '../types/env';
-import { logger } from '@osshelf/shared';
 import { checkFilePermission } from './permissionService';
 
 export interface FileAiInfo {

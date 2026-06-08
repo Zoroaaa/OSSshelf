@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/useToast';
 import { groupsApi, permissionsApi, type GroupMember } from '@/services/api';
-import { Loader2, X, UserPlus, Trash2, User, Shield, Crown } from 'lucide-react';
+import { Loader2, X, UserPlus, Trash2, User, Shield, Crown, Pencil } from 'lucide-react';
 import { cn } from '@/utils';
 
 interface GroupMemberDialogProps {
@@ -66,6 +66,22 @@ const GroupMemberDialog: React.FC<GroupMemberDialogProps> = ({ groupId, onClose 
       toast({
         title: '移除失败',
         description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const updateRoleMutation = useMutation({
+    mutationFn: ({ userId, role }: { userId: string; role: 'member' | 'admin' }) =>
+      groupsApi.updateMemberRole(groupId, userId, role).then((r) => r.data),
+    onSuccess: () => {
+      toast({ title: '角色已更新' });
+      queryClient.invalidateQueries({ queryKey: ['group-members', groupId] });
+    },
+    onError: (e: any) => {
+      toast({
+        title: '更新失败',
+        description: e.response?.data?.error?.message || '权限不足或网络错误',
         variant: 'destructive',
       });
     },
@@ -238,7 +254,9 @@ const GroupMemberDialog: React.FC<GroupMemberDialogProps> = ({ groupId, onClose 
                   isOwner={isOwner}
                   groupOwnerId={groupData?.ownerId}
                   onRemove={handleRemoveMember}
+                  onRoleChange={(userId, role) => updateRoleMutation.mutate({ userId, role })}
                   isRemoving={removeMemberMutation.isPending}
+                  isUpdatingRole={updateRoleMutation.isPending}
                 />
               ))}
             </div>
@@ -260,11 +278,15 @@ interface MemberCardProps {
   isOwner: boolean;
   groupOwnerId?: string;
   onRemove: (userId: string, userName: string) => void;
+  onRoleChange?: (userId: string, role: 'member' | 'admin') => void;
   isRemoving: boolean;
+  isUpdatingRole?: boolean;
 }
 
-const MemberCard: React.FC<MemberCardProps> = ({ member, isOwner, groupOwnerId, onRemove, isRemoving }) => {
+const MemberCard: React.FC<MemberCardProps> = ({ member, isOwner, groupOwnerId, onRemove, onRoleChange, isRemoving, isUpdatingRole }) => {
+  const [isEditingRole, setIsEditingRole] = useState(false);
   const isGroupOwner = member.userId === groupOwnerId;
+  const canEditRole = isOwner && !isGroupOwner && !!onRoleChange;
 
   return (
     <div className="flex items-center gap-3 p-2 rounded-lg border bg-muted/30">
@@ -285,7 +307,22 @@ const MemberCard: React.FC<MemberCardProps> = ({ member, isOwner, groupOwnerId, 
               : 'bg-blue-500/10 text-blue-500'
         )}
       >
-        {isGroupOwner ? (
+        {isEditingRole && canEditRole ? (
+          <select
+            value={member.role}
+            onChange={(e) => {
+              const newRole = e.target.value as 'member' | 'admin';
+              onRoleChange?.(member.userId, newRole);
+              setIsEditingRole(false);
+            }}
+            onBlur={() => setIsEditingRole(false)}
+            autoFocus
+            className="bg-transparent border-none outline-none cursor-pointer font-medium"
+          >
+            <option value="member">成员</option>
+            <option value="admin">管理员</option>
+          </select>
+        ) : isGroupOwner ? (
           <>
             <Crown className="h-3 w-3" />
             所有者
@@ -302,6 +339,18 @@ const MemberCard: React.FC<MemberCardProps> = ({ member, isOwner, groupOwnerId, 
           </>
         )}
       </div>
+      {canEditRole && !isEditingRole && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-muted-foreground hover:text-primary"
+          onClick={() => setIsEditingRole(true)}
+          title="更改角色"
+          disabled={isUpdatingRole}
+        >
+          {isUpdatingRole ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Pencil className="h-3.5 w-3.5" />}
+        </Button>
+      )}
       {isOwner && !isGroupOwner && (
         <Button
           variant="ghost"

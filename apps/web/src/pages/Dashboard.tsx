@@ -180,13 +180,14 @@ export default function Dashboard() {
               {/* Storage — multi-bucket */}
               <div className="bg-card border rounded-xl p-4 lg:p-5 space-y-3 lg:space-y-4">
                 <h2 className="font-semibold text-sm">存储空间</h2>
-                <StorageBar used={stats?.storageUsed ?? 0} quota={stats?.storageQuota ?? 10737418240} />
+                <StorageBar used={stats?.storageUsed ?? 0} quota={stats?.storageQuota ?? 0} />
                 {stats?.bucketBreakdown && stats.bucketBreakdown.length > 0 && (
                   <div className="space-y-2 pt-1">
                     <p className="text-xs text-muted-foreground font-medium">各存储桶用量</p>
                     {stats.bucketBreakdown.map((b) => {
                       const meta = PROVIDER_META[b.provider as keyof typeof PROVIDER_META];
-                      const pct = b.storageQuota ? Math.min(100, (b.storageUsed / b.storageQuota) * 100) : null;
+                      const isBucketUnlimited = !b.storageQuota || b.storageQuota >= 999999 * 1024 ** 3;
+                      const pct = isBucketUnlimited ? null : Math.min(100, (b.storageUsed / b.storageQuota!) * 100);
                       return (
                         <div key={b.id} className="space-y-1">
                           <div className="flex items-center justify-between text-xs">
@@ -199,8 +200,8 @@ export default function Dashboard() {
                             </span>
                             <span className="text-muted-foreground">
                               {formatBytes(b.storageUsed)}
-                              {b.storageQuota && (
-                                <span className="opacity-50 hidden sm:inline"> / {formatBytes(b.storageQuota)}</span>
+                              {!isBucketUnlimited && (
+                                <span className="opacity-50 hidden sm:inline"> / {formatBytes(b.storageQuota!)}</span>
                               )}
                             </span>
                           </div>

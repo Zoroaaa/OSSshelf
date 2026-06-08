@@ -69,7 +69,8 @@ export function StorageDashboard() {
     );
   }
 
-  const usagePercent = breakdown ? Math.min(100, (breakdown.used / breakdown.quota) * 100) : 0;
+  const isUnlimited = !breakdown?.quota || breakdown.quota >= 999999 * 1024 ** 3;
+  const usagePercent = isUnlimited ? 0 : Math.min(100, (breakdown!.used / breakdown!.quota) * 100);
 
   return (
     <div className="space-y-4">
@@ -102,17 +103,19 @@ export function StorageDashboard() {
               <div className="text-sm text-gray-500 mb-1">已使用空间</div>
               <div className="text-2xl font-bold">{formatBytes(breakdown.used)}</div>
               <div className="text-sm text-gray-400">
-                / {formatBytes(breakdown.quota)} ({usagePercent.toFixed(1)}%)
+                / {isUnlimited ? '无限制' : formatBytes(breakdown.quota)}{!isUnlimited && ` (${usagePercent.toFixed(1)}%)`}
               </div>
-              <div className="mt-2 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                <div
-                  className={cn(
-                    'h-full rounded-full transition-all',
-                    usagePercent > 90 ? 'bg-red-500' : usagePercent > 70 ? 'bg-yellow-500' : 'bg-blue-500'
-                  )}
-                  style={{ width: `${usagePercent}%` }}
-                />
-              </div>
+              {!isUnlimited && (
+                <div className="mt-2 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                  <div
+                    className={cn(
+                      'h-full rounded-full transition-all',
+                      usagePercent > 90 ? 'bg-red-500' : usagePercent > 70 ? 'bg-yellow-500' : 'bg-blue-500'
+                    )}
+                    style={{ width: `${usagePercent}%` }}
+                  />
+                </div>
+              )}
             </div>
 
             <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">

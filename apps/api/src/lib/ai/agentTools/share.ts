@@ -51,8 +51,14 @@ export const definitions: ToolDefinition[] = [
       },
       examples: [
         { user_query: '把这个文件分享给同事', tool_call: { fileId: '<file_id>' } },
-        { user_query: '生成带密码的分享链接', tool_call: { fileId: '<doc_id>', password: '123456', permission: 'read' } },
-        { user_query: '创建7天有效的下载链接', tool_call: { fileId: '<file_id>', expiresAt: '2026-04-23T00:00:00Z', permission: 'download' } },
+        {
+          user_query: '生成带密码的分享链接',
+          tool_call: { fileId: '<doc_id>', password: '123456', permission: 'read' },
+        },
+        {
+          user_query: '创建7天有效的下载链接',
+          tool_call: { fileId: '<file_id>', expiresAt: '2026-04-23T00:00:00Z', permission: 'download' },
+        },
       ],
     },
   },
@@ -122,7 +128,10 @@ export const definitions: ToolDefinition[] = [
         required: ['shareId'],
       },
       examples: [
-        { user_query: '延长这个链接的有效期到下个月', tool_call: { shareId: '<share_id>', expiresAt: '2026-05-16T00:00:00Z' } },
+        {
+          user_query: '延长这个链接的有效期到下个月',
+          tool_call: { shareId: '<share_id>', expiresAt: '2026-05-16T00:00:00Z' },
+        },
         { user_query: '加上访问密码', tool_call: { shareId: '<share_id>', password: 'newpass123' } },
         { user_query: '改为只读权限', tool_call: { shareId: '<share_id>', permission: 'read' } },
       ],
@@ -176,7 +185,10 @@ export const definitions: ToolDefinition[] = [
       },
       examples: [
         { user_query: '生成PDF的直链发微信群', tool_call: { fileId: '<pdf_id>', _confirmed: true } },
-        { user_query: '创建24小时有效的下载链接', tool_call: { fileId: '<file_id>', expiresInHours: 24, maxDownloads: 10, _confirmed: true } },
+        {
+          user_query: '创建24小时有效的下载链接',
+          tool_call: { fileId: '<file_id>', expiresInHours: 24, maxDownloads: 10, _confirmed: true },
+        },
       ],
     },
   },
@@ -226,8 +238,20 @@ export const definitions: ToolDefinition[] = [
         required: ['folderId'],
       },
       examples: [
-        { user_query: '给设计团队创建上传链接', tool_call: { folderId: '<design_folder_id>', allowedMimeTypes: ['image/*'], _confirmed: true } },
-        { user_query: '收集作业文档', tool_call: { folderId: '<homework_id>', password: 'class123', expiresInHours: 168, maxSizeBytes: 52428800, _confirmed: true } },
+        {
+          user_query: '给设计团队创建上传链接',
+          tool_call: { folderId: '<design_folder_id>', allowedMimeTypes: ['image/*'], _confirmed: true },
+        },
+        {
+          user_query: '收集作业文档',
+          tool_call: {
+            folderId: '<homework_id>',
+            password: 'class123',
+            expiresInHours: 168,
+            maxSizeBytes: 52428800,
+            _confirmed: true,
+          },
+        },
       ],
     },
   },

@@ -11,7 +11,7 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Link, Copy, Trash2, RefreshCw, ExternalLink, Check, Infinity } from 'lucide-react';
+import { Link, Copy, Trash2, RefreshCw, ExternalLink, Check, Infinity, Eye, Code, Lightbulb } from 'lucide-react';
 import { directLinkApi, type DirectLinkInfo } from '@/services/api';
 import { decodeFileName } from '@/utils';
 
@@ -123,6 +123,16 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
     }
   };
 
+  const copyToClipboard = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      console.error('Failed to copy:', e);
+    }
+  };
+
   const formatDate = (dateStr: string | null | undefined) => {
     if (!dateStr) return '永久有效';
     return new Date(dateStr).toLocaleString('zh-CN', {
@@ -152,8 +162,12 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
           </div>
         ) : directLink ? (
           <div className="space-y-4">
-            <div className="bg-muted/50 rounded-lg p-3">
-              <label className="text-xs text-muted-foreground mb-1 block">直链地址</label>
+            {/* 1️⃣ 下载链接（原有） */}
+            <div className="bg-muted/50 rounded-lg p-3 border">
+              <label className="flex items-center gap-2 text-xs font-medium mb-2">
+                ⬇️ 下载链接
+                <span className="text-[10px] bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 rounded">直接下载</span>
+              </label>
               <div className="flex items-center gap-2">
                 <Input readOnly value={directLink.directUrl} className="text-xs font-mono flex-1" />
                 <Button size="icon" variant="outline" onClick={handleCopy} title="复制链接">
@@ -170,6 +184,101 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
               </div>
             </div>
 
+            {/* 2️⃣ 预览链接（新增） */}
+            <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/30 dark:bg-blue-900/10 p-3">
+              <label className="flex items-center gap-2 text-xs font-medium mb-1.5">
+                <Eye className="h-3.5 w-3.5 text-blue-600" />
+                预览链接
+                <span className="text-[10px] bg-blue-100 text-blue-700 dark:bg-blue-800 dark:text-blue-300 px-1.5 py-0.5 rounded font-normal">
+                  无需登录
+                </span>
+              </label>
+              <p className="text-[11px] text-muted-foreground mb-2 leading-relaxed">
+                用于在线预览文件（支持图片/PDF/视频/音频等格式），可直接在浏览器打开或嵌入iframe
+              </p>
+              <div className="flex items-center gap-2">
+                <Input
+                  readOnly
+                  value={directLinkApi.previewUrl(directLink.token)}
+                  className="text-xs font-mono flex-1 bg-white dark:bg-slate-800"
+                />
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => copyToClipboard(directLinkApi.previewUrl(directLink.token), '预览链接')}
+                  title="复制预览链接"
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  asChild
+                >
+                  <a href={directLinkApi.previewUrl(directLink.token)} target="_blank" rel="noopener noreferrer" title="在新窗口预览">
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
+                </Button>
+              </div>
+            </div>
+
+            {/* 3️⃣ 信息接口（新增） */}
+            <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50/30 dark:bg-green-900/10 p-3">
+              <label className="flex items-center gap-2 text-xs font-medium mb-1.5">
+                <Code className="h-3.5 w-3.5 text-green-600" />
+                信息接口
+                <span className="text-[10px] bg-green-100 text-green-700 dark:bg-green-800 dark:text-green-300 px-1.5 py-0.5 rounded font-normal">
+                  API调用
+                </span>
+              </label>
+              <p className="text-[11px] text-muted-foreground mb-2 leading-relaxed">
+                返回JSON格式的文件元信息（名称、大小、类型、创建时间等），供第三方应用通过API获取
+              </p>
+              <div className="flex items-center gap-2">
+                <Input
+                  readOnly
+                  value={directLinkApi.infoUrl(directLink.token)}
+                  className="text-xs font-mono flex-1 bg-white dark:bg-slate-800"
+                />
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => copyToClipboard(directLinkApi.infoUrl(directLink.token), '信息接口地址')}
+                  title="复制信息接口地址"
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full mt-2.5"
+                asChild
+              >
+                <a href={directLinkApi.infoUrl(directLink.token)} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                  测试接口返回结果
+                </a>
+              </Button>
+            </div>
+
+            {/* 💡 使用场景说明卡片 */}
+            <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/30 dark:bg-amber-900/10 p-3">
+              <div className="flex items-start gap-2">
+                <Lightbulb className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <h4 className="text-xs font-semibold mb-1.5">💡 使用场景说明</h4>
+                  <ul className="text-[11px] space-y-1 text-muted-foreground leading-relaxed">
+                    <li>• <strong className="text-foreground">下载链接</strong>: 分享给他人直接下载文件</li>
+                    <li>• <strong className="text-foreground">预览链接</strong>: 嵌入到网页iframe或直接在浏览器打开在线预览</li>
+                    <li>• <strong className="text-foreground">信息接口</strong>: 第三方应用/脚本通过HTTP请求获取文件元信息（无需认证）</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            {/* 过期时间设置 */}
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span>过期时间：</span>
               {directLink.isPermanent ? (

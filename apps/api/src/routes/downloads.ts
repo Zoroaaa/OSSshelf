@@ -99,8 +99,8 @@ async function runDownload({ db, userId, taskId, task, bucketConfig, env }: RunD
 
     // 重新查询最新配额状态，避免使用陈旧快照
     const freshUser = await db.select().from(users).where(eq(users.id, userId)).get();
-    if (!freshUser) throw new Error('用户不存在');
-    if (freshUser.storageUsed + fileSize > freshUser.storageQuota) throw new Error('用户存储配额已满');
+  if (!freshUser) throw new Error('用户不存在');
+  if (freshUser.storageQuota! < 999999 * 1024 ** 3 && freshUser.storageUsed + fileSize > freshUser.storageQuota!) throw new Error('用户存储配额已满');
 
     const quotaErr = await checkBucketQuota(db, bucketConfig.id, fileSize);
     if (quotaErr) throw new Error(quotaErr);

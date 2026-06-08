@@ -273,25 +273,22 @@ export async function buildFileTextForVector(env: Env, fileId: string): Promise<
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
   if (!file) return '';
 
+  // 层1：尝试读取实际文件内容（text、代码、PDF 等可提取类型）
   let actualContent = '';
   try {
     const readResult = await readFileContent(env, file);
     if (readResult.success && readResult.content) {
       actualContent = readResult.content.slice(0, 50000);
-      logger.info(VECTOR_LOG_MODULE, '成功读取文件内容用于索引', { fileId, source: readResult.source });
+      logger.info(VECTOR_LOG_MODULE, '索引层1：实际文件内容', { fileId, source: readResult.source, length: actualContent.length });
     }
   } catch (error) {
-    logger.warn(VECTOR_LOG_MODULE, '无法读取实际文件内容，使用元数据降级', { fileId, fileName: file.name }, error);
+    logger.warn(VECTOR_LOG_MODULE, '层1读取失败，将降级', { fileId, fileName: file.name }, error);
   }
 
-  const notes = await db
-    .select({ content: fileNotes.content })
-    .from(fileNotes)
-    .where(eq(fileNotes.fileId, fileId))
-    .limit(5)
-    .all();
+  // 层2：AI 摘要（文本摘要 或 图片描述）
+  const aiSummaryText = file.aiSummary || '';
 
-  // aiTags 是 JSON 数组字符串，展开为空格分隔的标签词，提升标签匹配召回率
+  // 层3：AI 标签展开为词组
   let tagsText = '';
   if (file.aiTags) {
     try {
@@ -302,11 +299,35 @@ export async function buildFileTextForVector(env: Env, fileId: string): Promise<
     }
   }
 
+  // 笔记内容（始终追加）
+  const notes = await db
+    .select({ content: fileNotes.content })
+    .from(fileNotes)
+    .where(eq(fileNotes.fileId, fileId))
+    .limit(5)
+    .all();
+
+  // 基础元数据（始终放在最前，任何层都包含）
+  const metaParts = [file.name, file.description || ''].filter(Boolean);
+
+  // 分级回退：优先用实际内容，其次摘要+标签，最低仅元数据
+  let bodyParts: string[];
+  if (actualContent) {
+    // 层1 成功：内容 + 摘要补充（摘要可能比内容更精炼，有助于召回）
+    bodyParts = [actualContent, aiSummaryText, tagsText];
+  } else if (aiSummaryText || tagsText) {
+    // 层2：无法读取内容，用 AI 摘要 + 标签
+    logger.info(VECTOR_LOG_MODULE, '索引层2降级：AI摘要+标签', { fileId, hasSummary: !!aiSummaryText, hasTags: !!tagsText });
+    bodyParts = [aiSummaryText, tagsText];
+  } else {
+    // 层3：仅元数据（文件名+描述），至少保证文件可被语义搜索到
+    logger.warn(VECTOR_LOG_MODULE, '索引层3降级：仅元数据', { fileId, fileName: file.name });
+    bodyParts = [];
+  }
+
   const parts = [
-    file.name,
-    file.description || '',
-    actualContent || file.aiSummary || '',
-    tagsText,
+    ...metaParts,
+    ...bodyParts,
     ...notes.map((n) => n.content),
   ].filter(Boolean);
 

@@ -121,7 +121,11 @@ export class AgentMemory {
   async recallMemories(
     userId: string,
     query: string,
-    _vectorizeQuery?: (namespace: string, values: number[], metadata?: Record<string, string | number | boolean>) => Promise<string | null>
+    _vectorizeQuery?: (
+      namespace: string,
+      values: number[],
+      metadata?: Record<string, string | number | boolean>
+    ) => Promise<string | null>
   ): Promise<string> {
     try {
       const db = getDb(this.env.DB);
@@ -167,7 +171,7 @@ export class AgentMemory {
   async listMemories(
     userId: string,
     options?: { type?: string; limit?: number; offset?: number }
-  ): Promise<{ items: typeof aiMemories.$inferSelect[]; total: number }> {
+  ): Promise<{ items: (typeof aiMemories.$inferSelect)[]; total: number }> {
     const limit = options?.limit ?? 50;
     const offset = options?.offset ?? 0;
 
@@ -179,10 +183,7 @@ export class AgentMemory {
 
     const items = await baseQuery.orderBy(desc(aiMemories.createdAt)).limit(limit).offset(offset);
 
-    const countResult = await db
-      .select({ count: aiMemories.id })
-      .from(aiMemories)
-      .where(eq(aiMemories.userId, userId));
+    const countResult = await db.select({ count: aiMemories.id }).from(aiMemories).where(eq(aiMemories.userId, userId));
     const total = countResult.length;
 
     return { items, total };

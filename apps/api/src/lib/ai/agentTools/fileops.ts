@@ -14,13 +14,12 @@
  * - 批量操作支持
  */
 
-import { eq, and, isNull, isNotNull, inArray } from 'drizzle-orm';
+import { eq, and, isNull, inArray } from 'drizzle-orm';
 import { getDb, files } from '../../../db';
 import type { Env } from '../../../types/env';
 import { logger } from '@osshelf/shared';
-import type { ToolDefinition, AgentFile, PendingConfirmResult } from './types';
-import { WRITE_TOOLS } from './types';
-import { formatBytes, getMimeTypeCategory } from '../utils';
+import type { ToolDefinition, PendingConfirmResult } from './types';
+import { formatBytes } from '../utils';
 import {
   createTextFile,
   updateFileContent as serviceUpdateContent,
@@ -171,7 +170,10 @@ export const definitions: ToolDefinition[] = [
       },
       examples: [
         { user_query: '帮我创建一个笔记', tool_call: { content: '今日工作内容：...', fileName: 'notes.md' } },
-        { user_query: '新建README文件', tool_call: { content: '# 项目名称\n\n## 简介', fileName: 'README.md', folderPath: '项目文档' } },
+        {
+          user_query: '新建README文件',
+          tool_call: { content: '# 项目名称\n\n## 简介', fileName: 'README.md', folderPath: '项目文档' },
+        },
         { user_query: '保存这段文本', tool_call: { content: '用户提供的文本内容', fileName: 'document.txt' } },
       ],
     },
@@ -199,8 +201,14 @@ export const definitions: ToolDefinition[] = [
         required: ['code', 'fileName'],
       },
       examples: [
-        { user_query: '把这段Python代码保存', tool_call: { code: 'def hello():\n    print("Hello")', fileName: 'hello.py', language: 'python' } },
-        { user_query: '创建TypeScript工具文件', tool_call: { code: 'export function helper() {}', fileName: 'utils.ts', targetFolder: 'src/utils' } },
+        {
+          user_query: '把这段Python代码保存',
+          tool_call: { code: 'def hello():\n    print("Hello")', fileName: 'hello.py', language: 'python' },
+        },
+        {
+          user_query: '创建TypeScript工具文件',
+          tool_call: { code: 'export function helper() {}', fileName: 'utils.ts', targetFolder: 'src/utils' },
+        },
       ],
     },
   },
@@ -234,7 +242,10 @@ export const definitions: ToolDefinition[] = [
         required: ['templateName'],
       },
       examples: [
-        { user_query: '创建README模板', tool_call: { templateName: 'readme', variables: { projectName: 'MyApp', author: 'User' } } },
+        {
+          user_query: '创建README模板',
+          tool_call: { templateName: 'readme', variables: { projectName: 'MyApp', author: 'User' } },
+        },
         { user_query: '新建gitignore文件', tool_call: { templateName: 'gitignore', targetFolder: '项目代码' } },
       ],
     },
@@ -281,8 +292,17 @@ export const definitions: ToolDefinition[] = [
         required: ['fileId'],
       },
       examples: [
-        { user_query: '把配置文件中的端口改成8080', tool_call: { fileId: '<config_id>', edits: [{ operation: 'replace', oldValue: 'port: 3000', newValue: 'port: 8080' }] } },
-        { user_query: '在文件末尾追加一行', tool_call: { fileId: '<file_id>', edits: [{ operation: 'append', newValue: '// 新增内容' }] } },
+        {
+          user_query: '把配置文件中的端口改成8080',
+          tool_call: {
+            fileId: '<config_id>',
+            edits: [{ operation: 'replace', oldValue: 'port: 3000', newValue: 'port: 8080' }],
+          },
+        },
+        {
+          user_query: '在文件末尾追加一行',
+          tool_call: { fileId: '<file_id>', edits: [{ operation: 'append', newValue: '// 新增内容' }] },
+        },
       ],
     },
   },
@@ -330,8 +350,26 @@ export const definitions: ToolDefinition[] = [
         required: ['fileId', 'find', 'replace'],
       },
       examples: [
-        { user_query: '把localhost换成生产域名', tool_call: { fileId: '<config_id>', find: 'localhost', replace: 'production.com', replaceAll: true, _confirmed: true } },
-        { user_query: '只替换第一个匹配', tool_call: { fileId: '<file_id>', find: 'old_value', replace: 'new_value', replaceAll: false, _confirmed: true } },
+        {
+          user_query: '把localhost换成生产域名',
+          tool_call: {
+            fileId: '<config_id>',
+            find: 'localhost',
+            replace: 'production.com',
+            replaceAll: true,
+            _confirmed: true,
+          },
+        },
+        {
+          user_query: '只替换第一个匹配',
+          tool_call: {
+            fileId: '<file_id>',
+            find: 'old_value',
+            replace: 'new_value',
+            replaceAll: false,
+            _confirmed: true,
+          },
+        },
       ],
     },
   },
@@ -356,7 +394,10 @@ export const definitions: ToolDefinition[] = [
         required: ['fileId', 'newName'],
       },
       examples: [
-        { user_query: '把这个文件重命名为报告2024', tool_call: { fileId: '<file_id>', newName: '报告2024.pdf', _confirmed: true } },
+        {
+          user_query: '把这个文件重命名为报告2024',
+          tool_call: { fileId: '<file_id>', newName: '报告2024.pdf', _confirmed: true },
+        },
         { user_query: '修改文件夹名称', tool_call: { fileId: '<folder_id>', newName: '新项目文档', _confirmed: true } },
       ],
     },
@@ -379,7 +420,10 @@ export const definitions: ToolDefinition[] = [
         required: ['fileId', 'targetFolderId'],
       },
       examples: [
-        { user_query: '把这个文件移到设计文件夹', tool_call: { fileId: '<file_id>', targetFolderId: '<design_folder_id>' } },
+        {
+          user_query: '把这个文件移到设计文件夹',
+          tool_call: { fileId: '<file_id>', targetFolderId: '<design_folder_id>' },
+        },
         { user_query: '整理所有PDF到文档目录', tool_call: { fileId: '<pdf_id>', targetFolderId: '<docs_folder_id>' } },
       ],
     },
@@ -403,7 +447,10 @@ export const definitions: ToolDefinition[] = [
       },
       examples: [
         { user_query: '复制一份备份', tool_call: { fileId: '<file_id>', targetFolderId: '<backup_folder_id>' } },
-        { user_query: '拷贝到文档文件夹并改名', tool_call: { fileId: '<file_id>', targetFolderId: '<docs_id>', newName: '副本_原文件名' } },
+        {
+          user_query: '拷贝到文档文件夹并改名',
+          tool_call: { fileId: '<file_id>', targetFolderId: '<docs_id>', newName: '副本_原文件名' },
+        },
       ],
     },
   },
@@ -470,7 +517,10 @@ export const definitions: ToolDefinition[] = [
       },
       examples: [
         { user_query: '新建项目文档文件夹', tool_call: { folderName: '项目文档', _confirmed: true } },
-        { user_query: '在工作目录下创建子文件夹', tool_call: { folderName: '2024Q4报告', parentId: '<work_id>', _confirmed: true } },
+        {
+          user_query: '在工作目录下创建子文件夹',
+          tool_call: { folderName: '2024Q4报告', parentId: '<work_id>', _confirmed: true },
+        },
       ],
     },
   },
@@ -504,8 +554,14 @@ export const definitions: ToolDefinition[] = [
         required: ['fileIds', 'template'],
       },
       examples: [
-        { user_query: '批量添加序号前缀', tool_call: { fileIds: ['<id1>', '<id2>', '<id3>'], template: '{序号}_{原文件名}', previewOnly: true } },
-        { user_query: '统一加日期前缀', tool_call: { fileIds: ['<id1>', '<id2>'], template: '2026-04-16_{原文件名}', _confirmed: true } },
+        {
+          user_query: '批量添加序号前缀',
+          tool_call: { fileIds: ['<id1>', '<id2>', '<id3>'], template: '{序号}_{原文件名}', previewOnly: true },
+        },
+        {
+          user_query: '统一加日期前缀',
+          tool_call: { fileIds: ['<id1>', '<id2>'], template: '2026-04-16_{原文件名}', _confirmed: true },
+        },
       ],
     },
   },
@@ -532,8 +588,14 @@ export const definitions: ToolDefinition[] = [
         required: ['fileIds', 'targetFolderId'],
       },
       examples: [
-        { user_query: '把所有PDF移到文档目录', tool_call: { fileIds: ['<id1>', '<id2>'], targetFolderId: '<docs_folder_id>' } },
-        { user_query: '整理图片到素材文件夹', tool_call: { fileIds: ['<img_id1>', '<img_id2>'], targetFolderId: '<assets_id>' } },
+        {
+          user_query: '把所有PDF移到文档目录',
+          tool_call: { fileIds: ['<id1>', '<id2>'], targetFolderId: '<docs_folder_id>' },
+        },
+        {
+          user_query: '整理图片到素材文件夹',
+          tool_call: { fileIds: ['<img_id1>', '<img_id2>'], targetFolderId: '<assets_id>' },
+        },
       ],
     },
   },
@@ -559,7 +621,10 @@ export const definitions: ToolDefinition[] = [
         required: ['fileIds', '_confirmed'],
       },
       examples: [
-        { user_query: '批量删除临时文件', tool_call: { fileIds: ['<id1>', '<id2>'], reason: '清理临时文件', _confirmed: true } },
+        {
+          user_query: '批量删除临时文件',
+          tool_call: { fileIds: ['<id1>', '<id2>'], reason: '清理临时文件', _confirmed: true },
+        },
         { user_query: '清空缓存文件夹', tool_call: { fileIds: ['<cache_id1>'], _confirmed: true } },
       ],
     },
@@ -634,9 +699,31 @@ export const definitions: ToolDefinition[] = [
         required: ['fileName', 'draftContent'],
       },
       examples: [
-        { user_query: '帮我写一个README', tool_call: { fileName: 'README.md', userRequest: '帮我写一个README', draftContent: '# 项目名称\n\n## 简介\n...' } },
-        { user_query: '生成一个Python爬虫脚本', tool_call: { fileName: 'spider.py', userRequest: '生成一个Python爬虫脚本', draftContent: 'import requests\n...' } },
-        { user_query: '创建配置文件放到代码文件夹', tool_call: { fileName: 'config.json', targetFolderId: '<folder_id>', userRequest: '创建配置文件', draftContent: '{ "app": {...} }' } },
+        {
+          user_query: '帮我写一个README',
+          tool_call: {
+            fileName: 'README.md',
+            userRequest: '帮我写一个README',
+            draftContent: '# 项目名称\n\n## 简介\n...',
+          },
+        },
+        {
+          user_query: '生成一个Python爬虫脚本',
+          tool_call: {
+            fileName: 'spider.py',
+            userRequest: '生成一个Python爬虫脚本',
+            draftContent: 'import requests\n...',
+          },
+        },
+        {
+          user_query: '创建配置文件放到代码文件夹',
+          tool_call: {
+            fileName: 'config.json',
+            targetFolderId: '<folder_id>',
+            userRequest: '创建配置文件',
+            draftContent: '{ "app": {...} }',
+          },
+        },
       ],
     },
   },
@@ -1126,7 +1213,12 @@ services:
           ],
         };
       } catch (queueError) {
-        logger.warn('AgentTool', 'Batch queue failed, falling back to sync execution', { fileCount: fileIds.length }, queueError);
+        logger.warn(
+          'AgentTool',
+          'Batch queue failed, falling back to sync execution',
+          { fileCount: fileIds.length },
+          queueError
+        );
       }
     }
 
@@ -1218,11 +1310,15 @@ services:
           ],
         };
       } catch (queueError) {
-        logger.warn('AgentTool', 'Batch move queue failed, falling back to sync', { fileCount: fileIds.length }, queueError);
+        logger.warn(
+          'AgentTool',
+          'Batch move queue failed, falling back to sync',
+          { fileCount: fileIds.length },
+          queueError
+        );
       }
     }
 
-    const db = getDb(env.DB);
     let successCount = 0;
     let failCount = 0;
 
@@ -1264,17 +1360,18 @@ services:
           message: `批量删除任务已提交到队列（共 ${batchResult.total} 个文件），预计 ${batchResult.estimatedMinutes} 分钟完成。文件将被移入回收站，可通过 restore_file 恢复`,
           totalFiles: batchResult.total,
           estimatedMinutes: batchResult.estimatedMinutes,
-          _next_actions: [
-            `✅ 批量删除任务已入队（taskId: ${batchResult.taskId}）`,
-            '删除的文件可在回收站中恢复',
-          ],
+          _next_actions: [`✅ 批量删除任务已入队（taskId: ${batchResult.taskId}）`, '删除的文件可在回收站中恢复'],
         };
       } catch (queueError) {
-        logger.warn('AgentTool', 'Batch delete queue failed, falling back to sync', { fileCount: fileIds.length }, queueError);
+        logger.warn(
+          'AgentTool',
+          'Batch delete queue failed, falling back to sync',
+          { fileCount: fileIds.length },
+          queueError
+        );
       }
     }
 
-    const db = getDb(env.DB);
     let successCount = 0;
     let failCount = 0;
 

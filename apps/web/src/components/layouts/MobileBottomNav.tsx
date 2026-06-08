@@ -31,6 +31,7 @@ import {
   Star,
   BarChart3,
   Cpu,
+  Tag,
 } from 'lucide-react';
 import { cn } from '@/utils';
 import { useFileStore } from '@/stores/files';
@@ -48,6 +49,7 @@ const NAV_ITEMS = [
 
 const QUICK_ACTIONS = [
   { path: '/starred', label: '收藏', icon: Star },
+  { path: '/tags', label: '标签', icon: Tag },
   { path: '/shares', label: '分享', icon: Share2 },
   { path: '/tasks', label: '上传任务', icon: Upload },
   { path: '/analytics', label: '存储分析', icon: BarChart3 },
@@ -178,7 +180,7 @@ export function MobileBottomNav({ onUpload, onNewFolder, onNavigate }: MobileBot
                     <HardDrive className="h-4 w-4" />
                     <span>存储空间</span>
                   </div>
-                  <StorageBar used={user?.storageUsed || 0} quota={user?.storageQuota || 10737418240} />
+                  <StorageBar used={user?.storageUsed || 0} quota={user?.storageQuota || 0} />
                 </div>
               </div>
 

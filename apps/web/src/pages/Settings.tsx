@@ -12,6 +12,7 @@
  */
 
 import { useState, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/auth';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { authApi, type EmailPreferences } from '@/services/api';
@@ -337,9 +338,16 @@ export default function Settings() {
   const { user, updateUser, logout } = useAuthStore();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { tab: urlTab } = useParams<{ tab?: string }>();
+  const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
+  const [activeTab, setActiveTab] = useState<SettingsTab>((urlTab as SettingsTab) || 'profile');
   const [name, setName] = useState(user?.name || '');
+
+  const handleTabChange = (tabId: SettingsTab) => {
+    setActiveTab(tabId);
+    navigate(`/settings/${tabId}`, { replace: true });
+  };
   const [currentPw, setCurrentPw] = useState('');
   const [newPw, setNewPw] = useState('');
   const [confirmPw, setConfirmPw] = useState('');
@@ -419,7 +427,7 @@ export default function Settings() {
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleTabChange(tab.id)}
               className={cn(
                 'flex items-center gap-1.5 px-3 lg:px-4 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0',
                 activeTab === tab.id
@@ -491,7 +499,7 @@ export default function Settings() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <StorageBar used={user?.storageUsed || 0} quota={user?.storageQuota || 10737418240} />
+              <StorageBar used={user?.storageUsed || 0} quota={user?.storageQuota || 0} />
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="bg-muted/40 rounded-lg px-4 py-3">
                   <p className="text-muted-foreground text-xs mb-1">已使用</p>
@@ -499,7 +507,11 @@ export default function Settings() {
                 </div>
                 <div className="bg-muted/40 rounded-lg px-4 py-3">
                   <p className="text-muted-foreground text-xs mb-1">总配额</p>
-                  <p className="font-semibold">{formatBytes(user?.storageQuota || 0)}</p>
+                  <p className="font-semibold">
+                    {user?.storageQuota && user.storageQuota < 999999 * 1024 ** 3
+                      ? formatBytes(user.storageQuota)
+                      : '无限制'}
+                  </p>
                 </div>
               </div>
             </CardContent>

@@ -16,7 +16,7 @@
  */
 
 import { eq, and, isNull } from 'drizzle-orm';
-import { getDb, files, fileNotes } from '../../../db';
+import { getDb, files } from '../../../db';
 import type { Env } from '../../../types/env';
 import { logger } from '@osshelf/shared';
 import { ModelGateway } from '../modelGateway';
@@ -31,7 +31,7 @@ import {
 import { readFileContent } from '../../../lib/fileContentHelper';
 import { buildFileTextForVector } from '../vectorIndex';
 import { getAiConfigNumber, getAiConfigString } from '../aiConfigService';
-import { toAgentFile, validateFileAccess, createSuccessResponse, createErrorResponse } from './agentToolUtils';
+import { validateFileAccess, createSuccessResponse, createErrorResponse } from './agentToolUtils';
 import { getFilesByScope as serviceGetFilesByScope } from '../../../lib/fileService';
 
 const DEFAULT_MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
@@ -91,7 +91,10 @@ export const definitions: ToolDefinition[] = [
       },
       examples: [
         { user_query: '这张照片拍的什么', tool_call: { fileId: '<image_id>' } },
-        { user_query: '截图里显示了什么错误', tool_call: { fileId: '<screenshot_id>', question: '截图中的错误信息是什么？' } },
+        {
+          user_query: '截图里显示了什么错误',
+          tool_call: { fileId: '<screenshot_id>', question: '截图中的错误信息是什么？' },
+        },
       ],
     },
   },
@@ -266,12 +269,18 @@ export const definitions: ToolDefinition[] = [
           maxFiles: { type: 'number', description: '最大文件数（默认20）' },
         },
         required: ['scope', 'analysisType'],
+      },
+      examples: [
+        {
+          user_query: '分析这个文件夹的内容',
+          tool_call: { scope: 'folder', folderId: '<folder_id>', analysisType: 'summary' },
         },
-        examples: [
-          { user_query: '分析这个文件夹的内容', tool_call: { scope: 'folder', folderId: '<folder_id>', analysisType: 'summary' } },
-          { user_query: '对比这些文件的异同', tool_call: { scope: 'folder', folderId: '<folder_id>', analysisType: 'compare', maxFiles: 10 } },
-          { user_query: '提取重要文件的共同点', tool_call: { scope: 'starred', analysisType: 'extract_common' } },
-        ],
+        {
+          user_query: '对比这些文件的异同',
+          tool_call: { scope: 'folder', folderId: '<folder_id>', analysisType: 'compare', maxFiles: 10 },
+        },
+        { user_query: '提取重要文件的共同点', tool_call: { scope: 'starred', analysisType: 'extract_common' } },
+      ],
     },
   },
 ];

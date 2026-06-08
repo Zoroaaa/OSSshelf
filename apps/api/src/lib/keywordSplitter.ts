@@ -9,7 +9,7 @@
  */
 
 const CHINESE_WORD_PATTERN = /[\u4e00-\u9fa5]+/g;
-const ENGLISH_WORD_PATTERN = /[a-zA-Z0-9_\-\.]+/g;
+const ENGLISH_WORD_PATTERN = /[a-zA-Z0-9_\-]+/g;
 
 const STOP_WORDS = new Set([
   '的',

@@ -5,6 +5,7 @@
 
 export { ActionBtn } from './ActionBtn';
 export { FileListContainer } from './FileListContainer';
+export { Pagination } from './Pagination';
 export { FileIcon } from './FileIcon';
 export { FilePreview } from './FilePreview';
 export { FolderSettings } from './FolderSettings';

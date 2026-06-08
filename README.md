@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-green.svg)](https://nodejs.org)
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers-orange.svg)](https://workers.cloudflare.com)
-[![Version](https://img.shields.io/badge/version-4.7.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-5.0.0-blue.svg)](CHANGELOG.md)
 [![zread](https://img.shields.io/badge/Ask_Zread-_.svg?style=flat&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS4zMTM1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff)](https://zread.ai/Zoroaaa/OSSshelf)
 
 [功能特性](#-功能特性) • [快速开始](#-快速开始) • [部署指南](#-部署指南) • [API文档](#-api-文档)
@@ -104,6 +104,65 @@
 - **🛡️ 模型熔断器**：连续失败 3 次自动熔断，10 分钟后恢复探测，区分模型错误/网络超时
 - **📐 工具定义统一规范**：标准化 name/description/parameters/examples 字段，启动校验缺失字段
 
+#### 🛡️ 安全性与稳定性修复（22 项 Bug + 中断恢复）
+
+**Critical 安全漏洞修复（4 项）**
+
+- 🔒 **跨用户数据泄露**：`collectFolderFiles` 增加 userId 过滤，防止文件夹遍历越权
+- 💥 **WebDAV OOM 崩溃**：DELETE/MOVE/COPY 改用 SQL 查询，消除全量内存加载
+- ⏱️ **时序攻击防护**：分享密码比对使用 `timingSafeEqual()` 常量时间比较 + KV 限流
+- 🚫 **CSRF 绕过修复**：CORS fallback 拒绝未知 origin 而非回退到白名单首项
+
+**High 严重问题修复（6 项）**
+
+- 🛡️ **Token 缓存泄漏**：Query Token 认证路径添加 `Cache-Control: private, no-store`
+- 🔒 **sortBy SQL 注入**：新增字段白名单 + switch 安全映射
+- 💾 **流式下载 OOM**：share 下载改为 Response body 直接透传
+- 🔄 **TOCTOU 竞态条件**：下载计数改用原子 CAS 单条 SQL 完成
+- 🔐 **WebDAV 暴力破解防护**：IP 维度 KV 速率限制（5min/10次）
+- 🔗 **直链滥用限制**：IP+Token 双维度速率限制（60次/分钟）
+
+**Medium/Low 问题修复（8 项）**
+
+- 广播过滤器逻辑修正、错误码去重、类型安全强化、权限常量提取、缩略图参数校验、ESM 冗余清理、魔术数字常量化
+
+**AI 对话中断恢复**
+
+- ✅ 流式输出中断时保留已输出内容（不再丢失）
+- ✅ 显示"输出已中断"状态提示 + "重新生成"按钮
+- ✅ API 层统一 AbortError 处理 + signal 检查
+
+#### 📊 额外稳定性修复（7 项）
+
+- 🔴 **storageUsed 竞态条件**：tasks.ts/downloads.ts 统一原子方法 `updateUserStorage()`，消除并发丢失更新
+- 🔴 **文件列表分页**：SQL ORDER BY + limit/offset 分页，消除 D1 1000 行截断
+- 🟡 **softDelete 配额释放**：软删除时立即扣减 storageUsed，不再等 cron 硬删除
+- 🟡 **JWT Refresh Token**：新增静默续期机制，移动端体验大幅改善
+- 🟡 **Analytics SQL 聚合**：GROUP BY 替代全量拉取，性能提升 10x+
+- 🟡 **分享上传配额校验**：增加 owner 的 storageUsed 检查，堵住配额绕过漏洞
+- 🔵 **LIKE 搜索转义**：% 和 \_ 自动转义，消除通配符误匹配
+
+#### ⚡ 性能优化（5 项）
+
+- 文件列表排序移至 SQL（配合分页）
+- AI 任务队列 per-user 并发背压控制
+- cleanup.ts 分批硬删除（防 cron 超时）
+- WebDAV 原子化 storageUsed
+- 向量索引断点续传
+
+#### 🆕 新增功能（6 项）
+
+| 功能           | 说明                             |
+| -------------- | -------------------------------- |
+| 文件夹大小统计 | 前端详情面板展示递归占用空间     |
+| 增量向量索引   | 上传自动触发索引，新文件立即可搜 |
+| Zip 打包下载   | 文件夹一键打包下载               |
+| 文件访问日志   | 文件维度访问记录查看             |
+| 标签全局管理页 | 合并/重命名/批量删除             |
+| AI 对话导出    | Markdown/PDF 一键导出            |
+
+> 完整修复清单请参阅 [CHANGELOG.md](CHANGELOG.md) 的 v4.7.0 章节。
+
 ### 历史版本 v4.6.0 - 用户体验全面优化与AI能力增强 🚀
 
 **核心更新**：
@@ -135,12 +194,12 @@
 
 **模型能力统计**：
 
-| 能力类型       | 模型数量 | 代表模型                                                                 |
-| -------------- | -------- | ------------------------------------------------------------------------ |
+| 能力类型       | 模型数量 | 代表模型                                                                  |
+| -------------- | -------- | ------------------------------------------------------------------------- |
 | **推理/思考**  | 25+      | GPT-5, o3 Mini, Claude Opus 4.1, Gemini 3, DeepSeek R1, GLM-5, Qwen3 235B |
-| **视觉多模态** | 20+      | GPT-4o, Claude Sonnet 4, Gemini 2.5 Pro, Qwen3 235B, ERNIE 4.5 Turbo    |
-| **长上下文**   | 15+      | Gemini 3 (2M), Gemini 2.5 Pro (2M), GLM-5 (200K), Kimi K2.5 (128K)      |
-| **代码专用**   | 5+       | Codestral, QwQ 32B                                                       |
+| **视觉多模态** | 20+      | GPT-4o, Claude Sonnet 4, Gemini 2.5 Pro, Qwen3 235B, ERNIE 4.5 Turbo      |
+| **长上下文**   | 15+      | Gemini 3 (2M), Gemini 2.5 Pro (2M), GLM-5 (200K), Kimi K2.5 (128K)        |
+| **代码专用**   | 5+       | Codestral, QwQ 32B                                                        |
 | **嵌入向量**   | 2        | BGE-M3, Mistral Embed                                                     |
 
 详细说明请参阅 [docs/AI_FEATURES.md](docs/AI_FEATURES.md) 和 [docs/API_AI.md](docs/API_AI.md)。
@@ -180,6 +239,14 @@
   - **CSV**: 表格视图、搜索、排序、分页
 - 📜 **版本控制**: 可编辑文本文件的版本历史管理、版本回滚（仅支持代码、配置、Markdown 等文本文件）
 - 🔐 **权限管理 v2**: 用户组管理、权限继承、时效性权限、RBAC 权限模型
+- 🏢 **团队协作 v5.0.0**:
+  - 团队空间：创建团队作为协作组织单元
+  - 成员管理：四级角色体系（owner/admin/member/guest）
+  - 资源挂载：将个人文件挂载到团队空间共享访问
+  - 角色模板：viewer/editor/manager 一键授权替代手动设置
+  - 权限申请与审批：成员发起申请 → 管理员审批 → 自动授权工作流
+  - 批量权限操作：多文件一次性授权/撤销
+  - 详细说明: [CHANGELOG.md](CHANGELOG.md) 的 v5.0.0 章节
 - 🔑 **API Keys**: 创建和管理 API 密钥，支持细粒度权限控制，实现程序化访问
 - 🌐 **RESTful v1 API**: 标准化 API 接口，支持 OpenAPI 文档和 Swagger UI
 - 🔔 **Webhook**: 文件事件订阅，支持第三方系统集成
@@ -536,6 +603,7 @@ curl https://your-api.workers.dev/api/auth/registration-config
 - 发送测试邮件验证配置 (v4.0.0+)
 - 群发系统公告邮件 (v4.0.0+)
 - 查看系统统计和审计日志
+- 创建和管理团队空间 (v5.0.0)
 
 ---
 
@@ -549,13 +617,13 @@ ossshelf/
 │   │   │   ├── db/             # 数据库连接与 Schema
 │   │   │   ├── lib/            # 核心库（AI、存储、权限等）
 │   │   │   ├── middleware/     # 中间件
-│   │   │   ├── routes/         # API 路由
+│   │   │   ├── routes/         # API 路由（含 teams.ts / permissions.ts 扩展）
 │   │   │   └── index.ts        # 入口
 │   │   ├── migrations/         # 数据库迁移（按功能模块分类）
 │   │   └── wrangler.toml       # Cloudflare 配置
 │   └── web/                    # 前端应用
 │       └── src/
-│           ├── components/     # UI 组件
+│   │           ├── components/     # UI 组件（含 teams/ / permissions/ 协作组件）
 │           ├── pages/          # 页面组件
 │           ├── hooks/          # 自定义 Hooks
 │           ├── services/       # API 服务
@@ -587,12 +655,14 @@ ossshelf/
 | `/api/downloads`     | 离线下载                              |
 | `/api/batch`         | 批量操作                              |
 | `/api/search`        | 文件搜索                              |
-| `/api/permissions`   | 权限与标签                            |
+| `/api/permissions`   | 权限与标签 + 团队权限/批量操作/审批流（v5.0.0 扩展）         |
 | `/api/preview`       | 文件预览                              |
 | `/api/versions`      | 版本控制                              |
 | `/api/notes`         | 文件笔记                              |
 | `/api/api-keys`      | API Keys 管理                         |
 | `/api/groups`        | 用户组管理                            |
+| `/api/teams`          | 团队空间管理（v5.0.0 新增）            |
+| `/api/roles/templates`| 角色模板查询（v5.0.0 新增）           |
 | `/api/webhooks`      | Webhook 管理                          |
 | `/api/ai`            | AI 文件处理功能 (v4.3.0 增强)         |
 | `/api/ai-config`     | AI 配置管理、系统配置 (v4.3.0 增强)   |

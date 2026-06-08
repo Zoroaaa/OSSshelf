@@ -10,7 +10,7 @@
  * - 权限检查复用 permissionService
  */
 
-import { eq, and, isNull, inArray, sql, count, desc, asc } from 'drizzle-orm';
+import { eq, and, isNull, inArray, sql, count, desc } from 'drizzle-orm';
 import { getDb, files, fileTags } from '../db';
 import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';

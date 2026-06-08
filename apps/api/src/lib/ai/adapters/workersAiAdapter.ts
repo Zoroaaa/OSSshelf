@@ -19,7 +19,7 @@ import type {
   EmbeddingResponse,
 } from '../types';
 import { logger } from '@osshelf/shared';
-import { extractThinkingContent, hasThinkingTags } from '../utils';
+import { extractThinkingContent } from '../utils';
 
 export class WorkersAiAdapter implements IModelAdapter {
   readonly provider = 'workers_ai' as const;
@@ -51,13 +51,33 @@ export class WorkersAiAdapter implements IModelAdapter {
         temperature: request.temperature ?? 0.7,
       };
 
-      if (request.tools && request.tools.length > 0) {
-        requestBody.tools = request.tools.map((t) => ({
-          name: t.function.name,
-          description: t.function.description,
-          parameters: t.function.parameters,
-        }));
-      }
+if (request.tools && request.tools.length > 0) {
+  requestBody.tools = request.tools.map((t) => ({
+    name: t.function.name,
+    description: t.function.description,
+    parameters: stripNestedObjectArrays(t.function.parameters),
+  }));
+
+  function stripNestedObjectArrays(schema: any): any {
+    if (!schema || typeof schema !== 'object') return schema;
+    
+    const result = { ...schema };
+    
+    if (result.properties) {
+      result.properties = Object.fromEntries(
+        Object.entries(result.properties).map(([k, v]: [string, any]) => {
+          if (v.type === 'array' && v.items?.type === 'object') {
+            // 降级为 string，让模型传 JSON 字符串
+            return [k, { type: 'string', description: v.description }];
+          }
+          return [k, stripNestedObjectArrays(v)];
+        })
+      );
+    }
+    
+    return result;
+  }
+}
 
       const response = await (this.env.AI as any).run(modelConfig.modelId, requestBody);
 
@@ -155,6 +175,7 @@ export class WorkersAiAdapter implements IModelAdapter {
       let contentBuffer = '';
       let hasEmittedReasoning = false;
 
+      // eslint-disable-next-line no-constant-condition -- 流式读取标准模式
       while (true) {
         const { done, value } = await reader.read();
         if (done || signal?.aborted) break;

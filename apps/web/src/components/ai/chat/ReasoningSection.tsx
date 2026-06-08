@@ -58,8 +58,12 @@ export function ReasoningSection({ content, isStreaming = false }: ReasoningSect
         onClick={handleToggle}
         className="flex items-center gap-2.5 w-full px-3.5 py-2.5 hover:bg-violet-100/30 dark:hover:bg-violet-900/20 transition-all duration-200 text-left group"
       >
-        <span className={`flex items-center justify-center h-5 w-5 rounded-full flex-shrink-0 transition-all duration-300 ${isStreaming ? 'bg-violet-200 dark:bg-violet-800/60 animate-pulse' : 'bg-violet-100 dark:bg-violet-900/40'} ${!expanded ? 'group-hover:bg-violet-200 dark:group-hover:bg-violet-800/60' : ''}`}>
-          <Sparkles className={`h-3 w-3 text-violet-600 dark:text-violet-400 ${isStreaming ? 'animate-spin-slow' : ''}`} />
+        <span
+          className={`flex items-center justify-center h-5 w-5 rounded-full flex-shrink-0 transition-all duration-300 ${isStreaming ? 'bg-violet-200 dark:bg-violet-800/60 animate-pulse' : 'bg-violet-100 dark:bg-violet-900/40'} ${!expanded ? 'group-hover:bg-violet-200 dark:group-hover:bg-violet-800/60' : ''}`}
+        >
+          <Sparkles
+            className={`h-3 w-3 text-violet-600 dark:text-violet-400 ${isStreaming ? 'animate-spin-slow' : ''}`}
+          />
         </span>
         <span className="text-[12px] font-semibold text-violet-700 dark:text-violet-300">{displayTitle}</span>
         {!isStreaming && wordCount > 0 && (

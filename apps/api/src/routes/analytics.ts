@@ -83,7 +83,7 @@ app.get('/storage-breakdown', async (c) => {
       totalFiles,
       totalFolders,
       quota: user?.storageQuota || 0,
-      used: user?.storageUsed || 0,
+      used: totalSize,
       byType: typeList,
       byMimeType: mimeTypeList,
     },

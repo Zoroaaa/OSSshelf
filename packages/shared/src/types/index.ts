@@ -16,7 +16,7 @@ export interface User {
   email: string;
   name: string | null;
   role: UserRole;
-  storageQuota: number;
+  storageQuota: number | null;
   storageUsed: number;
   emailVerified: boolean;
   createdAt: string;
@@ -159,7 +159,11 @@ export type AuditAction =
   | 'admin.email_config_update'
   | 'admin.email_test'
   | 'admin.email_broadcast'
-  | 'admin.invite_code_revoke';
+  | 'admin.invite_code_revoke'
+  | 'admin.storage_audit'
+  | 'admin.storage_audit_force'
+  | 'admin.storage_cleanup_orphans'
+  | 'admin.storage_mark_missing_deleted';
 
 export interface LoginAttempt {
   id: string;

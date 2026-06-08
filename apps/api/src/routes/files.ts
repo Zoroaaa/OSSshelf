@@ -23,6 +23,7 @@ import {
   userStars,
   shares,
   auditLogs,
+  fileTags,
 } from '../db';
 import { checkFilePermission } from './permissions';
 import { inheritParentPermissions } from './permissions';
@@ -579,7 +580,7 @@ app.post('/upload', async (c) => {
   }
 
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
-  if (user && user.storageUsed + uploadFile.size > user.storageQuota) {
+  if (user && user.storageQuota! < 999999 * 1024 ** 3 && user.storageUsed + uploadFile.size > user.storageQuota!) {
     throwAppError('STORAGE_EXCEEDED', '用户存储配额已满');
   }
   if (bucketConfig) {
@@ -771,6 +772,10 @@ app.get('/', async (c) => {
   const sortOrder = c.req.query('sortOrder') || 'desc';
   const starred = c.req.query('starred') === 'true';
 
+  // 标签筛选（逗号分隔或重复参数）
+  const rawTags = c.req.query('tags');
+  const tagNames = rawTags ? rawTags.split(',').map((t) => t.trim()).filter(Boolean) : [];
+
   // 分页参数（默认第1页，每页50条，最大100条）
   const page = Math.max(1, parseInt(c.req.query('page') || '1', 10));
   const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '50', 10)));
@@ -807,12 +812,28 @@ app.get('/', async (c) => {
     );
   }
 
+  // 标签筛选
+  if (tagNames.length > 0) {
+    const taggedFileIds = await db
+      .select({ fileId: fileTags.fileId })
+      .from(fileTags)
+      .where(and(eq(fileTags.userId, userId), inArray(fileTags.name, tagNames)))
+      .all();
+    if (taggedFileIds.length === 0) {
+      return c.json({ success: true, data: { files: [], total: 0 }, pagination: { page, limit, total: 0, totalPages: 0 } });
+    }
+    conditions.push(inArray(files.id, taggedFileIds.map((t) => t.fileId)));
+  }
+
   if (parentId) {
     // 如果指定了 parentId，查询该目录下的文件
     // 用户需要有权限访问该目录（已在上面检查）
     conditions.push(eq(files.parentId, parentId));
+  } else if (tagNames.length > 0) {
+    // 标签筛选模式：只返回用户自己打标签的文件（tags 已限定 ID 范围）
+    conditions.push(eq(files.userId, userId));
   } else if (!starred) {
-    // 未指定 parentId 且未指定收藏筛选，返回：
+    // 未指定 parentId 且无标签/收藏筛选，返回：
     // 1. 用户自己的根目录文件
     // 2. 被授权访问的文件（无论在哪个目录）
 
@@ -1265,7 +1286,7 @@ app.post('/create', async (c) => {
   const fileSize = fileBuffer.byteLength;
 
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
-  if (user && user.storageUsed + fileSize > user.storageQuota) {
+  if (user && user.storageQuota! < 999999 * 1024 ** 3 && user.storageUsed + fileSize > user.storageQuota!) {
     throwAppError('STORAGE_EXCEEDED', '用户存储配额已满');
   }
   if (bucketConfig) {

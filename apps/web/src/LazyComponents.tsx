@@ -24,8 +24,10 @@ export const LazyDownloads = lazy(() => import('./pages/Downloads'));
 export const LazyPermissions = lazy(() => import('./pages/Permissions'));
 export const LazyAnalytics = lazy(() => import('./pages/Analytics'));
 export const LazyStarred = lazy(() => import('./pages/Starred'));
+export const LazyTags = lazy(() => import('./pages/Tags'));
 export const LazyAIChat = lazy(() => import('./pages/AIChat').then((m) => ({ default: m.AIChat })));
 export const LazyAISettings = lazy(() => import('./pages/AISettings').then((m) => ({ default: m.AISettings })));
+export const LazyTeams = lazy(() => import('./pages/Teams'));
 
 interface LazyWrapperProps {
   children: React.ReactNode;

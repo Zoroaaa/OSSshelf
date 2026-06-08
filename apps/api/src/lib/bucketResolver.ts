@@ -20,8 +20,8 @@
  * - checkBucketQuota 仅作乐观检查，不提供严格的事务隔离保证
  */
 
-import { eq, and, isNull, sql } from 'drizzle-orm';
-import { getDb, storageBuckets, files, users } from '../db';
+import { eq, and, sql } from 'drizzle-orm';
+import { getDb, storageBuckets, users } from '../db';
 import { makeBucketConfigAsync, type S3BucketConfig } from './s3client';
 import { formatBytes } from './ai/utils';
 

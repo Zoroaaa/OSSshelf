@@ -44,6 +44,8 @@ import {
   BarChart3,
   Star,
   Cpu,
+  Tag,
+  Users,
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { cn } from '@/utils';
@@ -53,6 +55,7 @@ const baseNavItems = [
   { path: '/', label: '概览', icon: LayoutDashboard, exact: true },
   { path: '/files', label: '文件', icon: FolderOpen, exact: false },
   { path: '/starred', label: '收藏', icon: Star, exact: false },
+  { path: '/tags', label: '标签', icon: Tag, exact: false },
   { path: '/shares', label: '分享', icon: Share2, exact: false },
   { path: '/tasks', label: '上传任务', icon: Upload, exact: false },
   { path: '/downloads', label: '离线下载', icon: Download, exact: false },
@@ -60,6 +63,7 @@ const baseNavItems = [
   { path: '/trash', label: '回收站', icon: Trash2, exact: false },
   { path: '/buckets', label: '存储桶', icon: Database, exact: false },
   { path: '/permissions', label: '权限管理', icon: ShieldCheck, exact: false },
+  { path: '/teams', label: '团队', icon: Users, exact: false },
   { path: '/ai-settings', label: 'AI 配置', icon: Cpu, exact: false },
   { path: '/settings', label: '设置', icon: Settings, exact: false },
 ];
@@ -265,7 +269,7 @@ export default function MainLayout() {
 
         <div className={cn('p-4 border-t space-y-4 flex-shrink-0', isCollapsed && !isHovering && 'px-2')}>
           {(!isCollapsed || isHovering) && (
-            <StorageBar used={user?.storageUsed || 0} quota={user?.storageQuota || 10737418240} />
+            <StorageBar used={user?.storageUsed || 0} quota={user?.storageQuota || 0} />
           )}
 
           {(!isCollapsed || isHovering) && (

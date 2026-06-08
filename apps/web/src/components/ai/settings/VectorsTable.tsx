@@ -8,7 +8,7 @@
  * - 删除向量操作
  */
 
-import { FileText, Trash2, Loader2, RefreshCw, Calendar, HardDrive, FileType, Sparkles } from 'lucide-react';
+import { FileText, Trash2, Loader2, RefreshCw, Calendar, HardDrive, FileType, Sparkles, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 
 interface VectorItem {
@@ -33,6 +33,7 @@ interface VectorsTableProps {
   totalRecords: number;
   formatFileSize: (bytes: number) => string;
   onDeleteVector: (fileId: string, fileName: string) => void;
+  onViewDetail?: (fileId: string) => void;
   onRefresh: () => void;
   onPageChange: (page: number) => void;
 }
@@ -41,11 +42,13 @@ function VectorCard({
   vector,
   formatFileSize,
   onDelete,
+  onViewDetail,
   isDeleting,
 }: {
   vector: VectorItem;
   formatFileSize: (bytes: number) => string;
   onDelete: (fileId: string, fileName: string) => void;
+  onViewDetail?: (fileId: string) => void;
   isDeleting: boolean;
 }) {
   return (
@@ -90,6 +93,15 @@ function VectorCard({
         <Button
           variant="ghost"
           size="sm"
+          className="flex-shrink-0 h-8 w-8 p-0 text-blue-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950"
+          onClick={() => onViewDetail?.(vector.id)}
+          title="查看索引详情"
+        >
+          <Eye className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
           className="flex-shrink-0 h-8 w-8 p-0 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
           onClick={() => onDelete(vector.id, vector.name)}
           disabled={isDeleting}
@@ -111,6 +123,7 @@ export function VectorsTable({
   totalRecords,
   formatFileSize,
   onDeleteVector,
+  onViewDetail,
   onRefresh,
   onPageChange,
 }: VectorsTableProps) {
@@ -119,7 +132,10 @@ export function VectorsTable({
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg sm:text-xl font-semibold">向量索引库</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">共 {totalRecords} 条记录</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            共 {totalRecords} 个文件已索引
+            <span className="ml-1 opacity-60">（Vectorize 实际条目数因分块通常更多）</span>
+          </p>
         </div>
         <Button variant="outline" size="sm" onClick={onRefresh} disabled={isLoadingVectors}>
           {isLoadingVectors ? (
@@ -156,6 +172,7 @@ export function VectorsTable({
               vector={vector}
               formatFileSize={formatFileSize}
               onDelete={onDeleteVector}
+              onViewDetail={onViewDetail}
               isDeleting={deletingVectorId === vector.id}
             />
           ))}

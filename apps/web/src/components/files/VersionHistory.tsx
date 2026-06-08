@@ -13,20 +13,9 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/Button';
 import { getErrorMessage } from '@/utils';
-import api from '@/services/api';
+import { versionsApi, type VersionInfo } from '@/services/api';
 import { formatBytes } from '@/utils';
 import { FileIcon } from './FileIcon';
-
-interface VersionInfo {
-  id: string;
-  version: number;
-  size: number;
-  mimeType: string | null;
-  changeSummary: string | null;
-  aiChangeSummary: string | null;
-  createdBy: string | null;
-  createdAt: string;
-}
 
 interface VersionHistoryProps {
   fileId: string;
@@ -58,15 +47,16 @@ export function VersionHistory({ fileId, fileName, mimeType, onClose, onVersionR
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get(`/api/versions/${fileId}/versions`);
-      if (response.data.success) {
-        setVersions(response.data.data.versions);
-        setCurrentVersion(response.data.data.currentVersion);
-        setMaxVersions(response.data.data.maxVersions);
-        setVersionRetentionDays(response.data.data.versionRetentionDays);
+      const response = await versionsApi.getList(fileId);
+      if (response.data.success && response.data.data) {
+        const data = response.data.data;
+        setVersions(data.versions);
+        setCurrentVersion(data.currentVersion);
+        setMaxVersions(data.maxVersions);
+        setVersionRetentionDays(data.versionRetentionDays);
         setSettingsForm({
-          maxVersions: response.data.data.maxVersions,
-          versionRetentionDays: response.data.data.versionRetentionDays,
+          maxVersions: data.maxVersions,
+          versionRetentionDays: data.versionRetentionDays,
         });
       }
     } catch (err) {
@@ -82,7 +72,7 @@ export function VersionHistory({ fileId, fileName, mimeType, onClose, onVersionR
     setActionLoading(`restore-${version}`);
     setError(null);
     try {
-      const response = await api.post(`/api/versions/${fileId}/versions/${version}/restore`);
+      const response = await versionsApi.restore(fileId, version);
       if (response.data.success) {
         await loadVersions();
         onVersionRestored?.();
@@ -97,9 +87,7 @@ export function VersionHistory({ fileId, fileName, mimeType, onClose, onVersionR
   const handleDownload = async (version: number) => {
     setActionLoading(`download-${version}`);
     try {
-      const response = await api.get(`/api/versions/${fileId}/versions/${version}/download`, {
-        responseType: 'blob',
-      });
+      const response = await versionsApi.download(fileId, version);
       const url = window.URL.createObjectURL(response.data);
       const a = document.createElement('a');
       a.href = url;
@@ -121,7 +109,7 @@ export function VersionHistory({ fileId, fileName, mimeType, onClose, onVersionR
     setActionLoading(`delete-${version}`);
     setError(null);
     try {
-      const response = await api.delete(`/api/versions/${fileId}/versions/${version}`);
+      const response = await versionsApi.delete(fileId, version);
       if (response.data.success) {
         await loadVersions();
       }
@@ -136,7 +124,7 @@ export function VersionHistory({ fileId, fileName, mimeType, onClose, onVersionR
     setActionLoading('settings');
     setError(null);
     try {
-      const response = await api.patch(`/api/versions/${fileId}/version-settings`, settingsForm);
+      const response = await versionsApi.updateVersionSettings(fileId, settingsForm);
       if (response.data.success) {
         setMaxVersions(settingsForm.maxVersions);
         setVersionRetentionDays(settingsForm.versionRetentionDays);

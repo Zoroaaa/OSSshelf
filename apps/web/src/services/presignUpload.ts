@@ -1,37 +1,59 @@
 /**
  * presignUpload.ts
- * 预签名上传服务
  *
- * 功能:
- * - 小文件直接上传（≤100MB）
- * - 大文件分片上传（>100MB）
- * - 上传进度跟踪
- * - 断点续传支持
- * - CORS代理回退
+ * 预签名上传服务层
  *
- * 上传策略:
- * 1. 小文件：获取预签名URL -> 直接PUT到S3 -> 确认上传
- * 2. 大文件：初始化分片 -> 逐片上传 -> 完成上传
- * 3. 若S3不支持CORS，自动回退到服务器代理模式
+ * 职责：
+ * - 小文件直接上传（≤100MB）：获取预签名 URL → PUT 到 S3 → 确认上传
+ * - 大文件分片上传（>100MB）：初始化分片 → 逐片上传 → 完成合并
+ * - 上传进度实时跟踪（0-100%）
+ * - 断点续传支持（基于已有 taskId 恢复）
+ * - CORS 错误自动回退到服务器代理模式
+ * - Telegram Bot 代理上传支持（自动检测 isTelegramUpload 标志）
+ *
+ * 上传策略流程：
+ * 1. 判断文件大小 → 选择单文件/分片模式
+ * 2. 调用 /api/tasks/create 创建任务记录
+ * 3. 若返回 useProxy 或检测到 CORS 错误 → 回退代理模式
+ * 4. 若返回 isTelegramUpload → 自动走 Telegram 代理分片上传
+ * 5. 正常模式：PUT 到预签名 URL / 分片模式：逐片 PUT + part-done
+ * 6. 调用 /api/tasks/complete 完成上传（含 SHA-256 哈希去重）
+ *
+ * 导出：
+ * - presignUpload()        — 主入口（自动选择上传策略）
+ * - proxyUploadFile()       — 服务器代理上传（CORS 回退）
+ * - telegramProxyUpload()   — Telegram Bot 代理上传
+ * - getPresignedDownloadUrl() — 预签名下载 URL
+ * - getPresignedPreviewUrl()  — 预签名预览 URL
+ * - MULTIPART_THRESHOLD      — 分片阈值常量（100MB）
+ * - PART_SIZE               — 分片大小常量（10MB）
  */
 
 import axios from 'axios';
 import { useAuthStore } from '../stores/auth';
+import { tasksApi } from './core';
 import type { UploadedFile } from '@osshelf/shared';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
-/** Files larger than this use multipart upload (100 MB) */
+// ─────────────────────────────────────────────────────────────────────────────
+// 常量定义
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 超过此大小使用分片上传（100 MB） */
 export const MULTIPART_THRESHOLD = 100 * 1024 * 1024;
 
-/** Each multipart part is this size (10 MB — S3 minimum is 5 MB for non-last parts) */
+/** 每个分片的大小（10 MB — S3 要求非末尾分片最小 5 MB） */
 export const PART_SIZE = 10 * 1024 * 1024;
 
-/** Max concurrent part uploads */
+/** 最大并发分片上传数 */
 const MAX_CONCURRENT_PARTS = 3;
 
-// ── Typed API response helpers ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// 内部类型定义
+// ─────────────────────────────────────────────────────────────────────────────
 
+/** 分片上传初始化响应 */
 interface PresignMultipartInitResponse {
   useProxy?: boolean;
   uploadId?: string;
@@ -41,18 +63,23 @@ interface PresignMultipartInitResponse {
   firstPartUrl?: string;
 }
 
+/** 单个分片的预签名响应 */
 interface PresignPartResponse {
   partUrl: string;
   partNumber: number;
 }
 
-// ── Auth header helper ─────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// 认证 & API 辅助函数
+// ─────────────────────────────────────────────────────────────────────────────
 
+/** 构建带 Token 的认证请求头 */
 function authHeaders(): Record<string, string> {
   const token = useAuthStore.getState().token;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/** 封装 POST 请求（自动提取 data 字段并处理错误） */
 async function apiPost<T>(path: string, data: unknown): Promise<T> {
   const res = await axios.post<{ success: boolean; data: T; error?: { message: string } }>(`${API_BASE}${path}`, data, {
     headers: authHeaders(),
@@ -63,6 +90,7 @@ async function apiPost<T>(path: string, data: unknown): Promise<T> {
   return res.data.data;
 }
 
+/** 封装 GET 请求（自动提取 data 字段并处理错误） */
 async function apiGet<T>(path: string): Promise<T> {
   const res = await axios.get<{ success: boolean; data: T; error?: { message: string } }>(`${API_BASE}${path}`, {
     headers: authHeaders(),
@@ -73,8 +101,11 @@ async function apiGet<T>(path: string): Promise<T> {
   return res.data.data;
 }
 
-// ── Main export ────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// 主入口 — 预签名上传
+// ─────────────────────────────────────────────────────────────────────────────
 
+/** 预签名上传选项 */
 export interface PresignUploadOptions {
   file: File;
   parentId?: string | null;
@@ -108,7 +139,9 @@ export async function presignUpload({
   return singlePresignUpload({ file, parentId, bucketId, onProgress, onFallback, signal }, uploadCtx);
 }
 
-// ── Single presigned PUT upload ────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// 单文件预签名 PUT 上传
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function singlePresignUpload(
   { file, parentId, bucketId, onProgress, onFallback, signal }: PresignUploadOptions,
@@ -158,7 +191,7 @@ async function singlePresignUpload(
     throw new Error('预签名上传：服务器未返回上传 URL');
   }
 
-  await apiPost('/api/tasks/start', { taskId }).catch(() => {});
+  await tasksApi.start(taskId).catch(() => {});
 
   // 读取 buffer 并计算 SHA-256（用于服务端去重）
   const fileBuffer = await file.arrayBuffer();
@@ -189,10 +222,11 @@ async function singlePresignUpload(
   return result;
 }
 
-// ── Multipart upload ───────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// 分片上传
+// ─────────────────────────────────────────────────────────────────────────────
 
-// corsErrorDetected 已移入 presignUpload 调用上下文（见下方），避免模块级状态污染多用户
-
+/** 判断是否为 CORS 相关错误 */
 function isCorsError(error: unknown): boolean {
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
@@ -226,7 +260,6 @@ async function multipartUpload(
   let taskId: string;
   let uploadId: string;
   let r2Key: string;
-  let resolvedBucketId: string | undefined;
   let firstPartUrl: string | undefined;
 
   // 如果提供了现有任务ID，使用断点续传模式
@@ -243,7 +276,6 @@ async function multipartUpload(
     }>(`/api/tasks/${existingTaskId}`);
     uploadId = taskInfo.uploadId;
     r2Key = taskInfo.r2Key;
-    resolvedBucketId = taskInfo.bucketId;
     // 合并服务器返回的已上传分片
     skipParts = [...new Set([...skipParts, ...taskInfo.uploadedParts])];
   } else {
@@ -280,7 +312,6 @@ async function multipartUpload(
     const initData = init as any;
     uploadId = initData.uploadId;
     r2Key = initData.r2Key;
-    resolvedBucketId = initData.bucketId;
     firstPartUrl = initData.firstPartUrl;
     taskId = initData.taskId;
     if (!uploadId || !r2Key) {
@@ -305,8 +336,6 @@ async function multipartUpload(
     try {
       if (taskId) {
         await apiPost('/api/tasks/abort', { taskId });
-      } else {
-        await apiPost('/api/presign/multipart/abort', { r2Key, uploadId, bucketId: resolvedBucketId });
       }
     } catch {
       /* ignore */
@@ -422,8 +451,11 @@ async function multipartUpload(
   }
 }
 
-// ── Proxy upload part for task API ─────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// 代理分片上传（CORS 回退模式）
+// ─────────────────────────────────────────────────────────────────────────────
 
+/** 通过服务器代理上传单个分片 */
 async function proxyUploadPartForTask(
   taskId: string,
   partNumber: number,
@@ -452,10 +484,12 @@ async function proxyUploadPartForTask(
   return res.data.data.etag;
 }
 
-// ── Low-level HTTP helpers ─────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// 底层 HTTP 工具（XHR 直传 / 分片上传）
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * PUT a body directly to a presigned URL using XHR (for progress).
+ * 使用 XHR 将 body 直接 PUT 到预签名 URL（支持进度回调）
  */
 function directPut(
   url: string,
@@ -509,7 +543,7 @@ function directPut(
 }
 
 /**
- * Upload a single multipart chunk. Returns the ETag from the response header.
+ * 上传单个分片到预签名 URL，返回响应头中的 ETag
  */
 function uploadPart(
   url: string,
@@ -572,8 +606,11 @@ function uploadPart(
   });
 }
 
-// ── Legacy proxy fallback ─────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// 旧版代理回退上传（CORS 不兼容时使用）
+// ─────────────────────────────────────────────────────────────────────────────
 
+/** 代理上传选项（fallback 模式） */
 interface ProxyUploadOptions {
   file: File;
   parentId?: string | null;
@@ -616,8 +653,11 @@ async function proxyUpload({
   return res.data.data;
 }
 
-// ── Telegram proxy upload ─────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Telegram Bot 代理上传
+// ─────────────────────────────────────────────────────────────────────────────
 
+/** Telegram 代理上传选项 */
 interface TelegramProxyUploadOptions {
   file: File;
   taskId: string;
@@ -699,8 +739,11 @@ async function telegramProxyUpload({
   };
 }
 
-// ── Presigned download/preview URL helpers ─────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// 预签名下载/预览 URL 辅助
+// ─────────────────────────────────────────────────────────────────────────────
 
+/** 预签名下载结果 */
 export interface PresignDownloadResult {
   useProxy: boolean;
   url: string; // presigned URL or proxy URL
@@ -758,10 +801,15 @@ export async function getPresignedPreviewUrl(fileId: string): Promise<PresignDow
   return { useProxy: true, url: `${API_BASE}/api/files/${fileId}/preview?token=${token}` };
 }
 
-// ── Hash helper ────────────────────────────────────────────────────────────
-// 大文件分片上传时不需要将整个文件读入内存——若文件已在内存中（singlePresign）
-// 则在调用处直接计算；此函数供 multipart 流程的 complete 阶段调用。
-// 注意：大文件调用此函数会阻塞主线程，生产中可改为 Web Worker，当前可接受。
+// ─────────────────────────────────────────────────────────────────────────────
+// 文件哈希计算工具
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 计算 SHA-256 哈希值
+ * 用于上传完成时服务端去重。
+ * 注意：大文件会阻塞主线程，生产环境可改为 Web Worker。
+ */
 async function computeFileHash(file: File): Promise<string | undefined> {
   try {
     const buf = await file.arrayBuffer();

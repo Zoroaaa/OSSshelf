@@ -227,7 +227,9 @@ export function FilePreview({ file, token, onClose, onDownload, onShare, onEdit,
       })
       .catch(() => {
         if (!cancelled) {
-          setResolvedUrl(`${filesApi.previewUrl(file.id)}?token=${encodeURIComponent(token)}`);
+          setResolvedUrl(
+            `${import.meta.env.VITE_API_URL || ''}/api/files/${file.id}/preview?token=${encodeURIComponent(token)}`
+          );
         }
       });
 

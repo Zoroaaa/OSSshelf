@@ -10,7 +10,7 @@
  * - 完善的错误处理和日志记录
  */
 
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDb, files, storageBuckets, telegramFileRefs } from '../db';
 import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';

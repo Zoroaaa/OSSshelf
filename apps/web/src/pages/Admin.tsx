@@ -9,9 +9,10 @@
  * - 系统统计与审计日志
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { adminApi, type AdminUser, AITraceItem, ModelHealthInfo } from '@/services/api';
+import { adminApi, type AdminUser } from '@/services/api';
 import { useAuthStore } from '@/stores/auth';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -21,6 +22,7 @@ import { useResponsive } from '@/hooks/useResponsive';
 import { formatBytes, formatDate } from '@/utils';
 import { cn } from '@/utils';
 import { EmailConfig } from '@/components/admin/EmailConfig';
+import { StorageAuditTab } from '@/components/admin/StorageAuditTab';
 import {
   Users,
   Shield,
@@ -43,13 +45,21 @@ import {
   Mail,
   Clock,
   Brain,
+  HardDrive,
 } from 'lucide-react';
 
-type TabKey = 'users' | 'registration' | 'email' | 'stats' | 'audit' | 'ai-trace';
+type TabKey = 'users' | 'registration' | 'email' | 'stats' | 'audit' | 'ai-trace' | 'storage-audit';
 
 export default function Admin() {
   const { user: currentUser } = useAuthStore();
-  const [activeTab, setActiveTab] = useState<TabKey>('users');
+  const { tab: urlTab } = useParams<{ tab?: string }>();
+  const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<TabKey>((urlTab as TabKey) || 'users');
+
+  const handleTabChange = (tabKey: TabKey) => {
+    setActiveTab(tabKey);
+    navigate(`/admin/${tabKey}`, { replace: true });
+  };
 
   if (currentUser?.role !== 'admin') {
     return (
@@ -72,6 +82,7 @@ export default function Admin() {
     { key: 'audit', label: '审计日志', icon: FileText },
     { key: 'stats', label: '系统统计', icon: Server },
     { key: 'ai-trace', label: 'AI 执行日志', icon: Brain },
+    { key: 'storage-audit', label: '存储审计', icon: HardDrive },
   ];
 
   return (
@@ -87,7 +98,7 @@ export default function Admin() {
           return (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => handleTabChange(tab.key)}
               className={cn(
                 'flex items-center gap-2 px-3 sm:px-4 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0',
                 activeTab === tab.key
@@ -108,6 +119,7 @@ export default function Admin() {
       {activeTab === 'audit' && <AuditLogTab />}
       {activeTab === 'stats' && <StatsTab />}
       {activeTab === 'ai-trace' && <AITraceTab />}
+      {activeTab === 'storage-audit' && <StorageAuditTab />}
     </div>
   );
 }
@@ -138,7 +150,7 @@ function UsersTab() {
       toast({ title: '用户已更新' });
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
       if (variables.id === currentUser?.id) {
-        if (variables.data.storageQuota !== undefined) {
+        if (variables.data.storageQuota !== undefined && variables.data.storageQuota !== null) {
           updateUser({ storageQuota: variables.data.storageQuota });
         }
         if (variables.data.name !== undefined) {
@@ -167,7 +179,7 @@ function UsersTab() {
     setEditForm({
       name: user.name || '',
       role: user.role,
-      storageQuota: user.storageQuota ? String(Math.round(user.storageQuota / 1024 ** 3)) : '',
+      storageQuota: user.storageQuota && user.storageQuota < 999999 * 1024 ** 3 ? String(Math.round(user.storageQuota / 1024 ** 3)) : '',
       newPassword: '',
     });
   };
@@ -179,8 +191,7 @@ function UsersTab() {
     const data: Parameters<typeof adminApi.patchUser>[1] = {
       name: editForm.name || undefined,
       role: editForm.role,
-      storageQuota:
-        !isNaN(quotaGB) && editForm.storageQuota.trim() !== '' ? Math.round(quotaGB * 1024 ** 3) : undefined,
+      storageQuota: !isNaN(quotaGB) && editForm.storageQuota.trim() !== '' ? Math.round(quotaGB * 1024 ** 3) : 999999999 * 1024 ** 3,
       newPassword: trimmedPassword || undefined,
     };
     patchMutation.mutate({ id: editingUser.id, data });
@@ -294,7 +305,7 @@ function UsersTab() {
                           </span>
                           <span className="flex-shrink-0">
                             {formatBytes(user.storageUsed)} /{' '}
-                            {user.storageQuota ? formatBytes(user.storageQuota) : '无限制'}
+                            {user.storageQuota && user.storageQuota < 999999 * 1024 ** 3 ? formatBytes(user.storageQuota) : '无限制'}
                           </span>
                           <span className="flex-shrink-0">{user.fileCount} 文件</span>
                         </div>
@@ -374,12 +385,6 @@ function AITraceTab() {
         .then((r) => r.data.data),
   });
 
-  const { data: modelHealth } = useQuery({
-    queryKey: ['admin', 'ai-model-health'],
-    queryFn: () => adminApi.aiModelHealth().then((r) => r.data.data),
-    refetchInterval: 30000,
-  });
-
   const traces = tracesData?.items ?? [];
   const total = tracesData?.total ?? 0;
   const totalPages = Math.ceil(total / 20);
@@ -440,7 +445,7 @@ function AITraceTab() {
                     className={cn(
                       'p-3 rounded-lg border cursor-pointer transition-all hover:shadow-sm',
                       statusConfig.color,
-                      selectedTrace === trace.id && 'ring-2 ring-violet-400',
+                      selectedTrace === trace.id && 'ring-2 ring-violet-400'
                     )}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -464,9 +469,7 @@ function AITraceTab() {
                       </div>
                     </div>
 
-                    {selectedTrace === trace.id && (
-                      <AITraceDetailPanel traceId={trace.traceId} />
-                    )}
+                    {selectedTrace === trace.id && <AITraceDetailPanel traceId={trace.traceId} />}
                   </div>
                 );
               })}
@@ -475,80 +478,29 @@ function AITraceTab() {
 
           {totalPages > 1 && (
             <div className="flex items-center justify-center gap-2 mt-4">
-              <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+              >
                 上一页
               </Button>
               <span className="text-sm text-muted-foreground">
                 {page} / {totalPages}
               </span>
-              <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+              >
                 下一页
               </Button>
             </div>
           )}
         </CardContent>
       </Card>
-
-      {/* 模型健康状态 */}
-      {modelHealth && modelHealth.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">模型健康状态</CardTitle>
-            <CardDescription>实时监控 AI 模型的可用性和性能</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {modelHealth.map((model) => (
-                <div
-                  key={model.modelId}
-                  className={cn(
-                    'p-4 rounded-lg border',
-                    model.status === 'healthy'
-                      ? 'border-green-200 bg-green-50/50 dark:bg-green-950/20'
-                      : model.status === 'degraded'
-                        ? 'border-yellow-200 bg-yellow-50/50 dark:bg-yellow-950/20'
-                        : 'border-red-200 bg-red-50/50 dark:bg-red-950/20',
-                  )}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-medium text-sm">{model.modelName}</span>
-                    <span
-                      className={cn(
-                        'text-xs px-2 py-0.5 rounded-full',
-                        model.status === 'healthy'
-                          ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                          : model.status === 'degraded'
-                            ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300'
-                            : 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
-                      )}
-                    >
-                      {model.circuitState === 'open' ? '熔断中' : model.status === 'healthy' ? '正常' : '降级'}
-                    </span>
-                  </div>
-                  <div className="space-y-1 text-xs text-muted-foreground">
-                    <div className="flex justify-between">
-                      <span>成功率</span>
-                      <span className={cn(model.successRate < 0.9 && 'text-red-500 font-medium')}>
-                        {(model.successRate * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>平均延迟</span>
-                      <span>{(model.avgLatencyMs / 1000).toFixed(2)}s</span>
-                    </div>
-                    {model.failureCount > 0 && (
-                      <div className="flex justify-between">
-                        <span>连续失败</span>
-                        <span className="text-orange-500">{model.failureCount} 次</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }
@@ -607,7 +559,7 @@ function AITraceDetailPanel({ traceId }: { traceId: string }) {
                         ? 'bg-blue-500 animate-pulse'
                         : step.status === 'skipped'
                           ? 'bg-gray-400'
-                          : 'bg-gray-300',
+                          : 'bg-gray-300'
                   )}
                 />
                 <span className={step.status === 'skipped' ? 'line-through text-muted-foreground' : ''}>
@@ -631,15 +583,13 @@ function AITraceDetailPanel({ traceId }: { traceId: string }) {
                   'flex items-center gap-2 p-2 rounded text-xs border-l-2',
                   tc.status === 'success'
                     ? 'border-green-400 bg-green-50/30 dark:bg-green-950/10'
-                    : 'border-red-400 bg-red-50/30 dark:bg-red-950/10',
+                    : 'border-red-400 bg-red-50/30 dark:bg-red-950/10'
                 )}
               >
                 <span className="font-mono font-medium text-violet-600 dark:text-violet-400 min-w-[120px] truncate">
                   {tc.name}
                 </span>
-                <span className="text-muted-foreground flex-1 truncate">
-                  {JSON.stringify(tc.args)?.slice(0, 60)}
-                </span>
+                <span className="text-muted-foreground flex-1 truncate">{JSON.stringify(tc.args)?.slice(0, 60)}</span>
                 <span className="text-muted-foreground">{formatDuration(tc.durationMs)}</span>
               </div>
             ))}
@@ -653,7 +603,9 @@ function AITraceDetailPanel({ traceId }: { traceId: string }) {
           <div className="text-xs font-medium text-amber-600 dark:text-amber-400 mb-1">🧠 召回记忆</div>
           <ul className="space-y-0.5">
             {detail.memoryRecalled.map((mem, i) => (
-              <li key={i} className="text-xs text-muted-foreground pl-2">• {mem}</li>
+              <li key={i} className="text-xs text-muted-foreground pl-2">
+                • {mem}
+              </li>
             ))}
           </ul>
         </div>

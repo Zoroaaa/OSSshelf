@@ -231,40 +231,42 @@ export function AIChat() {
 
   const [isDragOver, setIsDragOver] = useState(false);
   const [quotedMessage, setQuotedMessage] = useState<{ id: string; content: string; role: string } | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; messageId: string; content: string; role: string } | null>(null);
-  const inputAreaRef = useRef<HTMLDivElement>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    messageId: string;
+    content: string;
+    role: string;
+  } | null>(null);
 
   // ═══ @文件引用搜索查询 ═══
   const { data: mentionSearchResults = [] } = useQuery({
     queryKey: ['mention-files', mentionQuery],
-    queryFn: () =>
-      aiApi
-        .search(mentionQuery, { limit: 8 })
-        .then((r) => r.data?.data ?? []),
+    queryFn: () => aiApi.search(mentionQuery, { limit: 8 }).then((r) => r.data?.data ?? []),
     enabled: showMentionDropdown,
     staleTime: 5000,
   });
 
   // 检测 @ 符号触发搜索
-  const detectMention = useCallback(
-    (value: string, cursorPos: number) => {
-      const textBeforeCursor = value.substring(0, cursorPos);
-      const atIndex = textBeforeCursor.lastIndexOf('@');
+  const detectMention = useCallback((value: string, cursorPos: number) => {
+    const textBeforeCursor = value.substring(0, cursorPos);
+    const atIndex = textBeforeCursor.lastIndexOf('@');
 
-      if (atIndex !== -1 && (atIndex === 0 || textBeforeCursor[atIndex - 1] === ' ' || textBeforeCursor[atIndex - 1] === '\n')) {
-        const query = textBeforeCursor.substring(atIndex + 1);
-        if (!query.includes(' ') && !query.includes('@')) {
-          setMentionQuery(query);
-          setShowMentionDropdown(true);
-          setMentionCursorPos(atIndex);
-          return;
-        }
+    if (
+      atIndex !== -1 &&
+      (atIndex === 0 || textBeforeCursor[atIndex - 1] === ' ' || textBeforeCursor[atIndex - 1] === '\n')
+    ) {
+      const query = textBeforeCursor.substring(atIndex + 1);
+      if (!query.includes(' ') && !query.includes('@')) {
+        setMentionQuery(query);
+        setShowMentionDropdown(true);
+        setMentionCursorPos(atIndex);
+        return;
       }
-      setShowMentionDropdown(false);
-      setMentionQuery('');
-    },
-    [],
-  );
+    }
+    setShowMentionDropdown(false);
+    setMentionQuery('');
+  }, []);
 
   // 选择文件到引用列表
   const selectMentionedFile = useCallback(
@@ -285,7 +287,7 @@ export function AIChat() {
       setMentionQuery('');
       inputRef.current?.focus();
     },
-    [input, mentionedFiles, mentionCursorPos, mentionQuery],
+    [input, mentionedFiles, mentionCursorPos, mentionQuery]
   );
 
   // 移除已引用的文件
@@ -350,16 +352,12 @@ export function AIChat() {
     [mentionedFiles]
   );
 
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent, messageId: string, content: string, role: string) => {
-      e.preventDefault();
-      setContextMenu({ x: e.clientX, y: e.clientY, messageId, content, role });
-    },
-    []
-  );
+  const handleContextMenu = useCallback((e: React.MouseEvent, messageId: string, content: string, role: string) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, messageId, content, role });
+  }, []);
 
   const handleQuoteMessage = useCallback((content: string) => {
-    const preview = content.length > 80 ? content.slice(0, 80) + '...' : content;
     setQuotedMessage({ id: `quote_${Date.now()}`, content, role: 'user' });
     setContextMenu(null);
     if (inputRef.current) {
@@ -466,9 +464,7 @@ export function AIChat() {
         setCurrentSessionId(sessionId);
         setMessages(
           res.data.data.messages.map((m: AiChatMessage) => {
-            // 占位消息（content 为空且未标记 aborted）说明 Worker 意外终止，标记为中断
-            const isInterrupted =
-              m.role === 'assistant' && !m.content && !m.aborted;
+            const isInterrupted = m.role === 'assistant' && !m.content && !m.aborted;
             return {
               id: m.id,
               role: m.role as 'user' | 'assistant',
@@ -477,6 +473,7 @@ export function AIChat() {
               toolCalls: m.toolCalls || [],
               reasoning: m.reasoning || undefined,
               aborted: m.aborted || isInterrupted,
+              mentionedFiles: m.mentionedFiles,
               timestamp: new Date(m.createdAt),
             };
           })
@@ -579,7 +576,12 @@ export function AIChat() {
               setExecutionPlans((prev) => {
                 const currentPlan = prev.get(assistantId);
                 if (!currentPlan) return prev;
-                const updatedPlan = { ...currentPlan, steps: currentPlan.steps.map((s) => s.id === raw.stepId ? { ...s, status: raw.status as ExecutionPlan['steps'][number]['status'] } : s) };
+                const updatedPlan = {
+                  ...currentPlan,
+                  steps: currentPlan.steps.map((s) =>
+                    s.id === raw.stepId ? { ...s, status: raw.status as ExecutionPlan['steps'][number]['status'] } : s
+                  ),
+                };
                 const newMap = new Map(prev);
                 newMap.set(assistantId, updatedPlan);
                 return newMap;
@@ -1117,7 +1119,10 @@ export function AIChat() {
             {contextMenu && (
               <div
                 className="fixed z-[100] min-w-[160px] bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 py-1.5 animate-in fade-in zoom-in-95 duration-150"
-                style={{ left: Math.min(contextMenu.x, window.innerWidth - 180), top: Math.min(contextMenu.y, window.innerHeight - 120) }}
+                style={{
+                  left: Math.min(contextMenu.x, window.innerWidth - 180),
+                  top: Math.min(contextMenu.y, window.innerHeight - 120),
+                }}
                 onClick={(e) => e.stopPropagation()}
               >
                 <button
@@ -1154,7 +1159,9 @@ export function AIChat() {
                 <div className="w-full mb-1 flex items-start gap-2 px-2 py-1.5 rounded-lg bg-violet-100/80 dark:bg-violet-900/30 text-sm">
                   <Reply className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400 mt-0.5 flex-shrink-0" />
                   <span className="flex-1 text-violet-700 dark:text-violet-300 line-clamp-2 italic">
-                    {quotedMessage.content.length > 120 ? quotedMessage.content.slice(0, 120) + '...' : quotedMessage.content}
+                    {quotedMessage.content.length > 120
+                      ? quotedMessage.content.slice(0, 120) + '...'
+                      : quotedMessage.content}
                   </span>
                   <button
                     onClick={() => setQuotedMessage(null)}

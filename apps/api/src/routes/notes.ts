@@ -41,43 +41,6 @@ app.use('/*', authMiddleware);
 // 提及相关路由（纯 DB 操作，保留在路由层）
 // ─────────────────────────────────────────────────────────────────────────────
 
-app.get('/mentions/unread', async (c) => {
-  const userId = c.get('userId')!;
-  const db = getDb(c.env.DB);
-
-  const unreadMentions = await db
-    .select({
-      id: noteMentions.id,
-      noteId: noteMentions.noteId,
-      createdAt: noteMentions.createdAt,
-    })
-    .from(noteMentions)
-    .where(and(eq(noteMentions.userId, userId), eq(noteMentions.isRead, false)))
-    .orderBy(desc(noteMentions.createdAt))
-    .limit(50)
-    .all();
-
-  return c.json({ success: true, data: unreadMentions });
-});
-
-app.put('/mentions/:mentionId/read', async (c) => {
-  const userId = c.get('userId')!;
-  const mentionId = c.req.param('mentionId');
-  const db = getDb(c.env.DB);
-
-  const mention = await db
-    .select()
-    .from(noteMentions)
-    .where(and(eq(noteMentions.id, mentionId), eq(noteMentions.userId, userId)))
-    .get();
-
-  if (!mention) throwAppError('MENTION_NOT_FOUND', '提及不存在');
-
-  await db.update(noteMentions).set({ isRead: true }).where(eq(noteMentions.id, mentionId));
-
-  return c.json({ success: true, data: { message: '已标记为已读' } });
-});
-
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /:fileId — 笔记列表（委托 service + 用户信息富化）
 // ─────────────────────────────────────────────────────────────────────────────
@@ -298,18 +261,4 @@ app.post('/:fileId/:noteId/pin', async (c) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /:fileId/:noteId/history — 历史版本（委托 service）
-// ─────────────────────────────────────────────────────────────────────────────
-
-app.get('/:fileId/:noteId/history', async (c) => {
-  const userId = c.get('userId')!;
-  const fileId = c.req.param('fileId');
-  const noteId = c.req.param('noteId');
-
-  const result = await serviceGetNoteHistory(c.env, userId, fileId, noteId);
-  if (!result.success) throwAppError('NOTE_NOT_FOUND', result.error);
-
-  return c.json({ success: true, data: result });
-});
-
 export default app;

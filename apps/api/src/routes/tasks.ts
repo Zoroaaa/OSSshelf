@@ -109,7 +109,7 @@ app.post('/create', async (c) => {
   }
 
   const user = await getUserOrFail(db, userId);
-  if (user.storageUsed + fileSize > user.storageQuota) {
+  if (user.storageQuota! < 999999 * 1024 ** 3 && user.storageUsed + fileSize > user.storageQuota!) {
     throwAppError('STORAGE_EXCEEDED', '用户存储配额已满');
   }
 
@@ -333,20 +333,6 @@ app.get('/list', async (c) => {
   });
 });
 
-app.delete('/clear', async (c) => {
-  const userId = c.get('userId')!;
-  const db = getDb(c.env.DB);
-
-  // 只删除已完成、失败、过期、取消的任务
-  await db
-    .delete(uploadTasks)
-    .where(
-      and(eq(uploadTasks.userId, userId), inArray(uploadTasks.status, ['completed', 'failed', 'expired', 'aborted']))
-    );
-
-  return c.json({ success: true, data: { message: '已清空历史任务记录' } });
-});
-
 app.delete('/clear-completed', async (c) => {
   const userId = c.get('userId')!;
   const db = getDb(c.env.DB);
@@ -369,15 +355,6 @@ app.delete('/clear-failed', async (c) => {
   return c.json({ success: true, data: { message: '已清空失败/过期/取消的任务' } });
 });
 
-app.delete('/clear-all', async (c) => {
-  const userId = c.get('userId')!;
-  const db = getDb(c.env.DB);
-
-  // 删除所有任务记录
-  await db.delete(uploadTasks).where(eq(uploadTasks.userId, userId));
-
-  return c.json({ success: true, data: { message: '已清空所有任务记录' } });
-});
 
 app.post('/start', async (c) => {
   const userId = c.get('userId')!;

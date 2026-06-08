@@ -9,7 +9,7 @@
  * - 提供 AgentTools 需要的便捷查询封装
  */
 
-import { eq, and, isNull, inArray } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDb, files } from '../db';
 import type { Env } from '../types/env';
 import { checkFilePermission } from './permissionService';

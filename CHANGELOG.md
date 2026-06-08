@@ -2,6 +2,244 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v5.0.0] - 2026-06-08
+
+### Added - 团队协作能力全面升级 🏆
+
+本次版本为 **重大架构升级**，核心亮点是权限管理系统从「个人中心」模式升级为「团队协作」模式，同时整合了 v4.7.0 以来所有中间版本的优化更新。
+
+---
+
+#### 核心新功能（一）：团队空间（Team Workspace）
+
+- **新增团队实体**：创建独立的工作空间，作为团队协作的组织单元
+  - 团队 CRUD：创建、查看、更新、删除
+  - 自动角色分配：创建者成为 `owner`，可邀请成员并分配角色
+
+- **团队成员管理**：
+  - 四级角色体系：`owner`（全部管理权）→ `admin`（成员/资源/权限管理）→ `member`（访问资源）→ `guest`（仅被授权资源）
+  - 成员添加/移除/角色变更，含完整的权限校验
+  - 防止误操作：不能移除 owner、admin 不能移除 admin、用户可自行退出
+
+- **团队资源挂载**：
+  - 将个人文件/文件夹挂载到团队空间，使团队成员可基于团队权限访问
+  - 挂载/卸载操作，含文件存在性和权限校验
+  - 防重复挂载机制
+
+#### 核心新功能（二）：角色模板与快速授权
+
+- **内置三种角色模板**：
+
+  | 模板 | 权限 | 说明 |
+  |------|------|------|
+  | `viewer` | read | 可查看和下载 |
+  | `editor` | write | 可上传、修改、删除、重命名 |
+  | `manager` | admin | 可管理权限并可再授权 |
+
+- 授权时选择角色模板替代手动设置 read/write/admin，一键完成授权
+- 权限对话框 UI 重构为三卡片选择器，直观展示各模板能力范围
+
+#### 核心新功能（三）：权限申请与审批工作流
+
+- **申请端**：成员对无权访问的文件发起访问申请
+  - 选择申请的权限级别（只读/读写/管理）
+  - 填写申请原因（可选）
+  - 指定目标团队（可选）
+- **审批端**：文件所有者或团队 admin 收到待审批列表
+  - 批准 → 自动授予权限 + 通知申请人
+  - 拒绝 → 记录拒绝原因 + 通知申请人
+  - 防重复申请（同一文件 pending 状态不重复创建）
+- **查询端**：「我的申请」+「待审批」双视图
+
+#### 核心新功能（四）：批量权限操作
+
+- 支持对多个文件一次性授权给用户/组/团队角色
+- 支持批量撤销权限
+- 返回成功/失败统计，便于排查问题
+- 前端支持多选文件时的批量操作模式
+
+#### 核心新功能（五）：权限解析器 Team 维度扩展
+
+- 解析链升级为 **8 级优先级**：
+  ```
+  owner > explicit(user) > explicit(group) > explicit(team)
+    > inherited(user) > inherited(group) > inherited(team) > no access
+  ```
+- 新增 `resolveTeamDefaultPermission()` — 基于团队成员角色的默认访问权限映射
+- 缓存机制兼容 team 维度，成员变更时自动失效相关缓存
+
+---
+
+### Added - 标签统一管理系统 🏷️
+
+**v4.7.0 ~ v5.0.0 中间版本累积更新**
+
+- **全局标签管理页面** (`/tags`)
+  - 标签列表展示（名称、使用次数、关联文件数）
+  - 标签合并：将重复或相似的标签合并为一个
+  - 标签重命名：批量修改标签名称
+  - 标签批量删除
+  - 标签搜索与筛选
+
+- **标签功能增强**
+  - AI 设置页面集成标签管理入口
+  - 文件详情面板标签展示优化
+  - 标签 API 扩展（合并/重命名/统计）
+
+### Added - 存储审计系统 📊
+
+- **存储审计功能**
+  - 存储使用量趋势分析
+  - 大文件排行 Top N
+  - 文件类型分布统计
+  - 用户配额使用情况
+  - 审计日志记录关键操作
+
+### Changed - 分页系统增强 📄
+
+- **页码分页功能**
+  - 文件列表支持页码分页（替代原有无限滚动）
+  - 分页参数标准化（page, limit）
+  - 后端 SQL 层分页，消除 D1 1000 行截断问题
+  - 前端分页组件统一
+
+### Improved - 架构与工程优化 ⚡
+
+- **API 服务层重构**
+  - `api.ts` 拆分为模块化服务（`core.ts`, `storage.ts`, `admin.ts`, `ai.ts`, `collab.ts`）
+  - API Client 统一封装，类型安全增强
+  - 错误处理和重试机制完善
+
+- **前端服务层扩展**
+  - `collab.ts` 大幅扩展（+422 行），覆盖分享、权限、群组、团队、角色模板、权限申请等全量协作 API
+  - 新增 `api-client.ts` 统一 HTTP 客户端
+  - 新增 `api-keys.ts` API 密钥管理服务
+  - `presignUpload.ts` 预签名上传优化
+
+- **AI 服务层增强**
+  - `ai.ts` 服务层重构（+609 行），AI 对话流程优化
+  - 流式输出稳定性提升（中断恢复、内容保留）
+  - AI 设置页面功能扩展（记忆管理等）
+
+- **文档更新**
+  - `architecture.md` 新增架构说明
+  - `AI_FEATURES.md` / `API_AI.md` / `api.md` 同步更新至最新
+  - 移除过时的 `osshelf-ai-enhancement-plan.md`
+
+---
+
+### Database Changes
+
+**新增迁移文件 `100_team_collaboration.sql`：**
+
+| 表名 | 用途 | 关键字段 |
+|------|------|----------|
+| `teams` | 团队实体 | id, owner_id, name, description, settings |
+| `team_members` | 团队成员 | id, team_id, user_id, role, added_by |
+| `team_resources` | 团队资源挂载 | id, team_id, file_id, mounted_by |
+| `permission_requests` | 权限申请 | id, file_id, requester_id, status, reviewed_by |
+| `role_templates` | 角色模板 | id, name, slug, permissions, is_builtin |
+| `file_permissions` 扩展 | 新增 team_id 字段 | 支持 subjectType='team' 的权限记录 |
+
+**内置角色模板数据：**
+- `rt-viewer` (查看者): ["read"]
+- `rt-editor` (编辑者): ["read", "write"]
+- `rt-manager` (管理者): ["read", "write", "admin"]
+
+---
+
+### New Files
+
+**后端（12 个新文件）：**
+
+```
+apps/api/
+├── migrations/100_team_collaboration.sql          # 数据库迁移
+└── src/
+    ├── lib/teamService.ts                           # 团队管理服务（CRUD + 成员 + 资源挂载）
+    └── routes/teams.ts                              # 团队 API 路由（12 个端点）
+```
+
+**前端（11 个新文件）：**
+
+```
+apps/web/src/
+├── pages/Teams.tsx                                  # 团队管理页面
+├── components/teams/                                # 团队组件（6 个文件）
+│   ├── index.ts
+│   ├── TeamList.tsx
+│   ├── TeamCreateDialog.tsx
+│   ├── TeamDetail.tsx
+│   ├── TeamMemberDialog.tsx
+│   └── TeamResourceMountDialog.tsx
+├── components/permissions/                          # 权限申请组件（3 个文件）
+│   ├── PermissionRequestButton.tsx
+│   ├── PermissionRequestDialog.tsx
+│   └── ApprovalPanel.tsx
+└── pages/Tags.tsx                                   # 标签管理页面（中间版本）
+```
+
+### Modified Files（核心改造）
+
+**后端（5 个文件大幅修改）：**
+
+| 文件 | 改动量 | 说明 |
+|------|--------|------|
+| `src/db/schema.ts` | +107 行 | 新增 5 张表定义 + filePermissions.teamId 字段 |
+| `src/lib/permissionResolver.ts` | +177 行 | team 维度解析链 + resolveTeamDefaultPermission |
+| `src/lib/permissionService.ts` | +615 行 | 6 个新函数（角色模板/申请审批/批量操作） |
+| `src/routes/permissions.ts` | +237 行 | 7 个新端点 + grant/revoke team 扩展 |
+| `src/index.ts` | +2 行 | 注册 /api/teams 路由 |
+
+**前端（4 个文件大幅修改）：**
+
+| 文件 | 改动量 | 说明 |
+|------|--------|------|
+| `services/collab.ts` | +171 行 | teamsApi(12方法) + permissionRequestsApi(4) + rolesApi + permissionsApi扩展 |
+| `components/files/permissions/FilePermissionsDialog.tsx` | +340/-135 行 | 三Tab切换 + 角色模板卡片 + 来源标签 + 批量模式 |
+| `App.tsx` | +9 行 | /teams 路由注册 |
+| `components/layouts/MainLayout.tsx` | +2 行 | 导航入口 |
+
+### API Endpoints Summary
+
+**团队管理 API（12 个端点）：**
+
+| 方法 | 路径 | 功能 |
+|------|------|------|
+| GET | `/api/teams` | 列出用户的团队（owned + joined） |
+| POST | `/api/teams` | 创建团队 |
+| GET | `/api/teams/:id` | 获取团队详情 |
+| PUT | `/api/teams/:id` | 更新团队信息 |
+| DELETE | `/api/teams/:id` | 删除团队 |
+| GET | `/api/teams/:id/members` | 列出团队成员 |
+| POST | `/api/teams/:id/members` | 添加成员 |
+| DELETE | `/api/teams/:id/members/:userId` | 移除成员 |
+| PUT | `/api/teams/:id/members/:userId/role` | 变更角色 |
+| POST | `/api/teams/:id/resources` | 挂载资源到团队 |
+| DELETE | `/api/teams/:id/resources/:fileId` | 卸载资源 |
+| GET | `/api/teams/:id/resources/list` | 列出团队资源 |
+
+**权限扩展 API（7 个新端点）：**
+
+| 方法 | 路径 | 功能 |
+|------|------|------|
+| POST | `/api/permissions/requests` | 发起权限申请 |
+| GET | `/api/permissions/requests/my` | 我的申请列表 |
+| GET | `/api/permissions/requests/pending` | 待审批列表 |
+| PUT | `/api/permissions/requests/:id/review` | 审批申请 |
+| POST | `/api/permissions/batch-grant` | 批量授权 |
+| POST | `/api/permissions/batch-revoke` | 批量撤销 |
+| GET | `/api/roles/templates` | 获取角色模板列表 |
+
+**现有 API 扩展：**
+
+| 端点 | 扩展内容 |
+|------|---------|
+| POST `/api/permissions/grant` | 新增 subjectType='team' + teamId 参数 |
+| POST `/api/permissions/revoke` | 新增 teamId 参数支持团队权限撤销 |
+
+---
+
 ## [v4.7.0] - 2026-04-17
 
 ### Added - AI Agent 全面增强：Planning 层、跨会话记忆、交互体验升级 🧠
@@ -16,9 +254,9 @@ All notable changes to this project will be documented in this file.
     interface ExecutionPlan {
       goal: string;
       steps: Array<{
-        id: string;           // step-1, step-2 ...
-        description: string;  // 人类可读描述
-        toolHint?: string;    // 预期使用的工具
+        id: string; // step-1, step-2 ...
+        description: string; // 人类可读描述
+        toolHint?: string; // 预期使用的工具
         dependsOn?: string[]; // 依赖哪些步骤完成
         status: 'pending' | 'running' | 'done' | 'skipped';
       }>;
@@ -166,6 +404,137 @@ All notable changes to this project will be documented in this file.
 - **数据库变更**：
   - 新增 `ai_memories` 表（id, userId, sessionId, type, summary, embeddingId, createdAt）
 
+### Fixed - 安全性与稳定性修复（22 项 Bug 修复 + 中断处理）🛡️
+
+**TypeScript 编译通过 (0 错误)**，共修改 **14 个文件**。
+
+#### 🔴 P0 — Critical 安全漏洞（4/4 已修复）
+
+| Bug                         | 文件                                 | 修复内容                                                                                                         |
+| --------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| **#1 跨用户数据泄露**       | `routes/files.ts`, `routes/share.ts` | `collectFolderFiles` 增加 `eq(files.userId, userId)` 过滤 + 递归传递，防止用户 A 通过文件夹遍历访问用户 B 的文件 |
+| **#2 WebDAV OOM 崩溃**      | `routes/webdav.ts`                   | DELETE/MOVE/COPY 操作改用 `like(files.path, ...)` SQL 查询，删除全量加载 + `filter(startsWith)` 的内存操作模式   |
+| **#3 时序攻击（密码比对）** | `routes/share.ts`                    | 新增 `timingSafeEqual()` HMAC 常量时间比较函数 + KV 5分钟窗口10次限流（含密码错误计数+成功清除机制）             |
+| **#4 CSRF 绕过**            | `src/index.ts`                       | CORS fallback 从返回 `allowedOrigins[0]` 改为返回 `undefined`（拒绝未知 origin，防止跨站请求伪造）               |
+
+#### 🟠 P1 — High 严重问题（6/6 已修复）
+
+| Bug                       | 文件                   | 修复内容                                                                                                                |
+| ------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **#5 Token 泄露（缓存）** | `routes/preview.ts`    | Query Token 认证路径增加 `Cache-Control: private, no-store, no-cache, must-revalidate`，防止 CDN/代理层缓存敏感认证信息 |
+| **#6 sortBy SQL 注入**    | `routes/files.ts`      | 新增 `ALLOWED_SORT_FIELDS` 白名单 + `switch` 安全映射（替代动态 `files[sortBy]` 字段访问）                              |
+| **#7 整文件内存 OOM**     | `routes/share.ts`      | 流式下载改为 `s3Get()` → 直接透传 Response body，不再 `fetchFileContent` 全量读入内存                                   |
+| **#8 TOCTOU 竞态条件**    | `routes/share.ts`      | 下载计数改用 **原子 CAS**：`UPDATE ... WHERE id=? AND (limit IS NULL OR count < limit)`，单条 SQL 完成检查+递增         |
+| **#10 WebDAV 暴力破解**   | `routes/webdav.ts`     | 新增 IP 维度 KV 速率限制：每 IP 5分钟内最多 10 次失败，超限返回 HTTP 429                                                |
+| **#11 直链滥用**          | `routes/directLink.ts` | 新增 IP+Token 维度速率限制（60次/分钟）+ Cache-Control 改为 `private` 防止缓存                                          |
+
+#### 🟡 P2 — Medium 中等问题（6/6 已修复）
+
+| Bug                    | 文件                                          | 修复内容                                                                                            |
+| ---------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| **#15 广播过滤器错误** | `routes/admin.ts`                             | `active` 用户过滤从错误的 `eq(users.role, 'user')` 修正为 `eq(users.emailVerified, true)`           |
+| **#16 重复错误码**     | `packages/shared/src/constants/errorCodes.ts` | `TOKEN_EXPIRED` 从重复的 `A001` 改为唯一码 `A006`                                                   |
+| **#17 类型安全**       | `routes/files.ts`, `routes/admin.ts`          | `any[]` 替换为 `Array<ReturnType<typeof isNull>                                                     | ReturnType<typeof eq>>` 等具体类型 |
+| **#21 权限映射重复**   | `lib/permissionService.ts`                    | 提取模块级常量 `PERMISSION_LEVELS`，消除两处重复定义                                                |
+| **#22 缩略图参数无效** | `routes/preview.ts`                           | width/height 增加 `clamp(16, 2048)` 边界校验 + Cache-Control 改为 private + 标注 `X-Thumbnail-Note` |
+
+#### 🔵 P3 — Low 低优先级（2/2 已修复）
+
+| Bug                      | 文件                 | 修复内容                                                                             |
+| ------------------------ | -------------------- | ------------------------------------------------------------------------------------ |
+| **#18 ESM require 冗余** | `lib/fileService.ts` | 移除冗余 `require('./fileContentHelper')`（顶部已有 ESM import）                     |
+| **#20 魔术数字**         | `routes/auth.ts`     | `10737418240` 提取为命名常量 `DEFAULT_STORAGE_QUOTA_BYTES = 10 * 1024 * 1024 * 1024` |
+
+#### 🔄 AI 对话中断恢复（流式输出稳定性）
+
+**问题**：当 AI 对话流式输出被中断（卡死或手动停止）时，已输出的内容会消失。
+
+**根因分析**：
+
+1. API 层 `chatStream` 函数在中断时未正确处理 `AbortError`
+2. 前端组件中断时缺少明确的 `aborted` 状态标记
+
+**修复内容**：
+
+| 层级         | 文件                     | 修复内容                                                                                                                            |
+| ------------ | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **API 层**   | `services/api.ts`        | 请求开始前检查 `signal.aborted`；流式读取循环中检查中断信号及时取消 `reader`；统一抛出标准 `DOMException('AbortError')`             |
+| **类型定义** | `components/ai/types.ts` | 新增 `aborted?: boolean` 字段标记消息是否被中断                                                                                     |
+| **前端组件** | `pages/AIChat.tsx`       | 中断时保留已输出内容（`content: m.content \|\| ''`）；设置 `aborted: true` 标记；显示"输出已中断"提示；被中断消息显示"重新生成"按钮 |
+
+**效果**：
+
+- ✅ 已输出的内容完整保留
+- ✅ 显示明确的中断状态提示
+- ✅ 用户可点击"重新生成"继续对话
+- ✅ 消息列表展示 `mentionedFiles` 引用文件 Chip
+
+#### ⚡ 已修复 — 额外稳定性问题（7 项）
+
+| #   | 问题                          | 严重程度 | 位置                       | 修复方案                                                                                                |
+| --- | ----------------------------- | -------- | -------------------------- | ------------------------------------------------------------------------------------------------------- |
+| 1   | storageUsed 竞态条件          | 🔴 高危  | `tasks.ts`, `downloads.ts` | 统一调用原子方法 `updateUserStorage()`，三处先读后写全部替换为 `MAX(0, COALESCE(...) + delta)` 原子写法 |
+| 2   | 文件列表无分页                | 🔴 高危  | `files.ts` L568            | 新增 SQL `ORDER BY` + `.limit().offset()` 分页，前端传 page/limit 参数，消除 D1 1000 行截断和内存排序   |
+| 3   | softDelete 不释放 storageUsed | 🟡 中危  | `fileService.ts`           | 软删除时立即扣减 `storageUsed`，不再等待 cron 硬删除                                                    |
+| 4   | JWT 无 refresh token          | 🟡 中危  | 认证系统                   | 新增 refresh token 路由，KV session TTL 与 JWT 解耦，支持静默续期                                       |
+| 5   | Analytics 全量扫描            | 🟡 中危  | `analytics.ts`             | 存储分析改为 SQL `GROUP BY mime_type, SUM(size)` 聚合，消除全量拉取                                     |
+| 6   | 分享上传绕过配额              | 🟡 中危  | `share.ts` 上传路径        | 上传时增加 owner 的 `storageUsed + uploadSize > storageQuota` 校验                                      |
+| 7   | LIKE 搜索未转义特殊字符       | 🔵 低危  | `files.ts` L664            | 搜索词中 `%` 和 `_` 字符自动转义为 `\%` 和 `\_`                                                         |
+
+#### ⚡ 性能优化（5 项）
+
+1. **文件列表排序移至 SQL**：从 JS 内存 `.sort()` 改为 SQL `ORDER BY`，配合分页消除 D1 截断导致的排序不完整
+2. **AI 任务队列背压控制**：`aiTaskQueue.ts` 新增 per-user 并发槽位上限，防止批量索引打满 Workers AI Rate Limit
+3. **cleanup.ts 分批处理**：硬删除从全局扫描改为分批处理（每批 100 条），避免文件多时 cron 超时
+4. **WebDAV 原子化 storageUsed**：与 tasks.ts 统一使用 `updateUserStorage()` 原子方法，消除读旧值竞态
+5. **向量索引断点续传**：批量索引记录最后处理位置，中断后可从断点恢复
+
+#### 🆕 新增功能（6 项）
+
+| 优先级 | 功能                        | 实现说明                                                        |
+| ------ | --------------------------- | --------------------------------------------------------------- |
+| 🔴 高  | 文件夹大小统计              | 文件夹详情展示递归计算的占用空间大小，前端 FileDetailPanel 显示 |
+| 🔴 高  | 增量向量索引                | 监听文件上传事件自动触发向量索引，新文件立即可被 AI 搜索到      |
+| 🟡 中  | Zip 打包下载文件夹          | 前端新增入口调用 `zipStream.ts`，支持文件夹打包下载             |
+| 🟡 中  | 文件维度访问日志            | 文件详情面板新增访问记录 Tab，展示谁在何时访问了该文件          |
+| 🟢 低  | 标签全局管理页              | AISettings / 标签管理页面，支持标签合并、重命名、批量删除       |
+| 🟢 低  | AI 对话导出（Markdown/PDF） | 对话历史支持一键导出为 Markdown 或 PDF 格式                     |
+
+### Technical Details（Bug 修复部分）
+
+- **安全修复文件**：
+  - `apps/api/src/routes/files.ts` — 跨用户数据泄露修复（userId 过滤）+ sortBy SQL 注入防护（白名单映射）
+  - `apps/api/src/routes/share.ts` — 时序攻击防护（timingSafeEqual）+ 流式下载 OOM 修复 + TOCTOU 原子计数
+  - `apps/api/src/routes/webdav.ts` — OOM 修复（SQL 查询替代全量加载）+ 暴力破解限流
+  - `apps/api/src/routes/preview.ts` — Token 缓存泄漏修复 + 缩略图参数校验
+  - `apps/api/src/routes/directLink.ts` — 直链滥用限流
+  - `apps/api/src/routes/admin.ts` — 广播过滤器修正
+  - `apps/api/src/index.ts` — CSRF 绕过修复（CORS fallback）
+  - `packages/shared/src/constants/errorCodes.ts` — 错误码去重
+  - `apps/api/src/lib/fileService.ts` — ESM require 冗余移除
+  - `apps/api/src/lib/permissionService.ts` — 权限常量提取
+  - `apps/api/src/routes/auth.ts` — 魔术数字命名常量化
+- **AI 中断恢复文件**：
+  - `apps/web/src/services/api.ts` — AbortError 标准处理 + signal 检查
+- `apps/web/src/components/ai/types.ts` — aborted 字段类型定义
+- `apps/web/src/pages/AIChat.tsx` — 中断状态保留 + UI 提示 + 重新生成按钮
+- **额外稳定性修复文件**：
+  - `apps/api/src/routes/tasks.ts` — storageUsed 竞态条件修复（3处原子方法替换）
+  - `apps/api/src/routes/downloads.ts` — storageUsed 竞态条件修复（原子方法替换）
+  - `apps/api/src/lib/fileService.ts` — softDelete 立即扣减 storageUsed + LIKE 搜索转义
+  - `apps/api/src/routes/auth.ts` — refresh token 路由新增
+  - `apps/api/src/routes/analytics.ts` — SQL GROUP BY 聚合替代全量扫描
+  - `apps/api/src/routes/share.ts` — 上传路径增加 owner storageUsed 配额校验
+  - `apps/api/src/lib/ai/aiTaskQueue.ts` — per-user 并发槽位背压控制 + 断点续传
+  - `apps/api/src/lib/cleanupService.ts` — 分批处理硬删除
+- **新功能文件**：
+  - 文件夹大小统计：`lib/fileService.ts` 新增递归计算方法 + 前端 FileDetailPanel 展示
+  - 增量向量索引：文件上传事件监听器自动触发索引
+  - Zip 打包下载：前端入口 + `zipStream.ts` 集成
+  - 文件访问日志：文件详情面板新增 Tab
+  - 标签全局管理页：AISettings 新增标签管理模块
+  - AI 对话导出：对话历史导出为 Markdown/PDF 功能
+
 ---
 
 ## [v4.6.0] - 2026-04-13
@@ -301,7 +670,7 @@ All notable changes to this project will be documented in this file.
       - expiresAt < now → 已过期
       - includeExpiringSoon=true 时额外返回 expiresAt < now + withinDays 的记录
     - 返回：[{ fileId, fileName, userId, permission, expiresAt }]
-    - _next_actions: ['可调用 revoke_permission 批量撤销']
+    - \_next_actions: ['可调用 revoke_permission 批量撤销']
 
 - **toolSelector.ts 改动**
   - PERMISSION_PATTERNS 新增：把.*给|让.*只能看|让.*只读|收回.*权限|过期.*授权|已过期.*权限|快过期|撤销所有
@@ -311,23 +680,23 @@ All notable changes to this project will be documented in this file.
   - 权限意图示例补充：
     - "把设计文件夹给小明只读，30天后过期" → grant_permission(folderId, userId, 'read', expiresInDays=30)
     - "检查财务文件夹谁有写权限" → get_file_permissions(folderId) → 过滤 permission='write'
-    - "清理所有已过期授权" → list_expired_permissions() → 逐个 revoke_permission(_confirmed=true)
+    - "清理所有已过期授权" → list_expired_permissions() → 逐个 revoke_permission(\_confirmed=true)
 
 #### 7. 对话式文件创建（含草稿预览）
 
 - **agentTools/fileops.ts 改动**
   - 新增 `draft_and_create_file` 工具
-    - 参数：{ fileName, targetFolderId?, userRequest, draftContent, _confirmed? }
-    - _confirmed 为 false/undefined：
+    - 参数：{ fileName, targetFolderId?, userRequest, draftContent, \_confirmed? }
+    - \_confirmed 为 false/undefined：
       - 返回 pending_confirm，携带 confirmId, message, draftContent, previewType: 'draft'
-    - _confirmed 为 true：
+    - \_confirmed 为 true：
       - 调用 writeFileContent 写入文件
       - 返回 { success: true, fileId, fileName, path }
 
 - **agentEngine.ts（system prompt）改动**
   - 文件创建意图新增路径描述：
-    - "帮我写一个 README" → draft_and_create_file(fileName='README.md', draftContent=<生成内容>, _confirmed=false)
-    - "生成一个 Python 爬虫脚本放到代码文件夹" → draft_and_create_file(fileName='spider.py', targetFolderId=<ID>, draftContent=<代码>, _confirmed=false)
+    - "帮我写一个 README" → draft_and_create_file(fileName='README.md', draftContent=<生成内容>, \_confirmed=false)
+    - "生成一个 Python 爬虫脚本放到代码文件夹" → draft_and_create_file(fileName='spider.py', targetFolderId=<ID>, draftContent=<代码>, \_confirmed=false)
 
 - **前端改动**
   - `ToolCallCard.tsx` 在 isPendingConfirm 分支新增草稿预览区域
@@ -352,7 +721,7 @@ All notable changes to this project will be documented in this file.
         - missingTags（标签缺失）：aiTags 为空 AND aiSummary 非空
         - relocateSuggestions（归类建议）：根目录文件且同类型>3个时建议归入同一文件夹
         - structureIssues（结构问题）：单文件夹直接子文件数>100 或 路径层级>5
-    - 返回：{ scannedCount, namingIssues, missingTags, relocateSuggestions, structureIssues, _next_actions }
+    - 返回：{ scannedCount, namingIssues, missingTags, relocateSuggestions, structureIssues, \_next_actions }
 
 - **toolSelector.ts 改动**
   - TOOL_GROUPS.ai_enhance 新增 'smart_organize_suggest'
@@ -368,12 +737,12 @@ All notable changes to this project will be documented in this file.
       2. 按 maxFiles 截取，优先取有 aiSummary 的文件
       3. 构建内容摘要列表（有 aiSummary 直接使用，无则 readFileContent 取前500字符）
       4. 返回文件内容摘要集合，由 agentEngine 主模型自行分析
-    - 返回：{ files: [{ id, name, mimeType, size, summary, updatedAt }], totalCount, truncated, analysisType, _next_actions }
+    - 返回：{ files: [{ id, name, mimeType, size, summary, updatedAt }], totalCount, truncated, analysisType, \_next_actions }
 
 - **toolSelector.ts 改动**
   - TOOL_GROUPS.content 新增 'analyze_file_collection'
   - intent === 'content_qa' 时注入此工具
-  - 新增触发 pattern：分析这批|分析这些|这个文件夹.*内容|对比这些文件|提取共同|梳理一下|汇总这些
+  - 新增触发 pattern：分析这批|分析这些|这个文件夹.\*内容|对比这些文件|提取共同|梳理一下|汇总这些
 
 **性能优化 - 懒加载功能**
 

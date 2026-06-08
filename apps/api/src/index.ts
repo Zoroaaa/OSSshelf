@@ -35,13 +35,14 @@ import versionsRoutes from './routes/versions';
 import notesRoutes from './routes/notes';
 import apiKeysRoutes from './routes/apiKeys';
 import groupsRoutes from './routes/groups';
+import teamsRoutes from './routes/teams';
 import webhooksRoutes from './routes/webhooks';
 import aiRoutes from './routes/ai';
 import aiConfigRoutes from './routes/aiConfigRoutes';
 import aiChatRoutes from './routes/aiChatRoutes';
 import analyticsRoutes from './routes/analytics';
 import notificationsRoutes from './routes/notifications';
-import v1Routes from './routes/v1';
+import { createDocsRoutes } from './routes/docs';
 import { errorHandler } from './middleware/error';
 import { runAllCleanupTasks } from './lib/cleanup';
 import { processAiTaskMessage, checkAndCompleteTask } from './lib/ai/aiTaskQueue';
@@ -161,13 +162,15 @@ app.route('/api/versions', versionsRoutes);
 app.route('/api/notes', notesRoutes);
 app.route('/api/keys', apiKeysRoutes);
 app.route('/api/groups', groupsRoutes);
+app.route('/api/teams', teamsRoutes);
 app.route('/api/webhooks', webhooksRoutes);
 app.route('/api/ai', aiRoutes);
 app.route('/api/ai-config', aiConfigRoutes);
 app.route('/api/ai-chat', aiChatRoutes);
 app.route('/api/analytics', analyticsRoutes);
 app.route('/api/notifications', notificationsRoutes);
-app.route('/api/v1', v1Routes);
+// 文档路由：必须在所有业务路由之后注册，以便从 app.routes 提取完整路由列表
+app.route('/api', createDocsRoutes(app));
 app.route('/cron', cronRoutes);
 app.route('/dav', webdavRoutes);
 
@@ -189,7 +192,7 @@ export default {
         })
     );
   },
-  async queue(batch: MessageBatch<AiTaskMessage>, env: Env, ctx: ExecutionContext) {
+  async queue(batch: MessageBatch<AiTaskMessage>, env: Env, _ctx: ExecutionContext) {
     appLogger.info('QUEUE', '收到队列消息', { count: batch.messages.length });
 
     for (const message of batch.messages) {

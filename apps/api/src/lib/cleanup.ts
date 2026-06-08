@@ -14,7 +14,6 @@ import { eq, and, or, isNotNull, lt } from 'drizzle-orm';
 import {
   getDb,
   files,
-  users,
   shares,
   uploadTasks,
   loginAttempts,

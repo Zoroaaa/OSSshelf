@@ -18,7 +18,7 @@ export const users = sqliteTable(
     passwordHash: text('password_hash').notNull(),
     name: text('name'),
     role: text('role').default('user').notNull(),
-    storageQuota: integer('storage_quota').default(10737418240).notNull(),
+    storageQuota: integer('storage_quota').default(10737418240),
     storageUsed: integer('storage_used').default(0).notNull(),
     emailVerified: integer('email_verified', { mode: 'boolean' }).notNull().default(false),
     emailPreferences: text('email_preferences').notNull().default('{}'),
@@ -222,6 +222,7 @@ export const filePermissions = sqliteTable(
       .references(() => users.id),
     subjectType: text('subject_type').notNull().default('user'),
     groupId: text('group_id').references(() => userGroups.id, { onDelete: 'cascade' }),
+    teamId: text('team_id').references(() => teams.id, { onDelete: 'cascade' }),
     expiresAt: text('expires_at'),
     inheritToChildren: integer('inherit_to_children', { mode: 'boolean' }).notNull().default(true),
     scope: text('scope').notNull().default('explicit'),
@@ -233,6 +234,7 @@ export const filePermissions = sqliteTable(
     fileIdx: index('idx_file_permissions_file').on(table.fileId),
     userIdx: index('idx_file_permissions_user').on(table.userId),
     groupIdx: index('idx_file_permissions_group').on(table.groupId),
+    teamIdx: index('idx_file_permissions_team').on(table.teamId),
     expiresIdx: index('idx_file_permissions_expires').on(table.expiresAt),
     scopeIdx: index('idx_file_permissions_scope').on(table.scope),
     uniqueUserIdx: uniqueIndex('idx_file_permissions_unique_user').on(table.fileId, table.userId),
@@ -796,3 +798,108 @@ export const aiMemories = sqliteTable(
 );
 
 export type AiMemory = typeof aiMemories.$inferSelect;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 团队协作相关表
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const teams = sqliteTable(
+  'teams',
+  {
+    id: text('id').primaryKey(),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description'),
+    settings: text('settings').default('{}'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    ownerIdx: index('idx_teams_owner').on(table.ownerId),
+  })
+);
+
+export const teamMembers = sqliteTable(
+  'team_members',
+  {
+    id: text('id').primaryKey(),
+    teamId: text('team_id')
+      .notNull()
+      .references(() => teams.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    role: text('role').notNull().default('member'),
+    addedBy: text('added_by').references(() => users.id),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => ({
+    userIdx: index('idx_team_members_user').on(table.userId),
+    teamIdx: index('idx_team_members_team').on(table.teamId),
+    uniqueIdx: uniqueIndex('idx_team_members_unique').on(table.teamId, table.userId),
+  })
+);
+
+export const teamResources = sqliteTable(
+  'team_resources',
+  {
+    id: text('id').primaryKey(),
+    teamId: text('team_id')
+      .notNull()
+      .references(() => teams.id, { onDelete: 'cascade' }),
+    fileId: text('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'cascade' }),
+    mountedBy: text('mounted_by')
+      .notNull()
+      .references(() => users.id),
+    mountedAt: text('mounted_at').notNull(),
+  },
+  (table) => ({
+    teamIdx: index('idx_team_resources_team').on(table.teamId),
+    fileIdx: index('idx_team_resources_file').on(table.fileId),
+    uniqueIdx: uniqueIndex('idx_team_resources_unique').on(table.teamId, table.fileId),
+  })
+);
+
+export const permissionRequests = sqliteTable(
+  'permission_requests',
+  {
+    id: text('id').primaryKey(),
+    fileId: text('file_id')
+      .notNull()
+      .references(() => files.id, { onDelete: 'cascade' }),
+    requesterId: text('requester_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    targetTeamId: text('target_team_id').references(() => teams.id, { onDelete: 'set null' }),
+    requestedPermission: text('requested_permission').notNull().default('read'),
+    reason: text('reason'),
+    status: text('status').notNull().default('pending'),
+    reviewedBy: text('reviewed_by').references(() => users.id),
+    reviewedAt: text('reviewed_at'),
+    reviewComment: text('review_comment'),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => ({
+    requesterIdx: index('idx_permission_requests_requester').on(table.requesterId),
+    statusIdx: index('idx_permission_requests_status').on(table.status),
+    fileIdx: index('idx_permission_requests_file').on(table.fileId),
+    targetTeamIdx: index('idx_permission_requests_target_team').on(table.targetTeamId),
+  })
+);
+
+export const roleTemplates = sqliteTable(
+  'role_templates',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    slug: text('slug').notNull().unique(),
+    permissions: text('permissions').notNull().default('[]'),
+    isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),
+    description: text('description'),
+    createdAt: text('created_at').notNull(),
+  }
+);

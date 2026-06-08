@@ -14,15 +14,14 @@
  */
 
 import { eq, and, isNull, isNotNull, sql, inArray } from 'drizzle-orm';
-import { getDb, files, users, storageBuckets, fileVersions, userStars, fileTags } from '../db';
+import { getDb, files, users, userStars, storageBuckets, fileTags } from '../db';
 import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';
 import { checkFilePermission } from '../lib/permissionService';
 import { inheritParentPermissions } from '../lib/permissionService';
-import { inferMimeType, MAX_FILE_SIZE, ERROR_CODES } from '@osshelf/shared';
+import { inferMimeType } from '@osshelf/shared';
 import { resolveBucketConfig, updateUserStorage, updateBucketStats, checkBucketQuota } from './bucketResolver';
 import { getEncryptionKey } from './crypto';
-import { s3Put } from './s3client';
 import { createVersionSnapshot, shouldCreateVersion } from './versionManager';
 import { dispatchWebhook } from './webhook';
 import { readFileContent, writeFileContent } from './fileContentHelper';
@@ -70,7 +69,7 @@ export async function createTextFile(
   // 存储配额检查
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
   const contentBytes = new TextEncoder().encode(content);
-  if (user && user.storageUsed + contentBytes.length > user.storageQuota) {
+  if (user && user.storageQuota! < 999999 * 1024 ** 3 && user.storageUsed + contentBytes.length > user.storageQuota!) {
     return { success: false, error: '用户存储配额已满' };
   }
 
@@ -188,7 +187,7 @@ export async function updateFileContent(
 ): Promise<{ success: true; message: string } | { success: false; error: string }> {
   const db = getDb(env.DB);
 
-  const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'write', env);
+  const { hasAccess } = await checkFilePermission(db, fileId, userId, 'write', env);
   if (!hasAccess) return { success: false, error: '无权修改此文件' };
 
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
@@ -817,7 +816,7 @@ export async function getFilesByScope(
       break;
     }
 
-    case 'tag':
+    case 'tag': {
       if (!tagName) {
         return { files: [], totalCount: 0, error: 'scope=tag 时必须提供 tagName' };
       }
@@ -835,6 +834,7 @@ export async function getFilesByScope(
       const taggedIds = taggedFiles.map((t) => t.fileId);
       conditions.push(inArray(files.id, taggedIds));
       break;
+    }
 
     default:
       return { files: [], totalCount: 0, error: `无效的 scope: ${scope}` };

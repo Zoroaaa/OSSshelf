@@ -410,7 +410,6 @@ export class AiEnhanceTools {
   static async executeAskRagQuestion(env: Env, userId: string, args: Record<string, unknown>) {
     const question = ((args.question as string) || '').trim();
     const scope = (args.scope as string) || 'all';
-    const folderId = args.folderId as string | undefined;
     const topK = Math.min((args.topK as number) || 5, 10);
 
     if (!question) {
@@ -630,7 +629,7 @@ export class AiEnhanceTools {
 // 辅助函数
 // ─────────────────────────────────────────────────────────────────────────────
 
-function generateSuggestionName(currentName: string, style: string, mimeType: string | null): string {
+function generateSuggestionName(currentName: string, style: string, _mimeType: string | null): string {
   const ext = currentName.includes('.') ? '.' + currentName.split('.').pop() : '';
   const now = new Date();
   const dateStr = now.toISOString().split('T')[0];

@@ -59,7 +59,6 @@ import {
   History,
   Trash2 as TrashIcon,
   Sparkles,
-  Star,
   Download,
   Wand2,
   MessageSquare,
@@ -67,7 +66,7 @@ import {
 import type { FileItem } from '@osshelf/shared';
 import { cn, decodeFileName } from '@/utils';
 
-import { NewFolderDialog, NewFileDialog, FILE_TEMPLATES, ShareDialog, FileListContainer } from '@/components/files';
+import { NewFolderDialog, NewFileDialog, FILE_TEMPLATES, ShareDialog, FileListContainer, Pagination } from '@/components/files';
 import { MobileFilesToolbar, MobileSearchPanel } from '@/components/files/MobileFilesToolbar';
 import { UploadLinkDialog } from '@/components/files/dialogs';
 import { DirectLinkDialog } from '@/components/files/dialogs';
@@ -86,7 +85,6 @@ export default function Files() {
   const { folderId } = useParams<{ folderId: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const showStarred = searchParams.get('starred') === 'true';
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { token } = useAuthStore();
@@ -155,6 +153,10 @@ export default function Files() {
 
   // ── Phase 7.5: 版本历史 ────────────────────────────────────────────────────
   const [versionHistoryFile, setVersionHistoryFile] = useState<FileItem | null>(null);
+
+  // ── 分页状态 ─────────────────────────────────────────────────────────────
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<20 | 50 | 100>(20);
 
   // ── Phase 7: 搜索历史 ────────────────────────────────────────────────────
   const [showSearchHistory, setShowSearchHistory] = useState(false);
@@ -226,16 +228,49 @@ export default function Files() {
   });
 
   const {
-    data: files = [],
+    data: filesData,
     isLoading,
     refetch,
-  } = useQuery<FileItem[]>({
-    queryKey: ['files', folderId, showStarred],
-    queryFn: () =>
-      filesApi
-        .list({ parentId: folderId || null, starred: showStarred ? 'true' : undefined })
-        .then((r) => r.data.data ?? []),
+  } = useQuery<{
+    items: FileItem[];
+    total: number;
+    page: number;
+    limit: number;
+  }>({
+    queryKey: ['files', folderId, currentPage, pageSize],
+    queryFn: async () => {
+      const res = await filesApi.list({
+        parentId: folderId || null,
+        page: currentPage,
+        limit: pageSize,
+      });
+      const data = res.data.data;
+      const pagination = (res as any).data?.pagination;
+      if (Array.isArray(data)) {
+        return {
+          items: data,
+          total: pagination?.total ?? data.length,
+          page: pagination?.page ?? currentPage,
+          limit: pagination?.limit ?? pageSize,
+        };
+      }
+      return data ?? { items: [], total: 0, page: 1, limit: pageSize };
+    },
   });
+
+  const files = filesData?.items ?? [];
+  const totalFiles = filesData?.total ?? 0;
+  const totalPages = Math.ceil(totalFiles / pageSize);
+
+  // ── 分页：切换文件夹/搜索时重置到第1页 ─────────────────────
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [folderId]);
+
+  const handlePageSizeChange = (size: 20 | 50 | 100) => {
+    setPageSize(size);
+    setCurrentPage(1);
+  };
 
   const fileIds = files.map((f) => f.id);
   const { data: fileTagsMap = {} } = useQuery<Record<string, any[]>>({
@@ -457,7 +492,7 @@ export default function Files() {
       } catch {
         try {
           const downloadToken = token || useAuthStore.getState().token;
-          const downloadUrl = filesApi.downloadUrl(file.id, downloadToken ?? undefined);
+          const downloadUrl = `${import.meta.env.VITE_API_URL || ''}/api/files/${file.id}/download${downloadToken ? `?token=${encodeURIComponent(downloadToken)}` : ''}`;
           const resp = await fetch(downloadUrl);
           if (!resp.ok) throw new Error('download failed');
           const blob = await resp.blob();
@@ -1037,23 +1072,6 @@ export default function Files() {
 
           <Button variant="outline" size="sm" onClick={() => refetch()} title="刷新当前目录">
             <RefreshCw className="h-4 w-4" />
-          </Button>
-
-          <Button
-            variant={showStarred ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => {
-              if (showStarred) {
-                searchParams.delete('starred');
-              } else {
-                searchParams.set('starred', 'true');
-              }
-              setSearchParams(searchParams);
-            }}
-            title={showStarred ? '显示全部文件' : '只显示收藏文件'}
-          >
-            <Star className={cn('h-4 w-4', showStarred && 'fill-current')} />
-            {showStarred ? '全部' : '收藏'}
           </Button>
 
           <Button variant="outline" size="sm" onClick={() => setShowNewFileDialog(true)} className="hidden sm:flex">
@@ -1664,6 +1682,15 @@ export default function Files() {
             setVersionHistoryFile(file);
           }
         }}
+      />
+
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalItems={totalFiles}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={handlePageSizeChange}
       />
     </div>
   );

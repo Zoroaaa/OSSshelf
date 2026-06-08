@@ -19,7 +19,7 @@
  * 使用场景：
  * - 模型服务异常时自动切换备用模型
  * - 防止故障模型持续消耗资源
- * - Admin 页面展示模型健康状态
+ * - Agent 引擎集成自动保护
  */
 
 import { logger } from '@osshelf/shared';
@@ -30,7 +30,6 @@ interface CircuitState {
   state: 'closed' | 'open' | 'half-open';
 }
 
-const CIRCUIT_BREAKER_PREFIX = 'circuit:';
 const FAILURE_THRESHOLD = 3;
 const RECOVERY_TIMEOUT_MS = 10 * 60 * 1000;
 const circuitCache = new Map<string, CircuitState>();
@@ -47,7 +46,10 @@ export function classifyError(error: unknown): 'model_error' | 'network_timeout'
   return 'unknown';
 }
 
-export async function isModelAvailable(modelId: string, env?: { KV: { get: (key: string) => Promise<string | null> } }): Promise<boolean> {
+export async function isModelAvailable(
+  modelId: string,
+  _env?: { KV: { get: (key: string) => Promise<string | null> } }
+): Promise<boolean> {
   const cached = circuitCache.get(modelId);
   if (cached && cached.state === 'open') {
     const elapsed = Date.now() - cached.lastFailureTime;
@@ -92,12 +94,4 @@ export async function recordModelSuccess(modelId: string): Promise<void> {
   } else if (current.state === 'closed') {
     current.failures = Math.max(0, current.failures - 1);
   }
-}
-
-export function getModelHealthStatus(): Array<{ modelId: string; state: string; failures: number }> {
-  return Array.from(circuitCache.entries()).map(([modelId, state]) => ({
-    modelId,
-    state: state.state,
-    failures: state.failures,
-  }));
 }

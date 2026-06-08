@@ -5,295 +5,33 @@
  * 功能:
  * - 生成预签名上传URL
  * - 生成预签名下载URL
- * - 分片上传初始化与管理
- * - 上传确认与完成
  *
  * 浏览器直接与对象存储交互，无需服务器代理
  *
  * 端点:
  * - POST /api/presign/upload - 获取上传URL
- * - POST /api/presign/multipart/init - 初始化分片上传
- * - POST /api/presign/multipart/part - 获取分片上传URL
- * - POST /api/presign/multipart/complete - 完成分片上传
- * - POST /api/presign/multipart/abort - 取消分片上传
  * - GET /api/presign/download/:id - 获取下载URL
  * - GET /api/presign/preview/:id - 获取预览URL
  */
 
 import { Hono } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
-import { getDb, files, users, storageBuckets } from '../db';
+import { getDb, files } from '../db';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES, MAX_FILE_SIZE, isPreviewableMimeType, logger } from '@osshelf/shared';
+import { ERROR_CODES, isPreviewableMimeType } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import { getEncryptionKey } from '../lib/crypto';
 import type { Env, Variables } from '../types/env';
-import { z } from 'zod';
-import {
-  s3PresignUrl,
-  s3PresignUploadPart,
-  s3CreateMultipartUpload,
-  s3CompleteMultipartUpload,
-  s3AbortMultipartUpload,
-  s3UploadPart,
-  type MultipartPart,
-} from '../lib/s3client';
-import { resolveBucketConfig, updateBucketStats, updateUserStorage } from '../lib/bucketResolver';
-import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
-import { getUserOrFail, encodeFilename } from '../lib/utils';
-import { computeSha256Hex, checkAndClaimDedup, releaseFileRef } from '../lib/dedup';
-import { autoProcessFile, isAIConfigured } from '../lib/ai/features';
+import { s3PresignUrl } from '../lib/s3client';
+import { resolveBucketConfig } from '../lib/bucketResolver';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
 
-// ── Validation schemas ─────────────────────────────────────────────────────
-
-const multipartInitSchema = z.object({
-  fileName: z.string().min(1).max(1024),
-  fileSize: z.number().int().min(1),
-  mimeType: z.string().optional().default('application/octet-stream'),
-  parentId: z.string().nullable().optional(),
-  bucketId: z.string().nullable().optional(),
-});
-
-const multipartPartSchema = z.object({
-  r2Key: z.string().min(1),
-  uploadId: z.string().min(1),
-  partNumber: z.number().int().min(1).max(10000),
-  bucketId: z.string().nullable().optional(),
-});
-
-const multipartCompleteSchema = z.object({
-  fileId: z.string().min(1),
-  fileName: z.string().min(1).max(1024),
-  fileSize: z.number().int().min(1),
-  mimeType: z.string().optional().default('application/octet-stream'),
-  parentId: z.string().nullable().optional(),
-  r2Key: z.string().min(1),
-  uploadId: z.string().min(1),
-  bucketId: z.string().nullable().optional(),
-  parts: z
-    .array(
-      z.object({
-        partNumber: z.number().int().min(1),
-        etag: z.string().min(1),
-      })
-    )
-    .min(1),
-});
-
-const multipartAbortSchema = z.object({
-  r2Key: z.string().min(1),
-  uploadId: z.string().min(1),
-  bucketId: z.string().nullable().optional(),
-});
-
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
-/** 1-hour presign window for upload, 6-hour for download (large files take time) */
-const UPLOAD_EXPIRY = 3600;
+/** 6-hour download expiry (large files take time) */
 const DOWNLOAD_EXPIRY = 21600;
-
-// ── POST /api/presign/multipart/init ──────────────────────────────────────
-// Start a multipart upload. Returns UploadId + presigned part URL for part 1.
-
-app.post('/multipart/init', async (c) => {
-  const userId = c.get('userId')!;
-  const body = await c.req.json();
-  const result = multipartInitSchema.safeParse(body);
-  if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
-      400
-    );
-  }
-
-  const { fileName, fileSize, mimeType, parentId, bucketId: requestedBucketId } = result.data;
-  const db = getDb(c.env.DB);
-  const encKey = getEncryptionKey(c.env);
-
-  const mimeCheck = await checkFolderMimeTypeRestriction(db, parentId, mimeType);
-  if (!mimeCheck.allowed) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.VALIDATION_ERROR,
-          message: `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
-        },
-      },
-      400
-    );
-  }
-
-  // Quota checks
-  const user = await getUserOrFail(db, userId);
-  if (user.storageUsed + fileSize > user.storageQuota) {
-    throwAppError('STORAGE_EXCEEDED', '用户存储配额已满');
-  }
-
-  const bucketConfig = await resolveBucketConfig(db, userId, encKey, requestedBucketId, parentId);
-  if (!bucketConfig) {
-    return c.json({ success: true, data: { useProxy: true } });
-  }
-
-  // Telegram 桶不支持分片上传，回落到代理上传
-  if (bucketConfig.provider === 'telegram') {
-    return c.json({ success: true, data: { useProxy: true, bucketId: bucketConfig.id } });
-  }
-
-  const fileId = crypto.randomUUID();
-  const r2Key = `files/${userId}/${fileId}/${encodeFilename(fileName)}`;
-
-  const uploadId = await s3CreateMultipartUpload(bucketConfig, r2Key, mimeType || 'application/octet-stream');
-
-  // Pre-generate part URL for part 1 so the frontend can start immediately
-  const firstPartUrl = await s3PresignUploadPart(bucketConfig, r2Key, uploadId, 1, UPLOAD_EXPIRY);
-
-  return c.json({
-    success: true,
-    data: {
-      uploadId,
-      fileId,
-      r2Key,
-      bucketId: bucketConfig.id,
-      firstPartUrl,
-      expiresIn: UPLOAD_EXPIRY,
-    },
-  });
-});
-
-// ── POST /api/presign/multipart/part ──────────────────────────────────────
-// Get a presigned URL for uploading a specific part.
-
-app.post('/multipart/part', async (c) => {
-  const userId = c.get('userId')!;
-  const body = await c.req.json();
-  const result = multipartPartSchema.safeParse(body);
-  if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
-      400
-    );
-  }
-
-  const { r2Key, uploadId, partNumber, bucketId } = result.data;
-  const db = getDb(c.env.DB);
-  const encKey = getEncryptionKey(c.env);
-
-  const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, null);
-  if (!bucketConfig) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '未找到存储桶配置' } }, 400);
-  }
-
-  const partUrl = await s3PresignUploadPart(bucketConfig, r2Key, uploadId, partNumber, UPLOAD_EXPIRY);
-
-  return c.json({ success: true, data: { partUrl, partNumber, expiresIn: UPLOAD_EXPIRY } });
-});
-
-// ── POST /api/presign/multipart/complete ──────────────────────────────────
-// Finalize the multipart upload + write the DB record.
-
-app.post('/multipart/complete', async (c) => {
-  const userId = c.get('userId')!;
-  const body = await c.req.json();
-  const result = multipartCompleteSchema.safeParse(body);
-  if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
-      400
-    );
-  }
-
-  const { fileId, fileName, fileSize, mimeType, parentId, r2Key, uploadId, bucketId, parts } = result.data;
-  const db = getDb(c.env.DB);
-  const encKey = getEncryptionKey(c.env);
-
-  const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, parentId);
-  if (!bucketConfig) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '未找到存储桶配置' } }, 400);
-  }
-
-  // Guard: idempotency
-  const existing = await db.select().from(files).where(eq(files.id, fileId)).get();
-  if (existing) {
-    return c.json({ success: true, data: { id: existing.id, name: existing.name, alreadyConfirmed: true } });
-  }
-
-  // Complete the S3 multipart upload
-  await s3CompleteMultipartUpload(bucketConfig, r2Key, uploadId, parts as MultipartPart[]);
-
-  // Write DB record
-  const now = new Date().toISOString();
-  const path = parentId ? `${parentId}/${fileName}` : `/${fileName}`;
-
-  await db.insert(files).values({
-    id: fileId,
-    userId,
-    parentId: parentId || null,
-    name: fileName,
-    path,
-    type: 'file',
-    size: fileSize,
-    r2Key,
-    mimeType: mimeType || null,
-    hash: null,
-    refCount: 1,
-    isFolder: false,
-    bucketId: bucketConfig.id,
-    createdAt: now,
-    updatedAt: now,
-    deletedAt: null,
-  });
-
-  await updateUserStorage(db, userId, fileSize);
-  await updateBucketStats(db, bucketConfig.id, fileSize, 1);
-
-  c.executionCtx.waitUntil(
-    (async () => {
-      try {
-        if (await isAIConfigured(c.env)) {
-          await autoProcessFile(c.env, fileId);
-        }
-      } catch (error) {
-        logger.error('PRESIGN', 'AI处理文件失败', { fileId }, error);
-      }
-    })()
-  );
-
-  return c.json({
-    success: true,
-    data: { id: fileId, name: fileName, size: fileSize, mimeType, path, bucketId: bucketConfig.id, createdAt: now },
-  });
-});
-
-// ── POST /api/presign/multipart/abort ─────────────────────────────────────
-
-app.post('/multipart/abort', async (c) => {
-  const userId = c.get('userId')!;
-  const body = await c.req.json();
-  const result = multipartAbortSchema.safeParse(body);
-  if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
-      400
-    );
-  }
-
-  const { r2Key, uploadId, bucketId } = result.data;
-  const db = getDb(c.env.DB);
-  const encKey = getEncryptionKey(c.env);
-
-  const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, null);
-  if (!bucketConfig) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '未找到存储桶配置' } }, 400);
-  }
-
-  await s3AbortMultipartUpload(bucketConfig, r2Key, uploadId);
-
-  return c.json({ success: true, data: { message: '分片上传已中止' } });
-});
 
 // ── GET /api/presign/download/:id ─────────────────────────────────────────
 

@@ -32,8 +32,10 @@ import {
   LazyPermissions,
   LazyAnalytics,
   LazyStarred,
+  LazyTags,
   LazyAIChat,
   LazyAISettings,
+  LazyTeams,
   LazyWrapper,
 } from './LazyComponents';
 
@@ -166,6 +168,14 @@ function App() {
           }
         />
         <Route
+          path="/shares/:tab"
+          element={
+            <LazyWrapper>
+              <LazyShares />
+            </LazyWrapper>
+          }
+        />
+        <Route
           path="/trash"
           element={
             <LazyWrapper>
@@ -175,6 +185,14 @@ function App() {
         />
         <Route
           path="/settings"
+          element={
+            <LazyWrapper>
+              <LazySettings />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/settings/:tab"
           element={
             <LazyWrapper>
               <LazySettings />
@@ -214,6 +232,14 @@ function App() {
           }
         />
         <Route
+          path="/permissions/:tab"
+          element={
+            <LazyWrapper>
+              <LazyPermissions />
+            </LazyWrapper>
+          }
+        />
+        <Route
           path="/analytics"
           element={
             <LazyWrapper>
@@ -230,7 +256,23 @@ function App() {
           }
         />
         <Route
+          path="/tags"
+          element={
+            <LazyWrapper>
+              <LazyTags />
+            </LazyWrapper>
+          }
+        />
+        <Route
           path="/admin"
+          element={
+            <LazyWrapper>
+              <LazyAdmin />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/admin/:tab"
           element={
             <LazyWrapper>
               <LazyAdmin />
@@ -242,6 +284,22 @@ function App() {
           element={
             <LazyWrapper>
               <LazyAISettings />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/ai-settings/:tab"
+          element={
+            <LazyWrapper>
+              <LazyAISettings />
+            </LazyWrapper>
+          }
+        />
+        <Route
+          path="/teams"
+          element={
+            <LazyWrapper>
+              <LazyTeams />
             </LazyWrapper>
           }
         />

@@ -147,20 +147,9 @@ app.post('/index/all', async (c) => {
     });
   }
 
-  // 过滤掉不适合索引的文件（图片/视频/音频/压缩包等）
-  const { shouldIndexFile } = await import('../lib/ai/features');
-  const indexableFiles = allUnindexed.filter((f) => shouldIndexFile(f.mimeType, f.size ?? undefined));
-
-  if (indexableFiles.length === 0) {
-    return c.json({
-      success: true,
-      data: {
-        message: '没有适合索引的文件（已过滤图片/视频/音频/压缩包等）',
-        task: { status: 'completed', total: 0, processed: 0, failed: 0 },
-        filtered: allUnindexed.length,
-      },
-    });
-  }
+  // 不在此处过滤：shouldIndexFile 的判断在 enqueueAutoProcessFile 层统一执行，
+  // 避免两处维护不同步，且大文件大小限制已从 shouldIndexFile 移除。
+  const indexableFiles = allUnindexed;
 
   const task = await createTaskRecord(c.env, 'index', userId, indexableFiles.length);
   const fileIds = indexableFiles.map((f) => f.id);
@@ -171,9 +160,8 @@ app.post('/index/all', async (c) => {
     return c.json({
       success: true,
       data: {
-        message: `索引任务已启动，共 ${indexableFiles.length} 个文件${allUnindexed.length > indexableFiles.length ? `（已过滤 ${allUnindexed.length - indexableFiles.length} 个不适合索引的文件）` : ''}`,
+        message: `索引任务已启动，共 ${indexableFiles.length} 个文件`,
         task,
-        filtered: allUnindexed.length - indexableFiles.length,
       },
     });
   } catch (error) {
@@ -569,126 +557,6 @@ app.get('/index/vectors', async (c) => {
   });
 });
 
-app.delete('/index/vectors/:fileId', async (c) => {
-  const userId = c.get('userId')!;
-  const fileId = c.req.param('fileId');
-  const db = getDb(c.env.DB);
-
-  const file = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId)))
-    .get();
-
-  if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
-  }
-
-  try {
-    if (c.env.VECTORIZE) {
-      await c.env.VECTORIZE.deleteByIds([fileId]);
-    }
-
-    await db.update(files).set({ vectorIndexedAt: null }).where(eq(files.id, fileId));
-
-    return c.json({ success: true, data: { message: '向量索引已删除' } });
-  } catch (error) {
-    logger.error('AI', 'Failed to delete vector', { fileId }, error);
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '删除向量索引失败' } }, 500);
-  }
-});
-
-app.get('/index/diagnose', async (c) => {
-  const userId = c.get('userId')!;
-  const db = getDb(c.env.DB);
-
-  const diagnoseResult = {
-    vectorize: {
-      configured: !!c.env.VECTORIZE,
-      totalCount: 0,
-      userCount: 0,
-      sampleVectors: [] as Array<{ id: string; score: number; metadata: Record<string, unknown> }>,
-    },
-    database: {
-      totalFiles: 0,
-      indexedFiles: 0,
-      filesWithSummary: 0,
-    },
-    testSearch: {
-      success: false,
-      resultCount: 0,
-      error: '',
-    },
-  };
-
-  try {
-    if (c.env.VECTORIZE) {
-      const testVector = new Array(1024).fill(0).map(() => Math.random());
-      const allResults = await c.env.VECTORIZE.query(testVector, {
-        topK: 100,
-        returnMetadata: 'all',
-      });
-      diagnoseResult.vectorize.totalCount = allResults.matches.length;
-
-      const userResults = await c.env.VECTORIZE.query(testVector, {
-        topK: 100,
-        filter: { userId } as VectorizeVectorMetadataFilter,
-        returnMetadata: 'all',
-      });
-      diagnoseResult.vectorize.userCount = userResults.matches.length;
-
-      diagnoseResult.vectorize.sampleVectors = userResults.matches.slice(0, 5).map((m) => ({
-        id: m.id,
-        score: m.score,
-        metadata: m.metadata as Record<string, unknown>,
-      }));
-    }
-  } catch (error) {
-    diagnoseResult.vectorize.userCount = -1;
-    logger.error('AI', 'Vectorize diagnose failed', { userId }, error);
-  }
-
-  try {
-    const allFiles = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false)))
-      .all();
-
-    diagnoseResult.database.totalFiles = allFiles.length;
-    diagnoseResult.database.indexedFiles = allFiles.filter((f) => f.vectorIndexedAt).length;
-    diagnoseResult.database.filesWithSummary = allFiles.filter((f) => f.aiSummary).length;
-  } catch (error) {
-    logger.error('AI', 'Database diagnose failed', { userId }, error);
-  }
-
-  try {
-    if (c.env.VECTORIZE && c.env.AI) {
-      const testQuery = '测试搜索';
-      const result = await (c.env.AI as any).run('@cf/baai/bge-m3', {
-        text: [testQuery],
-      });
-
-      if (result?.data?.length > 0) {
-        const searchResults = await c.env.VECTORIZE.query(result.data[0], {
-          topK: 10,
-          filter: { userId } as VectorizeVectorMetadataFilter,
-          returnMetadata: 'all',
-        });
-
-        diagnoseResult.testSearch = {
-          success: true,
-          resultCount: searchResults.matches.length,
-          error: '',
-        };
-      }
-    }
-  } catch (error) {
-    diagnoseResult.testSearch.error = error instanceof Error ? error.message : String(error);
-  }
-
-  return c.json({ success: true, data: diagnoseResult });
-});
 
 app.get('/index/sample/:fileId', async (c) => {
   const userId = c.get('userId')!;
@@ -981,87 +849,6 @@ app.get('/file/:fileId', async (c) => {
       tagsAt: file.aiTagsAt,
       vectorIndexed: !!file.vectorIndexedAt,
       vectorIndexedAt: file.vectorIndexedAt,
-    },
-  });
-});
-
-const chatSchema = z.object({
-  query: z.string().min(1).max(500),
-  scope: z.enum(['all', 'folder']).default('all'),
-  folderId: z.string().optional(),
-  limit: z.number().int().min(1).max(10).default(5),
-});
-
-app.post('/chat', async (c) => {
-  const userId = c.get('userId')!;
-  const body = await c.req.json();
-  const result = chatSchema.safeParse(body);
-  if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
-      400
-    );
-  }
-
-  if (!c.env.AI || !c.env.VECTORIZE) {
-    return c.json({ success: false, error: { code: 'AI_NOT_CONFIGURED', message: 'AI 功能未配置' } }, 503);
-  }
-
-  const { query, limit } = result.data;
-
-  const similar = await searchAndFetchFiles(c.env, query, userId, { limit, threshold: 0.4 });
-
-  if (similar.length === 0) {
-    return c.json({
-      success: true,
-      data: {
-        answer: '在您的文件中没有找到与此问题相关的内容。',
-        sources: [],
-      },
-    });
-  }
-
-  const context = similar
-    .map((f, i) => {
-      const parts = [`[${i + 1}] 文件名：${f.name}`];
-      if (f.aiSummary) parts.push(`摘要：${f.aiSummary}`);
-      if (f.description) parts.push(`描述：${f.description}`);
-      return parts.join('\n');
-    })
-    .join('\n\n');
-
-  const chatModelId = await getAiConfigString(c.env, 'ai.default_model.chat', '@cf/meta/llama-3.1-8b-instruct');
-  const gateway = new ModelGateway(c.env);
-  const response = await gateway.chatCompletion(
-    userId,
-    {
-      messages: [
-        {
-          role: 'system',
-          content:
-            '你是文件助手。根据提供的文件信息回答用户问题。回答要简洁准确，并在末尾用"来源：[序号]"注明引用了哪些文件。如果文件信息不足以回答问题，请如实说明。',
-        },
-        {
-          role: 'user',
-          content: `用户问题：${query}\n\n相关文件信息：\n${context}`,
-        },
-      ],
-    },
-    chatModelId
-  );
-
-  const answer = response.content.trim() || '无法生成回答，请重试。';
-
-  return c.json({
-    success: true,
-    data: {
-      answer,
-      sources: similar.map((f) => ({
-        id: f.id,
-        name: f.name,
-        mimeType: f.mimeType,
-        score: f.similarityScore,
-      })),
     },
   });
 });

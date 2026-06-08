@@ -13,7 +13,6 @@ import { useResponsive } from '@/hooks/useResponsive';
 import { FileIcon } from '@/components/files/FileIcon';
 import { FileTagsDisplay } from '@/components/files/tags';
 import { ActionBtn } from '../ActionBtn';
-import { filesApi } from '@/services/api';
 import { formatBytes, decodeFileName } from '@/utils';
 import { getFileCategory, getCategoryBg, isPreviewable, formatAllowedMimeTypes } from '@/utils/fileTypes';
 import { cn } from '@/utils';
@@ -35,7 +34,6 @@ import {
   Filter,
 } from 'lucide-react';
 import type { ItemProps } from '@/types/files';
-import { useState } from 'react';
 
 export function GridItem({
   file,
@@ -75,7 +73,7 @@ export function GridItem({
         <div className={cn('flex items-center justify-center relative', isImage ? 'h-24' : 'h-20', !isImage && bg)}>
           {isImage ? (
             <img
-              src={filesApi.previewUrl(file.id, token)}
+              src={`${import.meta.env.VITE_API_URL || ''}/api/files/${file.id}/preview${token ? `?token=${encodeURIComponent(token)}` : ''}`}
               alt={decodeFileName(file.name)}
               className="w-full h-full object-cover"
               loading="lazy"
@@ -135,7 +133,7 @@ export function GridItem({
       <div className={cn('flex items-center justify-center h-28 relative', !isImage && bg)}>
         {isImage ? (
           <img
-            src={filesApi.previewUrl(file.id, token)}
+            src={`${import.meta.env.VITE_API_URL || ''}/api/files/${file.id}/preview${token ? `?token=${encodeURIComponent(token)}` : ''}`}
             alt={decodeFileName(file.name)}
             className="w-full h-full object-cover"
             onError={(e) => {

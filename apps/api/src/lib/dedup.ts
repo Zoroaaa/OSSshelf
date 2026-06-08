@@ -131,6 +131,7 @@ export async function computeSha256Stream(stream: ReadableStream<Uint8Array>): P
   const chunks: Uint8Array[] = [];
   const reader = stream.getReader();
   try {
+    // eslint-disable-next-line no-constant-condition -- 流式读取标准模式
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;

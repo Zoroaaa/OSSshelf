@@ -10,7 +10,7 @@
  */
 
 import { eq, and, sql, inArray, isNull } from 'drizzle-orm';
-import { files, filePermissions, groupMembers, userGroups } from '../db';
+import { files, filePermissions, groupMembers, userGroups, teams, teamMembers } from '../db';
 import type { DrizzleDb } from '../db';
 import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';
@@ -24,9 +24,11 @@ export interface PermissionResolution {
   sourceFileId?: string;
   sourceFilePath?: string;
   expiresAt?: string;
-  subjectType?: 'user' | 'group';
+  subjectType?: 'user' | 'group' | 'team';
   groupId?: string;
   groupName?: string;
+  teamId?: string;
+  teamName?: string;
 }
 
 const PERMISSION_LEVELS: Record<PermissionLevel, number> = {
@@ -65,6 +67,7 @@ export async function resolveEffectivePermission(
   }
 
   const userGroupIds = await getUserGroupIds(db, userId);
+  const teamRoles = await getTeamMemberRoles(db, userId);
 
   const explicitPermission = await findExplicitPermission(db, fileId, userId, userGroupIds);
   if (explicitPermission) {
@@ -81,10 +84,32 @@ export async function resolveEffectivePermission(
     };
   }
 
-  const inheritedPermission = await findInheritedPermission(db, env, fileId, userId, userGroupIds);
+  // team 维度显式权限查找（优先级低于 user/group 显式权限）
+  const teamExplicitPerm = await findTeamPermission(db, fileId, teamRoles);
+  if (teamExplicitPerm) {
+    const hasAccess = checkPermissionLevel(teamExplicitPerm.permission as PermissionLevel, requiredLevel);
+    const teamInfo = teamExplicitPerm.teamId ? await getTeamInfo(db, teamExplicitPerm.teamId) : null;
+    return {
+      hasAccess,
+      permission: teamExplicitPerm.permission as PermissionLevel,
+      source: 'explicit',
+      sourceFileId: file.id,
+      sourceFilePath: file.path,
+      expiresAt: teamExplicitPerm.expiresAt ?? undefined,
+      subjectType: 'team',
+      teamId: teamExplicitPerm.teamId ?? undefined,
+      teamName: teamInfo?.name,
+    };
+  }
+
+  const inheritedPermission = await findInheritedPermission(db, env, fileId, userId, userGroupIds, teamRoles);
   if (inheritedPermission) {
     const hasAccess = checkPermissionLevel(inheritedPermission.permission as PermissionLevel, requiredLevel);
     const sourceFile = await db.select().from(files).where(eq(files.id, inheritedPermission.fileId)).get();
+    const isInheritedTeam = inheritedPermission.subjectType === 'team';
+    const inheritedTeamInfo = isInheritedTeam && inheritedPermission.teamId
+      ? await getTeamInfo(db, inheritedPermission.teamId)
+      : null;
     return {
       hasAccess,
       permission: inheritedPermission.permission as PermissionLevel,
@@ -92,8 +117,10 @@ export async function resolveEffectivePermission(
       sourceFileId: inheritedPermission.fileId,
       sourceFilePath: sourceFile?.path,
       expiresAt: inheritedPermission.expiresAt ?? undefined,
-      subjectType: inheritedPermission.subjectType as 'user' | 'group' | undefined,
+      subjectType: inheritedPermission.subjectType as 'user' | 'group' | 'team' | undefined,
       groupId: inheritedPermission.groupId ?? undefined,
+      teamId: inheritedPermission.teamId ?? undefined,
+      teamName: inheritedTeamInfo?.name,
     };
   }
 
@@ -179,6 +206,24 @@ async function getUserGroupIds(db: DrizzleDb, userId: string): Promise<string[]>
   return memberships.map((m) => m.groupId);
 }
 
+/**
+ * 获取用户在所有团队中的角色映射
+ * @returns Map<teamId, role>
+ */
+async function getTeamMemberRoles(db: DrizzleDb, userId: string): Promise<Map<string, string>> {
+  const memberships = await db
+    .select({ teamId: teamMembers.teamId, role: teamMembers.role })
+    .from(teamMembers)
+    .where(eq(teamMembers.userId, userId))
+    .all();
+
+  const rolesMap = new Map<string, string>();
+  for (const m of memberships) {
+    rolesMap.set(m.teamId, m.role);
+  }
+  return rolesMap;
+}
+
 async function findExplicitPermission(
   db: DrizzleDb,
   fileId: string,
@@ -235,12 +280,55 @@ async function findExplicitPermission(
   return null;
 }
 
+/**
+ * 查找团队维度的显式权限
+ * 在 fileId 上查找 subjectType='team' 且 teamId 匹配用户所在团队的权限记录
+ * admin/owner 角色的团队会获得更高的默认权限倾向
+ */
+async function findTeamPermission(
+  db: DrizzleDb,
+  fileId: string,
+  teamRoles: Map<string, string>
+): Promise<typeof filePermissions.$inferSelect | null> {
+  if (teamRoles.size === 0) {
+    return null;
+  }
+
+  const userTeamIds = Array.from(teamRoles.keys());
+  const now = new Date().toISOString();
+
+  const teamPermission = await db
+    .select()
+    .from(filePermissions)
+    .where(
+      and(
+        eq(filePermissions.fileId, fileId),
+        eq(filePermissions.subjectType, 'team'),
+        inArray(filePermissions.teamId!, userTeamIds),
+        sql`(${filePermissions.expiresAt} IS NULL OR ${filePermissions.expiresAt} > ${now})`
+      )
+    )
+    .orderBy(
+      sql`
+      CASE ${filePermissions.permission}
+        WHEN 'admin' THEN 3
+        WHEN 'write' THEN 2
+        ELSE 1
+      END DESC
+    `
+    )
+    .get();
+
+  return teamPermission ?? null;
+}
+
 async function findInheritedPermission(
   db: DrizzleDb,
   env: Env,
   fileId: string,
   userId: string,
-  userGroupIds: string[]
+  userGroupIds: string[],
+  teamRoles: Map<string, string> = new Map()
 ): Promise<typeof filePermissions.$inferSelect | null> {
   const ancestors = await getAncestorFiles(db, fileId);
 
@@ -301,6 +389,39 @@ async function findInheritedPermission(
     }
   }
 
+  // team 维度继承权限查找
+  if (teamRoles.size > 0) {
+    const userTeamIds = Array.from(teamRoles.keys());
+    for (const ancestor of ancestors) {
+      const teamInheritedPerm = await db
+        .select()
+        .from(filePermissions)
+        .where(
+          and(
+            eq(filePermissions.fileId, ancestor.id),
+            eq(filePermissions.subjectType, 'team'),
+            inArray(filePermissions.teamId!, userTeamIds),
+            eq(filePermissions.inheritToChildren, true),
+            sql`(${filePermissions.expiresAt} IS NULL OR ${filePermissions.expiresAt} > ${now})`
+          )
+        )
+        .orderBy(
+          sql`
+          CASE ${filePermissions.permission}
+            WHEN 'admin' THEN 3
+            WHEN 'write' THEN 2
+            ELSE 1
+          END DESC
+        `
+        )
+        .get();
+
+      if (teamInheritedPerm) {
+        return teamInheritedPerm;
+      }
+    }
+  }
+
   return null;
 }
 
@@ -350,6 +471,52 @@ export async function getGroupInfo(db: DrizzleDb, groupId: string): Promise<{ id
     id: group.id,
     name: group.name,
   };
+}
+
+/**
+ * 获取团队信息
+ */
+export async function getTeamInfo(db: DrizzleDb, teamId: string): Promise<{ id: string; name: string } | null> {
+  const team = await db.select().from(teams).where(eq(teams.id, teamId)).get();
+
+  if (!team) {
+    return null;
+  }
+
+  return {
+    id: team.id,
+    name: team.name,
+  };
+}
+
+/**
+ * 基于团队成员角色解析团队资源的默认访问权限（不依赖显式授权，仅凭成员身份）
+ * - owner/admin → write
+ * - member → read
+ * - guest → 无默认权限
+ */
+export async function resolveTeamDefaultPermission(
+  db: DrizzleDb,
+  userId: string,
+  teamId: string
+): Promise<PermissionLevel | null> {
+  const teamRoles = await getTeamMemberRoles(db, userId);
+  const role = teamRoles.get(teamId);
+
+  if (!role) {
+    return null;
+  }
+
+  switch (role) {
+    case 'owner':
+    case 'admin':
+      return 'write';
+    case 'member':
+      return 'read';
+    case 'guest':
+    default:
+      return null;
+  }
 }
 
 export async function batchResolvePermissions(

@@ -11,7 +11,48 @@
  */
 
 import { useState } from 'react';
-import { Sparkles, ChevronDown, Loader2, File, CheckCircle2, AlertTriangle, Clock, Zap, X, Search, Move, Trash2, List, FolderOpen, Tag, Copy, FileText, Download, Code, RefreshCw, Shield, Users, Key, Webhook, Database, BarChart3, Eye, Edit3, GitBranch, Archive, Upload, Link2, StickyNote, MessageSquare, Lightbulb, Brain, Settings, HelpCircle, Info, FilePlus } from 'lucide-react';
+import {
+  Sparkles,
+  ChevronDown,
+  Loader2,
+  File,
+  CheckCircle2,
+  AlertTriangle,
+  Clock,
+  Zap,
+  X,
+  Search,
+  Move,
+  Trash2,
+  List,
+  FolderOpen,
+  Tag,
+  Copy,
+  FileText,
+  Download,
+  Code,
+  RefreshCw,
+  Shield,
+  Users,
+  Key,
+  Webhook,
+  Database,
+  BarChart3,
+  Eye,
+  Edit3,
+  GitBranch,
+  Archive,
+  Upload,
+  Link2,
+  StickyNote,
+  MessageSquare,
+  Lightbulb,
+  Brain,
+  Settings,
+  HelpCircle,
+  Info,
+  FilePlus,
+} from 'lucide-react';
 import type { ToolCallEvent, AgentFile, PreviewDiff } from '../types';
 import { DiffPreview } from './DiffPreview';
 import { DraftPreview } from './DraftPreview';
@@ -27,14 +68,15 @@ const TOOL_SUMMARIES: Record<string, (args: Record<string, unknown>) => string> 
     if (a.dateFrom) parts.push(`起始: ${String(a.dateFrom).slice(0, 10)}`);
     return `筛选文件${parts.length > 0 ? `（${parts.join('、')}）` : ''}`;
   },
-  search_by_tag: (a) => `按标签搜索「${Array.isArray(a.tagNames) ? (a.tagNames as string[]).join('、') : String(a.tagNames || '')}」`,
+  search_by_tag: (a) =>
+    `按标签搜索「${Array.isArray(a.tagNames) ? (a.tagNames as string[]).join('、') : String(a.tagNames || '')}」`,
   search_duplicates: () => '查找重复文件',
   get_similar_files: () => '查找相似文件',
   get_file_details: () => '获取文件详情',
 
   // ═══ 导航浏览 (7) ═══
   navigate_path: (a) => `导航到 ${a.path || a.folderId || '目标位置'}`,
-  list_folder: (a) => a.folderId ? '浏览文件夹' : '浏览根目录',
+  list_folder: (a) => (a.folderId ? '浏览文件夹' : '浏览根目录'),
   get_recent_files: (a) => `查看最近 ${a.days ? `${a.days}天` : ''}文件`,
   get_starred_files: () => '获取收藏文件',
   get_parent_chain: () => '查看文件路径',
@@ -43,10 +85,10 @@ const TOOL_SUMMARIES: Record<string, (args: Record<string, unknown>) => string> 
 
   // ═══ 内容理解 (8) ═══
   read_file_text: () => '读取文件内容',
-  analyze_image: (a) => a.question ? `分析图片：${String(a.question).slice(0, 30)}` : 'AI 分析图片',
+  analyze_image: (a) => (a.question ? `分析图片：${String(a.question).slice(0, 30)}` : 'AI 分析图片'),
   compare_files: () => '对比两个文件',
   extract_metadata: () => '提取元数据',
-  generate_summary: (a) => a.forceRegenerate ? '重新生成摘要' : '生成 AI 摘要',
+  generate_summary: (a) => (a.forceRegenerate ? '重新生成摘要' : '生成 AI 摘要'),
   generate_tags: (a) => `生成标签（最多 ${a.maxTags || 5} 个）`,
   content_preview: (a) => `预览前 ${a.lines || 50} 行`,
   analyze_file_collection: (a) => `${a.scope === 'folder' ? '文件夹' : '文件集合'}分析`,
@@ -136,9 +178,9 @@ const TOOL_SUMMARIES: Record<string, (args: Record<string, unknown>) => string> 
   get_audit_logs: (a) => `审计日志${a.action ? `(${a.action})` : ''}`,
 
   // ═══ AI 增强 (6) ═══
-  trigger_ai_summary: (a) => a.forceRegenerate ? '重新生成 AI 摘要' : '触发 AI 摘要生成',
+  trigger_ai_summary: (a) => (a.forceRegenerate ? '重新生成 AI 摘要' : '触发 AI 摘要生成'),
   trigger_ai_tags: (a) => `触发 AI 标签生成（${a.maxTags || 5}个）`,
-  rebuild_vector_index: (a) => a.fileId ? '重建单文件索引' : (a.forceAll ? '强制重建全部索引' : '重建索引'),
+  rebuild_vector_index: (a) => (a.fileId ? '重建单文件索引' : a.forceAll ? '强制重建全部索引' : '重建索引'),
   ask_rag_question: (a) => `RAG 问答：「${String(a.question || '').slice(0, 40)}」`,
   smart_rename_suggest: (a) => `AI 重命名建议（${a.style || 'descriptive'}）`,
   smart_organize_suggest: (a) => `智能整理建议（${a.scope || 'all'}）`,
@@ -148,7 +190,7 @@ const TOOL_SUMMARIES: Record<string, (args: Record<string, unknown>) => string> 
   get_activity_stats: (a) => `活动趋势（${a.period || 'day'}）`,
   get_user_quota_info: () => '配额信息',
   get_file_type_distribution: (a) => `文件类型分布（${a.groupBy || 'category'}）`,
-  get_sharing_stats: (a) => a.includeExpired ? '分享统计（含过期）' : '活跃分享统计',
+  get_sharing_stats: (a) => (a.includeExpired ? '分享统计（含过期）' : '活跃分享统计'),
 };
 
 const TOOL_ICONS: Record<string, React.ReactNode> = {
@@ -458,7 +500,9 @@ export function ToolCallCard({
             </span>
           </div>
           {!expanded && (humanSummary || argsSummary) && (
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate font-mono">{humanSummary || argsSummary}</p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate font-mono">
+              {humanSummary || argsSummary}
+            </p>
           )}
         </div>
 

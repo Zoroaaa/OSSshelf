@@ -660,43 +660,6 @@ app.get('/feature-config', async (c) => {
   }
 });
 
-// 获取各功能可用的模型列表（带能力过滤）
-// 前端用此接口渲染下拉选项，避免用户选到不支持的模型
-app.get('/feature-models', async (c) => {
-  const userId = c.get('userId')!;
-  const gateway = new ModelGateway(c.env);
-
-  try {
-    const allModels = await gateway.getAllModels(userId);
-
-    const featureModels = {
-      summary: allModels.filter((m) => m.capabilities.includes('chat')).map(formatModelForSelect),
-      imageCaption: allModels.filter((m) => m.capabilities.includes('vision')).map(formatModelForSelect),
-      imageTag: allModels.filter((m) => m.capabilities.includes('chat')).map(formatModelForSelect),
-      rename: allModels.filter((m) => m.capabilities.includes('chat')).map(formatModelForSelect),
-    };
-
-    return c.json({
-      success: true,
-      data: featureModels,
-    });
-  } catch (error) {
-    logger.error('AI Config', 'Failed to get feature models', { userId }, error);
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '获取可用模型失败' } }, 500);
-  }
-});
-
-function formatModelForSelect(m: ModelConfig) {
-  return {
-    id: m.id,
-    name: m.name,
-    provider: m.provider,
-    modelId: m.modelId,
-    capabilities: m.capabilities,
-    isActive: m.isActive,
-  };
-}
-
 function validateWorkersAiModel(
   modelId: string,
   requiredCapability: ModelCapability

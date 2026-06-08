@@ -672,14 +672,23 @@ async function handleStreamChat(
           logger.error('AI Agent', 'Stream failed', { userId }, error);
           const isAborted = error instanceof Error && error.name === 'AbortError';
           const errorMessage = error instanceof Error ? error.message : 'AI 响应出错';
-          enqueue({ done: true, error: isAborted ? '响应已中断' : errorMessage, sessionId: actualSessionId, sources: finalSources });
+          enqueue({
+            done: true,
+            error: isAborted ? '响应已中断' : errorMessage,
+            sessionId: actualSessionId,
+            sources: finalSources,
+          });
           try {
             controller.close();
           } catch {}
           // ── abort/error 路径：立即更新占位消息，保存已输出的部分内容 ──────
           try {
             await saveAssistantMessage({ isAborted, latencyMs: Date.now() - startTime });
-            logger.info('AI Agent', 'Partial message saved after abort/error', { sessionId: actualSessionId, isAborted, contentLen: fullText.length });
+            logger.info('AI Agent', 'Partial message saved after abort/error', {
+              sessionId: actualSessionId,
+              isAborted,
+              contentLen: fullText.length,
+            });
           } catch (saveError) {
             logger.error('AI Agent', 'Failed to save partial message', { userId }, saveError);
           }
@@ -767,10 +776,7 @@ app.get('/memories', async (c) => {
     return c.json({ success: true, data: result });
   } catch (error) {
     logger.error('AI Chat', 'List memories failed', { userId }, error);
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '获取记忆列表失败' } },
-      500
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '获取记忆列表失败' } }, 500);
   }
 });
 
@@ -787,10 +793,7 @@ app.delete('/memories/:id', async (c) => {
     return c.json({ success: true });
   } catch (error) {
     logger.error('AI Chat', 'Delete memory failed', { userId, memoryId }, error);
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '删除记忆失败' } },
-      500
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '删除记忆失败' } }, 500);
   }
 });
 

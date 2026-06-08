@@ -304,7 +304,7 @@ export class StorageTools {
   static async executeGetCleanupSuggestions(env: Env, userId: string, _args: Record<string, unknown>) {
     const db = getDb(env.DB);
 
-    const [duplicates, largeFiles, emptyFolders, expiredShares] = await Promise.all([
+    const [duplicates, largeFiles, , expiredShares] = await Promise.all([
       db
         .select({ hash: files.hash, cnt: count() })
         .from(files)

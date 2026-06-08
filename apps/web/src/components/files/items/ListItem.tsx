@@ -15,7 +15,6 @@ import { FileTagsDisplay } from '@/components/files/tags';
 import { ActionBtn } from '../ActionBtn';
 import { formatBytes, formatDate, decodeFileName } from '@/utils';
 import { isPreviewable, formatAllowedMimeTypes } from '@/utils/fileTypes';
-import { filesApi } from '@/services/api';
 import { cn } from '@/utils';
 import {
   CheckSquare,
@@ -86,7 +85,7 @@ export function ListItem({
         <div className="flex-shrink-0">
           {file.mimeType?.startsWith('image/') ? (
             <img
-              src={filesApi.previewUrl(file.id, token)}
+              src={`${import.meta.env.VITE_API_URL || ''}/api/files/${file.id}/preview${token ? `?token=${encodeURIComponent(token)}` : ''}`}
               alt={decodeFileName(file.name)}
               className="w-10 h-10 rounded object-cover"
               onError={(e) => {
@@ -156,8 +155,7 @@ export function ListItem({
       <div className="flex-shrink-0">
         {file.mimeType?.startsWith('image/') ? (
           <img
-            src={filesApi.previewUrl(file.id, token)}
-            alt={decodeFileName(file.name)}
+            src={`${import.meta.env.VITE_API_URL || ''}/api/files/${file.id}/preview${token ? `?token=${encodeURIComponent(token)}` : ''}`}
             className="w-10 h-10 rounded object-cover"
             onError={(e) => {
               (e.target as HTMLImageElement).style.display = 'none';
