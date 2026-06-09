@@ -14,6 +14,7 @@ import {
   userGroups,
   groupMembers,
   teamMembers,
+  teamResources,
   permissionRequests,
   roleTemplates,
 } from '../db';
@@ -519,7 +520,7 @@ export async function grantWithRoleTemplate(
       permission: highestPermission,
       grantedBy: grantedByUserId,
       expiresAt: expiresAt || null,
-      inheritToChildren: true,
+      inheritToChildren: true, // 角色模板授权默认穿透
       scope: 'explicit',
       createdAt: now,
       updatedAt: now,
@@ -692,11 +693,30 @@ export async function approvePermissionRequest(
       subjectType,
       permission: request.requestedPermission,
       grantedBy: reviewerId,
-      inheritToChildren: true,
+      inheritToChildren: true, // 审批通过默认穿透
       scope: 'explicit',
       createdAt: now,
       updatedAt: now,
     });
+
+    // 团队权限审批通过时，同步创建挂载记录
+    if (request.targetTeamId) {
+      const existingMount = await db
+        .select()
+        .from(teamResources)
+        .where(and(eq(teamResources.teamId, request.targetTeamId), eq(teamResources.fileId, request.fileId)))
+        .get();
+      if (!existingMount) {
+        await db.insert(teamResources).values({
+          id: crypto.randomUUID(),
+          teamId: request.targetTeamId,
+          fileId: request.fileId,
+          mountedBy: reviewerId,
+          mountedAt: now,
+          targetFolderId: null,
+        });
+      }
+    }
 
     // 失效缓存
     invalidatePermissionCache(env, request.fileId);
@@ -992,11 +1012,30 @@ export async function batchGrantPermissions(
           subjectType: resolvedSubjectType,
           permission,
           grantedBy: grantedByUserId,
-          inheritToChildren: true,
+          inheritToChildren: true, // 批量授权默认穿透
           scope: 'explicit',
           createdAt: now,
           updatedAt: now,
         });
+
+        // 团队授权时，同步创建挂载记录（与 POST /permissions/grant 保持一致）
+        if (targetTeamId && resolvedSubjectType === 'team') {
+          const existingMount = await db
+            .select()
+            .from(teamResources)
+            .where(and(eq(teamResources.teamId, targetTeamId), eq(teamResources.fileId, fileId)))
+            .get();
+          if (!existingMount) {
+            await db.insert(teamResources).values({
+              id: crypto.randomUUID(),
+              teamId: targetTeamId,
+              fileId,
+              mountedBy: grantedByUserId,
+              mountedAt: now,
+              targetFolderId: null,
+            });
+          }
+        }
       }
 
       // 失效缓存
@@ -1079,6 +1118,20 @@ export async function batchRevokePermissions(
       else conditions.push(isNull(filePermissions.teamId));
 
       await db.delete(filePermissions).where(and(...conditions));
+
+      // 团队权限撤销时，同步清理挂载记录
+      if (targetTeamId && resolvedSubjectType === 'team') {
+        const mountRecord = await db
+          .select()
+          .from(teamResources)
+          .where(and(eq(teamResources.teamId, targetTeamId), eq(teamResources.fileId, fileId)))
+          .get();
+        if (mountRecord) {
+          await db
+            .delete(teamResources)
+            .where(and(eq(teamResources.teamId, targetTeamId), eq(teamResources.fileId, fileId)));
+        }
+      }
 
       // 失效缓存
       invalidatePermissionCache(env, fileId);

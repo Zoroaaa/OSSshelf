@@ -9,7 +9,7 @@
  * - 清理过期邀请
  */
 
-import { eq, and, lt, desc, sql } from 'drizzle-orm';
+import { eq, and, lt, desc, sql, inArray } from 'drizzle-orm';
 import { getDb, teamInvitations, teams, teamMembers, users } from '../db';
 import type { DrizzleDb } from '../db';
 import type { Env } from '../types/env';
@@ -303,7 +303,6 @@ export async function listAllInvites(
     })
     .from(teamInvitations)
     .innerJoin(users, eq(teamInvitations.invitedBy, users.id))
-    .leftJoin(users.as('acceptor'), eq(teamInvitations.acceptedBy, (users as any).id)) // 需要别名，这里简化处理
     .where(and(...conditions))
     .orderBy(desc(teamInvitations.createdAt))
     .all();
@@ -315,7 +314,7 @@ export async function listAllInvites(
     const acceptors = await db
       .select({ id: users.id, name: users.name })
       .from(users)
-      .where(/* 使用 inArray 需要额外导入 */ sql`${users.id} IN (${acceptorIds.join(',')})`)
+      .where(inArray(users.id, acceptorIds))
       .all();
     for (const a of acceptors) {
       acceptorMap.set(a.id, { name: a.name });

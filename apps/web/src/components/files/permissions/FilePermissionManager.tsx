@@ -32,11 +32,13 @@ import {
   ArrowUpRight,
   Calendar,
   Building2,
+  FolderTree,
 } from 'lucide-react';
 
 interface FilePermissionManagerProps {
   fileId: string;
   isOwner: boolean;
+  isFolder?: boolean;
 }
 
 const PERMISSION_CONFIG = {
@@ -62,7 +64,7 @@ interface PermissionItem {
   createdAt: string;
 }
 
-export function FilePermissionManager({ fileId, isOwner }: FilePermissionManagerProps) {
+export function FilePermissionManager({ fileId, isOwner, isFolder = false }: FilePermissionManagerProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showAddForm, setShowAddForm] = useState(false);
@@ -76,6 +78,7 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
   const [searchResults, setSearchResults] = useState<SearchableUser[]>([]);
   const [groupResults, setGroupResults] = useState<UserGroup[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [inheritToChildren, setInheritToChildren] = useState(true);
 
   const { data: permissionData, isLoading } = useQuery({
     queryKey: ['file-permissions', fileId],
@@ -155,6 +158,7 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
         permission: data.permission,
         subjectType: data.subjectType,
         expiresAt: data.expiresAt || undefined,
+        inheritToChildren,
       } as any),
     onSuccess: () => {
       toast({ title: '权限已授予' });
@@ -407,6 +411,19 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
               min={new Date().toISOString().slice(0, 16)}
             />
           </div>
+
+          {isFolder && (
+            <label className="flex items-center gap-2 p-2 rounded-lg border bg-amber-500/5 border-amber-500/20 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={inheritToChildren}
+                onChange={(e) => setInheritToChildren(e.target.checked)}
+                className="rounded"
+              />
+              <FolderTree className="h-4 w-4 text-amber-600 shrink-0" />
+              <span className="text-sm">同时授权给该文件夹内的所有子文件/子文件夹</span>
+            </label>
+          )}
 
           <Button
             size="sm"

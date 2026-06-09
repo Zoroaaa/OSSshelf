@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/useToast';
 import { cn } from '@/utils';
-import { Shield, X, Trash2, Crown, Eye, Edit, UserPlus, Loader2, User, Users, Building2, Check } from 'lucide-react';
+import { Shield, X, Trash2, Crown, Eye, Edit, UserPlus, Loader2, User, Users, Building2, Check, FolderTree } from 'lucide-react';
 
 interface FilePermissionsDialogProps {
   fileId: string;
@@ -83,6 +83,9 @@ export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose, fil
   // ── 组/团队选择状态 ──
   const [selectedGroupId, setSelectedGroupId] = useState<string>('');
   const [selectedTeamId, setSelectedTeamId] = useState<string>('');
+
+  // ── 文件夹穿透选项 ──
+  const [inheritToChildren, setInheritToChildren] = useState(true);
 
   // ── 数据查询 ──
   const { data: permissionsData, isLoading } = useQuery({
@@ -154,6 +157,7 @@ export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose, fil
         teamId: data.teamId,
         subjectType: data.subjectType,
         permission: data.permission,
+        inheritToChildren,
       });
     },
     onSuccess: () => {
@@ -306,7 +310,11 @@ export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose, fil
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
                                 <p className="text-sm font-medium truncate">
-                                  {perm.userName || perm.userEmail || perm.groupName || '未知'}
+                                  {perm.subjectType === 'team'
+                                    ? (perm.teamName || '未知团队')
+                                    : perm.subjectType === 'group'
+                                      ? (perm.groupName || '未知组')
+                                      : (perm.userName || perm.userEmail || '未知')}
                                 </p>
                                 {renderSourceLabel(perm)}
                               </div>
@@ -453,6 +461,20 @@ export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose, fil
                         </option>
                       ))}
                     </select>
+                  )}
+
+                  {/* ── 文件夹穿透选项 ── */}
+                  {isFolder && (
+                    <label className="flex items-center gap-2 p-2 rounded-lg border bg-amber-500/5 border-amber-500/20 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={inheritToChildren}
+                        onChange={(e) => setInheritToChildren(e.target.checked)}
+                        className="rounded"
+                      />
+                      <FolderTree className="h-4 w-4 text-amber-600 shrink-0" />
+                      <span className="text-sm">同时授权给该文件夹内的所有子文件/子文件夹</span>
+                    </label>
                   )}
 
                   {/* ── 角色模板卡片 ── */}

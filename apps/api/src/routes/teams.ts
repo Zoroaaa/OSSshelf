@@ -72,6 +72,8 @@ const changeRoleSchema = z.object({
 const mountResourceSchema = z.object({
   fileId: z.string().min(1, '文件ID不能为空'),
   targetFolderId: z.string().nullable().optional(),
+  /** 文件夹挂载时是否穿透下级（默认 true） */
+  penetrate: z.boolean().default(true),
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -411,6 +413,7 @@ app.post('/:id/resources', async (c) => {
 
   const result = await mountResourceToTeam(c.env, userId, teamId, parseResult.data.fileId, {
     targetFolderId: parseResult.data.targetFolderId,
+    penetrate: parseResult.data.penetrate,
   });
 
   if (!result.success) {
@@ -811,65 +814,11 @@ app.get('/:id/workspace/all-files', async (c) => {
     .get();
   if (!membership) throwAppError('TEAM_ACCESS_DENIED', '您不是该团队成员');
 
-  // 1. 团队自有的文件/文件夹
-  const teamFilesQuery = db
-    .select({
-      id: files.id,
-      name: files.name,
-      path: files.path,
-      type: files.type,
-      mimeType: files.mimeType,
-      size: files.size,
-      isFolder: files.isFolder,
-      parentId: files.parentId,
-      createdAt: files.createdAt,
-      updatedAt: files.updatedAt,
-      userId: files.userId,
-    })
-    .from(files)
-    .where(
-      and(
-        eq(files.teamId, teamId),
-        isNull(files.deletedAt),
-        folderId ? eq(files.parentId, folderId) : isNull(files.parentId)
-      )
-    );
-
-  const teamFiles = await teamFilesQuery.all();
-
-  // 2. 已挂载的资源（复用 getTeamFiles 的逻辑）
+  // 直接使用 getTeamFiles()，它内部已正确区分 owned/mounted 并返回 source 字段
   const workspaceResult = await getTeamFiles(c.env, teamId, userId, { folderId, limit: 999, offset: 0 });
 
-  // 合并去重（以 fileId 为准，挂载的优先显示挂载信息）
-  const mountedIds = new Set(workspaceResult.files.map((f) => f.fileId));
-  const allFiles = [
-    ...workspaceResult.files.map((f) => ({
-      ...f,
-      source: 'mounted' as const,
-    })),
-    ...teamFiles
-      .filter((f) => !mountedIds.has(f.id))
-      .map((f) => ({
-        fileId: f.id,
-        fileName: f.name,
-        filePath: f.path,
-        fileType: f.type,
-        mimeType: f.mimeType,
-        size: f.size,
-        isFolder: f.isFolder,
-        mountedAt: f.createdAt,
-        permission:
-          f.userId === userId
-            ? ('admin' as const)
-            : membership.role === 'admin' || membership.role === 'owner'
-              ? ('write' as const)
-              : ('read' as const),
-        source: 'owned' as const,
-      })),
-  ];
-
-  const total = allFiles.length;
-  const paged = allFiles.slice(offset, offset + limit);
+  const total = workspaceResult.files.length;
+  const paged = workspaceResult.files.slice(offset, offset + limit);
 
   return c.json({ success: true, data: { files: paged, total } });
 });

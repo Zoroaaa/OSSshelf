@@ -231,6 +231,7 @@ export const permissionsApi = {
     permission: 'read' | 'write' | 'admin';
     subjectType?: 'user' | 'group' | 'team';
     expiresAt?: string;
+    inheritToChildren?: boolean;
   }) => api.post<ApiResponse<{ message: string }>>('/api/permissions/grant', data),
   revoke: (data: { fileId: string; userId?: string; groupId?: string; teamId?: string }) =>
     api.post<ApiResponse<{ message: string }>>('/api/permissions/revoke', data),
@@ -613,7 +614,7 @@ export const teamsApi = {
     api.delete<ApiResponse<{ message: string }>>(`/api/teams/${teamId}/members/${userId}`),
   updateMemberRole: (teamId: string, userId: string, role: string) =>
     api.put<ApiResponse<{ message: string }>>(`/api/teams/${teamId}/members/${userId}/role`, { role }),
-  mountResource: (teamId: string, fileId: string, options?: { targetFolderId?: string | null }) =>
+  mountResource: (teamId: string, fileId: string, options?: { targetFolderId?: string | null; penetrate?: boolean }) =>
     api.post<ApiResponse<Record<string, unknown>>>(`/api/teams/${teamId}/resources`, { fileId, ...options }),
   unmountResource: (teamId: string, fileId: string) =>
     api.delete<ApiResponse<{ message: string }>>(`/api/teams/${teamId}/resources/${fileId}`),

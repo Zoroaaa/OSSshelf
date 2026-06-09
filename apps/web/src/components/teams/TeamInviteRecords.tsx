@@ -26,7 +26,7 @@ import {
   Calendar,
   Shield,
 } from 'lucide-react';
-import { cn, formatRelativeTime } from '@/utils';
+import { cn, formatDate } from '@/utils';
 
 interface TeamInviteRecordsProps {
   teamId: string;

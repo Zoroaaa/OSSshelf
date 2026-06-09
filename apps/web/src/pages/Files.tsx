@@ -1615,7 +1615,7 @@ export default function Files() {
               </button>
             </div>
             <p className="text-sm text-muted-foreground mb-4 truncate">文件: {decodeFileName(permissionFile.name)}</p>
-            <FilePermissionManager fileId={permissionFile.id} isOwner={true} />
+            <FilePermissionManager fileId={permissionFile.id} isOwner={true} isFolder={permissionFile.isFolder ?? false} />
             <div className="flex justify-end mt-4">
               <Button variant="outline" onClick={() => setPermissionFile(null)}>
                 关闭

@@ -2,7 +2,7 @@
  * teamService.ts — 团队管理核心服务层
  */
 
-import { eq, and, isNull, sql, or, inArray } from 'drizzle-orm';
+import { eq, and, isNull, sql, or, inArray, like } from 'drizzle-orm';
 import { getDb, teams, teamMembers, teamResources, files, users, filePermissions } from '../db';
 import type { DrizzleDb } from '../db';
 import type { Env } from '../types/env';
@@ -563,7 +563,7 @@ export async function mountResourceToTeam(
   userId: string,
   teamId: string,
   fileId: string,
-  options?: { targetFolderId?: string | null }
+  options?: { targetFolderId?: string | null; penetrate?: boolean }
 ): Promise<{ success: true; message: string } | { success: false; error: string }> {
   const db = getDb(env.DB);
 
@@ -646,11 +646,71 @@ export async function mountResourceToTeam(
       subjectType: 'team',
       permission: 'read', // 默认只读，管理员可后续提升
       grantedBy: userId,
-      inheritToChildren: true,
+      inheritToChildren: options?.penetrate ?? true, // 默认穿透，反映用户选择
       scope: 'explicit',
       createdAt: now,
       updatedAt: now,
     });
+  }
+
+  // 穿透挂载：如果目标是文件夹且启用穿透，递归挂载所有子文件
+  if (file.isFolder && options?.penetrate) {
+    const folderPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
+    const childFiles = await db
+      .select({ id: files.id, name: files.name, isFolder: files.isFolder })
+      .from(files)
+      .where(and(eq(files.userId, file.userId), isNull(files.deletedAt), like(files.path, `${folderPath}/%`)))
+      .all();
+
+    for (const child of childFiles) {
+      // 检查子文件是否已挂载
+      const existingChildMount = await db
+        .select()
+        .from(teamResources)
+        .where(and(eq(teamResources.teamId, teamId), eq(teamResources.fileId, child.id)))
+        .get();
+
+      if (!existingChildMount) {
+        await db.insert(teamResources).values({
+          id: crypto.randomUUID(),
+          teamId,
+          fileId: child.id,
+          mountedBy: userId,
+          mountedAt: now,
+          targetFolderId: options?.targetFolderId ?? null,
+        });
+
+        // 子文件也同步创建权限
+        const existingChildPerm = await db
+          .select()
+          .from(filePermissions)
+          .where(
+            and(
+              eq(filePermissions.fileId, child.id),
+              eq(filePermissions.subjectType, 'team'),
+              eq(filePermissions.teamId, teamId)
+            )
+          )
+          .get();
+
+        if (!existingChildPerm) {
+          await db.insert(filePermissions).values({
+            id: crypto.randomUUID(),
+            fileId: child.id,
+            userId: null,
+            groupId: null,
+            teamId,
+            subjectType: 'team',
+            permission: 'read',
+            grantedBy: userId,
+            inheritToChildren: options?.penetrate ?? true, // 与父级保持一致，默认穿透
+            scope: 'explicit',
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      }
+    }
   }
 
   // Activity
@@ -785,6 +845,8 @@ export interface TeamFileItem {
   permission: 'read' | 'write' | 'admin';
   /** 挂载目标文件夹ID（NULL=根目录） */
   targetFolderId: string | null;
+  /** 来源类型：owned=团队自有文件，mounted=挂载的外部资源 */
+  source: 'owned' | 'mounted';
 }
 
 /**
@@ -808,39 +870,62 @@ export async function getTeamFiles(
     .get();
   if (!membership) return { files: [], total: 0 };
 
-  // 获取所有已挂载的资源（根据 targetFolderId 过滤）
-  const mountConditions = [eq(teamResources.teamId, teamId)];
-  if (folderId) {
-    // 在子文件夹中浏览时，只显示挂载到该文件夹的资源
-    mountConditions.push(eq(teamResources.targetFolderId, folderId));
-  } else {
-    // 在根目录浏览时，只显示 targetFolderId 为 NULL 的资源（即挂载到根目录的）
-    mountConditions.push(isNull(teamResources.targetFolderId));
+  // ═══════════════════════════════════════════════════════════════
+  // Phase 1: 识别"当前位置"的类型 — 这是整个函数的核心分发点
+  // ═══════════════════════════════════════════════════════════════
+  //
+  // 团队空间中有两类可浏览节点：
+  //   A) 团队自有文件/文件夹 (files.teamId = teamId) → 通过 parentId 组织层级
+  //   B) 挂载的资源 (team_resources 记录) → 通过 targetFolderId 映射显示位置
+  //
+  // 当用户点击进入某个节点时，前端传来的 folderId 可能属于 A 或 B，
+  // 必须先判断类型才能决定用什么方式查询内容。
+
+  if (!folderId) {
+    // ── 根目录：合并两类内容 ──
+    return getTeamRootContent(db, env, teamId, viewerUserId);
   }
 
-  const mounts = await db
-    .select({
-      fileId: teamResources.fileId,
-      mountedAt: teamResources.mountedAt,
-      targetFolderId: teamResources.targetFolderId,
-    })
+  // 判断 folderId 属于哪类
+  const isTeamOwnFile = await db
+    .select({ id: files.id, isFolder: files.isFolder })
+    .from(files)
+    .where(and(eq(files.id, folderId), eq(files.teamId, teamId), isNull(files.deletedAt)))
+    .get();
+
+  if (isTeamOwnFile) {
+    // ── 分支A：团队自有文件夹 → 用 parentId 查子文件 ──
+    return getTeamOwnFolderContent(db, env, teamId, viewerUserId, folderId);
+  }
+
+  const isMountedResource = await db
+    .select({ id: teamResources.id, fileId: teamResources.fileId })
     .from(teamResources)
-    .where(and(...mountConditions))
-    .all();
+    .where(and(eq(teamResources.teamId, teamId), eq(teamResources.fileId, folderId)))
+    .get();
 
-  if (mounts.length === 0) return { files: [], total: 0 };
-
-  const mountedFileIds = mounts.map((m) => m.fileId);
-  const mountedAtMap = new Map(mounts.map((m) => [m.fileId, m.mountedAt]));
-  const targetFolderMap = new Map(mounts.map((m) => [m.fileId, m.targetFolderId]));
-
-  // 查询这些文件的基本信息
-  const baseConditions = [inArray(files.id, mountedFileIds), isNull(files.deletedAt)];
-  if (folderId) {
-    baseConditions.push(eq(files.parentId, folderId));
+  if (isMountedResource) {
+    // ── 分支B：挂载的文件夹 → 展示其原始子文件（基于权限）──
+    return getMountedFolderContent(db, env, teamId, viewerUserId, folderId);
   }
 
-  const allFiles = await db
+  // folderId 不属于任何已知节点
+  return { files: [], total: 0 };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 分支实现
+// ═══════════════════════════════════════════════════════════════
+
+/** 根目录：团队自有根级文件 + 挂载到根目录的资源 */
+async function getTeamRootContent(
+  db: DrizzleDb,
+  env: Env,
+  teamId: string,
+  viewerUserId: string
+): Promise<{ files: TeamFileItem[]; total: number }> {
+  // 团队自有文件：parentId IS NULL 且 teamId = teamId
+  const ownFiles = await db
     .select({
       id: files.id,
       name: files.name,
@@ -849,25 +934,212 @@ export async function getTeamFiles(
       mimeType: files.mimeType,
       size: files.size,
       isFolder: files.isFolder,
-      parentId: files.parentId,
-      deletedAt: files.deletedAt,
       userId: files.userId,
     })
     .from(files)
-    .where(and(...baseConditions))
+    .where(and(eq(files.teamId, teamId), isNull(files.parentId), isNull(files.deletedAt)))
     .all();
 
-  // 对每个文件检查权限（批量查询，避免 N+1）
-  const allFileIds = allFiles.map((f) => f.id).filter(Boolean);
-  const permsMap = new Map<string, { permission: string }>();
+  // 挂载资源：targetFolderId IS NULL
+  const mounts = await db
+    .select({
+      fileId: teamResources.fileId,
+      mountedAt: teamResources.mountedAt,
+    })
+    .from(teamResources)
+    .where(and(eq(teamResources.teamId, teamId), isNull(teamResources.targetFolderId)))
+    .all();
 
-  if (allFileIds.length > 0) {
+  const mountedFileIds = mounts.map((m) => m.fileId);
+  const mountedAtMap = new Map(mounts.map((m) => [m.fileId, m.mountedAt]));
+
+  const mountedFiles = mountedFileIds.length > 0
+    ? await db
+        .select({
+          id: files.id,
+          name: files.name,
+          path: files.path,
+          type: files.type,
+          mimeType: files.mimeType,
+          size: files.size,
+          isFolder: files.isFolder,
+          userId: files.userId,
+        })
+        .from(files)
+        .where(and(inArray(files.id, mountedFileIds), isNull(files.deletedAt)))
+        .all()
+    : [];
+
+  // 合并并检查权限（ownFiles=owned, mountedFiles=mounted）
+  const allItems = [...ownFiles, ...mountedFiles];
+  const result = await filterByPermission(db, allItems, teamId, viewerUserId, mountedAtMap, null, false, 'owned');
+
+  return { files: result, total: result.length };
+}
+
+/** 团队自有文件夹：通过 parentId 查子文件 + 挂载到此文件夹的资源 */
+async function getTeamOwnFolderContent(
+  db: DrizzleDb,
+  env: Env,
+  teamId: string,
+  viewerUserId: string,
+  folderId: string
+): Promise<{ files: TeamFileItem[]; total: number }> {
+  // 团队自有子文件
+  const ownChildren = await db
+    .select({
+      id: files.id,
+      name: files.name,
+      path: files.path,
+      type: files.type,
+      mimeType: files.mimeType,
+      size: files.size,
+      isFolder: files.isFolder,
+      userId: files.userId,
+    })
+    .from(files)
+    .where(and(eq(files.teamId, teamId), eq(files.parentId, folderId), isNull(files.deletedAt)))
+    .all();
+
+  // 挂载到此文件夹的资源
+  const mounts = await db
+    .select({
+      fileId: teamResources.fileId,
+      mountedAt: teamResources.mountedAt,
+    })
+    .from(teamResources)
+    .where(and(eq(teamResources.teamId, teamId), eq(teamResources.targetFolderId, folderId)))
+    .all();
+
+  const mountedFileIds = mounts.map((m) => m.fileId);
+  const mountedAtMap = new Map(mounts.map((m) => [m.fileId, m.mountedAt]));
+
+  const mountedFiles = mountedFileIds.length > 0
+    ? await db
+        .select({
+          id: files.id,
+          name: files.name,
+          path: files.path,
+          type: files.type,
+          mimeType: files.mimeType,
+          size: files.size,
+          isFolder: files.isFolder,
+          userId: files.userId,
+        })
+        .from(files)
+        .where(and(inArray(files.id, mountedFileIds), isNull(files.deletedAt)))
+        .all()
+    : [];
+
+  const allItems = [...ownChildren, ...mountedFiles];
+  const result = await filterByPermission(db, allItems, teamId, viewerUserId, mountedAtMap, folderId, false, 'owned');
+
+  return { files: result, total: result.length };
+}
+
+/** 挂载的文件夹：展示其原始空间的直接子文件（基于权限过滤） */
+async function getMountedFolderContent(
+  db: DrizzleDb,
+  env: Env,
+  teamId: string,
+  viewerUserId: string,
+  mountedFolderId: string
+): Promise<{ files: TeamFileItem[]; total: number }> {
+  // 获取挂载文件夹的信息（原始路径和所有者）
+  const folderInfo = await db
+    .select({ path: files.path, userId: files.userId })
+    .from(files)
+    .where(eq(files.id, mountedFolderId))
+    .get();
+
+  if (!folderInfo) return { files: [], total: 0 };
+
+  const folderPath = folderInfo.path.endsWith('/') ? folderInfo.path.slice(0, -1) : folderInfo.path;
+
+  // 查询原始空间中该文件夹的直接子文件
+  const childFiles = await db
+    .select({
+      id: files.id,
+      name: files.name,
+      path: files.path,
+      type: files.type,
+      mimeType: files.mimeType,
+      size: files.size,
+      isFolder: files.isFolder,
+      userId: files.userId,
+    })
+    .from(files)
+    .where(
+      and(
+        eq(files.userId, folderInfo.userId),
+        isNull(files.deletedAt),
+        like(files.path, `${folderPath}/%`)
+      )
+    )
+    .all();
+
+  // 只保留直接子级（排除更深层的嵌套，但保留直接子文件夹）
+  const directChildren = childFiles.filter((f) => {
+    const relativePath = (f.path ?? '').replace(`${folderPath}/`, '');
+    // 直接子文件：不含 / ；直接子文件夹：/ 仅出现在末尾
+    const slashIndex = relativePath.indexOf('/');
+    return slashIndex === -1 || slashIndex === relativePath.length - 1;
+  });
+
+  // 权限过滤（viaMountedFolder=true: 子文件无独立权限时继承父级展示；defaultSource=mounted）
+  const result = await filterByPermission(
+    db,
+    directChildren,
+    teamId,
+    viewerUserId,
+    new Map(), // 子文件没有独立的挂载记录
+    mountedFolderId, // targetFolderId 设为父文件夹ID
+    true, // viaMountedFolder: 通过挂载文件夹访问
+    'mounted' // 所有子文件都来源自挂载
+  );
+
+  return { files: result, total: result.length };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 共享：权限过滤 + 格式化
+// ═══════════════════════════════════════════════════════════════
+
+/** 统一的权限过滤 + 格式化为 TeamFileItem */
+async function filterByPermission(
+  db: DrizzleDb,
+  items: Array<{
+    id: string;
+    name: string;
+    path: string | null;
+    type: string | null;
+    mimeType: string | null;
+    size: number;
+    isFolder: boolean;
+    userId: string;
+  }>,
+  teamId: string,
+  viewerUserId: string,
+  mountedAtMap: Map<string, string>,
+  targetFolderId: string | null,
+  /** 是否通过挂载文件夹访问（此时无独立权限也应展示） */
+  viaMountedFolder: boolean = false,
+  /** 无挂载记录时的默认来源（由调用方根据上下文决定） */
+  defaultSource: 'owned' | 'mounted' = 'owned'
+): Promise<TeamFileItem[]> {
+  if (items.length === 0) return [];
+
+  const fileIds = items.map((f) => f.id).filter(Boolean);
+
+  // 批量权限查询
+  const permsMap = new Map<string, string>();
+  if (fileIds.length > 0) {
     const perms = await db
       .select({ fileId: filePermissions.fileId, permission: filePermissions.permission })
       .from(filePermissions)
       .where(
         and(
-          inArray(filePermissions.fileId, allFileIds),
+          inArray(filePermissions.fileId, fileIds),
           or(
             and(eq(filePermissions.subjectType, 'user'), eq(filePermissions.userId, viewerUserId)),
             and(eq(filePermissions.subjectType, 'team'), eq(filePermissions.teamId, teamId))
@@ -875,65 +1147,83 @@ export async function getTeamFiles(
         )
       )
       .all();
-
-    // 同一文件多条权限记录时取最高权限: admin > write > read
     for (const p of perms) {
       const existing = permsMap.get(p.fileId);
-      if (!existing || permissionRank(p.permission) > permissionRank(existing.permission)) {
-        permsMap.set(p.fileId, { permission: p.permission });
+      const pPerm = p.permission as string;
+      if (!existing || permissionRank(pPerm) > permissionRank(existing)) {
+        permsMap.set(p.fileId, pPerm);
       }
     }
   }
 
-  const filesWithPerm: TeamFileItem[] = [];
+  // 过滤 + 格式化
+  const result: TeamFileItem[] = [];
+  for (const f of items) {
+    if (!f.id) continue;
 
-  for (const file of allFiles) {
-    if (!file.id) continue;
+    // 判断是否有挂载记录（用于区分"团队自有"和"挂载资源"）
+    const hasMountRecord = mountedAtMap.has(f.id);
+    // source 判断：有挂载记录=mounted，否则由调用方上下文决定
+    const source = hasMountRecord ? 'mounted' : defaultSource;
 
     // 文件所有者总有完全权限
-    if (file.userId === viewerUserId) {
-      filesWithPerm.push({
-        fileId: file.id,
-        fileName: file.name,
-        filePath: file.path,
-        fileType: file.type,
-        mimeType: file.mimeType,
-        size: file.size,
-        isFolder: file.isFolder,
-        mountedAt: mountedAtMap.get(file.id) || '',
+    if (f.userId === viewerUserId) {
+      result.push({
+        fileId: f.id,
+        fileName: f.name,
+        filePath: f.path,
+        fileType: f.type,
+        mimeType: f.mimeType,
+        size: Number(f.size ?? 0),
+        isFolder: Boolean(f.isFolder),
+        mountedAt: hasMountRecord ? (mountedAtMap.get(f.id) ?? '') : '',
         permission: 'admin',
-        targetFolderId: targetFolderMap.get(file.id) ?? null,
+        targetFolderId,
+        source,
       });
       continue;
     }
 
-    // 从批量结果中查找权限
-    const perm = permsMap.get(file.id);
-
+    const perm = permsMap.get(f.id);
     if (perm) {
-      filesWithPerm.push({
-        fileId: file.id,
-        fileName: file.name,
-        filePath: file.path,
-        fileType: file.type,
-        mimeType: file.mimeType,
-        size: file.size,
-        isFolder: file.isFolder,
-        mountedAt: mountedAtMap.get(file.id) || '',
-        permission: perm.permission as 'read' | 'write' | 'admin',
-        targetFolderId: targetFolderMap.get(file.id) ?? null,
+      // 有独立权限记录 → 展示
+      result.push({
+        fileId: f.id,
+        fileName: f.name,
+        filePath: f.path,
+        fileType: f.type,
+        mimeType: f.mimeType,
+        size: Number(f.size ?? 0),
+        isFolder: Boolean(f.isFolder),
+        mountedAt: hasMountRecord ? (mountedAtMap.get(f.id) ?? '') : '',
+        permission: perm as 'read' | 'write' | 'admin',
+        targetFolderId,
+        source,
+      });
+    } else if (viaMountedFolder) {
+      // 通过挂载文件夹访问、子文件无独立权限 → 继承父级权限展示
+      result.push({
+        fileId: f.id,
+        fileName: f.name,
+        filePath: f.path,
+        fileType: f.type,
+        mimeType: f.mimeType,
+        size: Number(f.size ?? 0),
+        isFolder: Boolean(f.isFolder),
+        mountedAt: '',
+        permission: 'read', // 通过父级文件夹权限访问，默认只读
+        targetFolderId,
+        source, // viaMountedFolder 时 defaultSource 由调用方决定
       });
     }
+    // 无权限且非挂载文件夹访问 → 不加入结果
   }
 
-  const total = filesWithPerm.length;
-  const paged = filesWithPerm.slice(offset, offset + limit);
-
-  return { files: paged, total };
+  return result;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ★ 新增：团队存储统计
+// ★ 团队存储统计
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function getTeamStorageStats(
@@ -946,7 +1236,7 @@ export async function getTeamStorageStats(
   const quota = (team as any).storageQuota ?? 5368709120;
 
   // 实际计算：团队自有文件大小 + 挂载资源文件大小
-  const [teamFilesResult, mountedFilesResult, resourceCount] = await Promise.all([
+  const [teamFilesResult, mountedFilesResult, teamFileCount, resourceCount] = await Promise.all([
     // 团队自有文件（teamId 字段标记）
     db
       .select({ totalSize: sql<number>`COALESCE(SUM(${files.size}), 0)` })
@@ -960,20 +1250,28 @@ export async function getTeamStorageStats(
       .innerJoin(files, eq(teamResources.fileId, files.id))
       .where(and(eq(teamResources.teamId, teamId), isNull(files.deletedAt)))
       .get(),
-    // 挂载资源数量
+    // 团队自有文件数量（排除文件夹）
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(files)
+      .where(and(eq(files.teamId, teamId), isNull(files.deletedAt), eq(files.isFolder, false)))
+      .get(),
+    // 挂载资源数量（排除文件夹）
     db
       .select({ count: sql<number>`count(*)` })
       .from(teamResources)
-      .where(eq(teamResources.teamId, teamId))
+      .innerJoin(files, eq(teamResources.fileId, files.id))
+      .where(and(eq(teamResources.teamId, teamId), eq(files.isFolder, false)))
       .get(),
   ]);
 
   const used = (teamFilesResult?.totalSize ?? 0) + (mountedFilesResult?.totalSize ?? 0);
+  const totalFileCount = (teamFileCount?.count ?? 0) + (resourceCount?.count ?? 0);
 
   return {
     storageQuota: quota,
     storageUsed: used,
     usagePercent: quota > 0 ? Math.round((used / quota) * 10000) / 100 : 0,
-    fileCount: Number(resourceCount?.count ?? 0),
+    fileCount: totalFileCount,
   };
 }

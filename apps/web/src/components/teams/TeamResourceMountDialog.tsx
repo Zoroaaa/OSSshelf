@@ -14,7 +14,7 @@ import { useToast } from '@/components/ui/useToast';
 import { teamsApi } from '@/services/collab';
 import { filesApi } from '@/services/core';
 import api from '@/services/api-client';
-import { Loader2, X, FolderPlus, FolderOpen, Link2Off, Search, Check, ChevronRight } from 'lucide-react';
+import { Loader2, X, FolderPlus, FolderOpen, Link2Off, Search, Check, ChevronRight, FolderTree } from 'lucide-react';
 import { cn, formatBytes } from '@/utils';
 
 interface TeamResourceMountDialogProps {
@@ -44,6 +44,7 @@ const TeamResourceMountDialog: React.FC<TeamResourceMountDialogProps> = ({ teamI
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFile, setSelectedFile] = useState<FileSearchResult | null>(null);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [penetrate, setPenetrate] = useState(true);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // 自动聚焦搜索框
@@ -98,6 +99,7 @@ const TeamResourceMountDialog: React.FC<TeamResourceMountDialogProps> = ({ teamI
       return teamsApi
         .mountResource(teamId, selectedFile.id, {
           targetFolderId: selectedFolderId,
+          penetrate,
         })
         .then((r) => r.data);
     },
@@ -300,6 +302,20 @@ const TeamResourceMountDialog: React.FC<TeamResourceMountDialogProps> = ({ teamI
                     {selectedFile.isFolder ? '文件夹' : formatBytes(selectedFile.size)}
                   </span>
                 </div>
+              )}
+
+              {/* 文件夹穿透选项 */}
+              {selectedFile?.isFolder && (
+                <label className="flex items-center gap-2 p-2 rounded-lg border bg-amber-500/5 border-amber-500/20 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={penetrate}
+                    onChange={(e) => setPenetrate(e.target.checked)}
+                    className="rounded"
+                  />
+                  <FolderTree className="h-4 w-4 text-amber-600 shrink-0" />
+                  <span className="text-sm">同时挂载该文件夹内的所有子文件/子文件夹</span>
+                </label>
               )}
 
               <Button type="submit" size="sm" className="w-full" disabled={!selectedFile || mountMutation.isPending}>
