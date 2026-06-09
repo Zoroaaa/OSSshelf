@@ -24,6 +24,8 @@ import { useQueryClient } from '@tanstack/react-query';
 
 interface UseFolderUploadOptions {
   currentFolderId?: string;
+  /** 团队 ID：在团队工作区上传时传入 */
+  teamId?: string | null;
   onFileStart?: (name: string, key: string) => void;
   onFileProgress?: (key: string, progress: number) => void;
   onFileDone?: (key: string) => void;
@@ -33,6 +35,7 @@ interface UseFolderUploadOptions {
 
 export function useFolderUpload({
   currentFolderId,
+  teamId,
   onFileStart,
   onFileProgress,
   onFileDone,
@@ -105,6 +108,7 @@ export function useFolderUpload({
           await presignUpload({
             file,
             parentId,
+            teamId,
             onProgress: (progress) => onFileProgress?.(key, progress),
           });
           uploadedCount++;
@@ -120,7 +124,7 @@ export function useFolderUpload({
       queryClient.invalidateQueries({ queryKey: ['stats'] });
       onAllDone?.({ uploaded: uploadedCount, failed: failedCount });
     },
-    [currentFolderId, queryClient, onFileStart, onFileProgress, onFileDone, onFileError, onAllDone]
+    [currentFolderId, teamId, queryClient, onFileStart, onFileProgress, onFileDone, onFileError, onAllDone]
   );
 
   const uploadFolderEntriesDirect = useCallback(
@@ -224,7 +228,7 @@ export function useFolderUpload({
       queryClient.invalidateQueries({ queryKey: ['files'] });
       onAllDone?.();
     },
-    [currentFolderId, queryClient, onFileStart, onFileProgress, onFileDone, onFileError, onAllDone]
+    [currentFolderId, teamId, queryClient, onFileStart, onFileProgress, onFileDone, onFileError, onAllDone]
   );
 
   return { uploadFolderEntriesDirect, uploadFilesWithRelativePath };

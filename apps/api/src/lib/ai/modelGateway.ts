@@ -353,6 +353,7 @@ export class ModelGateway {
       config.modelId,
       config.apiEndpoint,
       config.apiKeyEncrypted?.slice(0, 8),
+      config.isActive ? '1' : '0',
       config.updatedAt,
     ].join('|');
 

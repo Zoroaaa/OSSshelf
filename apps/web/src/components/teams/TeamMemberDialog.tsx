@@ -3,7 +3,7 @@
  * 管理团队成员对话框
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -56,6 +56,7 @@ const TeamMemberDialog: React.FC<TeamMemberDialogProps> = ({ teamId, teamName, o
   const [selectedRole, setSelectedRole] = useState<MemberRole>('member');
   const [searchResults, setSearchResults] = useState<Array<{ id: string; email: string; name: string | null }>>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data: teamData } = useQuery({
     queryKey: ['team', teamId],
@@ -68,8 +69,7 @@ const TeamMemberDialog: React.FC<TeamMemberDialogProps> = ({ teamId, teamName, o
   });
 
   const addMemberMutation = useMutation({
-    mutationFn: (data: { userId: string; role?: MemberRole }) =>
-      teamsApi.addMember(teamId, data).then((r) => r.data),
+    mutationFn: (data: { userId: string; role?: MemberRole }) => teamsApi.addMember(teamId, data).then((r) => r.data),
     onSuccess: () => {
       toast({ title: '成员已添加' });
       queryClient.invalidateQueries({ queryKey: ['team-members', teamId] });
@@ -123,18 +123,35 @@ const TeamMemberDialog: React.FC<TeamMemberDialogProps> = ({ teamId, teamName, o
       return;
     }
 
-    setIsSearching(true);
-    try {
-      const res = await permissionsApi.searchUsers(query);
-      const users = res.data.data ?? [];
-      const existingUserIds = new Set(members?.map((m) => m.userId) ?? []);
-      setSearchResults(users.filter((u) => !existingUserIds.has(u.id)));
-    } catch {
-      setSearchResults([]);
-    } finally {
-      setIsSearching(false);
+    // 清除之前的定时器
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current);
     }
+
+    // 防抖 300ms
+    searchTimerRef.current = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const res = await permissionsApi.searchUsers(query);
+        const users = res.data.data ?? [];
+        const existingUserIds = new Set(members?.map((m) => m.userId) ?? []);
+        setSearchResults(users.filter((u) => !existingUserIds.has(u.id)));
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
   };
+
+  // 组件卸载时清除定时器
+  useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleAddMember = () => {
     if (!selectedUserId) {
@@ -350,7 +367,9 @@ const TeamMemberCard: React.FC<TeamMemberCardProps> = ({
         <p className="text-sm font-medium truncate">{member.name || member.email}</p>
         <p className="text-xs text-muted-foreground truncate">{member.email}</p>
       </div>
-      <div className={cn('flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium', roleStyle.bg, roleStyle.text)}>
+      <div
+        className={cn('flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium', roleStyle.bg, roleStyle.text)}
+      >
         {isEditingRole && canEditRole ? (
           <select
             value={currentRole}
@@ -363,7 +382,6 @@ const TeamMemberCard: React.FC<TeamMemberCardProps> = ({
             autoFocus
             className="bg-transparent border-none outline-none cursor-pointer font-medium"
           >
-            <option value="owner">所有者</option>
             <option value="admin">管理员</option>
             <option value="member">成员</option>
             <option value="guest">访客</option>

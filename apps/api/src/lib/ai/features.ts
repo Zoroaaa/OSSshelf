@@ -16,7 +16,7 @@
 
 import type { Env } from '../../types/env';
 import { getDb, files, storageBuckets, fileVersions } from '../../db';
-import { eq, desc, and } from 'drizzle-orm';
+import { eq, desc } from 'drizzle-orm';
 import { getEncryptionKey } from '../crypto';
 import { isEditableFile, logger, logAiError } from '@osshelf/shared';
 import { indexFileVector, buildFileTextForVector } from './vectorIndex';
@@ -24,7 +24,7 @@ import { createTaskRecord } from './aiTaskQueue';
 import { ModelGateway } from './modelGateway';
 import type { ChatCompletionRequest } from './types';
 import { decryptSecret } from '../s3client';
-import { getAiConfigString, getAiConfigNumber, getAiConfigBoolean } from './aiConfigService';
+import { getAiConfigString, getAiConfigBoolean } from './aiConfigService';
 import { uint8ArrayToBase64, fetchFileBuffer, buildVisionMessageContent } from './utils';
 import type { AiFeatureType } from './types';
 import type { TelegramBotConfig } from '../telegramClient';
@@ -198,7 +198,7 @@ export function isImageFile(mimeType: string | null): boolean {
  * - 文件上传时自动触发索引
  * - 批量手动索引时过滤无效文件
  */
-export function shouldIndexFile(mimeType: string | null, fileSize?: number): boolean {
+export function shouldIndexFile(mimeType: string | null, _fileSize?: number): boolean {
   // 注意：不做文件大小限制。
   // buildFileTextForVector 内部已对内容截断至 50000 字符，
   // 分块上限 20 块，实际送给 embedding 的 token 量是固定的，
@@ -578,6 +578,11 @@ export async function generateImageTags(
 
   if (!file) {
     throw new Error('File not found');
+  }
+
+  // 校验文件是否为图片类型，防止非图片文件被错误处理
+  if (!file.mimeType || !file.mimeType.startsWith('image/')) {
+    throw new Error(`不支持的文件类型: ${file.mimeType || '未知'}，仅支持图片格式`);
   }
 
   let imageData = imageBuffer;

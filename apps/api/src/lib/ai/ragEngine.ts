@@ -16,6 +16,7 @@ import { eq, and, isNull, desc, sql, gte } from 'drizzle-orm';
 import { logger } from '@osshelf/shared';
 import { getMimeTypeCategory } from './utils';
 import { getAiConfigNumber } from './aiConfigService';
+import { estimateTokens } from './utils';
 
 export interface FileContext {
   id: string;
@@ -246,20 +247,6 @@ general       - 与文件系统无关的通用问题（如解释概念、闲聊�
 
   intentCache.set(cacheKey, intent);
   return intent;
-}
-
-/**
- * 语言感知 token 估算
- * 英文: 1 token ≈ 4 chars (0.25 tokens/char)
- * 中文: 1 token ≈ 1.5 chars (0.67 tokens/char)
- * 中文字符占比超 30% 时用中文系数，避免低估导致超窗口
- */
-function estimateTokens(text: string): number {
-  if (!text) return 0;
-  const chineseChars = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length;
-  const chineseRatio = chineseChars / text.length;
-  const tokensPerChar = chineseRatio > 0.3 ? 0.67 : 0.25;
-  return Math.ceil(text.length * tokensPerChar);
 }
 
 // 中英文双语文件列表意图模式

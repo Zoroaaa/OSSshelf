@@ -115,6 +115,7 @@ app.get('/users/:id', async (c) => {
   const user = await db.select().from(users).where(eq(users.id, id)).get();
   if (!user) throwAppError('USER_NOT_FOUND');
   const { passwordHash: _pw, ...safe } = user;
+  void _pw; // intentionally extracted to exclude from response
   return c.json({ success: true, data: safe });
 });
 
@@ -706,7 +707,7 @@ app.post('/email/broadcast', async (c) => {
 app.get('/ai/traces', async (c) => {
   const page = Math.max(1, parseInt(c.req.query('page') || '1'));
   const limit = Math.min(50, Math.max(1, parseInt(c.req.query('limit') || '20')));
-  const status = c.req.query('status');
+  // status filter available for future use
   const userId = c.req.query('userId');
   const sessionId = c.req.query('sessionId');
 
@@ -1124,6 +1125,17 @@ app.get('/storage-audit/missing-files/:bucketId', async (c) => {
     });
   }
 
+  function buildFolderPath(
+    currentParentId: string | null,
+    parentMap: Map<string, { name: string; path: string; parentId: string | null }>
+  ): string | null {
+    if (!currentParentId) return null;
+    const parent = parentMap.get(currentParentId);
+    if (!parent) return null;
+    const parentPath = buildFolderPath(parent.parentId, parentMap);
+    return parentPath ? `${parentPath}/${parent.name}` : parent.name;
+  }
+
   if (missingFiles.length > 0) {
     const parentIds = [...new Set(missingFiles.map((f) => f.parentId).filter((v): v is string => Boolean(v)))];
     if (parentIds.length > 0) {
@@ -1140,16 +1152,8 @@ app.get('/storage-audit/missing-files/:bucketId', async (c) => {
         }
       }
 
-      function buildFolderPath(currentParentId: string | null): string | null {
-        if (!currentParentId) return null;
-        const parent = parentMap.get(currentParentId);
-        if (!parent) return null;
-        const parentPath = buildFolderPath(parent.parentId);
-        return parentPath ? `${parentPath}/${parent.name}` : parent.name;
-      }
-
       for (const mf of missingFiles) {
-        mf.folderPath = buildFolderPath(mf.parentId);
+        mf.folderPath = buildFolderPath(mf.parentId, parentMap);
       }
     }
   }

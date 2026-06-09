@@ -271,6 +271,8 @@ export interface FileListParams extends PaginationParams {
   createdAfter?: string;
   createdBefore?: string;
   starred?: boolean | string;
+  /** scope='all': 搜索用户全部文件（不限目录层级） */
+  scope?: 'all';
 }
 
 export interface ShareCreateParams {

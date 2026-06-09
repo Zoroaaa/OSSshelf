@@ -283,7 +283,15 @@ interface MemberCardProps {
   isUpdatingRole?: boolean;
 }
 
-const MemberCard: React.FC<MemberCardProps> = ({ member, isOwner, groupOwnerId, onRemove, onRoleChange, isRemoving, isUpdatingRole }) => {
+const MemberCard: React.FC<MemberCardProps> = ({
+  member,
+  isOwner,
+  groupOwnerId,
+  onRemove,
+  onRoleChange,
+  isRemoving,
+  isUpdatingRole,
+}) => {
   const [isEditingRole, setIsEditingRole] = useState(false);
   const isGroupOwner = member.userId === groupOwnerId;
   const canEditRole = isOwner && !isGroupOwner && !!onRoleChange;

@@ -340,10 +340,21 @@ async function handleNormalChat(
                 .set({ title: generatedTitle })
                 .where(eq(aiChatSessions.id, actualSessionId));
             }
-          } catch {}
+          } catch {
+            // ignore title update failure
+          }
         })()
       );
     } else {
+      // 验证会话归属：防止越权访问其他用户的会话
+      const existingSession = await db
+        .select()
+        .from(aiChatSessions)
+        .where(and(eq(aiChatSessions.id, actualSessionId), eq(aiChatSessions.userId, userId)))
+        .get();
+      if (!existingSession) {
+        return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '会话不存在' } }, 404);
+      }
       await db
         .update(aiChatSessions)
         .set({ updatedAt: new Date().toISOString() })
@@ -454,7 +465,7 @@ async function handleStreamChat(
   try {
     const db = getDb(c.env.DB);
 
-    // Ensure session exists
+    // Ensure session exists and belongs to current user
     if (!actualSessionId) {
       const newSession = {
         id: crypto.randomUUID(),
@@ -486,10 +497,21 @@ async function handleStreamChat(
                 .set({ title: generatedTitle })
                 .where(eq(aiChatSessions.id, actualSessionId));
             }
-          } catch {}
+          } catch {
+            // ignore title update failure
+          }
         })()
       );
     } else {
+      // 验证会话归属：防止越权访问其他用户的会话
+      const existingSession = await db
+        .select()
+        .from(aiChatSessions)
+        .where(and(eq(aiChatSessions.id, actualSessionId), eq(aiChatSessions.userId, userId)))
+        .get();
+      if (!existingSession) {
+        return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '会话不存在' } }, 404);
+      }
       await db
         .update(aiChatSessions)
         .set({ updatedAt: new Date().toISOString() })
@@ -590,7 +612,9 @@ async function handleStreamChat(
           setTimeout(() => {
             try {
               controller.close();
-            } catch {}
+            } catch {
+              // ignore: controller may already be closed
+            }
             resolveStream();
           }, 50);
         };
@@ -680,7 +704,9 @@ async function handleStreamChat(
           });
           try {
             controller.close();
-          } catch {}
+          } catch {
+            // ignore: controller may already be closed
+          }
           // ── abort/error 路径：立即更新占位消息，保存已输出的部分内容 ──────
           try {
             await saveAssistantMessage({ isAborted, latencyMs: Date.now() - startTime });

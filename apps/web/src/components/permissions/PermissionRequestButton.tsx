@@ -20,11 +20,7 @@ interface PermissionRequestButtonProps {
   hasAccess: boolean;
 }
 
-export const PermissionRequestButton: React.FC<PermissionRequestButtonProps> = ({
-  fileId,
-  fileName,
-  hasAccess,
-}) => {
+export const PermissionRequestButton: React.FC<PermissionRequestButtonProps> = ({ fileId, fileName, hasAccess }) => {
   const [open, setOpen] = useState(false);
 
   if (hasAccess) {
@@ -38,23 +34,12 @@ export const PermissionRequestButton: React.FC<PermissionRequestButtonProps> = (
 
   return (
     <>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => setOpen(true)}
-        className={cn('gap-1 text-xs h-7')}
-      >
+      <Button variant="outline" size="sm" onClick={() => setOpen(true)} className={cn('gap-1 text-xs h-7')}>
         <Send className="h-3 w-3" />
         申请访问
       </Button>
 
-      {open && (
-        <PermissionRequestDialog
-          fileId={fileId}
-          fileName={fileName}
-          onClose={() => setOpen(false)}
-        />
-      )}
+      {open && <PermissionRequestDialog fileId={fileId} fileName={fileName} onClose={() => setOpen(false)} />}
     </>
   );
 };

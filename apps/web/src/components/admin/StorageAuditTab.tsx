@@ -11,12 +11,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  adminApi,
-  type StorageAuditReport,
-  type BucketAuditResult,
-  type MissingFileDetailResponse,
-} from '@/services/api';
+import { adminApi, type StorageAuditReport, type BucketAuditResult } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
 import { useToast } from '@/components/ui/useToast';
@@ -32,7 +27,6 @@ import {
   ChevronDown,
   ChevronRight,
   Shield,
-  Trash2,
   ArrowRight,
   Clock,
   Zap,
@@ -43,7 +37,6 @@ import {
   Scale,
   Lightbulb,
   Loader2,
-  ExternalLink,
   Ban,
   WifiOff,
   Info,
@@ -63,7 +56,6 @@ export function StorageAuditTab() {
   const {
     data: report,
     isLoading,
-    refetch,
     isFetching,
   } = useQuery({
     queryKey: ['admin', 'storage-audit'],
@@ -86,7 +78,7 @@ export function StorageAuditTab() {
     onMutate: (bucketId) => {
       setCleaningBucketId(bucketId);
     },
-    onSuccess: (data, bucketId) => {
+    onSuccess: (data, _bucketId) => {
       const d = data?.data;
       if (!d) return;
       const hasFailures = (d.failedKeys?.length ?? 0) > 0;
@@ -98,7 +90,7 @@ export function StorageAuditTab() {
       setCleaningBucketId(null);
       queryClient.invalidateQueries({ queryKey: ['admin', 'storage-audit'] });
     },
-    onError: (e: any, bucketId) => {
+    onError: (e: any, _bucketId) => {
       setCleaningBucketId(null);
       toast({ title: '清理失败', description: e.response?.data?.error?.message, variant: 'destructive' });
     },

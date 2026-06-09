@@ -115,7 +115,7 @@ function getMarkdownComponents(
       return replacePlaceholders(children, refMap, onFileClick);
     }
     if (Array.isArray(children)) {
-      return children.map((child, i) =>
+      return children.map((child, _i) =>
         typeof child === 'string' ? replacePlaceholders(child, refMap, onFileClick) : resolveRefs(child)
       );
     }

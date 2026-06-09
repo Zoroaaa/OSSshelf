@@ -95,11 +95,12 @@ export const WRITE_TOOLS = new Set([
   'find_and_replace',
   'rename_file',
   'move_file',
-  'copy_file',
   'delete_file',
   'restore_file',
   'create_folder',
   'batch_rename',
+  'batch_move',
+  'batch_delete',
   'star_file',
   'unstar_file',
 

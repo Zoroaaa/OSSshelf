@@ -268,9 +268,7 @@ export default function MainLayout() {
         </nav>
 
         <div className={cn('p-4 border-t space-y-4 flex-shrink-0', isCollapsed && !isHovering && 'px-2')}>
-          {(!isCollapsed || isHovering) && (
-            <StorageBar used={user?.storageUsed || 0} quota={user?.storageQuota || 0} />
-          )}
+          {(!isCollapsed || isHovering) && <StorageBar used={user?.storageUsed || 0} quota={user?.storageQuota || 0} />}
 
           {(!isCollapsed || isHovering) && (
             <div className="flex items-center gap-2.5">

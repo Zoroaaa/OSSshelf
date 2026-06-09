@@ -21,6 +21,25 @@ import type {
 import { logger } from '@osshelf/shared';
 import { extractThinkingContent } from '../utils';
 
+function stripNestedObjectArrays(schema: any): any {
+  if (!schema || typeof schema !== 'object') return schema;
+
+  const result = { ...schema };
+
+  if (result.properties) {
+    result.properties = Object.fromEntries(
+      Object.entries(result.properties).map(([k, v]: [string, any]) => {
+        if (v.type === 'array' && v.items?.type === 'object') {
+          return [k, { type: 'string', description: v.description }];
+        }
+        return [k, stripNestedObjectArrays(v)];
+      })
+    );
+  }
+
+  return result;
+}
+
 export class WorkersAiAdapter implements IModelAdapter {
   readonly provider = 'workers_ai' as const;
   readonly modelName = 'Cloudflare Workers AI';
@@ -51,33 +70,13 @@ export class WorkersAiAdapter implements IModelAdapter {
         temperature: request.temperature ?? 0.7,
       };
 
-if (request.tools && request.tools.length > 0) {
-  requestBody.tools = request.tools.map((t) => ({
-    name: t.function.name,
-    description: t.function.description,
-    parameters: stripNestedObjectArrays(t.function.parameters),
-  }));
-
-  function stripNestedObjectArrays(schema: any): any {
-    if (!schema || typeof schema !== 'object') return schema;
-    
-    const result = { ...schema };
-    
-    if (result.properties) {
-      result.properties = Object.fromEntries(
-        Object.entries(result.properties).map(([k, v]: [string, any]) => {
-          if (v.type === 'array' && v.items?.type === 'object') {
-            // 降级为 string，让模型传 JSON 字符串
-            return [k, { type: 'string', description: v.description }];
-          }
-          return [k, stripNestedObjectArrays(v)];
-        })
-      );
-    }
-    
-    return result;
-  }
-}
+      if (request.tools && request.tools.length > 0) {
+        requestBody.tools = request.tools.map((t) => ({
+          name: t.function.name,
+          description: t.function.description,
+          parameters: stripNestedObjectArrays(t.function.parameters),
+        }));
+      }
 
       const response = await (this.env.AI as any).run(modelConfig.modelId, requestBody);
 

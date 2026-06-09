@@ -29,7 +29,6 @@ import {
   Tag,
   Copy,
   FileText,
-  Download,
   Code,
   RefreshCw,
   Shield,
@@ -102,7 +101,6 @@ const TOOL_SUMMARIES: Record<string, (args: Record<string, unknown>) => string> 
   find_and_replace: (a) => `替换「${String(a.find || '').slice(0, 20)}」`,
   move_file: (a) => `移动到 ${a.targetFolderPath || a.targetFolderId || '目标文件夹'}`,
   rename_file: (a) => `重命名为「${String(a.newName || '').slice(0, 30)}」`,
-  copy_file: (a) => `复制到 ${a.targetFolderId || '目标位置'}`,
   delete_file: () => '删除文件',
   restore_file: () => '恢复文件',
   create_folder: (a) => `创建文件夹「${String(a.folderName || '').slice(0, 30)}」`,
@@ -130,7 +128,7 @@ const TOOL_SUMMARIES: Record<string, (args: Record<string, unknown>) => string> 
   get_share_stats: () => '分享统计',
   create_direct_link: (a) => `创建直链（${a.expiresInHours || 168}h有效）`,
   revoke_direct_link: () => '撤销直链',
-  create_upload_link_for_folder: (a) => `创建上传链接到文件夹`,
+  create_upload_link_for_folder: (_a) => `创建上传链接到文件夹`,
 
   // ═══ 版本管理 (4) ═══
   get_file_versions: () => '查看版本历史',
@@ -231,7 +229,6 @@ const TOOL_ICONS: Record<string, React.ReactNode> = {
   find_and_replace: <Edit3 className="h-3 w-3" />,
   move_file: <Move className="h-3 w-3" />,
   rename_file: <Edit3 className="h-3 w-3" />,
-  copy_file: <Copy className="h-3 w-3" />,
   delete_file: <Trash2 className="h-3 w-3" />,
   restore_file: <Archive className="h-3 w-3" />,
   create_folder: <FolderOpen className="h-3 w-3" />,
@@ -361,7 +358,6 @@ export function ToolCallCard({
   const isPendingConfirm =
     tc.confirmStatus === 'pending' || (resultObj?.status === 'pending_confirm' && !tc.confirmStatus);
   const isCancelled = tc.confirmStatus === 'cancelled';
-  const isConfirmed = tc.confirmStatus === 'confirmed';
   const confirmMessage = resultObj?.message as string | undefined;
   const confirmId = resultObj?.confirmId as string | undefined;
   const previewDiff = resultObj?.previewDiff as PreviewDiff | undefined;

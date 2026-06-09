@@ -28,7 +28,6 @@ import {
   softDeleteFile,
   toggleStar,
   createFolder,
-  copyFile as serviceCopyFile,
   restoreFile as serviceRestoreFile,
   findOrCreateFolder as serviceFindOrCreateFolder,
 } from '../../../lib/fileService';
@@ -425,32 +424,6 @@ export const definitions: ToolDefinition[] = [
           tool_call: { fileId: '<file_id>', targetFolderId: '<design_folder_id>' },
         },
         { user_query: '整理所有PDF到文档目录', tool_call: { fileId: '<pdf_id>', targetFolderId: '<docs_folder_id>' } },
-      ],
-    },
-  },
-
-  {
-    type: 'function',
-    function: {
-      name: 'copy_file',
-      description: `【复制文件】复制文件到指定位置。
-适用场景："复制一份备份"、"拷贝到其他文件夹"`,
-      parameters: {
-        type: 'object',
-        properties: {
-          fileId: { type: 'string', description: '源文件 ID' },
-          targetFolderId: { type: 'string', description: '目标文件夹 ID' },
-          newName: { type: 'string', description: '新文件名（可选，不传则使用原名）' },
-          _confirmed: { type: 'boolean', description: '用户确认' },
-        },
-        required: ['fileId', 'targetFolderId'],
-      },
-      examples: [
-        { user_query: '复制一份备份', tool_call: { fileId: '<file_id>', targetFolderId: '<backup_folder_id>' } },
-        {
-          user_query: '拷贝到文档文件夹并改名',
-          tool_call: { fileId: '<file_id>', targetFolderId: '<docs_id>', newName: '副本_原文件名' },
-        },
       ],
     },
   },
@@ -1119,23 +1092,6 @@ services:
     if (!result.success) return { error: result.error };
 
     return { success: true, message: result.message, fileId };
-  }
-
-  static async executeCopyFile(env: Env, userId: string, args: Record<string, unknown>) {
-    const fileId = args.fileId as string;
-    const targetFolderId = args.targetFolderId as string;
-    const newName = args.newName as string | undefined;
-
-    const result = await serviceCopyFile(env, userId, fileId, { targetFolderId, newName });
-    if (!result.success) return { error: result.error };
-
-    return {
-      success: true,
-      message: result.message,
-      originalFileId: fileId,
-      newFileId: result.newFileId,
-      newName: result.fileName,
-    };
   }
 
   static async executeDeleteFile(env: Env, userId: string, args: Record<string, unknown>) {

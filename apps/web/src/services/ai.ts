@@ -558,7 +558,16 @@ export const aiApi = {
                 if (data.done) return;
                 if (data.error) {
                   lastError = new Error(data.error);
-                  if (retryCount < MAX_RETRIES && !data.error.includes('认证') && !data.error.includes('权限')) {
+                  // 不可重试的错误类型：认证、权限、参数校验、配置、资源不存在
+                  const isNonRetryable =
+                    data.error.includes('认证') ||
+                    data.error.includes('权限') ||
+                    data.error.includes('参数') ||
+                    data.error.includes('配置') ||
+                    data.error.includes('不存在') ||
+                    data.error.includes('validation') ||
+                    data.error.includes('not found');
+                  if (retryCount < MAX_RETRIES && !isNonRetryable) {
                     retryCount++;
                     await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY * retryCount));
                     continue;

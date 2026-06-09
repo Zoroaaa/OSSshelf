@@ -196,7 +196,7 @@ export async function initializeAiConfig(env: Env): Promise<void> {
       valueType: 'number',
       defaultValue: '100000',
       isEditable: true,
-      sortOrder: 21,
+      sortOrder: 17,
     },
     {
       key: 'ai.tool.max_image_size_bytes',

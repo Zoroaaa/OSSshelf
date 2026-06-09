@@ -12,7 +12,7 @@
 
 import { Hono } from 'hono';
 import { eq, and, desc, sql } from 'drizzle-orm';
-import { getDb, files, fileVersions, filePermissions } from '../db';
+import { getDb, files, fileVersions } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
 import { ERROR_CODES, logger } from '@osshelf/shared';

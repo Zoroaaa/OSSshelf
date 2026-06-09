@@ -66,7 +66,14 @@ import {
 import type { FileItem } from '@osshelf/shared';
 import { cn, decodeFileName } from '@/utils';
 
-import { NewFolderDialog, NewFileDialog, FILE_TEMPLATES, ShareDialog, FileListContainer, Pagination } from '@/components/files';
+import {
+  NewFolderDialog,
+  NewFileDialog,
+  FILE_TEMPLATES,
+  ShareDialog,
+  FileListContainer,
+  Pagination,
+} from '@/components/files';
 import { MobileFilesToolbar, MobileSearchPanel } from '@/components/files/MobileFilesToolbar';
 import { UploadLinkDialog } from '@/components/files/dialogs';
 import { DirectLinkDialog } from '@/components/files/dialogs';
@@ -319,9 +326,6 @@ export default function Files() {
     }
 
     // File not in current listing — fetch it directly
-    // Only run once files have loaded (avoids double-fetch during mount)
-    if (files.length === 0 && !searchParams.get('preview') && !searchParams.get('highlight')) return;
-
     filesApi
       .get(previewId)
       .then((res) => {
@@ -1102,7 +1106,10 @@ export default function Files() {
               variant="outline"
               size="sm"
               asChild
-              disabled={!currentFolderInfo?.permissions?.some((p) => p.permission === 'write')}
+              disabled={
+                !currentFolderInfo?.permissions?.length ||
+                !currentFolderInfo.permissions.some((p) => p.permission === 'write')
+              }
             >
               <span>
                 <Upload className="h-4 w-4 mr-1.5" />
@@ -1129,7 +1136,10 @@ export default function Files() {
               variant="outline"
               size="sm"
               asChild
-              disabled={!currentFolderInfo?.permissions?.some((p) => p.permission === 'write')}
+              disabled={
+                !currentFolderInfo?.permissions?.length ||
+                !currentFolderInfo.permissions.some((p) => p.permission === 'write')
+              }
             >
               <span>
                 <FolderInput className="h-4 w-4 mr-1.5" />

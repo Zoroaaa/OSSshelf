@@ -8,3 +8,4 @@ export { default as TeamCreateDialog } from './TeamCreateDialog';
 export { default as TeamDetail } from './TeamDetail';
 export { default as TeamMemberDialog } from './TeamMemberDialog';
 export { default as TeamResourceMountDialog } from './TeamResourceMountDialog';
+export { default as TeamInviteDialog } from './TeamInviteDialog';

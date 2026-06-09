@@ -242,7 +242,6 @@ app.post('/cron/ai-confirm-cleanup', async (c) => {
 
 app.post('/cron/data-cleanup', async (c) => {
   const db = getDb(c.env.DB);
-  const now = new Date().toISOString();
 
   const searchRetentionDays = 30;
   const searchThreshold = new Date(Date.now() - searchRetentionDays * 86_400_000).toISOString();

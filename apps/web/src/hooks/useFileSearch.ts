@@ -65,6 +65,7 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
         semantic: semanticSearch,
         hybrid: semanticSearch,
         fts: ftsSearch,
+        limit: 100,
       });
       return res.data.data?.items ?? [];
     },
@@ -88,6 +89,7 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
       const res = await searchApi.advanced({
         conditions: advancedConditions,
         logic: advancedLogic,
+        limit: 100,
       });
       return res.data.data?.items ?? [];
     },

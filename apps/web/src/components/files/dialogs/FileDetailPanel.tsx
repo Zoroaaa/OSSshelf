@@ -16,13 +16,10 @@ import {
   Copy,
   Check,
   Folder,
-  FileText,
   Tag,
   Brain,
   Share2,
   HardDrive,
-  Clock,
-  Hash,
   Info,
   Database,
   ArrowRightLeft,
@@ -164,7 +161,7 @@ export function FileDetailPanel({ file, onClose }: FileDetailPanelProps) {
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch (error: any) {
-      alert(error?.response?.data?.error?.message || '下载失败，请重试');
+      console.error('下载ZIP失败:', error?.response?.data?.error?.message || error?.message || '下载失败');
     }
   };
 

@@ -8,7 +8,6 @@
  */
 
 import { useState } from 'react';
-import { Button } from '@/components/ui/Button';
 import {
   Grid,
   List,
@@ -49,7 +48,7 @@ const viewModes: { mode: ViewMode; icon: typeof List; label: string }[] = [
 
 export function MobileFilesToolbar({
   viewMode,
-  hasImages,
+  hasImages: _hasImages,
   sortBy,
   sortOrder,
   onViewModeChange,

@@ -231,6 +231,9 @@ export const EDITABLE_MIME_TYPES = [
   'application/yaml',
 ];
 
+/** 在线编辑文件最大大小（1MB），路由层和服务层必须保持一致 */
+export const MAX_EDITABLE_SIZE = 1024 * 1024;
+
 export const EDITABLE_EXTENSIONS = [
   'txt',
   'md',

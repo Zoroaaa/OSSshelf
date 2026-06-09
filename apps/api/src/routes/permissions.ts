@@ -11,15 +11,26 @@
 
 import { Hono } from 'hono';
 import { eq, and, inArray, like, isNull, count, desc } from 'drizzle-orm';
-import { getDb, files, filePermissions, users, fileTags, userGroups, groupMembers, teams, teamMembers, permissionRequests, roleTemplates } from '../db';
+import {
+  getDb,
+  files,
+  filePermissions,
+  users,
+  fileTags,
+  userGroups,
+  groupMembers,
+  teams,
+  teamMembers,
+  roleTemplates,
+} from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
-import { checkPermissionWithCache, invalidatePermissionCache, type PermissionLevel } from '../lib/permissionResolver';
-import { createNotification, sendNotification, getUserInfo } from '../lib/notificationUtils';
+import { checkPermissionWithCache, invalidatePermissionCache } from '../lib/permissionResolver';
+import { createNotification, getUserInfo } from '../lib/notificationUtils';
 import { TAG_COLORS } from '@osshelf/shared';
 
 export {
@@ -31,7 +42,14 @@ export {
   type ManageGroupMembersInput,
 } from '../lib/permissionService';
 
-import { checkFilePermission, inheritParentPermissions, grantWithRoleTemplate, createPermissionRequest, approvePermissionRequest, listPermissionRequests, batchGrantPermissions, batchRevokePermissions } from '../lib/permissionService';
+import {
+  checkFilePermission,
+  createPermissionRequest,
+  approvePermissionRequest,
+  listPermissionRequests,
+  batchGrantPermissions,
+  batchRevokePermissions,
+} from '../lib/permissionService';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -106,6 +124,7 @@ app.get('/all', async (c) => {
           subjectType: filePermissions.subjectType,
           userId: filePermissions.userId,
           groupId: filePermissions.groupId,
+          teamId: filePermissions.teamId,
           permission: filePermissions.permission,
           expiresAt: filePermissions.expiresAt,
           createdAt: filePermissions.createdAt,
@@ -116,11 +135,13 @@ app.get('/all', async (c) => {
           userName: users.name,
           userEmail: users.email,
           groupName: userGroups.name,
+          teamName: teams.name,
         })
         .from(filePermissions)
         .innerJoin(files, eq(filePermissions.fileId, files.id))
         .leftJoin(users, eq(filePermissions.userId, users.id))
         .leftJoin(userGroups, eq(filePermissions.groupId, userGroups.id))
+        .leftJoin(teams, eq(filePermissions.teamId, teams.id))
         .where(inArray(filePermissions.fileId, chunk))
         .all()
     )
@@ -131,8 +152,13 @@ app.get('/all', async (c) => {
   const formattedPermissions = permissions.map((p) => ({
     id: p.id,
     subjectType: p.subjectType,
-    subjectId: p.subjectType === 'user' ? p.userId : p.groupId,
-    subjectName: p.subjectType === 'user' ? p.userName || p.userEmail || '未知用户' : p.groupName || '未知组',
+    subjectId: p.subjectType === 'user' ? p.userId : p.subjectType === 'group' ? p.groupId : p.teamId,
+    subjectName:
+      p.subjectType === 'user'
+        ? p.userName || p.userEmail || '未知用户'
+        : p.subjectType === 'group'
+          ? p.groupName || '未知组'
+          : p.teamName || '未知团队',
     fileId: p.fileId,
     fileName: p.fileName,
     filePath: p.filePath,
@@ -249,6 +275,22 @@ app.post('/grant', async (c) => {
     if (!membership || membership.role !== 'admin') {
       throwAppError('FORBIDDEN', '只有组管理员可以授权');
     }
+
+    // 检查目标文件是否属于当前用户自己（避免授予自己的组导致文件重复显示）
+    const targetFile = await db
+      .select({ id: files.id, name: files.name })
+      .from(files)
+      .where(and(eq(files.id, fileId), eq(files.userId, userId)))
+      .get();
+    if (targetFile) {
+      logger.warn('PERMISSIONS', '用户将自己的文件授予所在用户组，可能导致文件重复显示', {
+        userId,
+        fileId,
+        fileName: targetFile.name,
+        groupId,
+        groupName: group.name,
+      });
+    }
   } else {
     // subjectType === 'team': 验证团队存在且操作者是 admin/owner
     const team = await db.select().from(teams).where(eq(teams.id, teamId!)).get();
@@ -314,13 +356,12 @@ app.post('/grant', async (c) => {
 
   if (file.isFolder) {
     const folderPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
-    const allFiles = await db
-      .select()
+    const childFiles = await db
+      .select({ id: files.id })
       .from(files)
-      .where(and(eq(files.userId, file.userId), isNull(files.deletedAt)))
+      .where(and(eq(files.userId, file.userId), isNull(files.deletedAt), like(files.path, `${folderPath}/%`)))
       .all();
 
-    const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(folderPath + '/'));
     for (const child of childFiles) {
       await grantPermissionForFile(child.id);
     }
@@ -453,7 +494,10 @@ app.post('/tags/create', async (c) => {
 
   const createSchema = z.object({
     name: z.string().min(1).max(50),
-    color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+    color: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/)
+      .optional(),
   });
   const result = createSchema.safeParse(body);
   if (!result.success) {
@@ -726,7 +770,10 @@ app.put('/tags/rename', async (c) => {
   const { oldName, newName } = result.data;
 
   if (oldName === newName) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '新名称与原名称相同' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '新名称与原名称相同' } },
+      400
+    );
   }
 
   const db = getDb(c.env.DB);

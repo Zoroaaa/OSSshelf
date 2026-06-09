@@ -34,8 +34,6 @@ import {
 } from '../lib/ai/features';
 import { sendNotification } from '../lib/notificationUtils';
 import { enqueueAiTasks, createTaskRecord, cancelTask, getLatestTaskByUserType } from '../lib/ai/aiTaskQueue';
-import { ModelGateway } from '../lib/ai/modelGateway';
-import { getAiConfigString } from '../lib/ai/aiConfigService';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
@@ -556,7 +554,6 @@ app.get('/index/vectors', async (c) => {
     },
   });
 });
-
 
 app.get('/index/sample/:fileId', async (c) => {
   const userId = c.get('userId')!;

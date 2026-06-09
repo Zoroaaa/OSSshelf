@@ -279,7 +279,11 @@ export async function buildFileTextForVector(env: Env, fileId: string): Promise<
     const readResult = await readFileContent(env, file);
     if (readResult.success && readResult.content) {
       actualContent = readResult.content.slice(0, 50000);
-      logger.info(VECTOR_LOG_MODULE, '索引层1：实际文件内容', { fileId, source: readResult.source, length: actualContent.length });
+      logger.info(VECTOR_LOG_MODULE, '索引层1：实际文件内容', {
+        fileId,
+        source: readResult.source,
+        length: actualContent.length,
+      });
     }
   } catch (error) {
     logger.warn(VECTOR_LOG_MODULE, '层1读取失败，将降级', { fileId, fileName: file.name }, error);
@@ -317,7 +321,11 @@ export async function buildFileTextForVector(env: Env, fileId: string): Promise<
     bodyParts = [actualContent, aiSummaryText, tagsText];
   } else if (aiSummaryText || tagsText) {
     // 层2：无法读取内容，用 AI 摘要 + 标签
-    logger.info(VECTOR_LOG_MODULE, '索引层2降级：AI摘要+标签', { fileId, hasSummary: !!aiSummaryText, hasTags: !!tagsText });
+    logger.info(VECTOR_LOG_MODULE, '索引层2降级：AI摘要+标签', {
+      fileId,
+      hasSummary: !!aiSummaryText,
+      hasTags: !!tagsText,
+    });
     bodyParts = [aiSummaryText, tagsText];
   } else {
     // 层3：仅元数据（文件名+描述），至少保证文件可被语义搜索到
@@ -325,11 +333,7 @@ export async function buildFileTextForVector(env: Env, fileId: string): Promise<
     bodyParts = [];
   }
 
-  const parts = [
-    ...metaParts,
-    ...bodyParts,
-    ...notes.map((n) => n.content),
-  ].filter(Boolean);
+  const parts = [...metaParts, ...bodyParts, ...notes.map((n) => n.content)].filter(Boolean);
 
   return parts.join('\n');
 }

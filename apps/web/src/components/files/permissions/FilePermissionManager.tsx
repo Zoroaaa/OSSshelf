@@ -13,11 +13,26 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { permissionsApi, groupsApi, type SearchableUser, type UserGroup } from '@/services/api';
+import { teamsApi, type Team } from '@/services/collab';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/useToast';
 import { cn } from '@/utils';
-import { Shield, Plus, X, Loader2, User, Crown, Edit, Eye, Trash2, Users, ArrowUpRight, Calendar } from 'lucide-react';
+import {
+  Shield,
+  Plus,
+  X,
+  Loader2,
+  User,
+  Crown,
+  Edit,
+  Eye,
+  Trash2,
+  Users,
+  ArrowUpRight,
+  Calendar,
+  Building2,
+} from 'lucide-react';
 
 interface FilePermissionManagerProps {
   fileId: string;
@@ -34,11 +49,13 @@ interface PermissionItem {
   id: string;
   userId: string | null;
   groupId: string | null;
+  teamId: string | null;
   permission: string;
   userName: string | null;
   userEmail: string;
   groupName?: string;
-  subjectType: 'user' | 'group';
+  teamName?: string;
+  subjectType: 'user' | 'group' | 'team';
   expiresAt: string | null;
   scope: 'explicit' | 'inherited';
   sourceFilePath?: string;
@@ -49,11 +66,12 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showAddForm, setShowAddForm] = useState(false);
-  const [subjectType, setSubjectType] = useState<'user' | 'group'>('user');
+  const [subjectType, setSubjectType] = useState<'user' | 'group' | 'team'>('user');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPermission, setSelectedPermission] = useState<'read' | 'write' | 'admin'>('read');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [selectedTeamId, setSelectedTeamId] = useState<string>('');
   const [expiresAt, setExpiresAt] = useState<string>('');
   const [searchResults, setSearchResults] = useState<SearchableUser[]>([]);
   const [groupResults, setGroupResults] = useState<UserGroup[]>([]);
@@ -67,6 +85,11 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
   const { data: userGroups } = useQuery({
     queryKey: ['user-groups'],
     queryFn: () => groupsApi.list().then((r) => r.data.data),
+  });
+
+  const { data: teamsData } = useQuery({
+    queryKey: ['teams-list'],
+    queryFn: () => teamsApi.list().then((r) => r.data.data),
   });
 
   useEffect(() => {
@@ -119,14 +142,16 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
     mutationFn: (data: {
       userId?: string;
       groupId?: string;
+      teamId?: string;
       permission: 'read' | 'write' | 'admin';
-      subjectType: 'user' | 'group';
+      subjectType: 'user' | 'group' | 'team';
       expiresAt?: string;
     }) =>
       permissionsApi.grant({
         fileId,
         userId: data.subjectType === 'user' ? data.userId : undefined,
         groupId: data.subjectType === 'group' ? data.groupId : undefined,
+        teamId: data.subjectType === 'team' ? data.teamId : undefined,
         permission: data.permission,
         subjectType: data.subjectType,
         expiresAt: data.expiresAt || undefined,
@@ -146,8 +171,8 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
   });
 
   const revokeMutation = useMutation({
-    mutationFn: (data: { userId?: string; groupId?: string }) =>
-      permissionsApi.revoke({ fileId, userId: data.userId, groupId: data.groupId } as any),
+    mutationFn: (data: { userId?: string; groupId?: string; teamId?: string }) =>
+      permissionsApi.revoke({ fileId, userId: data.userId, groupId: data.groupId, teamId: data.teamId } as any),
     onSuccess: () => {
       toast({ title: '权限已撤销' });
       queryClient.invalidateQueries({ queryKey: ['file-permissions', fileId] });
@@ -164,6 +189,7 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
     setSearchQuery('');
     setSelectedUserId(null);
     setSelectedGroupId(null);
+    setSelectedTeamId('');
     setSelectedPermission('read');
     setExpiresAt('');
     setSubjectType('user');
@@ -178,9 +204,14 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
       toast({ title: '请选择用户组', variant: 'destructive' });
       return;
     }
+    if (subjectType === 'team' && !selectedTeamId) {
+      toast({ title: '请选择团队', variant: 'destructive' });
+      return;
+    }
     grantMutation.mutate({
       userId: selectedUserId ?? undefined,
       groupId: selectedGroupId ?? undefined,
+      teamId: selectedTeamId || undefined,
       permission: selectedPermission,
       subjectType,
       expiresAt: expiresAt || undefined,
@@ -238,16 +269,56 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
                 <Users className="h-3.5 w-3.5" />
                 用户组
               </button>
+              <button
+                onClick={() => {
+                  setSubjectType('team');
+                  setSearchQuery('');
+                  setSelectedUserId(null);
+                  setSelectedGroupId(null);
+                }}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-colors border',
+                  subjectType === 'team' ? 'bg-primary/10 text-primary border-primary' : 'hover:bg-muted'
+                )}
+              >
+                <Building2 className="h-3.5 w-3.5" />
+                团队
+              </button>
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-medium">{subjectType === 'user' ? '搜索用户' : '搜索用户组'}</label>
+            <label className="text-xs font-medium">
+              {subjectType === 'user' ? '搜索用户' : subjectType === 'group' ? '搜索用户组' : '选择团队'}
+            </label>
             <Input
-              placeholder={subjectType === 'user' ? '输入邮箱搜索...' : '输入组名搜索...'}
+              placeholder={
+                subjectType === 'user'
+                  ? '输入邮箱搜索...'
+                  : subjectType === 'group'
+                    ? '输入组名搜索...'
+                    : '请选择团队...'
+              }
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              className={subjectType === 'team' ? 'hidden' : ''}
             />
+
+            {subjectType === 'team' && (
+              <select
+                value={selectedTeamId}
+                onChange={(e) => setSelectedTeamId(e.target.value)}
+                className="w-full px-2 py-1.5 rounded-md border text-sm bg-background"
+              >
+                <option value="">-- 请选择团队 --</option>
+                {teamsData &&
+                  [...(teamsData.owned || []), ...(teamsData.joined || [])].map((team: Team) => (
+                    <option key={team.id} value={team.id}>
+                      {team.name} ({team.memberCount} 成员)
+                    </option>
+                  ))}
+              </select>
+            )}
           </div>
 
           {isSearching && (
@@ -344,6 +415,7 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
             disabled={
               (subjectType === 'user' && !selectedUserId) ||
               (subjectType === 'group' && !selectedGroupId) ||
+              (subjectType === 'team' && !selectedTeamId) ||
               grantMutation.isPending
             }
           >
@@ -376,11 +448,17 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
                 <div
                   className={cn(
                     'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0',
-                    perm.subjectType === 'group' ? 'bg-purple-500/10' : 'bg-primary/10'
+                    perm.subjectType === 'group'
+                      ? 'bg-purple-500/10'
+                      : perm.subjectType === 'team'
+                        ? 'bg-orange-500/10'
+                        : 'bg-primary/10'
                   )}
                 >
                   {perm.subjectType === 'group' ? (
                     <Users className="h-4 w-4 text-purple-500" />
+                  ) : perm.subjectType === 'team' ? (
+                    <Building2 className="h-4 w-4 text-orange-500" />
                   ) : (
                     <User className="h-4 w-4 text-primary" />
                   )}
@@ -388,7 +466,11 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium truncate">
-                      {perm.subjectType === 'group' ? perm.groupName : perm.userName || perm.userEmail}
+                      {perm.subjectType === 'group'
+                        ? perm.groupName
+                        : perm.subjectType === 'team'
+                          ? perm.teamName
+                          : perm.userName || perm.userEmail}
                     </p>
                     {isInherited && (
                       <span className="flex items-center gap-0.5 text-xs text-muted-foreground">
@@ -398,7 +480,9 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
                     )}
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span className="truncate">{perm.subjectType === 'group' ? '用户组' : perm.userEmail}</span>
+                    <span className="truncate">
+                      {perm.subjectType === 'group' ? '用户组' : perm.subjectType === 'team' ? '团队' : perm.userEmail}
+                    </span>
                     {perm.expiresAt && (
                       <span className={cn(isExpired && 'text-destructive')}>
                         {isExpired ? '已过期' : `过期: ${new Date(perm.expiresAt).toLocaleDateString('zh-CN')}`}
@@ -425,6 +509,7 @@ export function FilePermissionManager({ fileId, isOwner }: FilePermissionManager
                       revokeMutation.mutate({
                         userId: perm.subjectType === 'user' ? perm.userId! : undefined,
                         groupId: perm.subjectType === 'group' ? perm.groupId! : undefined,
+                        teamId: perm.subjectType === 'team' ? perm.teamId! : undefined,
                       })
                     }
                     disabled={revokeMutation.isPending}

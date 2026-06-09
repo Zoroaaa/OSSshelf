@@ -599,7 +599,8 @@ export class SearchTools {
     for (const f of [...vectorFiles, ...kwFiles]) {
       if (!seen.has(f.id) && merged.length < limit) {
         seen.add(f.id);
-        const { _score, ...file } = f;
+        const file = { ...f };
+        delete (file as any)._score;
         merged.push(file);
       }
     }

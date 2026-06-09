@@ -208,7 +208,7 @@ export function AISettings() {
   // 向量索引详情相关状态
   const [sampleData, setSampleData] = useState<any>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [loadingDetail, setLoadingDetail] = useState(false);
+  const [, setLoadingDetail] = useState(false);
 
   const handleViewDetail = async (fileId: string) => {
     setLoadingDetail(true);
@@ -944,7 +944,10 @@ export function AISettings() {
 
       {/* 向量索引详情弹窗 */}
       {showDetailModal && sampleData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowDetailModal(false)}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setShowDetailModal(false)}
+        >
           <div
             className="bg-background rounded-lg shadow-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
@@ -989,12 +992,14 @@ export function AISettings() {
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-muted-foreground">索引状态:</span>
-                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium ${
-                          !!sampleData.file?.vectorIndexedAt
-                            ? 'bg-green-100 text-green-700 dark:bg-green-800 dark:text-green-300'
-                            : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
-                        }`}>
-                          {!!sampleData.file?.vectorIndexedAt ? (
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium ${
+                            sampleData.file?.vectorIndexedAt
+                              ? 'bg-green-100 text-green-700 dark:bg-green-800 dark:text-green-300'
+                              : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                          }`}
+                        >
+                          {sampleData.file?.vectorIndexedAt ? (
                             <>
                               <CheckCircle className="h-3 w-3" />
                               已索引
@@ -1020,7 +1025,7 @@ export function AISettings() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {!!sampleData.file?.vectorIndexedAt ? (
+                    {sampleData.file?.vectorIndexedAt ? (
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">索引时间:</span>
@@ -1043,16 +1048,17 @@ export function AISettings() {
                         {sampleData.vectorize?.metadata && (
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">向量元数据:</span>
-                            <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded max-w-[200px] truncate" title={JSON.stringify(sampleData.vectorize.metadata)}>
+                            <span
+                              className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded max-w-[200px] truncate"
+                              title={JSON.stringify(sampleData.vectorize.metadata)}
+                            >
                               {Object.keys(sampleData.vectorize.metadata).join(', ') || '-'}
                             </span>
                           </div>
                         )}
                       </div>
                     ) : (
-                      <p className="text-sm text-muted-foreground italic">
-                        该文件尚未建立向量索引
-                      </p>
+                      <p className="text-sm text-muted-foreground italic">该文件尚未建立向量索引</p>
                     )}
                   </CardContent>
                 </Card>

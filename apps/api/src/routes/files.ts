@@ -38,23 +38,25 @@ import {
 } from '../lib/fileService';
 import { authMiddleware } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
-import { ERROR_CODES, MAX_FILE_SIZE, isPreviewableMimeType, inferMimeType, logger } from '@osshelf/shared';
+import {
+  ERROR_CODES,
+  MAX_FILE_SIZE,
+  isPreviewableMimeType,
+  inferMimeType,
+  logger,
+  isEditableFile,
+  MAX_EDITABLE_SIZE,
+} from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
-import { createNotification, sendNotification } from '../lib/notificationUtils';
+import { sendNotification } from '../lib/notificationUtils';
 import { s3Put, s3Get, s3Delete, decryptSecret } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats, updateUserStorage, checkBucketQuota } from '../lib/bucketResolver';
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 import { getEncryptionKey } from '../lib/crypto';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
-import {
-  tgUploadFile,
-  tgDownloadFile,
-  TG_MAX_FILE_SIZE,
-  TG_CHUNKED_THRESHOLD,
-  TG_MAX_CHUNKED_FILE_SIZE,
-  type TelegramBotConfig,
-} from '../lib/telegramClient';
+import { recordActivityWithEnv } from '../lib/teamActivityService';
+import { tgUploadFile, tgDownloadFile, TG_MAX_CHUNKED_FILE_SIZE, type TelegramBotConfig } from '../lib/telegramClient';
 import {
   needsChunking,
   tgUploadChunked,
@@ -458,6 +460,7 @@ async function fetchFileContent(
         const stream = await tgDownloadChunked(tgConfig, ref.tgFileId, db);
         const reader = stream.getReader();
         const chunks: Uint8Array[] = [];
+        // eslint-disable-next-line no-constant-condition
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -774,12 +777,18 @@ app.get('/', async (c) => {
 
   // 标签筛选（逗号分隔或重复参数）
   const rawTags = c.req.query('tags');
-  const tagNames = rawTags ? rawTags.split(',').map((t) => t.trim()).filter(Boolean) : [];
+  const tagNames = rawTags
+    ? rawTags
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean)
+    : [];
 
   // 分页参数（默认第1页，每页50条，最大100条）
   const page = Math.max(1, parseInt(c.req.query('page') || '1', 10));
   const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '50', 10)));
   const offset = (page - 1) * limit;
+  const scope = c.req.query('scope'); // 'all' 表示搜索用户全部文件（不限目录层级）
 
   const db = getDb(c.env.DB);
 
@@ -820,9 +829,18 @@ app.get('/', async (c) => {
       .where(and(eq(fileTags.userId, userId), inArray(fileTags.name, tagNames)))
       .all();
     if (taggedFileIds.length === 0) {
-      return c.json({ success: true, data: { files: [], total: 0 }, pagination: { page, limit, total: 0, totalPages: 0 } });
+      return c.json({
+        success: true,
+        data: { files: [], total: 0 },
+        pagination: { page, limit, total: 0, totalPages: 0 },
+      });
     }
-    conditions.push(inArray(files.id, taggedFileIds.map((t) => t.fileId)));
+    conditions.push(
+      inArray(
+        files.id,
+        taggedFileIds.map((t) => t.fileId)
+      )
+    );
   }
 
   if (parentId) {
@@ -845,20 +863,34 @@ app.get('/', async (c) => {
       .all();
     const groupIds = userGroups.map((g) => g.groupId);
 
-    // 查询用户直接获得授权的文件ID
+    // 查询用户直接获得授权的文件ID（排除自己的文件，避免重复）
     const userPermittedFiles = await db
-      .select({ fileId: filePermissions.fileId })
+      .select({ fileId: filePermissions.fileId, fileUserId: files.userId })
       .from(filePermissions)
-      .where(and(eq(filePermissions.userId, userId), eq(filePermissions.subjectType, 'user')))
+      .innerJoin(files, eq(filePermissions.fileId, files.id))
+      .where(
+        and(
+          eq(filePermissions.userId, userId),
+          eq(filePermissions.subjectType, 'user'),
+          sql`${files.userId} != ${userId}`
+        )
+      )
       .all();
 
-    // 查询用户组获得授权的文件ID
+    // 查询用户组获得授权的文件ID（排除自己的文件，避免重复）
     let groupPermittedFiles: { fileId: string }[] = [];
     if (groupIds.length > 0) {
       groupPermittedFiles = await db
         .select({ fileId: filePermissions.fileId })
         .from(filePermissions)
-        .where(and(inArray(filePermissions.groupId, groupIds), eq(filePermissions.subjectType, 'group')))
+        .innerJoin(files, eq(filePermissions.fileId, files.id))
+        .where(
+          and(
+            inArray(filePermissions.groupId, groupIds),
+            eq(filePermissions.subjectType, 'group'),
+            sql`${files.userId} != ${userId}`
+          )
+        )
         .all();
     }
 
@@ -867,11 +899,12 @@ app.get('/', async (c) => {
       ...groupPermittedFiles.map((p) => p.fileId),
     ]);
 
-    // 根目录查询条件：
-    // - 用户自己的根目录文件 (userId = current AND parentId IS NULL)
+    // 根目录查询条件（或全局搜索模式）：
+    // - 默认：用户自己的根目录文件 (userId = current AND parentId IS NULL)
     // - 或被授权访问的文件 (id IN permittedIds)
+    // - scope=all 时：用户自己的全部文件 + 被授权访问的文件
     const ownershipCondition = or(
-      and(eq(files.userId, userId), isNull(files.parentId)),
+      and(eq(files.userId, userId), scope === 'all' ? sql`1=1` : isNull(files.parentId)),
       permittedIds.size > 0 ? inArray(files.id, Array.from(permittedIds)) : sql`0=1`
     );
     if (ownershipCondition) conditions.push(ownershipCondition);
@@ -1034,13 +1067,28 @@ app.post('/folders/size', async (c) => {
 app.get('/trash', async (c) => {
   const userId = c.get('userId')!;
   const db = getDb(c.env.DB);
+  const page = Math.max(1, parseInt(c.req.query('page') || '1', 10));
+  const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '50', 10)));
+  const offset = (page - 1) * limit;
+
+  // SQL 层面排序+分页，避免全量加载到内存
+  const totalCountResult = await db
+    .select({ count: count() })
+    .from(files)
+    .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
+    .get();
+  const total = totalCountResult?.count ?? 0;
+
   const items = await db
     .select()
     .from(files)
     .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
+    .orderBy(sql`${files.deletedAt} DESC`)
+    .limit(limit)
+    .offset(offset)
     .all();
-  const sorted = [...items].sort((a, b) => ((b.deletedAt ?? '') > (a.deletedAt ?? '') ? 1 : -1));
-  return c.json({ success: true, data: sorted });
+
+  return c.json({ success: true, data: items, total, page, limit });
 });
 
 // ── Trash: restore ─────────────────────────────────────────────────────────
@@ -1071,13 +1119,15 @@ app.delete('/trash/:id', async (c) => {
 
   if (file.isFolder) {
     const folderPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
+    const pathPrefix = folderPath + '/';
     const allFiles = await db
       .select()
       .from(files)
       .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
       .all();
 
-    const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(folderPath + '/'));
+    // 精确匹配：确保 pathPrefix 后面是 / 分隔的子路径，避免 /docs 误匹配 /docs-backup/
+    const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(pathPrefix));
 
     for (const child of childFiles) {
       if (!child.isFolder) {
@@ -1763,20 +1813,7 @@ app.get('/:id/raw', async (c) => {
   if (!file) throwAppError('FILE_NOT_FOUND');
   if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '无法获取文件夹内容');
 
-  const isEditableMimeType = (mimeType: string | null): boolean => {
-    if (!mimeType) return false;
-    const editableTypes = [
-      'text/',
-      'application/json',
-      'application/xml',
-      'application/javascript',
-      'application/x-yaml',
-      'application/yaml',
-    ];
-    return editableTypes.some((t) => mimeType.startsWith(t) || mimeType === t);
-  };
-
-  if (!isEditableMimeType(file.mimeType)) {
+  if (!isEditableFile(file.mimeType, file.name)) {
     return c.json(
       {
         success: false,
@@ -1786,7 +1823,7 @@ app.get('/:id/raw', async (c) => {
     );
   }
 
-  const maxEditableSize = 1024 * 1024;
+  const maxEditableSize = MAX_EDITABLE_SIZE;
   if (file.size > maxEditableSize) {
     return c.json(
       {
@@ -1855,20 +1892,7 @@ app.put('/:id/content', async (c) => {
   if (!file) throwAppError('FILE_NOT_FOUND');
   if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '无法修改文件夹内容');
 
-  const isEditableMimeType = (mimeType: string | null): boolean => {
-    if (!mimeType) return false;
-    const editableTypes = [
-      'text/',
-      'application/json',
-      'application/xml',
-      'application/javascript',
-      'application/x-yaml',
-      'application/yaml',
-    ];
-    return editableTypes.some((t) => mimeType.startsWith(t) || mimeType === t);
-  };
-
-  if (!isEditableMimeType(file.mimeType)) {
+  if (!isEditableFile(file.mimeType, file.name)) {
     return c.json(
       {
         success: false,
@@ -1882,7 +1906,7 @@ app.put('/:id/content', async (c) => {
   const contentArrayBuffer = contentBuffer.buffer as ArrayBuffer;
   const newSize = contentBuffer.byteLength;
 
-  const maxEditableSize = 1024 * 1024;
+  const maxEditableSize = MAX_EDITABLE_SIZE;
   if (newSize > maxEditableSize) {
     return c.json(
       {
@@ -2083,6 +2107,20 @@ app.delete('/:id', async (c) => {
 
   const result = await serviceSoftDeleteFile(c.env, userId, fileId);
   if (!result.success) throwAppError('FILE_NOT_FOUND', result.error);
+
+  // 团队活动记录：文件/文件夹删除
+  if (file.teamId) {
+    c.executionCtx.waitUntil(
+      recordActivityWithEnv(c.env, {
+        teamId: file.teamId,
+        userId,
+        action: 'file_deleted',
+        resourceType: 'file',
+        resourceId: fileId,
+        details: { fileName: file.name, isFolder: file.isFolder },
+      }).catch(() => {})
+    );
+  }
 
   sendNotification(c, {
     userId,

@@ -123,7 +123,7 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
     }
   };
 
-  const copyToClipboard = async (text: string, label: string) => {
+  const copyToClipboard = async (text: string, _label: string) => {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -210,12 +210,13 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
                 >
                   <Copy className="h-4 w-4" />
                 </Button>
-                <Button
-                  size="icon"
-                  variant="outline"
-                  asChild
-                >
-                  <a href={directLinkApi.previewUrl(directLink.token)} target="_blank" rel="noopener noreferrer" title="在新窗口预览">
+                <Button size="icon" variant="outline" asChild>
+                  <a
+                    href={directLinkApi.previewUrl(directLink.token)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="在新窗口预览"
+                  >
                     <ExternalLink className="h-4 w-4" />
                   </a>
                 </Button>
@@ -250,12 +251,7 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
                 </Button>
               </div>
 
-              <Button
-                size="sm"
-                variant="outline"
-                className="w-full mt-2.5"
-                asChild
-              >
+              <Button size="sm" variant="outline" className="w-full mt-2.5" asChild>
                 <a href={directLinkApi.infoUrl(directLink.token)} target="_blank" rel="noopener noreferrer">
                   <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
                   测试接口返回结果
@@ -270,9 +266,17 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
                 <div>
                   <h4 className="text-xs font-semibold mb-1.5">💡 使用场景说明</h4>
                   <ul className="text-[11px] space-y-1 text-muted-foreground leading-relaxed">
-                    <li>• <strong className="text-foreground">下载链接</strong>: 分享给他人直接下载文件</li>
-                    <li>• <strong className="text-foreground">预览链接</strong>: 嵌入到网页iframe或直接在浏览器打开在线预览</li>
-                    <li>• <strong className="text-foreground">信息接口</strong>: 第三方应用/脚本通过HTTP请求获取文件元信息（无需认证）</li>
+                    <li>
+                      • <strong className="text-foreground">下载链接</strong>: 分享给他人直接下载文件
+                    </li>
+                    <li>
+                      • <strong className="text-foreground">预览链接</strong>:
+                      嵌入到网页iframe或直接在浏览器打开在线预览
+                    </li>
+                    <li>
+                      • <strong className="text-foreground">信息接口</strong>:
+                      第三方应用/脚本通过HTTP请求获取文件元信息（无需认证）
+                    </li>
                   </ul>
                 </div>
               </div>

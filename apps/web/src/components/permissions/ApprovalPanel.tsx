@@ -11,14 +11,11 @@
 
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Check, X, Clock, AlertCircle, Loader2, FileText, Eye, Edit, Crown } from 'lucide-react';
+import { Check, X, Clock, Loader2, FileText, Eye, Edit, Crown } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/useToast';
 import { cn } from '@/utils';
-import {
-  permissionRequestsApi,
-  type PermissionRequest,
-} from '@/services/collab';
+import { permissionRequestsApi, type PermissionRequest } from '@/services/collab';
 
 interface ApprovalPanelProps {
   className?: string;
@@ -39,13 +36,19 @@ export const ApprovalPanel: React.FC<ApprovalPanelProps> = ({ className, compact
 
   const { data, isLoading } = useQuery({
     queryKey: ['permission-requests-pending'],
-    queryFn: () =>
-      permissionRequestsApi.listPending().then((r) => r.data.data?.items ?? []),
+    queryFn: () => permissionRequestsApi.listPending().then((r) => r.data.data?.items ?? []),
   });
 
   const reviewMutation = useMutation({
-    mutationFn: ({ requestId, action, comment }: { requestId: string; action: 'approve' | 'reject'; comment?: string }) =>
-      permissionRequestsApi.review(requestId, { action, comment }),
+    mutationFn: ({
+      requestId,
+      action,
+      comment,
+    }: {
+      requestId: string;
+      action: 'approve' | 'reject';
+      comment?: string;
+    }) => permissionRequestsApi.review(requestId, { action, comment }),
     onSuccess: (_data, variables) => {
       toast({
         title: variables.action === 'approve' ? '已批准申请' : '已拒绝申请',
@@ -97,7 +100,8 @@ export const ApprovalPanel: React.FC<ApprovalPanelProps> = ({ className, compact
 
       <div className={cn(compact ? 'space-y-1' : 'divide-y rounded-lg border')}>
         {requests.map((req) => {
-          const permConfig = PERMISSION_LABEL[req.requestedPermission as keyof typeof PERMISSION_LABEL] ?? PERMISSION_LABEL.read!;
+          const permConfig =
+            PERMISSION_LABEL[req.requestedPermission as keyof typeof PERMISSION_LABEL] ?? PERMISSION_LABEL.read!;
           const PermIcon = permConfig.icon;
           const isRejecting = expandedReject === req.id;
 
@@ -106,15 +110,19 @@ export const ApprovalPanel: React.FC<ApprovalPanelProps> = ({ className, compact
             return (
               <div
                 key={req.id}
-                className={cn(
-                  'flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/30 transition-colors'
-                )}
+                className={cn('flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/30 transition-colors')}
               >
                 <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                 <span className="text-sm font-medium truncate flex-1 min-w-0" title={req.fileName}>
                   {req.fileName || req.fileId.slice(0, 8)}
                 </span>
-                <span className={cn('flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium', permConfig.bg, permConfig.color)}>
+                <span
+                  className={cn(
+                    'flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium',
+                    permConfig.bg,
+                    permConfig.color
+                  )}
+                >
                   <PermIcon className="h-3 w-3" />
                   {permConfig.label}
                 </span>
@@ -124,9 +132,7 @@ export const ApprovalPanel: React.FC<ApprovalPanelProps> = ({ className, compact
                     <input
                       type="text"
                       value={rejectCommentMap[req.id] ?? ''}
-                      onChange={(e) =>
-                        setRejectCommentMap((prev) => ({ ...prev, [req.id]: e.target.value }))
-                      }
+                      onChange={(e) => setRejectCommentMap((prev) => ({ ...prev, [req.id]: e.target.value }))}
                       placeholder="拒绝原因（可选）"
                       className="w-32 h-6 px-1.5 text-xs border rounded bg-background"
                     />
@@ -211,9 +217,7 @@ export const ApprovalPanel: React.FC<ApprovalPanelProps> = ({ className, compact
 
               {/* 原因摘要 */}
               {req.reason && (
-                <p className="text-sm text-muted-foreground bg-muted/50 p-2 rounded-md line-clamp-2">
-                  {req.reason}
-                </p>
+                <p className="text-sm text-muted-foreground bg-muted/50 p-2 rounded-md line-clamp-2">{req.reason}</p>
               )}
 
               {/* 操作区 */}
@@ -248,9 +252,7 @@ export const ApprovalPanel: React.FC<ApprovalPanelProps> = ({ className, compact
                   <div className="flex-1 flex items-end gap-2">
                     <textarea
                       value={rejectCommentMap[req.id] ?? ''}
-                      onChange={(e) =>
-                        setRejectCommentMap((prev) => ({ ...prev, [req.id]: e.target.value }))
-                      }
+                      onChange={(e) => setRejectCommentMap((prev) => ({ ...prev, [req.id]: e.target.value }))}
                       placeholder="请输入拒绝原因（可选）..."
                       rows={2}
                       className="flex-1 px-2 py-1.5 text-sm border rounded-md bg-background resize-none placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring"
@@ -270,11 +272,7 @@ export const ApprovalPanel: React.FC<ApprovalPanelProps> = ({ className, compact
                       >
                         确认拒绝
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => setExpandedReject(null)}
-                      >
+                      <Button size="sm" variant="ghost" onClick={() => setExpandedReject(null)}>
                         取消
                       </Button>
                     </div>

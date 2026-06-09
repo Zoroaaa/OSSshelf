@@ -21,15 +21,11 @@ import {
   SHARE_DEFAULT_EXPIRY,
   MAX_FILE_SIZE,
   inferMimeType,
-  ALL_OFFICE_MIME_TYPES,
-  EPUB_MIME_TYPES,
-  FONT_MIME_TYPES,
-  ARCHIVE_PREVIEW_MIME_TYPES,
   isPreviewableMimeType,
   getPreviewType,
   logger,
 } from '@osshelf/shared';
-import { getEncryptionKey, hashPassword, verifyPassword } from '../lib/crypto';
+import { getEncryptionKey, verifyPassword } from '../lib/crypto';
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 import { tgUploadFile, tgDownloadFile, type TelegramBotConfig } from '../lib/telegramClient';
 import { isChunkedFileId, tgDownloadChunked, needsChunking, tgUploadChunked } from '../lib/telegramChunked';
@@ -39,7 +35,7 @@ import { encodeFilename } from '../lib/utils';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
-import { createNotification, sendNotification, getUserInfo } from '../lib/notificationUtils';
+import { createNotification } from '../lib/notificationUtils';
 import { dispatchWebhook } from '../lib/webhook';
 import {
   createShareLink as serviceCreateShareLink,
@@ -201,6 +197,7 @@ async function fetchFileContent(
         const stream = await tgDownloadChunked(tgConfig, ref.tgFileId, db);
         const reader = stream.getReader();
         const chunks: Uint8Array[] = [];
+        // eslint-disable-next-line no-constant-condition
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -433,7 +430,7 @@ app.get('/:id', async (c) => {
     const rows = await db
       .select()
       .from(files)
-      .where(and(eq(files.parentId, file.id), isNull(files.deletedAt)))
+      .where(and(eq(files.parentId, file.id), eq(files.userId, share.userId), isNull(files.deletedAt)))
       .all();
     children = rows.map((f) => ({
       id: f.id,
@@ -548,7 +545,7 @@ app.get('/:id/folder/:folderId', async (c) => {
   const rows = await db
     .select()
     .from(files)
-    .where(and(eq(files.parentId, folderId), isNull(files.deletedAt)))
+    .where(and(eq(files.parentId, folderId), eq(files.userId, share.userId), isNull(files.deletedAt)))
     .all();
 
   const children = rows.map((f) => ({
@@ -856,7 +853,7 @@ app.get('/:id/download', async (c) => {
             userId: share.userId,
             type: 'share_received',
             title: '您的分享文件被下载',
-            body: `文件「${file.name}」已被下载（第 ${share.downloadCount + 1} 次）`,
+            body: `文件「${file.name}」已被下载`,
             data: {
               shareId,
               fileId: file.id,
@@ -1421,7 +1418,11 @@ app.post('/upload/:token', async (c) => {
   }
 
   // 获取目标文件夹和存储桶配置（以文件夹 owner 身份写入）
-  const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  const folder = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, share.fileId), eq(files.userId, share.userId)))
+    .get();
   if (!folder) {
     throwAppError('FOLDER_NOT_FOUND', '目标文件夹不存在');
   }

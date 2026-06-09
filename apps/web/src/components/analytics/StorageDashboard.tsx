@@ -103,7 +103,8 @@ export function StorageDashboard() {
               <div className="text-sm text-gray-500 mb-1">已使用空间</div>
               <div className="text-2xl font-bold">{formatBytes(breakdown.used)}</div>
               <div className="text-sm text-gray-400">
-                / {isUnlimited ? '无限制' : formatBytes(breakdown.quota)}{!isUnlimited && ` (${usagePercent.toFixed(1)}%)`}
+                / {isUnlimited ? '无限制' : formatBytes(breakdown.quota)}
+                {!isUnlimited && ` (${usagePercent.toFixed(1)}%)`}
               </div>
               {!isUnlimited && (
                 <div className="mt-2 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">

@@ -235,7 +235,8 @@ export const filesApi = {
     api.post<ApiResponse<{ message: string }>>(`/api/files/${id}/move`, { targetParentId }),
 
   // ── 回收站 ──
-  listTrash: () => api.get<ApiResponse<FileItem[]>>('/api/files/trash'),
+  listTrash: (params?: { page?: number; limit?: number }) =>
+    api.get<ApiResponse<FileItem[]>>('/api/files/trash', { params }),
   restoreTrash: (id: string) => api.post<ApiResponse<{ message: string }>>(`/api/files/trash/${id}/restore`),
   deleteTrash: (id: string) => api.delete<ApiResponse<{ message: string }>>(`/api/files/trash/${id}`),
   emptyTrash: () => api.delete<ApiResponse<{ message: string }>>('/api/files/trash'),

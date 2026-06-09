@@ -11,7 +11,7 @@
 
 import { Hono } from 'hono';
 import { eq, and, inArray } from 'drizzle-orm';
-import { getDb, uploadTasks, users, storageBuckets, files, telegramFileRefs, telegramFileChunks } from '../db';
+import { getDb, uploadTasks, storageBuckets, files, telegramFileRefs, telegramFileChunks } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import {
   ERROR_CODES,
@@ -44,6 +44,7 @@ import { decryptSecret, s3Delete } from '../lib/s3client';
 import { getUserOrFail, encodeFilename } from '../lib/utils';
 import { checkAndClaimDedup } from '../lib/dedup';
 import { enqueueAutoProcessFile } from '../lib/ai/features';
+import { recordActivityWithEnv } from '../lib/teamActivityService';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -56,6 +57,7 @@ const createTaskSchema = z.object({
   mimeType: z.string().optional().default('application/octet-stream'),
   parentId: z.string().nullable().optional(),
   bucketId: z.string().nullable().optional(),
+  teamId: z.string().nullable().optional(), // 团队工作区上传时标记团队ID
 });
 
 const uploadPartSchema = z.object({
@@ -88,7 +90,7 @@ app.post('/create', async (c) => {
     );
   }
 
-  const { fileName, fileSize, mimeType: providedMimeType, parentId, bucketId: requestedBucketId } = result.data;
+  const { fileName, fileSize, mimeType: providedMimeType, parentId, bucketId: requestedBucketId, teamId } = result.data;
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
@@ -151,6 +153,7 @@ app.post('/create', async (c) => {
         mimeType: mimeType || null,
         parentId: parentId || null,
         bucketId: bucketConfig.id,
+        teamId: teamId || null,
         r2Key,
         uploadId: 'telegram', // 小文件标记
         totalParts: 1,
@@ -191,6 +194,7 @@ app.post('/create', async (c) => {
       mimeType: mimeType || null,
       parentId: parentId || null,
       bucketId: bucketConfig.id,
+      teamId: teamId || null,
       r2Key,
       uploadId,
       totalParts,
@@ -241,6 +245,7 @@ app.post('/create', async (c) => {
       mimeType: mimeType || null,
       parentId: parentId || null,
       bucketId: bucketConfig.id,
+      teamId: teamId || null,
       r2Key,
       uploadId: '', // 小文件不需要 multipart uploadId
       totalParts: 1,
@@ -279,6 +284,7 @@ app.post('/create', async (c) => {
     mimeType: mimeType || null,
     parentId: parentId || null,
     bucketId: bucketConfig.id,
+    teamId: teamId || null,
     r2Key,
     uploadId,
     totalParts,
@@ -354,7 +360,6 @@ app.delete('/clear-failed', async (c) => {
 
   return c.json({ success: true, data: { message: '已清空失败/过期/取消的任务' } });
 });
-
 
 app.post('/start', async (c) => {
   const userId = c.get('userId')!;
@@ -782,6 +787,21 @@ app.post('/complete', async (c) => {
     const isTelegramSmall = task.uploadId === 'telegram';
     const now = new Date().toISOString();
 
+    // ── 解析团队 ID：优先使用任务记录的，否则从 parentId 向上追溯 ──
+    let resolvedTeamId: string | null = task.teamId || null;
+    if (!resolvedTeamId && task.parentId) {
+      try {
+        const parentFile = await db
+          .select({ teamId: files.teamId })
+          .from(files)
+          .where(eq(files.id, task.parentId))
+          .get();
+        if (parentFile?.teamId) resolvedTeamId = parentFile.teamId;
+      } catch {
+        /* 父文件夹不存在时忽略 */
+      }
+    }
+
     // Telegram 小文件任务：写入 files + telegramFileRefs
     if (isTelegramSmall) {
       const uploadedParts: Array<{ partNumber: number; etag: string }> = (() => {
@@ -831,6 +851,7 @@ app.post('/complete', async (c) => {
           refCount: 1,
           isFolder: false,
           bucketId: task.bucketId,
+          teamId: resolvedTeamId,
           createdAt: now,
           updatedAt: now,
           deletedAt: null,
@@ -852,6 +873,20 @@ app.post('/complete', async (c) => {
         await updateUserStorage(db, userId, task.fileSize);
         const physicalDelta = isDedupHit ? 0 : task.fileSize;
         await updateBucketStats(db, task.bucketId!, physicalDelta, 1);
+
+        // 团队活动记录
+        if (resolvedTeamId) {
+          c.executionCtx.waitUntil(
+            recordActivityWithEnv(c.env, {
+              teamId: resolvedTeamId,
+              userId,
+              action: 'file_uploaded',
+              resourceType: 'file',
+              resourceId: fileId,
+              details: { fileName: task.fileName },
+            }).catch(() => {})
+          );
+        }
       }
 
       c.executionCtx.waitUntil(
@@ -955,6 +990,7 @@ app.post('/complete', async (c) => {
           refCount: 1,
           isFolder: false,
           bucketId: task.bucketId,
+          teamId: resolvedTeamId,
           createdAt: now,
           updatedAt: now,
           deletedAt: null,
@@ -977,6 +1013,20 @@ app.post('/complete', async (c) => {
         await updateUserStorage(db, userId, task.fileSize);
         const physicalDelta = isDedupHit ? 0 : task.fileSize;
         await updateBucketStats(db, task.bucketId!, physicalDelta, 1);
+
+        // 团队活动记录
+        if (resolvedTeamId) {
+          c.executionCtx.waitUntil(
+            recordActivityWithEnv(c.env, {
+              teamId: resolvedTeamId,
+              userId,
+              action: 'file_uploaded',
+              resourceType: 'file',
+              resourceId: fileId,
+              details: { fileName: task.fileName },
+            }).catch(() => {})
+          );
+        }
       }
 
       c.executionCtx.waitUntil(
@@ -1082,6 +1132,7 @@ app.post('/complete', async (c) => {
       refCount: finalRefCount,
       isFolder: false,
       bucketId: task.bucketId,
+      teamId: resolvedTeamId,
       createdAt: now,
       updatedAt: now,
       deletedAt: null,
@@ -1090,6 +1141,20 @@ app.post('/complete', async (c) => {
     await updateUserStorage(db, userId, task.fileSize);
 
     await updateBucketStats(db, task.bucketId, task.fileSize, 1);
+
+    // 团队活动记录
+    if (resolvedTeamId) {
+      c.executionCtx.waitUntil(
+        recordActivityWithEnv(c.env, {
+          teamId: resolvedTeamId,
+          userId,
+          action: 'file_uploaded',
+          resourceType: 'file',
+          resourceId: fileId,
+          details: { fileName: task.fileName },
+        }).catch(() => {})
+      );
+    }
 
     c.executionCtx.waitUntil(
       enqueueAutoProcessFile(c.env, fileId, userId).catch((error) => {

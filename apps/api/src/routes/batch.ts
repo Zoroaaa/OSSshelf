@@ -5,7 +5,6 @@
  * 功能:
  * - 批量删除文件
  * - 批量移动文件
- * - 批量复制文件
  * - 批量重命名
  * - 批量永久删除
  * - 批量恢复
@@ -13,13 +12,13 @@
 
 import { Hono } from 'hono';
 import { eq, and, isNull, isNotNull, inArray } from 'drizzle-orm';
-import { getDb, files, users } from '../db';
+import { getDb, files } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
-import { s3Delete, s3Put, s3Get } from '../lib/s3client';
+import { s3Delete, s3Get } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats, updateUserStorage } from '../lib/bucketResolver';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getEncryptionKey } from '../lib/crypto';

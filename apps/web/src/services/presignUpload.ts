@@ -110,6 +110,8 @@ export interface PresignUploadOptions {
   file: File;
   parentId?: string | null;
   bucketId?: string | null;
+  /** 团队 ID：在团队工作区上传时传入，确保文件归属到团队 */
+  teamId?: string | null;
   /** Called with 0–100 as the upload progresses */
   onProgress?: (percent: number) => void;
   /** Called if we fall back to the legacy proxy upload */
@@ -126,6 +128,7 @@ export async function presignUpload({
   file,
   parentId = null,
   bucketId = null,
+  teamId,
   onProgress,
   onFallback,
   signal,
@@ -134,7 +137,10 @@ export async function presignUpload({
 }: PresignUploadOptions): Promise<UploadedFile> {
   const uploadCtx = { corsErrorDetected: false };
   if (file.size > MULTIPART_THRESHOLD) {
-    return multipartUpload({ file, parentId, bucketId, onProgress, onFallback, signal, taskId, skipParts }, uploadCtx);
+    return multipartUpload(
+      { file, parentId, bucketId, teamId, onProgress, onFallback, signal, taskId, skipParts },
+      uploadCtx
+    );
   }
   return singlePresignUpload({ file, parentId, bucketId, onProgress, onFallback, signal }, uploadCtx);
 }
@@ -144,7 +150,7 @@ export async function presignUpload({
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function singlePresignUpload(
-  { file, parentId, bucketId, onProgress, onFallback, signal }: PresignUploadOptions,
+  { file, parentId, bucketId, teamId, onProgress, onFallback, signal }: PresignUploadOptions,
   uploadCtx: { corsErrorDetected: boolean }
 ): Promise<UploadedFile> {
   if (signal?.aborted) throw new DOMException('Upload aborted', 'AbortError');
@@ -167,6 +173,7 @@ async function singlePresignUpload(
     mimeType: file.type || 'application/octet-stream',
     parentId,
     bucketId,
+    teamId: teamId || null,
   });
 
   if (init.isTelegramUpload) {
@@ -245,6 +252,7 @@ async function multipartUpload(
     file,
     parentId,
     bucketId,
+    teamId,
     onProgress,
     onFallback,
     signal,
@@ -288,6 +296,7 @@ async function multipartUpload(
         mimeType: file.type || 'application/octet-stream',
         parentId,
         bucketId,
+        teamId: teamId || null,
       }
     );
 
@@ -615,6 +624,7 @@ interface ProxyUploadOptions {
   file: File;
   parentId?: string | null;
   bucketId?: string | null;
+  teamId?: string | null;
   onProgress?: (percent: number) => void;
   signal?: AbortSignal;
 }
@@ -623,6 +633,7 @@ async function proxyUpload({
   file,
   parentId,
   bucketId,
+  teamId,
   onProgress,
   signal,
 }: ProxyUploadOptions): Promise<UploadedFile> {
@@ -632,6 +643,7 @@ async function proxyUpload({
   formData.append('file', file);
   if (parentId) formData.append('parentId', parentId);
   if (bucketId) formData.append('bucketId', bucketId);
+  if (teamId) formData.append('teamId', teamId);
 
   const res = await axios.post<{ success: boolean; data: UploadedFile; error?: { message: string } }>(
     `${API_BASE}/api/files/upload`,

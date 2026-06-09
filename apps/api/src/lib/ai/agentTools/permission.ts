@@ -11,7 +11,7 @@
  */
 
 import { eq, and, isNull, desc } from 'drizzle-orm';
-import { getDb, files, filePermissions, userGroups, groupMembers } from '../../../db';
+import { getDb, files, filePermissions, users, userGroups, groupMembers } from '../../../db';
 import type { Env } from '../../../types/env';
 import { logger } from '@osshelf/shared';
 import type { ToolDefinition } from './types';
@@ -289,7 +289,20 @@ export class PermissionTools {
 
     try {
       const now = new Date().toISOString();
-      const finalTargetUserId = targetUserId || crypto.randomUUID();
+      let finalTargetUserId = targetUserId || null;
+
+      // 如果只提供了邮箱，通过邮箱查找用户
+      if (!finalTargetUserId && targetEmail) {
+        const userByEmail = await db.select({ id: users.id }).from(users).where(eq(users.email, targetEmail)).get();
+        if (!userByEmail) {
+          return { error: `未找到邮箱为 ${targetEmail} 的用户，请确认邮箱正确或使用 targetUserId` };
+        }
+        finalTargetUserId = userByEmail.id;
+      }
+
+      if (!finalTargetUserId) {
+        return { error: '需要提供 targetUserId 或 targetEmail' };
+      }
 
       const existing = await db
         .select()

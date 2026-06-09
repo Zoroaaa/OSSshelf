@@ -54,7 +54,7 @@ export function NotificationBell({ className, align = 'right', direction = 'down
 
         let buffer = '';
 
-        while (true) {
+        for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
 

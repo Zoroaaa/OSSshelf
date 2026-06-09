@@ -13,10 +13,7 @@ import { X, Eye, Edit, Crown, Loader2, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/useToast';
 import { cn } from '@/utils';
-import {
-  permissionRequestsApi,
-  teamsApi,
-} from '@/services/collab';
+import { permissionRequestsApi, teamsApi } from '@/services/collab';
 import { useQuery } from '@tanstack/react-query';
 
 interface PermissionRequestDialogProps {
@@ -26,16 +23,36 @@ interface PermissionRequestDialogProps {
 }
 
 const PERMISSION_OPTIONS = [
-  { value: 'read' as const, label: '只读', icon: Eye, color: 'text-blue-500', bg: 'bg-blue-500/10', border: 'border-blue-500/30', desc: '查看和下载文件' },
-  { value: 'write' as const, label: '读写', icon: Edit, color: 'text-amber-500', bg: 'bg-amber-500/10', border: 'border-amber-500/30', desc: '查看、编辑、上传文件' },
-  { value: 'admin' as const, label: '管理', icon: Crown, color: 'text-purple-500', bg: 'bg-purple-500/10', border: 'border-purple-500/30', desc: '完整权限，含权限管理' },
+  {
+    value: 'read' as const,
+    label: '只读',
+    icon: Eye,
+    color: 'text-blue-500',
+    bg: 'bg-blue-500/10',
+    border: 'border-blue-500/30',
+    desc: '查看和下载文件',
+  },
+  {
+    value: 'write' as const,
+    label: '读写',
+    icon: Edit,
+    color: 'text-amber-500',
+    bg: 'bg-amber-500/10',
+    border: 'border-amber-500/30',
+    desc: '查看、编辑、上传文件',
+  },
+  {
+    value: 'admin' as const,
+    label: '管理',
+    icon: Crown,
+    color: 'text-purple-500',
+    bg: 'bg-purple-500/10',
+    border: 'border-purple-500/30',
+    desc: '完整权限，含权限管理',
+  },
 ];
 
-export const PermissionRequestDialog: React.FC<PermissionRequestDialogProps> = ({
-  fileId,
-  fileName,
-  onClose,
-}) => {
+export const PermissionRequestDialog: React.FC<PermissionRequestDialogProps> = ({ fileId, fileName, onClose }) => {
   const { toast } = useToast();
   const [reason, setReason] = useState('');
   const [selectedPermission, setSelectedPermission] = useState<'read' | 'write' | 'admin'>('read');
@@ -165,10 +182,7 @@ export const PermissionRequestDialog: React.FC<PermissionRequestDialogProps> = (
           <Button variant="outline" onClick={onClose} disabled={createMutation.isPending}>
             取消
           </Button>
-          <Button
-            onClick={() => createMutation.mutate()}
-            disabled={createMutation.isPending}
-          >
+          <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>
             {createMutation.isPending ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-1" />

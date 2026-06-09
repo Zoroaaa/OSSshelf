@@ -5,11 +5,26 @@
  * 所有 service 层和 agentTools 应从此文件导入，禁止从 routes 导入。
  */
 
-import { eq, and, isNull, inArray, lt, or, desc, isNotNull } from 'drizzle-orm';
-import { getDb, files, filePermissions, users, userGroups, groupMembers, teams, teamMembers, teamResources, permissionRequests, roleTemplates } from '../db';
+import { eq, and, isNull, inArray, lt, or, desc, isNotNull, count } from 'drizzle-orm';
+import {
+  getDb,
+  files,
+  filePermissions,
+  users,
+  userGroups,
+  groupMembers,
+  teamMembers,
+  permissionRequests,
+  roleTemplates,
+} from '../db';
 import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';
-import { resolveEffectivePermission, invalidatePermissionCache, type PermissionLevel } from '../lib/permissionResolver';
+import {
+  resolveEffectivePermission,
+  invalidatePermissionCache,
+  invalidatePermissionCacheForUser,
+  type PermissionLevel,
+} from '../lib/permissionResolver';
 import { createNotification } from './notificationUtils';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -21,7 +36,7 @@ export async function checkFilePermission(
   fileId: string,
   userId: string,
   requiredPermission: PermissionLevel,
-  env?: Env
+  env: Env
 ): Promise<{ hasAccess: boolean; permission: string | null; isOwner: boolean }> {
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
   if (!file) {
@@ -32,76 +47,12 @@ export async function checkFilePermission(
     return { hasAccess: true, permission: 'admin', isOwner: true };
   }
 
-  if (env) {
-    const resolution = await resolveEffectivePermission(db, env, fileId, userId, requiredPermission);
-    return {
-      hasAccess: resolution.hasAccess,
-      permission: resolution.permission,
-      isOwner: false,
-    };
-  }
-
-  const permission = await db
-    .select()
-    .from(filePermissions)
-    .where(
-      and(
-        eq(filePermissions.fileId, fileId),
-        eq(filePermissions.userId, userId),
-        eq(filePermissions.subjectType, 'user')
-      )
-    )
-    .get();
-
-  if (!permission) {
-    const userGroupIds = await getUserGroupIds(db, userId);
-    if (userGroupIds.length > 0) {
-      const groupPermission = await db
-        .select()
-        .from(filePermissions)
-        .where(
-          and(
-            eq(filePermissions.fileId, fileId),
-            inArray(filePermissions.groupId, userGroupIds),
-            eq(filePermissions.subjectType, 'group')
-          )
-        )
-        .get();
-
-      if (groupPermission) {
-        if (groupPermission.expiresAt && new Date(groupPermission.expiresAt) < new Date()) {
-          return { hasAccess: false, permission: null, isOwner: false };
-        }
-        const PERMISSION_LEVELS = { read: 1, write: 2, admin: 3 };
-        const hasAccess =
-          PERMISSION_LEVELS[groupPermission.permission as keyof typeof PERMISSION_LEVELS] >=
-          PERMISSION_LEVELS[requiredPermission];
-        return { hasAccess, permission: groupPermission.permission, isOwner: false };
-      }
-    }
-
-    return { hasAccess: false, permission: null, isOwner: false };
-  }
-
-  if (permission.expiresAt && new Date(permission.expiresAt) < new Date()) {
-    return { hasAccess: false, permission: null, isOwner: false };
-  }
-
-  const PERMISSION_LEVELS = { read: 1, write: 2, admin: 3 };
-  const hasAccess =
-    PERMISSION_LEVELS[permission.permission as keyof typeof PERMISSION_LEVELS] >= PERMISSION_LEVELS[requiredPermission];
-
-  return { hasAccess, permission: permission.permission, isOwner: false };
-}
-
-async function getUserGroupIds(db: ReturnType<typeof getDb>, userId: string): Promise<string[]> {
-  const memberships = await db
-    .select({ groupId: groupMembers.groupId })
-    .from(groupMembers)
-    .where(eq(groupMembers.userId, userId))
-    .all();
-
-  return memberships.map((m) => m.groupId);
+  const resolution = await resolveEffectivePermission(db, env, fileId, userId, requiredPermission);
+  return {
+    hasAccess: resolution.hasAccess,
+    permission: resolution.permission,
+    isOwner: false,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -129,6 +80,7 @@ export async function inheritParentPermissions(
     fileId,
     userId: p.userId,
     groupId: p.groupId,
+    teamId: p.teamId,
     subjectType: p.subjectType,
     permission: p.permission,
     grantedBy: p.grantedBy,
@@ -148,7 +100,8 @@ export async function inheritParentPermissions(
         and(
           eq(filePermissions.fileId, fileId),
           perm.userId ? eq(filePermissions.userId, perm.userId) : isNull(filePermissions.userId),
-          perm.groupId ? eq(filePermissions.groupId, perm.groupId) : isNull(filePermissions.groupId)
+          perm.groupId ? eq(filePermissions.groupId, perm.groupId) : isNull(filePermissions.groupId),
+          perm.teamId ? eq(filePermissions.teamId, perm.teamId) : isNull(filePermissions.teamId)
         )
       )
       .get();
@@ -197,7 +150,7 @@ export async function setFolderAccessLevel(
     public_write: '所有人可读写',
   };
 
-  await db.update(files).set({ updatedAt: new Date().toISOString() }).where(eq(files.id, folderId));
+  await db.update(files).set({ accessLevel, updatedAt: new Date().toISOString() }).where(eq(files.id, folderId));
 
   logger.info('PermissionService', '设置文件夹访问级别', { folderId, folderName: folder.name, accessLevel });
 
@@ -317,6 +270,11 @@ export async function manageGroupMembers(
       await db
         .delete(groupMembers)
         .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, targetUserId)));
+
+      // 失效被移除成员的权限缓存（用户不再属于该组，组权限查询自然失效）
+      if (env) {
+        await invalidatePermissionCacheForUser(env, targetUserId);
+      }
 
       logger.info('PermissionService', '移除组成员', { groupId, groupName: group.name, targetUserId });
       return {
@@ -492,17 +450,23 @@ export async function grantWithRoleTemplate(
   const db = getDb(env.DB);
   const { fileId, targetUserId, targetGroupId, targetTeamId, roleTemplate, expiresAt } = input;
 
+  // 验证操作者是否是文件所有者
+  const ownerFile = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, fileId), eq(files.userId, grantedByUserId)))
+    .get();
+  if (!ownerFile) {
+    return { success: false, error: '文件不存在或您无权对此文件授权' };
+  }
+
   // 检查目标至少指定一个
   if (!targetUserId && !targetGroupId && !targetTeamId) {
     return { success: false, error: '必须指定 targetUserId、targetGroupId 或 targetTeamId 其中之一' };
   }
 
   // 查询角色模板
-  const template = await db
-    .select()
-    .from(roleTemplates)
-    .where(eq(roleTemplates.slug, roleTemplate))
-    .get();
+  const template = await db.select().from(roleTemplates).where(eq(roleTemplates.slug, roleTemplate)).get();
 
   if (!template) {
     return { success: false, error: `角色模板 "${roleTemplate}" 不存在` };
@@ -529,7 +493,11 @@ export async function grantWithRoleTemplate(
   if (targetTeamId) existingConditions.push(eq(filePermissions.teamId, targetTeamId));
   else existingConditions.push(isNull(filePermissions.teamId));
 
-  const existing = await db.select().from(filePermissions).where(and(...existingConditions)).get();
+  const existing = await db
+    .select()
+    .from(filePermissions)
+    .where(and(...existingConditions))
+    .get();
 
   if (existing) {
     await db
@@ -561,7 +529,12 @@ export async function grantWithRoleTemplate(
   // 失效缓存
   invalidatePermissionCache(env, fileId);
 
-  logger.info('PermissionService', '基于角色模板授权', { fileId, roleTemplate, subjectType, permission: highestPermission });
+  logger.info('PermissionService', '基于角色模板授权', {
+    fileId,
+    roleTemplate,
+    subjectType,
+    permission: highestPermission,
+  });
 
   return { success: true, message: `已使用模板 "${roleTemplate}" 授权（权限级别：${highestPermission}）` };
 }
@@ -741,7 +714,11 @@ export async function approvePermissionRequest(
       logger.error('PermissionService', '发送审批通过通知失败', { requestId }, e as Error);
     }
 
-    logger.info('PermissionService', '审批通过权限申请', { requestId, reviewerId, permission: request.requestedPermission });
+    logger.info('PermissionService', '审批通过权限申请', {
+      requestId,
+      reviewerId,
+      permission: request.requestedPermission,
+    });
 
     return { success: true, message: '已批准申请并自动授权' };
   } else {
@@ -810,9 +787,17 @@ export async function listPermissionRequests(
   const offset = (page - 1) * limit;
 
   let requests;
+  let total = 0;
 
   if (type === 'my') {
     // 我发起的申请
+    const [countResult] = await db
+      .select({ total: count() })
+      .from(permissionRequests)
+      .where(eq(permissionRequests.requesterId, userId))
+      .all();
+    total = Number(countResult?.total ?? 0);
+
     requests = await db
       .select({
         id: permissionRequests.id,
@@ -847,12 +832,7 @@ export async function listPermissionRequests(
     const adminTeams = await db
       .select({ teamId: teamMembers.teamId })
       .from(teamMembers)
-      .where(
-        and(
-          eq(teamMembers.userId, userId),
-          or(eq(teamMembers.role, 'admin'), eq(teamMembers.role, 'owner'))!
-        )
-      )
+      .where(and(eq(teamMembers.userId, userId), or(eq(teamMembers.role, 'admin'), eq(teamMembers.role, 'owner'))!))
       .all();
     const adminTeamIds = adminTeams.map((t) => t.teamId);
 
@@ -871,6 +851,14 @@ export async function listPermissionRequests(
       // 无匹配条件，返回空结果
       return { items: [], total: 0, page, limit };
     }
+
+    // pending 总数查询
+    const [pendingCountResult] = await db
+      .select({ total: count() })
+      .from(permissionRequests)
+      .where(and(...pendingConditions))
+      .all();
+    total = Number(pendingCountResult?.total ?? 0);
 
     requests = await db
       .select({
@@ -914,7 +902,7 @@ export async function listPermissionRequests(
 
   logger.info('PermissionService', '查询权限申请列表', { userId, type, count: items.length });
 
-  return { items, total: items.length, page, limit };
+  return { items, total, page, limit };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -947,8 +935,27 @@ export async function batchGrantPermissions(
     throw new Error('必须指定 targetUserId、targetGroupId 或 targetTeamId');
   }
 
-  const resolvedSubjectType =
-    subjectType || (targetTeamId ? 'team' : targetGroupId ? 'group' : 'user');
+  // 验证操作者是否是所有目标文件的所有者
+  const ownedFiles = await db
+    .select({ id: files.id })
+    .from(files)
+    .where(and(inArray(files.id, fileIds), eq(files.userId, grantedByUserId)))
+    .all();
+  const ownedFileIds = new Set(ownedFiles.map((f) => f.id));
+  const unauthorizedIds = fileIds.filter((id) => !ownedFileIds.has(id));
+  if (unauthorizedIds.length > 0) {
+    return {
+      success: true,
+      succeeded: 0,
+      failed: unauthorizedIds.length,
+      errors: unauthorizedIds.map((fileId) => ({
+        fileId,
+        error: '无权对此文件授权（非文件所有者）',
+      })),
+    };
+  }
+
+  const resolvedSubjectType = subjectType || (targetTeamId ? 'team' : targetGroupId ? 'group' : 'user');
 
   let succeeded = 0;
   let failed = 0;
@@ -959,10 +966,7 @@ export async function batchGrantPermissions(
   for (const fileId of fileIds) {
     try {
       // 构建查找条件
-      const conditions = [
-        eq(filePermissions.fileId, fileId),
-        eq(filePermissions.subjectType, resolvedSubjectType),
-      ];
+      const conditions = [eq(filePermissions.fileId, fileId), eq(filePermissions.subjectType, resolvedSubjectType)];
       if (targetUserId) conditions.push(eq(filePermissions.userId, targetUserId));
       else conditions.push(isNull(filePermissions.userId));
       if (targetGroupId) conditions.push(eq(filePermissions.groupId, targetGroupId));
@@ -970,13 +974,14 @@ export async function batchGrantPermissions(
       if (targetTeamId) conditions.push(eq(filePermissions.teamId, targetTeamId));
       else conditions.push(isNull(filePermissions.teamId));
 
-      const existing = await db.select().from(filePermissions).where(and(...conditions)).get();
+      const existing = await db
+        .select()
+        .from(filePermissions)
+        .where(and(...conditions))
+        .get();
 
       if (existing) {
-        await db
-          .update(filePermissions)
-          .set({ permission, updatedAt: now })
-          .where(eq(filePermissions.id, existing.id));
+        await db.update(filePermissions).set({ permission, updatedAt: now }).where(eq(filePermissions.id, existing.id));
       } else {
         await db.insert(filePermissions).values({
           id: crypto.randomUUID(),
@@ -1022,7 +1027,7 @@ export interface BatchRevokePermissionsInput {
 
 export async function batchRevokePermissions(
   env: Env,
-  _operatorId: string,
+  operatorId: string,
   input: BatchRevokePermissionsInput
 ): Promise<{
   success: true;
@@ -1037,8 +1042,27 @@ export async function batchRevokePermissions(
     throw new Error('必须指定 targetUserId、targetGroupId 或 targetTeamId');
   }
 
-  const resolvedSubjectType =
-    subjectType || (targetTeamId ? 'team' : targetGroupId ? 'group' : 'user');
+  // 验证操作者是否是所有目标文件的所有者（与 batchGrantPermissions 保持一致的安全边界）
+  const ownedFiles = await db
+    .select({ id: files.id })
+    .from(files)
+    .where(and(inArray(files.id, fileIds), eq(files.userId, operatorId)))
+    .all();
+  const ownedFileIds = new Set(ownedFiles.map((f) => f.id));
+  const unauthorizedIds = fileIds.filter((id) => !ownedFileIds.has(id));
+  if (unauthorizedIds.length > 0) {
+    return {
+      success: true,
+      succeeded: 0,
+      failed: unauthorizedIds.length,
+      errors: unauthorizedIds.map((fileId) => ({
+        fileId,
+        error: '无权对此文件撤销权限（非文件所有者）',
+      })),
+    };
+  }
+
+  const resolvedSubjectType = subjectType || (targetTeamId ? 'team' : targetGroupId ? 'group' : 'user');
 
   let succeeded = 0;
   let failed = 0;
@@ -1046,10 +1070,7 @@ export async function batchRevokePermissions(
 
   for (const fileId of fileIds) {
     try {
-      const conditions = [
-        eq(filePermissions.fileId, fileId),
-        eq(filePermissions.subjectType, resolvedSubjectType),
-      ];
+      const conditions = [eq(filePermissions.fileId, fileId), eq(filePermissions.subjectType, resolvedSubjectType)];
       if (targetUserId) conditions.push(eq(filePermissions.userId, targetUserId));
       else conditions.push(isNull(filePermissions.userId));
       if (targetGroupId) conditions.push(eq(filePermissions.groupId, targetGroupId));

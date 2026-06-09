@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-green.svg)](https://nodejs.org)
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers-orange.svg)](https://workers.cloudflare.com)
-[![Version](https://img.shields.io/badge/version-5.0.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-5.1.0-blue.svg)](CHANGELOG.md)
 [![zread](https://img.shields.io/badge/Ask_Zread-_.svg?style=flat&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS4zMTM1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff)](https://zread.ai/Zoroaaa/OSSshelf)
 
 [功能特性](#-功能特性) • [快速开始](#-快速开始) • [部署指南](#-部署指南) • [API文档](#-api-文档)
@@ -643,39 +643,39 @@ ossshelf/
 
 ### API 路由概览
 
-| 路由前缀             | 说明                                  |
-| -------------------- | ------------------------------------- |
-| `/api/auth`          | 用户认证、邮箱验证、密码重置          |
-| `/api/files`         | 文件管理                              |
-| `/api/buckets`       | 存储桶管理                            |
-| `/api/share`         | 文件分享                              |
-| `/api/direct`        | 文件直链                              |
-| `/api/presign`       | 预签名 URL                            |
-| `/api/tasks`         | 上传任务                              |
-| `/api/downloads`     | 离线下载                              |
-| `/api/batch`         | 批量操作                              |
-| `/api/search`        | 文件搜索                              |
-| `/api/permissions`   | 权限与标签 + 团队权限/批量操作/审批流（v5.0.0 扩展）         |
-| `/api/preview`       | 文件预览                              |
-| `/api/versions`      | 版本控制                              |
-| `/api/notes`         | 文件笔记                              |
-| `/api/api-keys`      | API Keys 管理                         |
-| `/api/groups`        | 用户组管理                            |
-| `/api/teams`          | 团队空间管理（v5.0.0 新增）            |
-| `/api/roles/templates`| 角色模板查询（v5.0.0 新增）           |
-| `/api/webhooks`      | Webhook 管理                          |
-| `/api/ai`            | AI 文件处理功能 (v4.3.0 增强)         |
-| `/api/ai-config`     | AI 配置管理、系统配置 (v4.3.0 增强)   |
-| `/api/ai-chat`       | AI 对话系统、Agent 引擎 (v4.3.0 增强) |
-| `/api/analytics`     | 存储分析                              |
-| `/api/notifications` | 通知系统                              |
-| `/api/v1`            | RESTful v1 API                        |
-| `/api/v1/docs`       | OpenAPI 文档                          |
-| `/api/admin`         | 管理员接口、邮件配置                  |
-| `/api/migrate`       | 存储桶迁移                            |
-| `/api/telegram`      | Telegram 存储                         |
-| `/cron`              | 定时任务                              |
-| `/dav`               | WebDAV                                |
+| 路由前缀               | 说明                                                 |
+| ---------------------- | ---------------------------------------------------- |
+| `/api/auth`            | 用户认证、邮箱验证、密码重置                         |
+| `/api/files`           | 文件管理                                             |
+| `/api/buckets`         | 存储桶管理                                           |
+| `/api/share`           | 文件分享                                             |
+| `/api/direct`          | 文件直链                                             |
+| `/api/presign`         | 预签名 URL                                           |
+| `/api/tasks`           | 上传任务                                             |
+| `/api/downloads`       | 离线下载                                             |
+| `/api/batch`           | 批量操作                                             |
+| `/api/search`          | 文件搜索                                             |
+| `/api/permissions`     | 权限与标签 + 团队权限/批量操作/审批流（v5.0.0 扩展） |
+| `/api/preview`         | 文件预览                                             |
+| `/api/versions`        | 版本控制                                             |
+| `/api/notes`           | 文件笔记                                             |
+| `/api/api-keys`        | API Keys 管理                                        |
+| `/api/groups`          | 用户组管理                                           |
+| `/api/teams`           | 团队空间管理（v5.0.0 新增）                          |
+| `/api/roles/templates` | 角色模板查询（v5.0.0 新增）                          |
+| `/api/webhooks`        | Webhook 管理                                         |
+| `/api/ai`              | AI 文件处理功能 (v4.3.0 增强)                        |
+| `/api/ai-config`       | AI 配置管理、系统配置 (v4.3.0 增强)                  |
+| `/api/ai-chat`         | AI 对话系统、Agent 引擎 (v4.3.0 增强)                |
+| `/api/analytics`       | 存储分析                                             |
+| `/api/notifications`   | 通知系统                                             |
+| `/api/v1`              | RESTful v1 API                                       |
+| `/api/v1/docs`         | OpenAPI 文档                                         |
+| `/api/admin`           | 管理员接口、邮件配置                                 |
+| `/api/migrate`         | 存储桶迁移                                           |
+| `/api/telegram`        | Telegram 存储                                        |
+| `/cron`                | 定时任务                                             |
+| `/dav`                 | WebDAV                                               |
 
 ---
 

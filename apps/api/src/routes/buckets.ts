@@ -58,7 +58,7 @@ const updateBucketSchema = createBucketSchema.partial();
 
 // ── Helper: strip credentials from response ───────────────────────────────
 function sanitize(bucket: typeof storageBuckets.$inferSelect) {
-  const { accessKeyId, secretAccessKey, ...safe } = bucket;
+  const { accessKeyId, ...safe } = bucket;
   // Telegram Bot Token 以 "<id>:ABC..." 格式呈现，只显示前8字符
   const displayAkId =
     bucket.provider === 'telegram'

@@ -18,13 +18,13 @@
 
 import { Hono } from 'hono';
 import { and, eq, isNull, inArray } from 'drizzle-orm';
-import { getDb, files, storageBuckets, telegramFileRefs, users } from '../db';
+import { getDb, files, storageBuckets, telegramFileRefs } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import { getEncryptionKey } from '../lib/crypto';
-import { resolveBucketConfig, updateBucketStats } from '../lib/bucketResolver';
-import { s3Get, s3Put, s3Delete, decryptSecret, makeBucketConfigAsync, type S3BucketConfig } from '../lib/s3client';
+import { updateBucketStats } from '../lib/bucketResolver';
+import { s3Get, s3Put, s3Delete, decryptSecret, makeBucketConfigAsync } from '../lib/s3client';
 import { tgUploadFile, tgDownloadFile, type TelegramBotConfig } from '../lib/telegramClient';
 import {
   isChunkedFileId,
@@ -409,6 +409,7 @@ async function runMigration(
           const stream = await tgDownloadChunked(srcTg, ref.tgFileId, db);
           const reader = stream.getReader();
           const chunks: Uint8Array[] = [];
+          // eslint-disable-next-line no-constant-condition
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;

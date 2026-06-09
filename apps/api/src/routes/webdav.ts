@@ -31,7 +31,7 @@ import { s3Put, s3Get, s3Delete } from '../lib/s3client';
 import { resolveBucketConfig, updateBucketStats, checkBucketQuota, updateUserStorage } from '../lib/bucketResolver';
 import { verifyPassword, getEncryptionKey } from '../lib/crypto';
 import type { Env, Variables } from '../types/env';
-import { ERROR_CODES, logger } from '@osshelf/shared';
+import { logger } from '@osshelf/shared';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;

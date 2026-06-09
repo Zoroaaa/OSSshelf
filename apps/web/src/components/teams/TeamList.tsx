@@ -4,6 +4,7 @@
  */
 
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/useToast';
@@ -14,18 +15,22 @@ import { cn } from '@/utils';
 import TeamCreateDialog from './TeamCreateDialog';
 import TeamMemberDialog from './TeamMemberDialog';
 import TeamResourceMountDialog from './TeamResourceMountDialog';
+import TeamDetail from './TeamDetail';
 
 interface TeamListProps {
   className?: string;
+  mode?: 'default' | 'management';
 }
 
-const TeamList: React.FC<TeamListProps> = ({ className }) => {
+const TeamList: React.FC<TeamListProps> = ({ className, mode = 'default' }) => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [isMemberDialogOpen, setIsMemberDialogOpen] = useState(false);
   const [isResourceDialogOpen, setIsResourceDialogOpen] = useState(false);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
 
   const { data: teamsData, isLoading } = useQuery({
     queryKey: ['user-teams'],
@@ -64,6 +69,11 @@ const TeamList: React.FC<TeamListProps> = ({ className }) => {
     setIsResourceDialogOpen(true);
   };
 
+  const handleOpenDetail = (teamId: string) => {
+    setSelectedTeamId(teamId);
+    setIsDetailOpen(true);
+  };
+
   if (isLoading) {
     return (
       <div className={cn('flex items-center justify-center py-8', className)}>
@@ -76,13 +86,22 @@ const TeamList: React.FC<TeamListProps> = ({ className }) => {
     <div className={cn('space-y-4', className)}>
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold">我的团队</h2>
-          <p className="text-sm text-muted-foreground mt-1">创建或加入团队以协作管理资源</p>
+          <h2 className="text-xl font-semibold">{mode === 'management' ? '团队管理' : '我的团队'}</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            {mode === 'management' ? '管理所有团队的协作资源与成员' : '创建或加入团队以协作管理资源'}
+          </p>
         </div>
-        <Button onClick={() => setIsCreateOpen(true)}>
-          <Plus className="h-4 w-4 mr-1" />
-          创建团队
-        </Button>
+        {mode === 'management' ? (
+          <Button variant="outline" size="sm" onClick={() => setIsCreateOpen(true)}>
+            <Plus className="h-4 w-4 mr-1" />
+            创建团队
+          </Button>
+        ) : (
+          <Button onClick={() => setIsCreateOpen(true)}>
+            <Plus className="h-4 w-4 mr-1" />
+            创建团队
+          </Button>
+        )}
       </div>
 
       {!allTeams || allTeams.length === 0 ? (
@@ -101,10 +120,13 @@ const TeamList: React.FC<TeamListProps> = ({ className }) => {
             <TeamCard
               key={team.id}
               team={team}
+              mode={mode}
               onManageMembers={handleManageMembers}
               onManageResources={handleManageResources}
               onDelete={handleDelete}
               isDeleting={deleteMutation.isPending}
+              onNavigateWorkspace={(teamId) => navigate(`/teams/${teamId}/workspace`)}
+              onNavigateSettings={handleOpenDetail}
             />
           ))}
         </div>
@@ -141,65 +163,138 @@ const TeamList: React.FC<TeamListProps> = ({ className }) => {
           }}
         />
       )}
+
+      {isDetailOpen && selectedTeamId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-card rounded-lg shadow-lg w-full max-w-2xl mx-4 max-h-[85vh] flex flex-col overflow-hidden">
+            <div className="p-5 flex-1 overflow-y-auto">
+              <TeamDetail
+                teamId={selectedTeamId}
+                onClose={() => {
+                  setIsDetailOpen(false);
+                  setSelectedTeamId(null);
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 interface TeamCardProps {
   team: Team;
+  mode?: 'default' | 'management';
   onManageMembers: (teamId: string) => void;
   onManageResources: (teamId: string) => void;
   onDelete: (teamId: string, teamName: string) => void;
   isDeleting: boolean;
+  onNavigateWorkspace: (teamId: string) => void;
+  onNavigateSettings?: (teamId: string) => void;
 }
 
-const TeamCard: React.FC<TeamCardProps> = ({ team, onManageMembers, onManageResources, onDelete, isDeleting }) => {
+const TeamCard: React.FC<TeamCardProps> = ({
+  team,
+  mode = 'default',
+  onManageMembers,
+  onManageResources,
+  onDelete,
+  isDeleting,
+  onNavigateWorkspace,
+  onNavigateSettings,
+}) => {
+  const isManagement = mode === 'management';
+
   return (
-    <div className="bg-card rounded-lg border p-4 hover:border-primary/50 transition-colors">
+    <div
+      className={cn('bg-card rounded-lg border p-4 hover:border-primary/50 transition-colors', isManagement && 'p-3')}
+    >
       <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="font-medium">{team.name}</h3>
-            {team.isOwner && (
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className={cn('font-medium', isManagement && 'text-sm')}>{team.name}</h3>
+            {team.isOwner ? (
               <span className="px-2 py-0.5 text-xs bg-primary/10 text-primary rounded">所有者</span>
+            ) : (
+              isManagement && <span className="px-2 py-0.5 text-xs bg-muted text-muted-foreground rounded">成员</span>
             )}
           </div>
-          {team.description && <p className="text-sm text-muted-foreground mt-1">{team.description}</p>}
-          <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+          {!isManagement && team.description && (
+            <p className="text-sm text-muted-foreground mt-1">{team.description}</p>
+          )}
+          <div
+            className={cn(
+              'flex items-center gap-4 mt-2 text-xs text-muted-foreground flex-wrap',
+              isManagement && 'gap-3'
+            )}
+          >
             <span className="flex items-center gap-1">
               <Users className="h-3 w-3" />
               {team.memberCount} 成员
             </span>
-            <span className="flex items-center gap-1">
-              <Clock className="h-3 w-3" />
-              创建于 {new Date(team.createdAt).toLocaleDateString('zh-CN')}
-            </span>
+            {isManagement ? (
+              <span className="flex items-center gap-1">
+                <Settings className="h-3 w-3" />
+                {team.userRole || '成员'}
+              </span>
+            ) : (
+              <span className="flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                创建于 {new Date(team.createdAt).toLocaleDateString('zh-CN')}
+              </span>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => onManageMembers(team.id)} title="管理成员">
-            <UserPlus className="h-4 w-4 mr-1" />
-            成员
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => onManageResources(team.id)} title="管理资源">
-            <FolderOpen className="h-4 w-4 mr-1" />
-            资源
-          </Button>
-          {team.isOwner && (
+        <div className={cn('flex items-center gap-2 shrink-0', isManagement && 'gap-1')}>
+          {isManagement ? (
             <>
-              <Button variant="ghost" size="icon" className="h-9 w-9" title="设置">
-                <Settings className="h-4 w-4" />
+              <Button variant="ghost" size="sm" onClick={() => onNavigateWorkspace(team.id)} title="进入工作区">
+                <FolderOpen className="h-4 w-4 mr-1" />
+                工作区
               </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-9 w-9 text-destructive hover:text-destructive"
-                onClick={() => onDelete(team.id, team.name)}
-                disabled={isDeleting}
-                title="删除团队"
-              >
-                {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              <Button variant="ghost" size="sm" onClick={() => onManageMembers(team.id)} title="管理团队">
+                <Settings className="h-4 w-4 mr-1" />
+                管理
               </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" size="sm" onClick={() => onManageMembers(team.id)} title="管理成员">
+                <UserPlus className="h-4 w-4 mr-1" />
+                成员
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => onNavigateWorkspace(team.id)} title="工作区">
+                <FolderOpen className="h-4 w-4 mr-1" />
+                工作区
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => onManageResources(team.id)} title="管理资源">
+                <FolderOpen className="h-4 w-4 mr-1" />
+                资源
+              </Button>
+              {team.isOwner && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9"
+                    title="设置"
+                    onClick={() => onNavigateSettings?.(team.id)}
+                  >
+                    <Settings className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 text-destructive hover:text-destructive"
+                    onClick={() => onDelete(team.id, team.name)}
+                    disabled={isDeleting}
+                    title="删除团队"
+                  >
+                    {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  </Button>
+                </>
+              )}
             </>
           )}
         </div>

@@ -59,7 +59,6 @@ export const TOOL_GROUPS = {
     'find_and_replace',
     'rename_file',
     'move_file',
-    'copy_file',
     'delete_file',
     'restore_file',
     'create_folder',
@@ -312,7 +311,6 @@ const WRITE_INTENT_PATTERNS = new RegExp(
     'transfer (the |a |this )?file',
     'relocate (the |a |this )?(file|folder)',
     'rename (the |a |this )?(file|folder)',
-    'copy (the |a |this )?(file|folder)',
     'duplicate (the |a |this )?(file|folder)',
     'clone (the |a |this )?(file|folder)',
     // 分享类

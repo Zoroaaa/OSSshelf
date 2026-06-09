@@ -11,7 +11,7 @@
 
 import { Hono } from 'hono';
 import { eq, and, desc, sql } from 'drizzle-orm';
-import { getDb, downloadTasks, users, files, storageBuckets } from '../db';
+import { getDb, downloadTasks, users, files } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES, MAX_FILE_SIZE } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
@@ -47,6 +47,31 @@ function isValidUrl(url: string): boolean {
   }
 }
 
+/** 检测 URL 是否指向内网/保留地址（SSRF 防护） */
+function isPrivateUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    // 字面量保留地址
+    if (hostname === 'localhost' || hostname === '0.0.0.0' || hostname === '[::1]' || hostname === '127.0.0.1')
+      return true;
+    // IPv4 私有段
+    const parts = hostname.split('.').map(Number);
+    if (parts.length === 4 && !parts.some(isNaN)) {
+      const [a, b] = parts;
+      if (a === 10) return true; // 10.0.0.0/8
+      if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+      if (a === 192 && b === 168) return true; // 192.168.0.0/16
+      if (a === 169 && b === 254) return true; // 169.254.0.0/16 link-local
+      if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 CGNAT
+      if (a === 198 && (b === 18 || b === 19)) return true; // 198.18.0.0/15 benchmark
+    }
+    return false;
+  } catch {
+    return true; // 解析失败默认拒绝
+  }
+}
+
 function getFileNameFromUrl(url: string): string {
   try {
     const parsed = new URL(url);
@@ -71,7 +96,7 @@ interface RunDownloadParams {
   env: Env;
 }
 
-async function runDownload({ db, userId, taskId, task, bucketConfig, env }: RunDownloadParams): Promise<void> {
+async function runDownload({ db, userId, taskId, task, bucketConfig }: RunDownloadParams): Promise<void> {
   if (!bucketConfig) return;
   const { url, fileName, parentId } = task;
   const resolvedFileName = fileName || 'downloaded_file';
@@ -84,6 +109,8 @@ async function runDownload({ db, userId, taskId, task, bucketConfig, env }: RunD
       .update(downloadTasks)
       .set({ status: 'downloading', updatedAt: new Date().toISOString() })
       .where(eq(downloadTasks.id, taskId));
+
+    if (isPrivateUrl(url)) throw new Error('不允许下载内网或私有地址的资源');
 
     const response = await fetch(url, { method: 'GET', headers: { 'User-Agent': 'OSSshelf/1.0' } });
     if (!response.ok) throw new Error(`下载失败: HTTP ${response.status}`);
@@ -99,8 +126,9 @@ async function runDownload({ db, userId, taskId, task, bucketConfig, env }: RunD
 
     // 重新查询最新配额状态，避免使用陈旧快照
     const freshUser = await db.select().from(users).where(eq(users.id, userId)).get();
-  if (!freshUser) throw new Error('用户不存在');
-  if (freshUser.storageQuota! < 999999 * 1024 ** 3 && freshUser.storageUsed + fileSize > freshUser.storageQuota!) throw new Error('用户存储配额已满');
+    if (!freshUser) throw new Error('用户不存在');
+    if (freshUser.storageQuota! < 999999 * 1024 ** 3 && freshUser.storageUsed + fileSize > freshUser.storageQuota!)
+      throw new Error('用户存储配额已满');
 
     const quotaErr = await checkBucketQuota(db, bucketConfig.id, fileSize);
     if (quotaErr) throw new Error(quotaErr);
@@ -112,6 +140,7 @@ async function runDownload({ db, userId, taskId, task, bucketConfig, env }: RunD
     let lastProgressUpdate = Date.now();
     const PROGRESS_UPDATE_INTERVAL = 1000;
 
+    // eslint-disable-next-line no-constant-condition
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -376,6 +405,10 @@ app.post('/batch', async (c) => {
   for (const url of urls) {
     if (!isValidUrl(url)) {
       failed.push({ url, error: '无效 URL' });
+      continue;
+    }
+    if (isPrivateUrl(url)) {
+      failed.push({ url, error: '不允许下载内网或私有地址的资源' });
       continue;
     }
     try {

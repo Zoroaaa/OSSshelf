@@ -104,7 +104,6 @@ const TOOL_META: Record<string, { label: string; icon: React.ReactNode; category
   find_and_replace: { label: '查找替换', icon: <Code className="h-3 w-3" />, category: '文件操作' },
   rename_file: { label: '重命名', icon: <Code className="h-3 w-3" />, category: '文件操作' },
   move_file: { label: '移动文件', icon: <FileText className="h-3 w-3" />, category: '文件操作' },
-  copy_file: { label: '复制文件', icon: <Copy className="h-3 w-3" />, category: '文件操作' },
   delete_file: { label: '删除文件', icon: <FileText className="h-3 w-3" />, category: '文件操作' },
   restore_file: { label: '恢复文件', icon: <RefreshCw className="h-3 w-3" />, category: '文件操作' },
   create_folder: { label: '创建文件夹', icon: <FileText className="h-3 w-3" />, category: '文件操作' },

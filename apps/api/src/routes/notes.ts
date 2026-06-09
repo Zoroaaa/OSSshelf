@@ -8,7 +8,7 @@
 
 import { Hono } from 'hono';
 import { eq, and, desc, isNull, sql } from 'drizzle-orm';
-import { getDb, files, users, fileNotes, noteMentions } from '../db';
+import { getDb, files, users, fileNotes } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
 import { ERROR_CODES, logger } from '@osshelf/shared';
@@ -21,7 +21,6 @@ import {
   deleteNote as serviceDeleteNote,
   getFileNotes as serviceGetFileNotes,
   togglePinNote as serviceTogglePinNote,
-  getNoteHistory as serviceGetNoteHistory,
 } from '../lib/noteService';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();

@@ -245,6 +245,26 @@ app.put('/ai-providers/:providerId', async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '提供商不存在' } }, 404);
   }
 
+  // 检查是否有模型引用此提供商，防止孤立引用
+  const dependentModels = await db
+    .select({ id: aiModels.id, name: aiModels.name })
+    .from(aiModels)
+    .where(and(eq(aiModels.providerId, providerId), eq(aiModels.userId, userId)))
+    .all();
+
+  if (dependentModels.length > 0) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'DEPENDENT_MODELS_EXIST',
+          message: `无法删除：仍有 ${dependentModels.length} 个模型引用此提供商（${dependentModels.map((m) => m.name).join(', ')}），请先删除或迁移这些模型`,
+        },
+      },
+      400
+    );
+  }
+
   try {
     if (data.isDefault) {
       await db.update(aiProviders).set({ isDefault: false }).where(eq(aiProviders.userId, userId));

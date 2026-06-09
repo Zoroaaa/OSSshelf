@@ -39,21 +39,11 @@ import { selectTools, needsWriteTools, TOOL_GROUPS } from './agentTools/toolSele
 import { buildFolderPath } from '../../lib/utils';
 import { AgentMemory } from './agentMemory';
 import { isModelAvailable, recordModelFailure, recordModelSuccess } from './circuitBreaker';
+import { estimateTokens } from './utils';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 默认配置常量（当数据库配置不可用时使用）
 // ─────────────────────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Token 估算（与 ragEngine 相同算法，中文 0.67 tokens/char，英文 0.25 tokens/char）
-// ─────────────────────────────────────────────────────────────────────────────
-function estimateTokens(text: string): number {
-  if (!text) return 0;
-  const chineseChars = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length;
-  const chineseRatio = text.length > 0 ? chineseChars / text.length : 0;
-  const tokensPerChar = chineseRatio > 0.3 ? 0.67 : 0.25;
-  return Math.ceil(text.length * tokensPerChar);
-}
 
 const DEFAULT_MAX_TOOL_CALLS = 20;
 const DEFAULT_MAX_IDLE_ROUNDS = 3;
@@ -159,7 +149,6 @@ const TOOL_SUMMARY_MAP: Record<string, (args: Record<string, unknown>) => string
   find_and_replace: (a) => `在文件中查找替换: "${a.find}" → "${a.replace}"`,
   rename_file: (a) => `重命名: → "${a.newName || '?'}"`,
   move_file: (a) => `移动文件到 ${a.targetFolderId || a.targetFolderPath || '?'}`,
-  copy_file: (a) => `复制文件${a.newName ? ` 为 "${a.newName}"` : ''}`,
   delete_file: (a) => `删除文件 (原因: ${a.reason || '用户请求'})`,
   restore_file: (_a) => `从回收站恢复文件`,
   create_folder: (a) => `创建文件夹 "${a.folderName || '?'}"`,

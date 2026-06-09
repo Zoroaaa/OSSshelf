@@ -13,6 +13,7 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { permissionsApi, groupsApi, searchApi, type SearchableUser } from '@/services/api';
+import { teamsApi } from '@/services/collab';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/useToast';
@@ -23,6 +24,7 @@ import {
   Loader2,
   User,
   Users,
+  Building2,
   Shield,
   Eye,
   Edit,
@@ -36,7 +38,7 @@ import {
 
 interface PermissionRecord {
   id: string;
-  subjectType: 'user' | 'group';
+  subjectType: 'user' | 'group' | 'team';
   subjectId: string | null;
   subjectName: string;
   fileId: string;
@@ -60,9 +62,10 @@ const GlobalPermissions: React.FC = () => {
   const [showGrantForm, setShowGrantForm] = useState(false);
   const [searchUserQuery, setSearchUserQuery] = useState('');
   const [searchFileQuery, setSearchFileQuery] = useState('');
-  const [selectedSubjectType, setSelectedSubjectType] = useState<'user' | 'group'>('user');
+  const [selectedSubjectType, setSelectedSubjectType] = useState<'user' | 'group' | 'team'>('user');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [selectedTeamId, setSelectedTeamId] = useState<string>('');
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   const [selectedPermission, setSelectedPermission] = useState<'read' | 'write' | 'admin'>('read');
   const [expiresAt, setExpiresAt] = useState<string>('');
@@ -70,7 +73,7 @@ const GlobalPermissions: React.FC = () => {
   const [fileSearchResults, setFileSearchResults] = useState<any[]>([]);
   const [isSearchingUsers, setIsSearchingUsers] = useState(false);
   const [isSearchingFiles, setIsSearchingFiles] = useState(false);
-  const [filterSubject, setFilterSubject] = useState<'all' | 'user' | 'group'>('all');
+  const [filterSubject, setFilterSubject] = useState<'all' | 'user' | 'group' | 'team'>('all');
   const [filterPermission, setFilterPermission] = useState<'all' | 'read' | 'write' | 'admin'>('all');
 
   const { data: permissionsData, isLoading } = useQuery({
@@ -81,6 +84,11 @@ const GlobalPermissions: React.FC = () => {
   const { data: groupsData } = useQuery({
     queryKey: ['user-groups'],
     queryFn: () => groupsApi.list().then((r) => r.data.data),
+  });
+
+  const { data: teamsData } = useQuery({
+    queryKey: ['teams'],
+    queryFn: () => teamsApi.list().then((r) => r.data.data),
   });
 
   useEffect(() => {
@@ -132,6 +140,7 @@ const GlobalPermissions: React.FC = () => {
           fileId,
           userId: selectedSubjectType === 'user' ? selectedUserId! : undefined,
           groupId: selectedSubjectType === 'group' ? selectedGroupId! : undefined,
+          teamId: selectedSubjectType === 'team' ? selectedTeamId : undefined,
           permission: selectedPermission,
           subjectType: selectedSubjectType,
           expiresAt: expiresAt || undefined,
@@ -190,6 +199,7 @@ const GlobalPermissions: React.FC = () => {
     setSearchFileQuery('');
     setSelectedUserId(null);
     setSelectedGroupId(null);
+    setSelectedTeamId('');
     setSelectedFileIds([]);
     setSelectedPermission('read');
     setExpiresAt('');
@@ -206,6 +216,10 @@ const GlobalPermissions: React.FC = () => {
     }
     if (selectedSubjectType === 'group' && !selectedGroupId) {
       toast({ title: '请选择用户组', variant: 'destructive' });
+      return;
+    }
+    if (selectedSubjectType === 'team' && !selectedTeamId) {
+      toast({ title: '请选择团队', variant: 'destructive' });
       return;
     }
     if (selectedFileIds.length === 0) {
@@ -301,6 +315,20 @@ const GlobalPermissions: React.FC = () => {
                     <Users className="h-3.5 w-3.5" />
                     用户组
                   </button>
+                  <button
+                    onClick={() => {
+                      setSelectedSubjectType('team');
+                      setSelectedUserId(null);
+                      setSelectedGroupId(null);
+                    }}
+                    className={cn(
+                      'flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-xs font-medium transition-colors border',
+                      selectedSubjectType === 'team' ? 'bg-primary/10 text-primary border-primary' : 'hover:bg-muted'
+                    )}
+                  >
+                    <Building2 className="h-3.5 w-3.5" />
+                    团队
+                  </button>
                 </div>
               </div>
 
@@ -337,7 +365,7 @@ const GlobalPermissions: React.FC = () => {
                     </div>
                   )}
                 </div>
-              ) : (
+              ) : selectedSubjectType === 'group' ? (
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">选择用户组</label>
                   <div className="max-h-40 overflow-y-auto space-y-1 border rounded-lg p-1">
@@ -356,6 +384,22 @@ const GlobalPermissions: React.FC = () => {
                       </button>
                     ))}
                   </div>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">选择团队</label>
+                  <select
+                    value={selectedTeamId}
+                    onChange={(e) => setSelectedTeamId(e.target.value)}
+                    className="w-full px-2 py-1.5 text-sm border rounded-md bg-background"
+                  >
+                    <option value="">请选择团队</option>
+                    {[...(teamsData?.owned || []), ...(teamsData?.joined || [])].map((team: any) => (
+                      <option key={team.id} value={team.id}>
+                        {team.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               )}
             </div>
@@ -459,6 +503,7 @@ const GlobalPermissions: React.FC = () => {
               disabled={
                 (selectedSubjectType === 'user' && !selectedUserId) ||
                 (selectedSubjectType === 'group' && !selectedGroupId) ||
+                (selectedSubjectType === 'team' && !selectedTeamId) ||
                 selectedFileIds.length === 0 ||
                 grantMutation.isPending
               }
@@ -485,6 +530,7 @@ const GlobalPermissions: React.FC = () => {
             <option value="all">全部对象</option>
             <option value="user">用户</option>
             <option value="group">用户组</option>
+            <option value="team">团队</option>
           </select>
           <select
             value={filterPermission}
@@ -514,11 +560,17 @@ const GlobalPermissions: React.FC = () => {
                 <div
                   className={cn(
                     'w-8 h-8 rounded-full flex items-center justify-center',
-                    group.subjectType === 'group' ? 'bg-purple-500/10' : 'bg-primary/10'
+                    group.subjectType === 'group'
+                      ? 'bg-purple-500/10'
+                      : group.subjectType === 'team'
+                        ? 'bg-indigo-500/10'
+                        : 'bg-primary/10'
                   )}
                 >
                   {group.subjectType === 'group' ? (
                     <Users className="h-4 w-4 text-purple-500" />
+                  ) : group.subjectType === 'team' ? (
+                    <Building2 className="h-4 w-4 text-indigo-500" />
                   ) : (
                     <User className="h-4 w-4 text-primary" />
                   )}
@@ -526,7 +578,8 @@ const GlobalPermissions: React.FC = () => {
                 <div className="flex-1">
                   <p className="font-medium">{group.subjectName}</p>
                   <p className="text-xs text-muted-foreground">
-                    {group.subjectType === 'group' ? '用户组' : '用户'} · {group.permissions.length} 条授权
+                    {group.subjectType === 'group' ? '用户组' : group.subjectType === 'team' ? '团队' : '用户'} ·{' '}
+                    {group.permissions.length} 条授权
                   </p>
                 </div>
               </div>

@@ -1,6 +1,6 @@
 # OSSshelf 架构文档
 
-**版本**: v5.0.0
+**版本**: v5.1.0
 **更新日期**: 2026-06-08
 
 ---
@@ -863,49 +863,49 @@ DELETE /api/resource/:id      # 删除
 
 ### API 模块
 
-| 模块   | 路径前缀       | 说明                 |
-| ------ | -------------- | -------------------- |
-| 认证   | `/api/auth`    | 用户认证、会话管理   |
-| 文件   | `/api/files`   | 文件上传、下载、管理 |
-| 文件夹 | `/api/folders` | 文件夹管理           |
-| 分享   | `/api/shares`  | 分享链接管理         |
-| AI     | `/api/ai`      | AI 功能              |
-| 用户   | `/api/user`    | 用户配置             |
-| 团队   | `/api/teams`   | 团队管理 (v5.0.0)   |
+| 模块   | 路径前缀           | 说明                   |
+| ------ | ------------------ | ---------------------- |
+| 认证   | `/api/auth`        | 用户认证、会话管理     |
+| 文件   | `/api/files`       | 文件上传、下载、管理   |
+| 文件夹 | `/api/folders`     | 文件夹管理             |
+| 分享   | `/api/shares`      | 分享链接管理           |
+| AI     | `/api/ai`          | AI 功能                |
+| 用户   | `/api/user`        | 用户配置               |
+| 团队   | `/api/teams`       | 团队管理 (v5.0.0)      |
 | 权限   | `/api/permissions` | 权限管理 (v5.0.0 扩展) |
 
 ### 团队管理 API (v5.0.0 新增)
 
 `/api/teams` — 12 个端点：
 
-| 方法   | 路径                        | 说明           |
-| ------ | --------------------------- | -------------- |
-| POST   | `/api/teams`                | 创建团队       |
-| GET    | `/api/teams`                | 列出我的团队   |
-| GET    | `/api/teams/:id`            | 团队详情       |
-| PATCH  | `/api/teams/:id`            | 更新团队信息   |
-| DELETE | `/api/teams/:id`            | 解散团队       |
-| POST   | `/api/teams/:id/members`    | 邀请成员       |
-| GET    | `/api/teams/:id/members`    | 成员列表       |
-| PATCH  | `/api/teams/:id/members/:userId` | 更新成员角色 |
-| DELETE | `/api/teams/:id/members/:userId` | 移除成员     |
-| POST   | `/api/teams/:id/resources`  | 挂载资源       |
-| GET    | `/api/teams/:id/resources`  | 资源列表       |
-| DELETE | `/api/teams/:id/resources/:resourceId` | 卸载资源 |
+| 方法   | 路径                                   | 说明         |
+| ------ | -------------------------------------- | ------------ |
+| POST   | `/api/teams`                           | 创建团队     |
+| GET    | `/api/teams`                           | 列出我的团队 |
+| GET    | `/api/teams/:id`                       | 团队详情     |
+| PATCH  | `/api/teams/:id`                       | 更新团队信息 |
+| DELETE | `/api/teams/:id`                       | 解散团队     |
+| POST   | `/api/teams/:id/members`               | 邀请成员     |
+| GET    | `/api/teams/:id/members`               | 成员列表     |
+| PATCH  | `/api/teams/:id/members/:userId`       | 更新成员角色 |
+| DELETE | `/api/teams/:id/members/:userId`       | 移除成员     |
+| POST   | `/api/teams/:id/resources`             | 挂载资源     |
+| GET    | `/api/teams/:id/resources`             | 资源列表     |
+| DELETE | `/api/teams/:id/resources/:resourceId` | 卸载资源     |
 
 ### 权限扩展 API (v5.0.0 新增)
 
 `/api/permissions` — 7 个新端点：
 
-| 方法   | 路径                              | 说明           |
-| ------ | --------------------------------- | -------------- |
-| POST   | `/api/permissions/requests`       | 提交权限申请   |
-| GET    | `/api/permissions/requests`       | 申请列表       |
-| PATCH  | `/api/permissions/requests/:id`   | 审批权限申请   |
-| POST   | `/api/permissions/batch`          | 批量权限操作   |
-| GET    | `/api/roles/templates`            | 角色模板列表   |
-| POST   | `/api/roles/templates`            | 创建角色模板   |
-| PUT    | `/api/roles/templates/:id`        | 更新角色模板   |
+| 方法  | 路径                            | 说明         |
+| ----- | ------------------------------- | ------------ |
+| POST  | `/api/permissions/requests`     | 提交权限申请 |
+| GET   | `/api/permissions/requests`     | 申请列表     |
+| PATCH | `/api/permissions/requests/:id` | 审批权限申请 |
+| POST  | `/api/permissions/batch`        | 批量权限操作 |
+| GET   | `/api/roles/templates`          | 角色模板列表 |
+| POST  | `/api/roles/templates`          | 创建角色模板 |
+| PUT   | `/api/roles/templates/:id`      | 更新角色模板 |
 
 ### 响应格式
 

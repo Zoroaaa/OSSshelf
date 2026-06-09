@@ -53,6 +53,8 @@ export const files = sqliteTable(
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
     deletedAt: text('deleted_at'),
+    teamId: text('team_id'), // 可空：属于哪个团队的共享空间
+    accessLevel: text('access_level'), // 文件夹访问级别: private | team | public_read | public_write
     bucketId: text('bucket_id'),
     directLinkToken: text('direct_link_token').unique(),
     directLinkExpiresAt: text('direct_link_expires_at'),
@@ -82,6 +84,7 @@ export const files = sqliteTable(
     aiSummaryIdx: index('idx_files_ai_summary').on(table.userId, table.aiSummaryAt),
     aiTagsIdx: index('idx_files_ai_tags').on(table.userId, table.aiTagsAt),
     isStarredIdx: index('idx_files_is_starred').on(table.userId, table.isStarred, table.updatedAt),
+    teamIdx: index('idx_files_team').on(table.teamId),
   })
 );
 
@@ -314,6 +317,7 @@ export const uploadTasks = sqliteTable(
     mimeType: text('mime_type'),
     parentId: text('parent_id'),
     bucketId: text('bucket_id'),
+    teamId: text('team_id'),
     r2Key: text('r2_key').notNull(),
     uploadId: text('upload_id').notNull(),
     totalParts: integer('total_parts').notNull(),
@@ -813,6 +817,9 @@ export const teams = sqliteTable(
     name: text('name').notNull(),
     description: text('description'),
     settings: text('settings').default('{}'),
+    storageQuota: integer('storage_quota').default(5368709120),
+    storageUsed: integer('storage_used').default(0).notNull(),
+    defaultMemberRole: text('default_member_role').default('member'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
@@ -856,6 +863,8 @@ export const teamResources = sqliteTable(
       .notNull()
       .references(() => users.id),
     mountedAt: text('mounted_at').notNull(),
+    /** 挂载目标文件夹ID（NULL=根目录） */
+    targetFolderId: text('target_folder_id'),
   },
   (table) => ({
     teamIdx: index('idx_team_resources_team').on(table.teamId),
@@ -891,15 +900,66 @@ export const permissionRequests = sqliteTable(
   })
 );
 
-export const roleTemplates = sqliteTable(
-  'role_templates',
+// 团队邀请表 — 支持链接邀请 + 邮件邀请
+export const teamInvitations = sqliteTable(
+  'team_invitations',
   {
     id: text('id').primaryKey(),
-    name: text('name').notNull(),
-    slug: text('slug').notNull().unique(),
-    permissions: text('permissions').notNull().default('[]'),
-    isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),
-    description: text('description'),
+    teamId: text('team_id')
+      .notNull()
+      .references(() => teams.id, { onDelete: 'cascade' }),
+    invitedBy: text('invited_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    inviteToken: text('invite_token').notNull().unique(),
+    inviteCode: text('invite_code').unique(),
+    email: text('email'),
+    role: text('role').notNull().default('member'),
+    message: text('message'),
+    expiresAt: text('expires_at'),
+    acceptedBy: text('accepted_by').references(() => users.id, { onDelete: 'set null' }),
+    acceptedAt: text('accepted_at'),
+    status: text('status').notNull().default('pending'), // pending | accepted | expired | revoked
     createdAt: text('created_at').notNull(),
-  }
+  },
+  (table) => ({
+    teamIdx: index('idx_team_invitations_team').on(table.teamId),
+    tokenIdx: index('idx_team_invitations_token').on(table.inviteToken),
+    statusIdx: index('idx_team_invitations_status').on(table.status),
+    expiresIdx: index('idx_team_invitations_expires').on(table.expiresAt),
+  })
 );
+
+// 团队活动流表 — 记录团队内操作审计
+export const teamActivities = sqliteTable(
+  'team_activities',
+  {
+    id: text('id').primaryKey(),
+    teamId: text('team_id')
+      .notNull()
+      .references(() => teams.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'set null' }),
+    action: text('action').notNull(),
+    resourceType: text('resource_type'),
+    resourceId: text('resource_id'),
+    details: text('details'),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => ({
+    teamIdx: index('idx_team_activities_team').on(table.teamId, table.createdAt),
+    userIdx: index('idx_team_activities_user').on(table.userId),
+    actionIdx: index('idx_team_activities_action').on(table.action),
+  })
+);
+
+export const roleTemplates = sqliteTable('role_templates', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  slug: text('slug').notNull().unique(),
+  permissions: text('permissions').notNull().default('[]'),
+  isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),
+  description: text('description'),
+  createdAt: text('created_at').notNull(),
+});

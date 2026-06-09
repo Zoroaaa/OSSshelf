@@ -2,11 +2,13 @@
  * teamService.ts — 团队管理核心服务层
  */
 
-import { eq, and, isNull, sql } from 'drizzle-orm';
-import { getDb, teams, teamMembers, teamResources, files, users } from '../db';
+import { eq, and, isNull, sql, or, inArray } from 'drizzle-orm';
+import { getDb, teams, teamMembers, teamResources, files, users, filePermissions } from '../db';
 import type { DrizzleDb } from '../db';
 import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';
+import { recordActivity } from './teamActivityService';
+import { invalidatePermissionCacheForUser } from './permissionResolver';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 类型定义
@@ -20,12 +22,24 @@ export interface CreateTeamInput {
 export interface UpdateTeamInput {
   name?: string;
   description?: string;
+  storageQuota?: number;
+  defaultMemberRole?: string;
 }
 
 export interface ManageTeamMembersInput {
   action: 'add' | 'remove' | 'change_role';
   targetUserId: string;
   role?: 'owner' | 'admin' | 'member' | 'guest';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 内部工具函数
+// ─────────────────────────────────────────────────────────────────────────────
+
+function permissionRank(perm: string): number {
+  if (perm === 'admin') return 3;
+  if (perm === 'write') return 2;
+  return 1; // read or unknown
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -53,6 +67,9 @@ export async function createTeam(
     name: name.trim(),
     description: description?.trim() || null,
     settings: '{}',
+    storageQuota: 5368709120, // 5GB 默认
+    storageUsed: 0,
+    defaultMemberRole: 'member',
     createdAt: now,
     updatedAt: now,
   });
@@ -65,6 +82,16 @@ export async function createTeam(
     role: 'owner',
     addedBy: userId,
     createdAt: now,
+  });
+
+  // Activity
+  await recordActivity(db, {
+    teamId,
+    userId,
+    action: 'team_created',
+    resourceType: 'team',
+    resourceId: teamId,
+    details: { teamName: name.trim() },
   });
 
   logger.info('TeamService', '创建团队', { userId, teamId, name });
@@ -120,7 +147,12 @@ export async function updateTeam(
   const db = getDb(env.DB);
   const { name, description } = input;
 
-  if (!name && !description) {
+  if (
+    name === undefined &&
+    description === undefined &&
+    input.storageQuota === undefined &&
+    input.defaultMemberRole === undefined
+  ) {
     return { success: false, error: '至少需要更新一个字段' };
   }
 
@@ -143,8 +175,18 @@ export async function updateTeam(
   const updates: Record<string, unknown> = { updatedAt: new Date().toISOString() };
   if (name !== undefined) updates.name = name.trim();
   if (description !== undefined) updates.description = description?.trim() || null;
+  if (input.storageQuota !== undefined) updates.storageQuota = input.storageQuota;
+  if (input.defaultMemberRole !== undefined) updates.defaultMemberRole = input.defaultMemberRole;
 
   await db.update(teams).set(updates).where(eq(teams.id, teamId));
+
+  // Activity
+  await recordActivity(db, {
+    teamId,
+    userId,
+    action: 'team_settings_updated',
+    details: updates,
+  });
 
   logger.info('TeamService', '更新团队', { userId, teamId, updates });
   return { success: true, message: `团队 "${team.name}" 更新成功` };
@@ -166,7 +208,31 @@ export async function deleteTeam(
     return { success: false, error: '只有团队所有者可以删除团队' };
   }
 
-  // 级联删除由数据库 ON DELETE CASCADE 处理
+  // 先清理关联的权限记录和缓存
+  try {
+    const affectedPerms = await db
+      .select({ fileId: filePermissions.fileId })
+      .from(filePermissions)
+      .where(and(eq(filePermissions.teamId, teamId), eq(filePermissions.subjectType, 'team')))
+      .all();
+    const affectedFileIds = [...new Set(affectedPerms.map((p) => p.fileId))];
+
+    await db
+      .delete(filePermissions)
+      .where(and(eq(filePermissions.teamId, teamId), eq(filePermissions.subjectType, 'team')));
+
+    for (const fid of affectedFileIds) {
+      try {
+        await invalidatePermissionCacheForUser(env, fid);
+      } catch {
+        /* 单文件缓存失效失败不影响主流程 */
+      }
+    }
+  } catch {
+    /* 清理失败不影响主流程 */
+  }
+
+  // 级联删除由数据库 ON DELETE CASCADE 处理（teamMembers 等）
   await db.delete(teams).where(eq(teams.id, teamId));
 
   logger.info('TeamService', '删除团队', { userId, teamId, teamName: team.name });
@@ -176,36 +242,93 @@ export async function deleteTeam(
 export async function listTeams(
   db: DrizzleDb,
   userId: string
-): Promise<{ owned: Array<{ id: string; name: string; memberCount: number }>; joined: Array<{ id: string; name: string; role: string }> }> {
+): Promise<{
+  owned: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    memberCount: number;
+    userRole: string;
+    isOwner: boolean;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  joined: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    memberCount: number;
+    userRole: string;
+    isOwner: boolean;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+}> {
+  // 用户拥有的团队
   const ownedTeams = await db
-    .select({ id: teams.id, name: teams.name })
+    .select({
+      id: teams.id,
+      name: teams.name,
+      description: teams.description,
+      createdAt: teams.createdAt,
+      updatedAt: teams.updatedAt,
+    })
     .from(teams)
     .where(eq(teams.ownerId, userId))
     .all();
 
   const ownedWithCounts = await Promise.all(
     ownedTeams.map(async (team) => {
-      const count = await db
-        .select({ id: teamMembers.id })
+      const countResult = await db
+        .select({ count: sql<number>`count(*)` })
         .from(teamMembers)
         .where(eq(teamMembers.teamId, team.id))
-        .all();
-      return { ...team, memberCount: count.length };
+        .get();
+      return {
+        ...team,
+        memberCount: Number(countResult?.count ?? 0),
+        userRole: 'owner' as const,
+        isOwner: true,
+      };
     })
   );
 
+  // 用户加入的团队（非 owner）
   const joinedTeams = await db
     .select({
       id: teams.id,
       name: teams.name,
+      description: teams.description,
       role: teamMembers.role,
+      createdAt: teams.createdAt,
+      updatedAt: teams.updatedAt,
     })
     .from(teamMembers)
     .innerJoin(teams, eq(teamMembers.teamId, teams.id))
     .where(and(eq(teamMembers.userId, userId), sql`${teamMembers.role} != 'owner'`))
     .all();
 
-  return { owned: ownedWithCounts, joined: joinedTeams };
+  const joinedWithCounts = await Promise.all(
+    joinedTeams.map(async (team) => {
+      const countResult = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(teamMembers)
+        .where(eq(teamMembers.teamId, team.id))
+        .get();
+      return {
+        id: team.id,
+        name: team.name,
+        description: team.description,
+        memberCount: Number(countResult?.count ?? 0),
+        userRole: team.role,
+        isOwner: false,
+        createdAt: team.createdAt,
+        updatedAt: team.updatedAt,
+      };
+    })
+  );
+
+  return { owned: ownedWithCounts, joined: joinedWithCounts };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -270,6 +393,16 @@ export async function manageTeamMembers(
         createdAt: now,
       });
 
+      // Activity
+      await recordActivity(db, {
+        teamId,
+        userId,
+        action: 'member_joined',
+        resourceType: 'member',
+        resourceId: targetUserId,
+        details: { targetUserName: targetUser?.name, role: role || 'member' },
+      });
+
       logger.info('TeamService', '添加团队成员', { teamId, targetUserId, role: role || 'member' });
       return {
         success: true,
@@ -281,6 +414,8 @@ export async function manageTeamMembers(
 
     case 'remove': {
       const isSelf = targetUserId === userId;
+
+      const targetUser = await db.select().from(users).where(eq(users.id, targetUserId)).get();
 
       // 检查目标成员是否存在
       const targetMembership = await db
@@ -310,9 +445,24 @@ export async function manageTeamMembers(
         }
       }
 
-      await db
-        .delete(teamMembers)
-        .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, targetUserId)));
+      await db.delete(teamMembers).where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, targetUserId)));
+
+      // 失效被移除成员的权限缓存（用户不再属于该团队，团队权限查询自然失效）
+      try {
+        await invalidatePermissionCacheForUser(env, targetUserId);
+      } catch {
+        /* 缓存失效失败不影响主流程 */
+      }
+
+      // Activity
+      await recordActivity(db, {
+        teamId,
+        userId,
+        action: 'member_left',
+        resourceType: 'member',
+        resourceId: targetUserId,
+        details: { targetUserName: targetUser?.name, isSelf: targetUserId === userId },
+      });
 
       logger.info('TeamService', '移除团队成员', { teamId, targetUserId });
       return {
@@ -337,6 +487,8 @@ export async function manageTeamMembers(
         return { success: false, error: '不能变更团队所有者的角色' };
       }
 
+      const targetUser = await db.select().from(users).where(eq(users.id, targetUserId)).get();
+
       const targetMembership = await db
         .select()
         .from(teamMembers)
@@ -351,6 +503,16 @@ export async function manageTeamMembers(
         .update(teamMembers)
         .set({ role })
         .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, targetUserId)));
+
+      // Activity
+      await recordActivity(db, {
+        teamId,
+        userId,
+        action: 'role_changed',
+        resourceType: 'member',
+        resourceId: targetUserId,
+        details: { targetUserName: targetUser?.name, newRole: role },
+      });
 
       logger.info('TeamService', '变更成员角色', { teamId, targetUserId, newRole: role });
       return {
@@ -400,7 +562,8 @@ export async function mountResourceToTeam(
   env: Env,
   userId: string,
   teamId: string,
-  fileId: string
+  fileId: string,
+  options?: { targetFolderId?: string | null }
 ): Promise<{ success: true; message: string } | { success: false; error: string }> {
   const db = getDb(env.DB);
 
@@ -457,6 +620,47 @@ export async function mountResourceToTeam(
     fileId,
     mountedBy: userId,
     mountedAt: now,
+    targetFolderId: options?.targetFolderId ?? null,
+  });
+
+  // ★ V2 核心：同步创建 team 级别的 file_permissions
+  const existingPerm = await db
+    .select()
+    .from(filePermissions)
+    .where(
+      and(
+        eq(filePermissions.fileId, fileId),
+        eq(filePermissions.subjectType, 'team'),
+        eq(filePermissions.teamId, teamId)
+      )
+    )
+    .get();
+
+  if (!existingPerm) {
+    await db.insert(filePermissions).values({
+      id: crypto.randomUUID(),
+      fileId,
+      userId: null,
+      groupId: null,
+      teamId,
+      subjectType: 'team',
+      permission: 'read', // 默认只读，管理员可后续提升
+      grantedBy: userId,
+      inheritToChildren: true,
+      scope: 'explicit',
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  // Activity
+  await recordActivity(db, {
+    teamId,
+    userId,
+    action: 'file_mounted',
+    resourceType: 'file',
+    resourceId: fileId,
+    details: { fileName: file.name, isFolder: file.isFolder },
   });
 
   logger.info('TeamService', '挂载资源到团队', { userId, teamId, fileId });
@@ -512,9 +716,28 @@ export async function unmountResourceFromTeam(
     return { success: false, error: '只有文件所有者或团队管理员可以卸载资源' };
   }
 
+  await db.delete(teamResources).where(and(eq(teamResources.teamId, teamId), eq(teamResources.fileId, fileId)));
+
+  // ★ 同步清理关联的 file_permissions
   await db
-    .delete(teamResources)
-    .where(and(eq(teamResources.teamId, teamId), eq(teamResources.fileId, fileId)));
+    .delete(filePermissions)
+    .where(
+      and(
+        eq(filePermissions.fileId, fileId),
+        eq(filePermissions.subjectType, 'team'),
+        eq(filePermissions.teamId, teamId)
+      )
+    );
+
+  // Activity
+  await recordActivity(db, {
+    teamId,
+    userId,
+    action: 'file_unmounted',
+    resourceType: 'file',
+    resourceId: fileId,
+    details: { fileName: file.name },
+  });
 
   logger.info('TeamService', '从团队卸载资源', { userId, teamId, fileId });
   return { success: true, message: `文件 "${file.name}" 已从团队 "${team.name}" 卸载` };
@@ -544,4 +767,213 @@ export async function listTeamResources(
     mountedBy: r.mountedBy,
     mountedAt: r.mountedAt,
   }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ★ 新增：工作区文件列表
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface TeamFileItem {
+  fileId: string;
+  fileName: string;
+  filePath: string | null;
+  fileType: string | null;
+  mimeType: string | null;
+  size: number;
+  isFolder: boolean;
+  mountedAt: string;
+  permission: 'read' | 'write' | 'admin';
+  /** 挂载目标文件夹ID（NULL=根目录） */
+  targetFolderId: string | null;
+}
+
+/**
+ * 获取团队工作区的文件列表
+ * 聚合所有已挂载的资源，过滤出当前用户有权限访问的文件
+ */
+export async function getTeamFiles(
+  env: Env,
+  teamId: string,
+  viewerUserId: string,
+  options?: { folderId?: string; limit?: number; offset?: number }
+): Promise<{ files: TeamFileItem[]; total: number }> {
+  const db = getDb(env.DB);
+  const { folderId, limit = 50, offset = 0 } = options ?? {};
+
+  // 验证查看者是团队成员
+  const membership = await db
+    .select()
+    .from(teamMembers)
+    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, viewerUserId)))
+    .get();
+  if (!membership) return { files: [], total: 0 };
+
+  // 获取所有已挂载的资源（根据 targetFolderId 过滤）
+  const mountConditions = [eq(teamResources.teamId, teamId)];
+  if (folderId) {
+    // 在子文件夹中浏览时，只显示挂载到该文件夹的资源
+    mountConditions.push(eq(teamResources.targetFolderId, folderId));
+  } else {
+    // 在根目录浏览时，只显示 targetFolderId 为 NULL 的资源（即挂载到根目录的）
+    mountConditions.push(isNull(teamResources.targetFolderId));
+  }
+
+  const mounts = await db
+    .select({
+      fileId: teamResources.fileId,
+      mountedAt: teamResources.mountedAt,
+      targetFolderId: teamResources.targetFolderId,
+    })
+    .from(teamResources)
+    .where(and(...mountConditions))
+    .all();
+
+  if (mounts.length === 0) return { files: [], total: 0 };
+
+  const mountedFileIds = mounts.map((m) => m.fileId);
+  const mountedAtMap = new Map(mounts.map((m) => [m.fileId, m.mountedAt]));
+  const targetFolderMap = new Map(mounts.map((m) => [m.fileId, m.targetFolderId]));
+
+  // 查询这些文件的基本信息
+  const baseConditions = [inArray(files.id, mountedFileIds), isNull(files.deletedAt)];
+  if (folderId) {
+    baseConditions.push(eq(files.parentId, folderId));
+  }
+
+  const allFiles = await db
+    .select({
+      id: files.id,
+      name: files.name,
+      path: files.path,
+      type: files.type,
+      mimeType: files.mimeType,
+      size: files.size,
+      isFolder: files.isFolder,
+      parentId: files.parentId,
+      deletedAt: files.deletedAt,
+      userId: files.userId,
+    })
+    .from(files)
+    .where(and(...baseConditions))
+    .all();
+
+  // 对每个文件检查权限（批量查询，避免 N+1）
+  const allFileIds = allFiles.map((f) => f.id).filter(Boolean);
+  const permsMap = new Map<string, { permission: string }>();
+
+  if (allFileIds.length > 0) {
+    const perms = await db
+      .select({ fileId: filePermissions.fileId, permission: filePermissions.permission })
+      .from(filePermissions)
+      .where(
+        and(
+          inArray(filePermissions.fileId, allFileIds),
+          or(
+            and(eq(filePermissions.subjectType, 'user'), eq(filePermissions.userId, viewerUserId)),
+            and(eq(filePermissions.subjectType, 'team'), eq(filePermissions.teamId, teamId))
+          )!
+        )
+      )
+      .all();
+
+    // 同一文件多条权限记录时取最高权限: admin > write > read
+    for (const p of perms) {
+      const existing = permsMap.get(p.fileId);
+      if (!existing || permissionRank(p.permission) > permissionRank(existing.permission)) {
+        permsMap.set(p.fileId, { permission: p.permission });
+      }
+    }
+  }
+
+  const filesWithPerm: TeamFileItem[] = [];
+
+  for (const file of allFiles) {
+    if (!file.id) continue;
+
+    // 文件所有者总有完全权限
+    if (file.userId === viewerUserId) {
+      filesWithPerm.push({
+        fileId: file.id,
+        fileName: file.name,
+        filePath: file.path,
+        fileType: file.type,
+        mimeType: file.mimeType,
+        size: file.size,
+        isFolder: file.isFolder,
+        mountedAt: mountedAtMap.get(file.id) || '',
+        permission: 'admin',
+        targetFolderId: targetFolderMap.get(file.id) ?? null,
+      });
+      continue;
+    }
+
+    // 从批量结果中查找权限
+    const perm = permsMap.get(file.id);
+
+    if (perm) {
+      filesWithPerm.push({
+        fileId: file.id,
+        fileName: file.name,
+        filePath: file.path,
+        fileType: file.type,
+        mimeType: file.mimeType,
+        size: file.size,
+        isFolder: file.isFolder,
+        mountedAt: mountedAtMap.get(file.id) || '',
+        permission: perm.permission as 'read' | 'write' | 'admin',
+        targetFolderId: targetFolderMap.get(file.id) ?? null,
+      });
+    }
+  }
+
+  const total = filesWithPerm.length;
+  const paged = filesWithPerm.slice(offset, offset + limit);
+
+  return { files: paged, total };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ★ 新增：团队存储统计
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function getTeamStorageStats(
+  db: DrizzleDb,
+  teamId: string
+): Promise<{ storageQuota: number; storageUsed: number; usagePercent: number; fileCount: number } | null> {
+  const team = await db.select().from(teams).where(eq(teams.id, teamId)).get();
+  if (!team) return null;
+
+  const quota = (team as any).storageQuota ?? 5368709120;
+
+  // 实际计算：团队自有文件大小 + 挂载资源文件大小
+  const [teamFilesResult, mountedFilesResult, resourceCount] = await Promise.all([
+    // 团队自有文件（teamId 字段标记）
+    db
+      .select({ totalSize: sql<number>`COALESCE(SUM(${files.size}), 0)` })
+      .from(files)
+      .where(and(eq(files.teamId, teamId), isNull(files.deletedAt)))
+      .get(),
+    // 挂载资源（通过 teamResources 关联 files 表）
+    db
+      .select({ totalSize: sql<number>`COALESCE(SUM(${files.size}), 0)` })
+      .from(teamResources)
+      .innerJoin(files, eq(teamResources.fileId, files.id))
+      .where(and(eq(teamResources.teamId, teamId), isNull(files.deletedAt)))
+      .get(),
+    // 挂载资源数量
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(teamResources)
+      .where(eq(teamResources.teamId, teamId))
+      .get(),
+  ]);
+
+  const used = (teamFilesResult?.totalSize ?? 0) + (mountedFilesResult?.totalSize ?? 0);
+
+  return {
+    storageQuota: quota,
+    storageUsed: used,
+    usagePercent: quota > 0 ? Math.round((used / quota) * 10000) / 100 : 0,
+    fileCount: Number(resourceCount?.count ?? 0),
+  };
 }

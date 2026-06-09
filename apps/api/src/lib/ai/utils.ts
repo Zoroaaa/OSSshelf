@@ -8,6 +8,7 @@
  * - 文件内容读取辅助
  * - Base64编码转换
  * - Vision消息内容构建
+ * - Token估算
  */
 
 import { logger } from '@osshelf/shared';
@@ -203,13 +204,6 @@ export type VisionMessageContent = Array<{ type: 'text' | 'image_url'; text?: st
  * @param mimeType - 图片MIME类型，如 'image/jpeg', 'image/png'
  * @param textPrompt - 文本提示词
  * @returns Vision消息内容数组
- *
- * @example
- * const content = buildVisionMessageContent(
- *   'iVBORw0KGgoAAAANSUhEUg...',
- *   'image/png',
- *   '请描述这张图片的内容'
- * );
  */
 export function buildVisionMessageContent(
   base64Image: string,
@@ -230,11 +224,6 @@ export function buildVisionMessageContent(
  *
  * @param content - 模型原始响应内容
  * @returns 包含 reasoning（思考内容）和 content（正文内容）的对象
- *
- * @example
- * const input = '<think>这是思考过程</think>这是正文内容';
- * const result = extractThinkingContent(input);
- * // result: { reasoning: '这是思考过程', content: '这是正文内容' }
  */
 export function extractThinkingContent(content: string): {
   reasoning: string;
@@ -242,17 +231,15 @@ export function extractThinkingContent(content: string): {
 } {
   if (!content) return { reasoning: '', content: '' };
 
-  const thinkingRegex = /<think>([\s\S]*?)<\/think>/g;
+  const thinkingRegex = /([\s\S]*?)<\/think>/g;
   let reasoning = '';
   let cleanedContent = content;
 
-  // 提取所有 `` 标签内容
   let match;
   while ((match = thinkingRegex.exec(content)) !== null) {
     reasoning += match[1];
   }
 
-  // 移除所有 `` 标签及其内容
   cleanedContent = content.replace(thinkingRegex, '').trim();
 
   return {
@@ -268,5 +255,19 @@ export function extractThinkingContent(content: string): {
  * @returns 是否包含 `` 标签
  */
 export function hasThinkingTags(content: string): boolean {
-  return /<think>/.test(content) && /<\/think>/.test(content);
+  return /<think[\s\S]*?<\/think>/.test(content);
+}
+
+/**
+ * 语言感知 token 估算
+ * 英文: 1 token ≈ 4 chars (0.25 tokens/char)
+ * 中文: 1 token ≈ 1.5 chars (0.67 tokens/char)
+ * 中文字符占比超 30% 时用中文系数，避免低估导致超窗口
+ */
+export function estimateTokens(text: string): number {
+  if (!text) return 0;
+  const chineseChars = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length;
+  const chineseRatio = text.length > 0 ? chineseChars / text.length : 0;
+  const tokensPerChar = chineseRatio > 0.3 ? 0.67 : 0.25;
+  return Math.ceil(text.length * tokensPerChar);
 }

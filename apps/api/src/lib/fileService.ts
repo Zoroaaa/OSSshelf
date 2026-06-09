@@ -19,7 +19,7 @@ import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';
 import { checkFilePermission } from '../lib/permissionService';
 import { inheritParentPermissions } from '../lib/permissionService';
-import { inferMimeType } from '@osshelf/shared';
+import { inferMimeType, isEditableFile, MAX_EDITABLE_SIZE } from '@osshelf/shared';
 import { resolveBucketConfig, updateUserStorage, updateBucketStats, checkBucketQuota } from './bucketResolver';
 import { getEncryptionKey } from './crypto';
 import { createVersionSnapshot, shouldCreateVersion } from './versionManager';
@@ -160,25 +160,6 @@ export async function createTextFile(
 // 编辑文件内容（复用 files.ts PUT /:id/content 的核心逻辑）
 // ─────────────────────────────────────────────────────────────────────────────
 
-const EDITABLE_MIME_TYPES = [
-  'text/',
-  'application/json',
-  'application/xml',
-  'application/javascript',
-  'application/x-yaml',
-  'application/yaml',
-  'text/markdown',
-  'text/plain',
-  'text/csv',
-  'text/html',
-  'text/css',
-];
-
-function isEditableMimeType(mimeType: string | null): boolean {
-  if (!mimeType) return false;
-  return EDITABLE_MIME_TYPES.some((t) => mimeType.startsWith(t) || mimeType === t);
-}
-
 export async function updateFileContent(
   env: Env,
   userId: string,
@@ -193,11 +174,10 @@ export async function updateFileContent(
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
   if (!file) return { success: false, error: '文件不存在' };
 
-  if (!isEditableMimeType(file.mimeType)) {
+  if (!isEditableFile(file.mimeType, file.name)) {
     return { success: false, error: `此文件类型(${file.mimeType})不支持在线编辑` };
   }
 
-  const MAX_EDITABLE_SIZE = 10 * 1024 * 1024;
   if (file.size > MAX_EDITABLE_SIZE) {
     return { success: false, error: '文件过大，不支持在线编辑' };
   }
@@ -590,88 +570,6 @@ export async function createFolder(
   return { success: true, folderId, folder: newFolder };
 }
 
-export interface CopyFileInput {
-  targetFolderId: string;
-  newName?: string;
-}
-
-export async function copyFile(
-  env: Env,
-  userId: string,
-  fileId: string,
-  input: CopyFileInput
-): Promise<
-  { success: true; message: string; newFileId: string; fileName: string } | { success: false; error: string }
-> {
-  const db = getDb(env.DB);
-  const { targetFolderId, newName } = input;
-
-  const [file, targetFolder] = await Promise.all([
-    db
-      .select()
-      .from(files)
-      .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
-      .get(),
-    db
-      .select()
-      .from(files)
-      .where(and(eq(files.id, targetFolderId), eq(files.userId, userId)))
-      .get(),
-  ]);
-
-  if (!file) return { success: false, error: '源文件不存在或无权访问' };
-  if (!targetFolder) return { success: false, error: '目标文件夹不存在' };
-  if (file.isFolder) return { success: false, error: '暂不支持复制文件夹' };
-
-  const finalName = newName || file.name;
-  const newFileId = crypto.randomUUID();
-  const now = new Date().toISOString();
-  const parentPath = targetFolder.path || '';
-  const newPath = `${parentPath}/${finalName}`.replace('//', '/');
-
-  const r2KeyPrefix = file.r2Key?.substring(0, file.r2Key.lastIndexOf('/')) || `uploads/${userId}`;
-  const newR2Key = `${r2KeyPrefix}/${newFileId}/${finalName}`;
-
-  await db.insert(files).values({
-    id: newFileId,
-    userId,
-    parentId: targetFolderId,
-    name: finalName,
-    path: newPath,
-    size: file.size,
-    r2Key: newR2Key,
-    mimeType: file.mimeType,
-    isFolder: false,
-    createdAt: now,
-    updatedAt: now,
-  });
-
-  try {
-    const sourceObject = await env.FILES?.get(file.r2Key!);
-    if (sourceObject) {
-      const body = await sourceObject.arrayBuffer();
-      await env.FILES?.put(newR2Key, new Uint8Array(body));
-    }
-  } catch (error) {
-    logger.error('FileService', '复制文件存储失败', { sourceId: fileId, newFileId }, error);
-    try {
-      await env.FILES?.delete(newR2Key);
-    } catch {
-      /* ignore */
-    }
-    await db.delete(files).where(eq(files.id, newFileId));
-    return { success: false, error: '文件复制失败: 存储服务异常' };
-  }
-
-  const userRow = await db.select().from(users).where(eq(users.id, userId)).get();
-  if (userRow) await updateUserStorage(db, userId, file.size);
-
-  await inheritParentPermissions(db, newFileId, targetFolderId);
-
-  logger.info('FileService', '文件复制成功', { sourceId: fileId, newFileId, fileName: finalName });
-  return { success: true, message: `"${file.name}" 已复制为 "${finalName}"`, newFileId, fileName: finalName };
-}
-
 export async function restoreFile(
   env: Env,
   userId: string,
@@ -692,13 +590,14 @@ export async function restoreFile(
 
   if (file.isFolder) {
     const folderPath = file.path?.endsWith('/') ? file.path.slice(0, -1) : file.path;
+    const pathPrefix = folderPath + '/';
     const allTrashed = await db
       .select()
       .from(files)
       .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
       .all();
 
-    const childFiles = allTrashed.filter((f) => f.path && f.path.startsWith(folderPath + '/'));
+    const childFiles = allTrashed.filter((f) => f.path && f.path.startsWith(pathPrefix));
     for (const child of childFiles) {
       await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, child.id));
     }

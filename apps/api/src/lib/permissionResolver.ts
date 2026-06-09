@@ -107,9 +107,8 @@ export async function resolveEffectivePermission(
     const hasAccess = checkPermissionLevel(inheritedPermission.permission as PermissionLevel, requiredLevel);
     const sourceFile = await db.select().from(files).where(eq(files.id, inheritedPermission.fileId)).get();
     const isInheritedTeam = inheritedPermission.subjectType === 'team';
-    const inheritedTeamInfo = isInheritedTeam && inheritedPermission.teamId
-      ? await getTeamInfo(db, inheritedPermission.teamId)
-      : null;
+    const inheritedTeamInfo =
+      isInheritedTeam && inheritedPermission.teamId ? await getTeamInfo(db, inheritedPermission.teamId) : null;
     return {
       hasAccess,
       permission: inheritedPermission.permission as PermissionLevel,
@@ -138,7 +137,7 @@ export async function checkPermissionWithCache(
   userId: string,
   requiredLevel: PermissionLevel
 ): Promise<PermissionResolution> {
-  const cacheKey = `perm:${fileId}:${userId}`;
+  const cacheKey = `perm:${fileId}:${userId}:${requiredLevel}`;
 
   try {
     const cached = await env.KV.get(cacheKey);
@@ -185,11 +184,30 @@ export async function invalidatePermissionCache(env: Env, fileId: string): Promi
 
 export async function invalidatePermissionCacheForUser(env: Env, userId: string): Promise<void> {
   try {
-    const list = await env.KV.list({ prefix: `perm:` });
-    const keys = list.keys.filter((k) => k.name.endsWith(`:${userId}`)).map((k) => k.name);
+    const userKeySegment = `:${userId}:`;
+    let totalDeleted = 0;
+    let listComplete = false;
 
-    if (keys.length > 0) {
-      await Promise.all(keys.map((key) => env.KV.delete(key)));
+    // Cloudflare KV list 分页：当 list_complete=false 时继续获取下一页
+    // 注意：旧版类型定义可能不包含 cursor，使用 list_complete 判断
+    do {
+      const result = await env.KV.list({ prefix: `perm:`, limit: 1000 });
+      // 匹配 perm:{fileId}:{userId}:{level} 格式
+      const keys = result.keys.filter((k) => k.name.includes(userKeySegment)).map((k) => k.name);
+
+      if (keys.length > 0) {
+        await Promise.all(keys.map((key) => env.KV.delete(key)));
+        totalDeleted += keys.length;
+      }
+
+      listComplete = result.list_complete ?? true;
+
+      // 如果类型系统支持 cursor（新版 @cloudflare/workers-types），使用它
+      // 否则依赖 list_complete 标志（KV 内部自动翻页）
+    } while (!listComplete);
+
+    if (totalDeleted > 0) {
+      logger.info('PERMISSION', '用户权限缓存已失效', { userId, totalDeleted });
     }
   } catch (error) {
     logger.error('PERMISSION', '用户权限缓存失效失败', { userId }, error);

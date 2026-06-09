@@ -243,6 +243,29 @@ app.delete('/:id', async (c) => {
 
   await db.delete(userGroups).where(eq(userGroups.id, groupId));
 
+  // 级联清理：删除该组关联的所有权限记录，并失效组成员的权限缓存
+  try {
+    // 先查询受影响的文件ID（用于缓存失效）
+    const affectedPerms = await db
+      .select({ fileId: filePermissions.fileId })
+      .from(filePermissions)
+      .where(and(eq(filePermissions.groupId, groupId), eq(filePermissions.subjectType, 'group')))
+      .all();
+    const affectedFileIds = [...new Set(affectedPerms.map((p) => p.fileId))];
+
+    await db
+      .delete(filePermissions)
+      .where(and(eq(filePermissions.groupId, groupId), eq(filePermissions.subjectType, 'group')));
+
+    // 逐文件失效权限缓存（覆盖所有可能通过该组访问的用户）
+    const { invalidatePermissionCache } = await import('../lib/permissionResolver');
+    for (const fid of affectedFileIds) {
+      await invalidatePermissionCache(c.env, fid);
+    }
+  } catch {
+    /* 清理失败不影响主流程 */
+  }
+
   return c.json({ success: true, data: { message: '用户组已删除' } });
 });
 
@@ -431,6 +454,14 @@ app.delete('/:id/members/:memberUserId', async (c) => {
   });
 
   await db.delete(groupMembers).where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, memberUserId)));
+
+  // 失效被移除成员的权限缓存
+  try {
+    const { invalidatePermissionCacheForUser } = await import('../lib/permissionResolver');
+    await invalidatePermissionCacheForUser(c.env, memberUserId);
+  } catch {
+    /* 缓存失效失败不影响主流程 */
+  }
 
   return c.json({ success: true, data: { message: '成员已移除' } });
 });

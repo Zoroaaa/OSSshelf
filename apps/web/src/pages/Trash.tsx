@@ -3,29 +3,47 @@
  * 回收站页面
  *
  * 功能:
- * - 查看已删除文件
+ * - 查看已删除文件（支持分页）
  * - 恢复文件
  * - 永久删除文件
  * - 清空回收站
  */
 
+import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { filesApi } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { FileIcon } from '@/components/files/FileIcon';
+import { MobileDialog, MobileDialogFooter, MobileDialogAction } from '@/components/ui/MobileDialog';
 import { useToast } from '@/components/ui/useToast';
 import { formatBytes, formatDate, decodeFileName } from '@/utils';
 import { Trash2, RotateCcw, AlertTriangle, PackageOpen } from 'lucide-react';
 import type { FileItem } from '@osshelf/shared';
 
+const TRASH_PAGE_SIZE = 50;
+
 export default function Trash() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [page, setPage] = useState(1);
 
   const { data: items = [], isLoading } = useQuery<FileItem[]>({
-    queryKey: ['trash'],
-    queryFn: () => filesApi.listTrash().then((r) => r.data.data ?? []),
+    queryKey: ['trash', page],
+    queryFn: () => filesApi.listTrash({ page, limit: TRASH_PAGE_SIZE }).then((r) => r.data.data ?? []),
   });
+
+  // 确认对话框状态
+  const [confirmState, setConfirmState] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    action: () => void;
+    danger?: boolean;
+  }>({ open: false, title: '', message: '', action: () => {} });
+
+  const askConfirm = useCallback((title: string, message: string, action: () => void, danger = true) => {
+    setConfirmState({ open: true, title, message, action, danger });
+  }, []);
 
   const restoreMutation = useMutation({
     mutationFn: (id: string) => filesApi.restoreTrash(id),
@@ -57,8 +75,7 @@ export default function Trash() {
   });
 
   const handleEmpty = () => {
-    if (!confirm(`确定要永久删除回收站中所有 ${items.length} 个文件吗？此操作不可撤销。`)) return;
-    emptyMutation.mutate();
+    askConfirm('清空回收站', `确定要永久删除回收站中所有文件吗？此操作不可撤销。`, () => emptyMutation.mutate());
   };
 
   return (
@@ -92,7 +109,7 @@ export default function Trash() {
       {/* List */}
       {isLoading ? (
         <div className="text-center py-16 text-muted-foreground">加载中...</div>
-      ) : items.length === 0 ? (
+      ) : items.length === 0 && page === 1 ? (
         <div className="text-center py-16 text-muted-foreground space-y-3">
           <PackageOpen className="h-14 w-14 mx-auto opacity-20" />
           <p className="font-medium">回收站是空的</p>
@@ -105,17 +122,51 @@ export default function Trash() {
               key={file.id}
               file={file}
               onRestore={() => restoreMutation.mutate(file.id)}
-              onDelete={() => {
-                if (confirm(`永久删除 "${decodeFileName(file.name)}"？此操作不可撤销。`)) {
-                  deleteOneMutation.mutate(file.id);
-                }
-              }}
+              onDelete={() =>
+                askConfirm('永久删除', `永久删除 "${decodeFileName(file.name)}"？此操作不可撤销。`, () =>
+                  deleteOneMutation.mutate(file.id)
+                )
+              }
               restorePending={restoreMutation.isPending}
               deletePending={deleteOneMutation.isPending}
             />
           ))}
         </div>
       )}
+
+      {/* Pagination */}
+      {items.length > 0 && items.length >= TRASH_PAGE_SIZE && (
+        <div className="flex items-center justify-center gap-4 pt-2">
+          <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+            上一页
+          </Button>
+          <span className="text-sm text-muted-foreground">第 {page} 页</span>
+          <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)}>
+            下一页
+          </Button>
+        </div>
+      )}
+
+      {/* Confirm Dialog */}
+      <MobileDialog
+        open={confirmState.open}
+        onClose={() => setConfirmState((s) => ({ ...s, open: false }))}
+        title={confirmState.title}
+      >
+        <p className="text-sm text-muted-foreground">{confirmState.message}</p>
+        <MobileDialogFooter>
+          <MobileDialogAction onClick={() => setConfirmState((s) => ({ ...s, open: false }))}>取消</MobileDialogAction>
+          <MobileDialogAction
+            variant={confirmState.danger ? 'danger' : 'primary'}
+            onClick={() => {
+              setConfirmState((s) => ({ ...s, open: false }));
+              confirmState.action();
+            }}
+          >
+            确定
+          </MobileDialogAction>
+        </MobileDialogFooter>
+      </MobileDialog>
     </div>
   );
 }

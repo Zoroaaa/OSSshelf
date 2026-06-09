@@ -83,12 +83,10 @@ export default function Tags() {
   const { data: tagData, isLoading: filesLoading } = useQuery<PaginatedFilesResponse>({
     queryKey: ['tag-files', selectedTag, page],
     queryFn: () =>
-      filesApi
-        .list({ tags: [selectedTag!].join(',') as any, page, limit: TAG_PAGE_SIZE })
-        .then((r) => ({
-          data: (r.data.data as FileItem[]) ?? [],
-          pagination: (r.data as any).pagination ?? { page, limit: TAG_PAGE_SIZE, total: 0, totalPages: 0 },
-        })),
+      filesApi.list({ tags: [selectedTag!].join(',') as any, page, limit: TAG_PAGE_SIZE }).then((r) => ({
+        data: (r.data.data as FileItem[]) ?? [],
+        pagination: (r.data as any).pagination ?? { page, limit: TAG_PAGE_SIZE, total: 0, totalPages: 0 },
+      })),
     enabled: !!selectedTag,
     staleTime: 30000,
   });
@@ -198,7 +196,9 @@ export default function Tags() {
   });
 
   // ── 筛选 & 辅助方法 ──
-  const filteredTags = searchQuery ? tags.filter((t) => t.name.toLowerCase().includes(searchQuery.toLowerCase())) : tags;
+  const filteredTags = searchQuery
+    ? tags.filter((t) => t.name.toLowerCase().includes(searchQuery.toLowerCase()))
+    : tags;
 
   const getTagCount = (tagName: string) => {
     const stat = tagStats.find((s) => s.name === tagName);
@@ -227,11 +227,17 @@ export default function Tags() {
   };
 
   const handleRenameConfirm = (oldName: string) => {
-    if (!editName.trim() || editName.trim() === oldName) { setEditingTag(null); return; }
+    if (!editName.trim() || editName.trim() === oldName) {
+      setEditingTag(null);
+      return;
+    }
     renameMutation.mutate({ oldName, newName: editName.trim() });
   };
 
-  const handlePageChange = (newPage: number) => { setPage(newPage); setSelectedFileIds(new Set()); };
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+    setSelectedFileIds(new Set());
+  };
 
   const allSelected = tagFiles.length > 0 && selectedFileIds.size === tagFiles.length;
   const hasSelection = selectedFileIds.size > 0;
@@ -252,7 +258,12 @@ export default function Tags() {
       {/* Search */}
       <div className="relative max-w-md">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input placeholder="搜索标签..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-10" />
+        <Input
+          placeholder="搜索标签..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-10"
+        />
       </div>
 
       <div className={cn('grid gap-6', selectedTag ? 'lg:grid-cols-[320px_1fr]' : 'lg:grid-cols-1')}>
@@ -284,13 +295,19 @@ export default function Tags() {
                       isSelected ? 'bg-primary/10 border-primary/30' : 'bg-card hover:bg-accent/40 border-transparent'
                     )}
                   >
-                    <button onClick={() => handleSelectTag(tag.name)} className="flex-1 flex items-center gap-2.5 min-w-0 text-left">
+                    <button
+                      onClick={() => handleSelectTag(tag.name)}
+                      className="flex-1 flex items-center gap-2.5 min-w-0 text-left"
+                    >
                       <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: tag.color }} />
                       {isEditing ? (
                         <Input
                           value={editName}
                           onChange={(e) => setEditName(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') handleRenameConfirm(tag.name); if (e.key === 'Escape') setEditingTag(null); }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleRenameConfirm(tag.name);
+                            if (e.key === 'Escape') setEditingTag(null);
+                          }}
                           className="h-7 text-sm flex-1"
                           autoFocus
                           onClick={(e) => e.stopPropagation()}
@@ -306,29 +323,85 @@ export default function Tags() {
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       {isEditing ? (
                         <>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); handleRenameConfirm(tag.name); }}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRenameConfirm(tag.name);
+                            }}
+                          >
                             <Check className="h-3.5 w-3.5 text-green-600" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); setEditingTag(null); }}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingTag(null);
+                            }}
+                          >
                             <X className="h-3.5 w-3.5" />
                           </Button>
                         </>
                       ) : isDeleting ? (
                         <>
                           <span className="text-xs text-destructive mr-1">确定?</span>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(tag.name); }} disabled={deleteMutation.isPending}>
-                            {deleteMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin text-destructive" /> : <Check className="h-3.5 w-3.5 text-destructive" />}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteMutation.mutate(tag.name);
+                            }}
+                            disabled={deleteMutation.isPending}
+                          >
+                            {deleteMutation.isPending ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-destructive" />
+                            ) : (
+                              <Check className="h-3.5 w-3.5 text-destructive" />
+                            )}
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); setDeleteConfirm(null); }}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteConfirm(null);
+                            }}
+                          >
                             <X className="h-3.5 w-3.5" />
                           </Button>
                         </>
                       ) : (
                         <>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); setEditingTag(tag.name); setEditName(tag.name); }} title="重命名">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingTag(tag.name);
+                              setEditName(tag.name);
+                            }}
+                            title="重命名"
+                          >
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); setDeleteConfirm(tag.name); }} title="删除标签">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteConfirm(tag.name);
+                            }}
+                            title="删除标签"
+                          >
                             <Trash2 className="h-3.5 w-3.5 text-destructive" />
                           </Button>
                         </>
@@ -346,7 +419,15 @@ export default function Tags() {
           <div className="space-y-4">
             {/* 工具栏 */}
             <div className="flex items-center gap-2 flex-wrap">
-              <Button variant="ghost" size="sm" onClick={() => { setSelectedTag(null); setSelectedFileIds(new Set()); }} className="text-muted-foreground">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSelectedTag(null);
+                  setSelectedFileIds(new Set());
+                }}
+                className="text-muted-foreground"
+              >
                 <ArrowLeft className="h-4 w-4 mr-1" />
                 返回
               </Button>
@@ -357,16 +438,28 @@ export default function Tags() {
 
             {/* 批量操作栏 — 始终可见，无选中时禁用 */}
             {tagFiles.length > 0 && !filesLoading && (
-              <div className={cn(
-                'flex items-center gap-3 p-3 rounded-lg border transition-colors',
-                hasSelection ? 'bg-primary/5 border-primary/20' : 'bg-muted/30 border-transparent'
-              )}>
-                <button onClick={toggleSelectAll} className="flex items-center justify-center touch-target-sm" title={allSelected ? '取消全选' : '全选'}>
-                  {allSelected ? <CheckSquare className="h-4 w-4 text-primary" /> : <Square className="h-4 w-4 text-muted-foreground" />}
+              <div
+                className={cn(
+                  'flex items-center gap-3 p-3 rounded-lg border transition-colors',
+                  hasSelection ? 'bg-primary/5 border-primary/20' : 'bg-muted/30 border-transparent'
+                )}
+              >
+                <button
+                  onClick={toggleSelectAll}
+                  className="flex items-center justify-center touch-target-sm"
+                  title={allSelected ? '取消全选' : '全选'}
+                >
+                  {allSelected ? (
+                    <CheckSquare className="h-4 w-4 text-primary" />
+                  ) : (
+                    <Square className="h-4 w-4 text-muted-foreground" />
+                  )}
                 </button>
                 {hasSelection ? (
                   <>
-                    <span className="text-sm font-medium">已选 <span className="text-primary">{selectedFileIds.size}</span> / {tagFiles.length} 项</span>
+                    <span className="text-sm font-medium">
+                      已选 <span className="text-primary">{selectedFileIds.size}</span> / {tagFiles.length} 项
+                    </span>
                     <div className="h-4 w-px bg-border" />
                     <Button
                       variant="outline"
@@ -383,7 +476,11 @@ export default function Tags() {
                       onClick={() => batchDeleteMutation.mutate(Array.from(selectedFileIds))}
                       disabled={batchDeleteMutation.isPending}
                     >
-                      {batchDeleteMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Trash2 className="h-3.5 w-3.5 mr-1" />}
+                      {batchDeleteMutation.isPending ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                      ) : (
+                        <Trash2 className="h-3.5 w-3.5 mr-1" />
+                      )}
                       删除
                     </Button>
                     <Button variant="ghost" size="sm" onClick={() => setSelectedFileIds(new Set())}>
@@ -420,11 +517,24 @@ export default function Tags() {
                         checked && 'bg-primary/5 border-primary/20'
                       )}
                     >
-                      <button onClick={(e) => { e.stopPropagation(); toggleSelect(file.id); }} className="flex-shrink-0 touch-target-sm">
-                        {checked ? <CheckSquare className="h-4 w-4 text-primary" /> : <Square className="h-4 w-4 text-muted-foreground" />}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleSelect(file.id);
+                        }}
+                        className="flex-shrink-0 touch-target-sm"
+                      >
+                        {checked ? (
+                          <CheckSquare className="h-4 w-4 text-primary" />
+                        ) : (
+                          <Square className="h-4 w-4 text-muted-foreground" />
+                        )}
                       </button>
 
-                      <div className="flex-1 min-w-0 overflow-hidden cursor-pointer" onClick={() => handleFileClick(file)}>
+                      <div
+                        className="flex-1 min-w-0 overflow-hidden cursor-pointer"
+                        onClick={() => handleFileClick(file)}
+                      >
                         <div className="flex items-center gap-3">
                           <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="md" />
                           <div className="min-w-0 flex-1">
@@ -448,20 +558,38 @@ export default function Tags() {
 
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
                         <Button
-                          variant="ghost" size="icon" className="h-7 w-7"
-                          onClick={(e) => { e.stopPropagation(); removeTagFromFileMutation.mutate(file.id); }}
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeTagFromFileMutation.mutate(file.id);
+                          }}
                           disabled={removeTagFromFileMutation.isPending}
                           title={`移除标签「${selectedTag}」`}
                         >
-                          {removeTagFromFileMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+                          {removeTagFromFileMutation.isPending ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <X className="h-3.5 w-3.5" />
+                          )}
                         </Button>
                         <Button
-                          variant="ghost" size="icon" className="h-7 w-7"
-                          onClick={(e) => { e.stopPropagation(); deleteFileMutation.mutate(file.id); }}
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteFileMutation.mutate(file.id);
+                          }}
                           disabled={deleteFileMutation.isPending}
                           title="删除文件"
                         >
-                          {deleteFileMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin text-destructive" /> : <Trash2 className="h-3.5 w-3.5 text-destructive" />}
+                          {deleteFileMutation.isPending ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin text-destructive" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                          )}
                         </Button>
                       </div>
                     </div>

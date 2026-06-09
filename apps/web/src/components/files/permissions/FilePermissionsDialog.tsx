@@ -11,32 +11,12 @@
 
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  permissionsApi,
-  groupsApi,
-  teamsApi,
-  type SearchableUser,
-  type UserGroup,
-  type Team,
-} from '@/services/collab';
+import { permissionsApi, groupsApi, teamsApi, type SearchableUser, type UserGroup, type Team } from '@/services/collab';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/useToast';
 import { cn } from '@/utils';
-import {
-  Shield,
-  X,
-  Trash2,
-  Crown,
-  Eye,
-  Edit,
-  UserPlus,
-  Loader2,
-  User,
-  Users,
-  Building2,
-  Check,
-} from 'lucide-react';
+import { Shield, X, Trash2, Crown, Eye, Edit, UserPlus, Loader2, User, Users, Building2, Check } from 'lucide-react';
 
 interface FilePermissionsDialogProps {
   fileId: string;
@@ -56,9 +36,30 @@ const PERMISSION_LABELS: Record<string, { label: string; icon: typeof Eye; color
 const DEFAULT_PERMISSION = { label: '只读', icon: Eye, color: 'text-blue-500' };
 
 const ROLE_TEMPLATES = [
-  { key: 'viewer' as const, label: '查看者', desc: '可查看和下载', icon: Eye, color: 'text-blue-500', permission: 'read' as const },
-  { key: 'editor' as const, label: '编辑者', desc: '可上传、修改、删除', icon: Edit, color: 'text-amber-500', permission: 'write' as const },
-  { key: 'manager' as const, label: '管理者', desc: '可管理权限并可再授权', icon: Crown, color: 'text-purple-500', permission: 'admin' as const },
+  {
+    key: 'viewer' as const,
+    label: '查看者',
+    desc: '可查看和下载',
+    icon: Eye,
+    color: 'text-blue-500',
+    permission: 'read' as const,
+  },
+  {
+    key: 'editor' as const,
+    label: '编辑者',
+    desc: '可上传、修改、删除',
+    icon: Edit,
+    color: 'text-amber-500',
+    permission: 'write' as const,
+  },
+  {
+    key: 'manager' as const,
+    label: '管理者',
+    desc: '可管理权限并可再授权',
+    icon: Crown,
+    color: 'text-purple-500',
+    permission: 'admin' as const,
+  },
 ];
 
 export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose, fileIds }: FilePermissionsDialogProps) {
@@ -128,7 +129,6 @@ export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose, fil
 
   // ── Mutations ──
   const grantMutation = useMutation({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mutationFn: (data: {
       userId?: string;
       groupId?: string;
@@ -181,7 +181,12 @@ export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose, fil
           subjectType: data.perm.subjectType as 'user' | 'group' | 'team',
         });
       }
-      return permissionsApi.revoke({ fileId, userId: data.perm.userId, groupId: data.perm.groupId, teamId: data.perm.teamId });
+      return permissionsApi.revoke({
+        fileId,
+        userId: data.perm.userId,
+        groupId: data.perm.groupId,
+        teamId: data.perm.teamId,
+      });
     },
     onSuccess: () => {
       toast({ title: '权限已撤销' });
@@ -236,9 +241,7 @@ export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose, fil
     else if (perm.subjectType === 'team' && perm.teamName) parts.push(`通过团队: ${perm.teamName}`);
     else if (perm.subjectType === 'user') parts.push('直接授予');
     return parts.length > 0 ? (
-      <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-        {parts.join(' · ')}
-      </span>
+      <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{parts.join(' · ')}</span>
     ) : null;
   };
 
@@ -262,9 +265,7 @@ export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose, fil
               <h2 className="font-semibold">
                 {isBatchMode ? `批量权限管理 (${effectiveFileIds.length} 个文件)` : '权限管理'}
               </h2>
-              {!isBatchMode && (
-                <p className="text-xs text-muted-foreground truncate max-w-[280px]">{fileName}</p>
-              )}
+              {!isBatchMode && <p className="text-xs text-muted-foreground truncate max-w-[280px]">{fileName}</p>}
             </div>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose}>
@@ -309,7 +310,9 @@ export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose, fil
                                 </p>
                                 {renderSourceLabel(perm)}
                               </div>
-                              <p className="text-xs text-muted-foreground truncate">{perm.userEmail || perm.groupName || ''}</p>
+                              <p className="text-xs text-muted-foreground truncate">
+                                {perm.userEmail || perm.groupName || ''}
+                              </p>
                             </div>
                             <div className={cn('flex items-center gap-1 text-xs', permInfo.color)}>
                               <PermIcon className="h-3.5 w-3.5" />
@@ -360,11 +363,20 @@ export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose, fil
                         )}
                       >
                         {tab === 'user' ? (
-                          <span className="flex items-center justify-center gap-1.5"><User className="h-3.5 w-3.5" />用户</span>
+                          <span className="flex items-center justify-center gap-1.5">
+                            <User className="h-3.5 w-3.5" />
+                            用户
+                          </span>
                         ) : tab === 'group' ? (
-                          <span className="flex items-center justify-center gap-1.5"><Users className="h-3.5 w-3.5" />用户组</span>
+                          <span className="flex items-center justify-center gap-1.5">
+                            <Users className="h-3.5 w-3.5" />
+                            用户组
+                          </span>
                         ) : (
-                          <span className="flex items-center justify-center gap-1.5"><Building2 className="h-3.5 w-3.5" />团队角色</span>
+                          <span className="flex items-center justify-center gap-1.5">
+                            <Building2 className="h-3.5 w-3.5" />
+                            团队角色
+                          </span>
                         )}
                       </button>
                     ))}
@@ -398,9 +410,7 @@ export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose, fil
                               }}
                               className={cn(
                                 'w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-left transition-colors',
-                                selectedUserId === user.id
-                                  ? 'bg-primary text-primary-foreground'
-                                  : 'hover:bg-muted'
+                                selectedUserId === user.id ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'
                               )}
                             >
                               <User className="h-3.5 w-3.5" />
@@ -463,9 +473,7 @@ export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose, fil
                                 : 'border-transparent bg-muted/50 hover:border-muted-foreground/20 hover:bg-muted'
                             )}
                           >
-                            {isSelected && (
-                              <Check className="absolute top-1.5 right-1.5 h-3.5 w-3.5 text-primary" />
-                            )}
+                            {isSelected && <Check className="absolute top-1.5 right-1.5 h-3.5 w-3.5 text-primary" />}
                             <Icon className={cn('h-5 w-5', template.color)} />
                             <span className="text-sm font-medium">{template.label}</span>
                             <span className="text-[11px] text-muted-foreground text-center leading-tight">

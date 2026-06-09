@@ -59,8 +59,7 @@ export function FileTagsManager({ fileId, onTagClick }: FileTagsManagerProps) {
 
   // ── 添加已有标签到文件 ──
   const addTagMutation = useMutation({
-    mutationFn: (data: { name: string; color?: string }) =>
-      permissionsApi.addTag({ fileId, ...data }),
+    mutationFn: (data: { name: string; color?: string }) => permissionsApi.addTag({ fileId, ...data }),
     onSuccess: () => {
       toast({ title: '标签已添加' });
       queryClient.invalidateQueries({ queryKey: ['file-tags', fileId] });
@@ -73,8 +72,7 @@ export function FileTagsManager({ fileId, onTagClick }: FileTagsManagerProps) {
 
   // ── 新建标签并添加到文件 ──
   const createAndAddMutation = useMutation({
-    mutationFn: (data: { name: string; color: string }) =>
-      permissionsApi.createTag(data),
+    mutationFn: (data: { name: string; color: string }) => permissionsApi.createTag(data),
     onSuccess: (res) => {
       const tag = res.data.data;
       if (!tag) return;
@@ -150,13 +148,28 @@ export function FileTagsManager({ fileId, onTagClick }: FileTagsManagerProps) {
 
         {/* 展开/收起 按钮 */}
         <button
-          onClick={() => { setShowPicker(!showPicker); if (showPicker) { setTagSearch(''); } }}
+          onClick={() => {
+            setShowPicker(!showPicker);
+            if (showPicker) {
+              setTagSearch('');
+            }
+          }}
           className={cn(
             'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs transition-colors',
-            showPicker ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'text-muted-foreground hover:bg-muted'
+            showPicker
+              ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+              : 'text-muted-foreground hover:bg-muted'
           )}
         >
-          {showPicker ? <><Check className="h-3 w-3" /> 收起</> : <><Plus className="h-3 w-3" /> 标签</>}
+          {showPicker ? (
+            <>
+              <Check className="h-3 w-3" /> 收起
+            </>
+          ) : (
+            <>
+              <Plus className="h-3 w-3" /> 标签
+            </>
+          )}
         </button>
       </div>
 
@@ -169,8 +182,13 @@ export function FileTagsManager({ fileId, onTagClick }: FileTagsManagerProps) {
             <Input
               placeholder="搜索已有标签..."
               value={tagSearch}
-              onChange={(e) => { setTagSearch(e.target.value); setShowCreateForm(false); }}
-              onKeyDown={(e) => { if (e.key === 'Escape') setShowPicker(false); }}
+              onChange={(e) => {
+                setTagSearch(e.target.value);
+                setShowCreateForm(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setShowPicker(false);
+              }}
               className="pl-8 h-8 text-xs"
               autoFocus
             />
@@ -224,7 +242,9 @@ export function FileTagsManager({ fileId, onTagClick }: FileTagsManagerProps) {
                 placeholder="输入标签名称..."
                 value={newTagName}
                 onChange={(e) => setNewTagName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleCreateAndAdd(); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCreateAndAdd();
+                }}
                 className="h-8 text-xs"
                 autoFocus
               />
@@ -259,7 +279,10 @@ export function FileTagsManager({ fileId, onTagClick }: FileTagsManagerProps) {
                   size="sm"
                   variant="ghost"
                   className="h-7 text-xs"
-                  onClick={() => { setShowCreateForm(false); setNewTagName(''); }}
+                  onClick={() => {
+                    setShowCreateForm(false);
+                    setNewTagName('');
+                  }}
                 >
                   取消
                 </Button>

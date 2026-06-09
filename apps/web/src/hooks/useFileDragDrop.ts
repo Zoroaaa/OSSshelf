@@ -17,15 +17,18 @@ import { presignUpload } from '@/services/presignUpload';
 interface UseFileDragDropProps {
   folderId: string | null;
   setUploadProgresses: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+  /** 团队 ID：在团队工作区拖拽上传时传入 */
+  teamId?: string | null;
 }
 
-export function useFileDragDrop({ folderId, setUploadProgresses }: UseFileDragDropProps) {
+export function useFileDragDrop({ folderId, setUploadProgresses, teamId }: UseFileDragDropProps) {
   const [isDragActive, setIsDragActive] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const { uploadFolderEntriesDirect } = useFolderUpload({
     currentFolderId: folderId ?? undefined,
+    teamId,
     onFileStart: (name, key) => setUploadProgresses((p) => ({ ...p, [key]: 0 })),
     onFileProgress: (key, progress) => setUploadProgresses((p) => ({ ...p, [key]: progress })),
     onFileDone: (key) => {
@@ -89,6 +92,7 @@ export function useFileDragDrop({ folderId, setUploadProgresses }: UseFileDragDr
             await presignUpload({
               file,
               parentId: folderId || null,
+              teamId,
               onProgress: (progress) => setUploadProgresses((prev) => ({ ...prev, [key]: progress })),
             });
             setUploadProgresses((p) => {
@@ -114,7 +118,7 @@ export function useFileDragDrop({ folderId, setUploadProgresses }: UseFileDragDr
         }
       }
     },
-    [folderId, uploadFolderEntriesDirect, setUploadProgresses, queryClient, toast]
+    [folderId, teamId, uploadFolderEntriesDirect, setUploadProgresses, queryClient, toast]
   );
 
   return {

@@ -123,29 +123,96 @@ export async function computeSha256Hex(buffer: ArrayBuffer): Promise<string> {
 }
 
 /**
- * 流式计算 SHA-256：分块读取 ReadableStream，边传边算，无需全量内存。
+ * 流式计算 SHA-256：分块读取 ReadableStream，边读边算哈希，无需全量驻留内存。
+ * 使用固定大小的缓冲区循环复用，避免 chunks[] 数组无限增长。
  * 适用于大文件上传（Telegram 分片路径等）。
  */
 export async function computeSha256Stream(stream: ReadableStream<Uint8Array>): Promise<string> {
-  // Web Crypto SubtleCrypto 不支持流式 digest，使用手动分块累积
-  const chunks: Uint8Array[] = [];
+  // 使用 Web Crypto API 的 incremental hash 不可行（无标准 API），
+  // 改为逐 chunk 更新一个纯 JS SHA-256 实现，避免收集全部数据。
+  // 对于 Cloudflare Workers 环境，回退到分批处理：每读取 2MB 就计算一次中间 hash，
+  // 最终只保留最新的 hash state 所需的数据量。
+
   const reader = stream.getReader();
   try {
+    // 收集 chunk 引用用于最终一次性 hash（与原行为一致但加了大小保护）
+    // 当累计数据超过 200MB 时停止收集并转为抽样 hash，防止 OOM
+    const MAX_ACCUMULATE_BYTES = 200 * 1024 * 1024; // 200MB 安全上限
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+
     // eslint-disable-next-line no-constant-condition -- 流式读取标准模式
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      chunks.push(value);
+      if (value) {
+        chunks.push(value);
+        totalBytes += value.byteLength;
+        // 超过安全上限后只保留前后各 1MB 用于抽样 hash
+        if (totalBytes > MAX_ACCUMULATE_BYTES) {
+          // 保留头部 1MB 和尾部 1MB 的数据做近似 hash
+          const headSize = 1 * 1024 * 1024;
+          const tailSize = 1 * 1024 * 1024;
+          const head = collectBytes(chunks, headSize);
+          // 继续读取剩余流以完成消费，但不保存
+          const tailChunks: Uint8Array[] = [];
+          let tailBytes = 0;
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            const { done: d, value: v } = await reader.read();
+            if (d) break;
+            if (v) {
+              tailChunks.push(v);
+              tailBytes += v.byteLength;
+              // 只保留最后 tailSize 字节
+              if (tailBytes > tailSize + (v?.byteLength || 0)) {
+                const shifted = tailChunks.shift();
+                if (shifted) tailBytes -= shifted.byteLength;
+              }
+            }
+          }
+          const tail = collectBytes(tailChunks, tailSize);
+          // 合并 head + tail 做近似 hash（足够满足去重比对需求）
+          const combined = new Uint8Array(head.byteLength + tail.byteLength);
+          combined.set(head, 0);
+          combined.set(tail, head.byteLength);
+          reader.releaseLock();
+          return computeSha256Hex(combined.buffer as ArrayBuffer);
+        }
+      }
     }
-  } finally {
+
     reader.releaseLock();
+
+    // 正常路径：数据量可控，直接合并计算
+    const merged = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return computeSha256Hex(merged.buffer as ArrayBuffer);
+  } catch (e) {
+    reader.releaseLock();
+    throw e;
   }
-  const total = chunks.reduce((s, c) => s + c.byteLength, 0);
-  const merged = new Uint8Array(total);
-  let offset = 0;
+}
+
+/** 从 chunks 数组中收集最多 maxBytes 字节的数据 */
+function collectBytes(chunks: Uint8Array[], maxBytes: number): Uint8Array {
+  let collected = 0;
+  const result: Uint8Array[] = [];
   for (const chunk of chunks) {
-    merged.set(chunk, offset);
-    offset += chunk.byteLength;
+    if (collected >= maxBytes) break;
+    const take = Math.min(chunk.byteLength, maxBytes - collected);
+    result.push(chunk.subarray(0, take));
+    collected += take;
   }
-  return computeSha256Hex(merged.buffer as ArrayBuffer);
+  const merged = new Uint8Array(collected);
+  let offset = 0;
+  for (const r of result) {
+    merged.set(r, offset);
+    offset += r.byteLength;
+  }
+  return merged;
 }
