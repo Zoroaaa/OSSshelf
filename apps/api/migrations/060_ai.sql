@@ -177,13 +177,19 @@ INSERT INTO ai_config (id, key, category, label, description, value_type, number
     ('cfg-agent-image-timeout-ms', 'ai.agent.image_timeout_ms', 'agent', '图片分析超时(ms)', '单张图片分析的超时时间（毫秒）', 'number', 25000, '25000', 1, 20);
 
 -- Agent 最大上下文 Token 数配置 (v4.4.0)
-INSERT INTO ai_config (id, user_id, key, value, description, created_at, updated_at)
-SELECT 
+INSERT INTO ai_config (id, user_id, key, category, label, description, value_type, string_value, default_value, is_editable, sort_order, created_at, updated_at)
+SELECT
   lower(hex(randomblob(16))),
   NULL,
   'ai.agent.max_context_tokens',
-  '100000',
+  'agent',
+  'Agent 最大上下文 Token 数',
   'Agent 最大上下文 Token 数，用于裁剪历史消息',
+  'string',
+  '100000',
+  '100000',
+  1,
+  17,
   strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now'),
   strftime('%Y-%m-%dT%H:%M:%S.000Z', 'now')
 WHERE NOT EXISTS (SELECT 1 FROM ai_config WHERE key = 'ai.agent.max_context_tokens');
