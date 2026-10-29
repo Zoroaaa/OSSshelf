@@ -89,10 +89,10 @@ OSSshelf/
 │   │   │   │   └── ...
 │   │   │   ├── lib/            # 核心库
 │   │   │   │   ├── ai/         # AI 模块 (v4.3.0 重点)
-│   │   │   │   │   ├── agentEngine.ts    # Agent 引擎
-│   │   │   │   │   ├── agentTools/       # 工具集 (95个工具)
+│   │   │   │   │   ├── agentTools/       # 工具集
+│   │   │   │   │   ├── toolAdapter.ts    # 工具 → AI SDK tools (v5.2.0)
+│   │   │   │   │   ├── modelResolver.ts  # AI SDK 模型解析 (v5.2.0)
 │   │   │   │   │   ├── modelGateway.ts   # 模型网关
-│   │   │   │   │   ├── ragEngine.ts      # RAG 引擎
 │   │   │   │   │   └── ...
 │   │   │   │   ├── db/         # 数据库操作
 │   │   │   │   │   ├── index.ts

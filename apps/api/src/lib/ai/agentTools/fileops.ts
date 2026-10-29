@@ -1165,7 +1165,7 @@ services:
           _next_actions: [
             `✅ 批量重命名任务已入队（taskId: ${batchResult.taskId}）`,
             '可通过 GET /api/ai/index/task 查看进度',
-            '完成后结果会通过 SSE 推送',
+            '完成后结果会在对话流中返回',
           ],
         };
       } catch (queueError) {
