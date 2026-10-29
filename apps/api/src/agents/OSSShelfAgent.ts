@@ -13,7 +13,7 @@
 import { AIChatAgent, type ChatResponseResult, type OnChatMessageOptions } from '@cloudflare/ai-chat';
 import { convertToModelMessages, pruneMessages, stepCountIs, streamText } from 'ai';
 import type { UIMessage } from 'ai';
-import { eq, sql } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import type { Connection, ConnectionContext } from 'agents';
 import type { Env } from '../types/env';
 import { getVerifiedIdentity } from './auth';
@@ -67,6 +67,48 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
     }
 
     await super.onConnect(connection, ctx);
+
+    // 旧会话消息只存在于 D1 审计表，DO 首次唤醒时补种一次，避免历史会话打开为空。
+    // 必须在 super.onConnect 之后执行，persistMessages 的广播才能到达当前连接。
+    if (this.messages.length === 0) {
+      await this.seedFromAudit(sessionId);
+    }
+  }
+
+  private async seedFromAudit(sessionId: string): Promise<void> {
+    try {
+      const db = getDb(this.env.DB);
+      const rows = await db
+        .select()
+        .from(aiChatMessages)
+        .where(eq(aiChatMessages.sessionId, sessionId))
+        .orderBy(desc(aiChatMessages.createdAt))
+        .limit(this.maxPersistedMessages)
+        .all();
+      rows.reverse();
+
+      const history: UIMessage[] = rows
+        .filter((row) => row.role === 'user' || row.content.trim().length > 0)
+        .map((row) => {
+          const parts: UIMessage['parts'] = [];
+          if (row.reasoning) parts.push({ type: 'reasoning', text: row.reasoning });
+          parts.push({ type: 'text', text: row.content });
+          return {
+            id: row.id,
+            role: row.role === 'user' ? ('user' as const) : ('assistant' as const),
+            parts,
+          };
+        });
+
+      if (history.length === 0) return;
+
+      // persistMessages 以当前 this.messages 作为 prior 做增量，必须先写库再赋值，
+      // 否则会被判定为“无变化”而跳过 SQLite 持久化
+      await this.persistMessages(history);
+      this.messages = history;
+    } catch (error) {
+      logger.error('Agent', 'Failed to seed history from D1', { sessionId }, error);
+    }
   }
 
   async onChatMessage(onFinish: Parameters<AIChatAgent['onChatMessage']>[0], options?: OnChatMessageOptions) {
@@ -132,7 +174,11 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
         stopWhen: stepCountIs(maxSteps),
         abortSignal: options?.abortSignal,
         onFinish: async (event) => {
-          await onFinish(event);
+          try {
+            await onFinish(event);
+          } catch (error) {
+            logger.error('Agent', 'onFinish persistence failed', { userId, sessionId }, error);
+          }
 
           const usage = event.totalUsage ?? event.usage;
           const toolCallCount = event.toolCalls?.length ?? 0;

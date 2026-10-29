@@ -11,7 +11,7 @@ import { Hono } from 'hono';
 import { and, count, desc, eq, sql } from 'drizzle-orm';
 import { authMiddleware } from '../middleware';
 import { aiRateLimit } from '../middleware/aiRateLimit';
-import { getDb, aiChatSessions, aiChatMessages, aiMemories } from '../db';
+import { getDb, aiChatSessions, aiChatMessages, aiMemories, aiUsageEvents } from '../db';
 import { AgentMemory } from '../lib/ai/agentMemory';
 import { ModelGateway } from '../lib/ai/modelGateway';
 import { buildAgentInstanceName, issueWsTicket, WS_TICKET_TTL_MS } from '../agents/auth';
@@ -87,12 +87,47 @@ app.get('/sessions', async (c) => {
 
     const countMap = new Map(msgCounts.map((row) => [row.sessionId, row.cnt]));
 
+    // token / 工具调用以 ai_usage_events 为准（Agent 写入），回退到会话行累计值
+    let usageRows: Array<{ sessionId: string | null; tokens: number; toolCalls: number }> = [];
+    if (sessions.length > 0) {
+      try {
+        usageRows = await db
+          .select({
+            sessionId: aiUsageEvents.sessionId,
+            tokens: sql<number>`coalesce(sum(${aiUsageEvents.inputTokens} + ${aiUsageEvents.outputTokens}), 0)`,
+            toolCalls: sql<number>`coalesce(sum(${aiUsageEvents.toolCalls}), 0)`,
+          })
+          .from(aiUsageEvents)
+          .where(
+            and(
+              eq(aiUsageEvents.userId, userId),
+              sql`${aiUsageEvents.sessionId} IN (${sql.join(
+                sessions.map((s) => sql`${s.id}`),
+                sql`, `
+              )})`
+            )
+          )
+          .groupBy(aiUsageEvents.sessionId)
+          .all();
+      } catch (error) {
+        // 用量表异常不影响会话列表
+        logger.error('AI Chat', 'Failed to aggregate session usage', { userId }, error);
+      }
+    }
+
+    const usageMap = new Map(usageRows.map((row) => [row.sessionId, row]));
+
     return c.json({
       success: true,
-      data: sessions.map((session) => ({
-        ...session,
-        messageCount: countMap.get(session.id) ?? 0,
-      })),
+      data: sessions.map((session) => {
+        const usage = usageMap.get(session.id);
+        return {
+          ...session,
+          messageCount: countMap.get(session.id) ?? 0,
+          totalTokensUsed: Math.max(usage?.tokens ?? 0, session.totalTokensUsed ?? 0),
+          lastToolCallCount: Math.max(usage?.toolCalls ?? 0, session.lastToolCallCount ?? 0),
+        };
+      }),
     });
   } catch (error) {
     logger.error('AI Chat', 'Failed to get sessions', { userId }, error);
