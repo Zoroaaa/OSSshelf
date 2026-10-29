@@ -53,6 +53,7 @@ import {
   FilePlus,
 } from 'lucide-react';
 import type { ToolCallEvent, AgentFile, PreviewDiff } from '../types';
+import { getToolLabel } from '@osshelf/shared';
 import { DiffPreview } from './DiffPreview';
 import { DraftPreview } from './DraftPreview';
 
@@ -347,7 +348,7 @@ export function ToolCallCard({
   const [expanded, setExpanded] = useState(false);
 
   const meta = toolMeta[tc.toolName] || {
-    label: tc.toolName.replace(/_/g, ' '),
+    label: getToolLabel(tc.toolName),
     icon: TOOL_ICONS[tc.toolName] || <Sparkles className="h-3 w-3" />,
   };
 

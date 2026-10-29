@@ -1,26 +1,19 @@
 /**
  * agentMemory.ts — Agent 跨会话记忆管理
  *
- * 功能:
- * - 对话结束时自动提取结构化记忆（操作/偏好/路径/文件引用）
- * - 对话开始时召回相关历史记忆注入上下文
- * - 记忆的增删查管理接口
- *
- * 架构设计:
- * - 双存储：D1（结构化查询）+ Vectorize（语义检索）
- * - 命名空间隔离：memory:{userId} 区别于 file:{userId}
- * - 召回策略：时间优先 + 向量语义匹配兜底
- *
- * 使用场景:
- * - 用户说"上次你帮我整理的那个文件夹" → Agent 能找回上下文
- * - 用户偏好、常用路径、重要文件被记住，减少重复提问
+ * 修复:
+ * - listMemories 的 total 改为真实 COUNT(*)
+ * - 写入记忆时生成 embedding 并落 Vectorize（此前 embeddingId 永远为空）
+ * - 召回改为 Vectorize filter（此前传了不存在的 namespace 参数，异常被吞）
+ * - 向量不可用时回退到最近记忆
  */
 
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { getDb, aiMemories } from '../../db';
-import { eq, and, desc } from 'drizzle-orm';
 import { logger } from '@osshelf/shared';
 import { ModelGateway } from './modelGateway';
 import type { Env } from '../../types/env';
+import { resolveEmbeddingProvider } from './modelResolver';
 
 export interface MemoryFact {
   type: 'operation' | 'preference' | 'path' | 'file_ref';
@@ -29,9 +22,8 @@ export interface MemoryFact {
   createdAt: string;
 }
 
-const MEMORY_NAMESPACE_PREFIX = 'memory:';
 const MEMORY_RECALL_TOP_K = 3;
-const EMBEDDING_MODEL = '@cf/baai/bge-m3';
+const MEMORY_VECTOR_PREFIX = 'mem_';
 
 const MEMORY_EXTRACTION_PROMPT = `你是一个对话记忆提取专家。从以下 AI 对话中提取 3-5 条有价值的结构化记忆事实。
 
@@ -63,10 +55,6 @@ export class AgentMemory {
   constructor(gateway: ModelGateway, env: Env) {
     this.gateway = gateway;
     this.env = env;
-  }
-
-  getMemoryNamespace(userId: string): string {
-    return `${MEMORY_NAMESPACE_PREFIX}${userId}`;
   }
 
   async extractAndSaveMemories(
@@ -102,12 +90,15 @@ export class AgentMemory {
       const db = getDb(this.env.DB);
       for (const fact of validFacts.slice(0, 5)) {
         const memoryId = crypto.randomUUID();
+        const embeddingId = await this.storeMemoryVector(userId, memoryId, fact.summary);
+
         await db.insert(aiMemories).values({
           id: memoryId,
           userId,
           sessionId,
           type: fact.type as MemoryFact['type'],
           summary: fact.summary,
+          embeddingId,
           createdAt: new Date().toISOString(),
         });
       }
@@ -118,15 +109,7 @@ export class AgentMemory {
     }
   }
 
-  async recallMemories(
-    userId: string,
-    query: string,
-    _vectorizeQuery?: (
-      namespace: string,
-      values: number[],
-      metadata?: Record<string, string | number | boolean>
-    ) => Promise<string | null>
-  ): Promise<string> {
+  async recallMemories(userId: string, query: string): Promise<string> {
     try {
       const db = getDb(this.env.DB);
       const recentMemories = await db
@@ -140,27 +123,12 @@ export class AgentMemory {
 
       let relevantMemories = recentMemories.slice(0, MEMORY_RECALL_TOP_K);
 
-      if (_vectorizeQuery && recentMemories.length > 0) {
-        try {
-          const queryEmbedding = await this.generateEmbedding(query);
-          if (queryEmbedding) {
-            const namespace = this.getMemoryNamespace(userId);
-            const vectorId = await _vectorizeQuery(namespace, queryEmbedding, {});
-            if (vectorId) {
-              const matched = recentMemories.filter((m: typeof aiMemories.$inferSelect) => m.embeddingId === vectorId);
-              if (matched.length > 0) {
-                relevantMemories = matched.slice(0, MEMORY_RECALL_TOP_K);
-              }
-            }
-          }
-        } catch (embeddingError) {
-          logger.warn('AgentMemory', 'Embedding recall failed, using time-based fallback', {}, embeddingError);
-        }
+      const matched = await this.recallByVector(userId, query, recentMemories);
+      if (matched.length > 0) {
+        relevantMemories = matched.slice(0, MEMORY_RECALL_TOP_K);
       }
 
-      if (relevantMemories.length === 0) return '';
-
-      const memoryLines = relevantMemories.map((m: typeof aiMemories.$inferSelect) => `- ${m.summary}`).join('\n');
+      const memoryLines = relevantMemories.map((m) => `- ${m.summary}`).join('\n');
       return `\n\n[历史记忆]\n${memoryLines}`;
     } catch (error) {
       logger.error('AgentMemory', 'recallMemories failed', { userId }, error);
@@ -176,23 +144,41 @@ export class AgentMemory {
     const offset = options?.offset ?? 0;
 
     const db = getDb(this.env.DB);
-    let baseQuery = db.select().from(aiMemories).where(eq(aiMemories.userId, userId)) as any;
-    if (options?.type) {
-      baseQuery = baseQuery.where(and(eq(aiMemories.userId, userId), eq(aiMemories.type, options.type))) as any;
-    }
+    const where = options?.type
+      ? and(eq(aiMemories.userId, userId), eq(aiMemories.type, options.type))
+      : eq(aiMemories.userId, userId);
 
-    const items = await baseQuery.orderBy(desc(aiMemories.createdAt)).limit(limit).offset(offset);
+    const items = await db
+      .select()
+      .from(aiMemories)
+      .where(where)
+      .orderBy(desc(aiMemories.createdAt))
+      .limit(limit)
+      .offset(offset)
+      .all();
 
-    const countResult = await db.select({ count: aiMemories.id }).from(aiMemories).where(eq(aiMemories.userId, userId));
-    const total = countResult.length;
+    const countRow = await db
+      .select({ total: sql<number>`count(*)` })
+      .from(aiMemories)
+      .where(where)
+      .get();
 
-    return { items, total };
+    return { items, total: countRow?.total ?? 0 };
   }
 
   async deleteMemory(memoryId: string, userId: string): Promise<boolean> {
     try {
       const db = getDb(this.env.DB);
       await db.delete(aiMemories).where(and(eq(aiMemories.id, memoryId), eq(aiMemories.userId, userId)));
+
+      if (this.env.VECTORIZE) {
+        try {
+          await this.env.VECTORIZE.deleteByIds([`${MEMORY_VECTOR_PREFIX}${memoryId}`]);
+        } catch {
+          // 向量不存在时忽略
+        }
+      }
+
       return true;
     } catch (error) {
       logger.error('AgentMemory', 'deleteMemory failed', { memoryId }, error);
@@ -200,15 +186,65 @@ export class AgentMemory {
     }
   }
 
-  private async generateEmbedding(text: string): Promise<number[] | null> {
+  private async storeMemoryVector(userId: string, memoryId: string, summary: string): Promise<string | null> {
+    if (!this.env.VECTORIZE || !this.env.AI) return null;
+
     try {
-      const result = await (this.env.AI as any).run(EMBEDDING_MODEL, { text });
-      const data = result?.data;
-      if (!data || data.length === 0) return null;
-      return data[0] as number[];
+      const provider = await resolveEmbeddingProvider(this.env);
+      const [values] = await provider.embed([summary]);
+      if (!values) return null;
+
+      const embeddingId = `${MEMORY_VECTOR_PREFIX}${memoryId}`;
+      await this.env.VECTORIZE.upsert([
+        {
+          id: embeddingId,
+          values,
+          metadata: { userId, kind: 'memory', embeddingModel: provider.modelKey },
+        },
+      ]);
+
+      return embeddingId;
     } catch (error) {
-      logger.warn('AgentMemory', 'generateEmbedding failed', {}, error);
+      logger.warn('AgentMemory', 'storeMemoryVector failed', { memoryId }, error);
       return null;
+    }
+  }
+
+  private async recallByVector(
+    userId: string,
+    query: string,
+    recentMemories: Array<typeof aiMemories.$inferSelect>
+  ): Promise<Array<typeof aiMemories.$inferSelect>> {
+    if (!this.env.VECTORIZE || !this.env.AI) return [];
+
+    try {
+      const provider = await resolveEmbeddingProvider(this.env);
+      const [values] = await provider.embed([query]);
+      if (!values) return [];
+
+      const results = await this.env.VECTORIZE.query(values, {
+        topK: MEMORY_RECALL_TOP_K * 2,
+        filter: { userId, kind: 'memory' },
+        returnMetadata: false,
+      });
+
+      const ids = results.matches
+        .map((match) => match.id.replace(new RegExp(`^${MEMORY_VECTOR_PREFIX}`), ''))
+        .filter(Boolean);
+      if (ids.length === 0) return [];
+
+      const rows = await getDb(this.env.DB)
+        .select()
+        .from(aiMemories)
+        .where(and(eq(aiMemories.userId, userId), inArray(aiMemories.id, ids)))
+        .all();
+
+      return ids.map((id) => rows.find((row) => row.id === id)).filter(Boolean) as Array<
+        typeof aiMemories.$inferSelect
+      >;
+    } catch (error) {
+      logger.warn('AgentMemory', 'Vector recall failed, using recent fallback', {}, error);
+      return recentMemories.slice(0, MEMORY_RECALL_TOP_K);
     }
   }
 }

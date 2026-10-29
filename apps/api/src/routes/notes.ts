@@ -1,4 +1,4 @@
-/**
+﻿/**
  * notes.ts — 文件笔记路由（薄包装层）
  *
  * 所有业务逻辑委托 noteService，本文件仅处理：
@@ -106,7 +106,7 @@ app.post('/:fileId', async (c) => {
   const parsed = createNoteSchema.safeParse(body);
   if (!parsed.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: parsed.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: parsed.error.issues[0].message } },
       400
     );
   }
@@ -206,7 +206,7 @@ app.put('/:fileId/:noteId', async (c) => {
   const parsed = updateNoteSchema.safeParse(body);
   if (!parsed.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: parsed.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: parsed.error.issues[0].message } },
       400
     );
   }

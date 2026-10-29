@@ -1,4 +1,4 @@
-/**
+﻿/**
  * auth.ts
  * 用户认证路由
  *
@@ -183,7 +183,7 @@ app.post('/register', async (c) => {
   const result = registerSchema.safeParse(body);
 
   if (!result.success) {
-    throwAppError('VALIDATION_ERROR', result.error.errors[0].message);
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { email, password, name, inviteCode } = result.data;
@@ -316,7 +316,7 @@ app.post('/login', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }
@@ -461,7 +461,7 @@ app.patch('/me', authMiddleware, async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }
@@ -539,7 +539,7 @@ app.delete('/me', authMiddleware, async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }

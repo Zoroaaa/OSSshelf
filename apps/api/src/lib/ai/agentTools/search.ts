@@ -16,7 +16,7 @@
 import { eq, and, isNull, isNotNull, desc, asc, like, or, inArray, count, gte, lte, sql } from 'drizzle-orm';
 import type { InferSelectModel } from 'drizzle-orm';
 import { getDb, files, fileTags, shares } from '../../../db';
-import { searchAndFetchFiles } from '../vectorIndex';
+import { searchAndFetchFiles, searchChunkContent } from '../vectorIndex';
 import type { Env } from '../../../types/env';
 import { logger } from '@osshelf/shared';
 import type { ToolDefinition, AgentFile } from './types';
@@ -270,6 +270,33 @@ export const definitions: ToolDefinition[] = [
       ],
     },
   },
+
+  // 8. search_content — 正文分块检索
+  {
+    type: 'function',
+    function: {
+      name: 'search_content',
+      description: `【正文检索】在文件正文中做分块语义检索，返回命中的原文片段与文件名。
+适用场景：
+• "这个合同里写的交货日期是什么" → 需要正文而非文件名
+• "哪份报告提到了预算超支" → 需要在内容里找
+• "对比两份方案里关于工期的描述"
+
+⚠️ 返回的是片段（snippet），需要完整内容时再用 read_file_text`,
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: '要检索的语义问题或关键词' },
+          limit: { type: 'number', description: '返回片段数量（默认5，最大10）' },
+        },
+        required: ['query'],
+      },
+      examples: [
+        { user_query: '合同里的交货日期是什么', tool_call: { query: '交货日期 交付时间' } },
+        { user_query: '哪份报告提到预算超支', tool_call: { query: '预算超支' } },
+      ],
+    },
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -277,6 +304,39 @@ export const definitions: ToolDefinition[] = [
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class SearchTools {
+  static async executeSearchContent(env: Env, userId: string, args: Record<string, unknown>) {
+    const query = args.query as string;
+    const limit = Math.min(Math.max((args.limit as number) || 5, 1), 10);
+
+    if (!query || query.trim().length === 0) {
+      return { error: '缺少检索内容 query' };
+    }
+
+    const chunks = await searchChunkContent(env, query, userId, { limit });
+
+    if (chunks.length === 0) {
+      return {
+        chunks: [],
+        total: 0,
+        message: '未在文件正文中检索到相关片段，可尝试 search_files 或 read_file_text',
+        _next_actions: ['使用 search_files 按文件名/摘要检索', '先对目标文件执行向量索引'],
+      };
+    }
+
+    return {
+      chunks: chunks.map((chunk) => ({
+        fileId: chunk.fileId,
+        name: chunk.name,
+        mimeType: chunk.mimeType,
+        chunkIndex: chunk.chunkIndex,
+        snippet: chunk.snippet,
+        score: Number(chunk.score.toFixed(4)),
+      })),
+      total: chunks.length,
+      _next_actions: ['需要上下文时调用 read_file_text(fileId)', '回答中引用 [FILE:id:name]'],
+    };
+  }
+
   static async executeSearchFiles(env: Env, userId: string, args: Record<string, unknown>) {
     const query = args.query as string;
     const limit = Math.min((args.limit as number) || 10, 30);

@@ -1,6 +1,6 @@
 name = "ossshelf-api"
 main = "src/index.ts"
-compatibility_date = "2024-01-01"
+compatibility_date = "2026-05-01"
 compatibility_flags = ["nodejs_compat"]
 
 [ai]
@@ -9,6 +9,16 @@ binding = "AI"
 [[vectorize]]
 binding = "VECTORIZE"
 index_name = "ossshelf-files"
+
+# ── Agent Durable Object ─────────────────────────────────────────────────
+# 每个会话一个 DO，承载消息持久化与可恢复流式推理
+[[durable_objects.bindings]]
+name = "OSSShelfAgent"
+class_name = "OSSShelfAgent"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["OSSShelfAgent"]
 
 [[d1_databases]]
 binding = "DB"
@@ -46,6 +56,7 @@ max_batch_size = 1
 max_batch_timeout = 5
 max_retries = 3
 retry_delay = 60
+max_concurrency = 10
 
 [vars]
 ENVIRONMENT = "development"

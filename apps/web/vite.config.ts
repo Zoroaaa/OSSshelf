@@ -20,6 +20,11 @@ export default defineConfig({
         target: 'http://localhost:8787',
         changeOrigin: true,
       },
+      '/agents': {
+        target: 'ws://localhost:8787',
+        ws: true,
+        changeOrigin: true,
+      },
     },
   },
   build: {

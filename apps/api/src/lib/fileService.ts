@@ -26,6 +26,7 @@ import { createVersionSnapshot, shouldCreateVersion } from './versionManager';
 import { dispatchWebhook } from './webhook';
 import { readFileContent, writeFileContent } from './fileContentHelper';
 import { deleteFileVector } from './ai/vectorIndex';
+import { deleteFileFts, syncFileFts } from './ai/retrieval/fts';
 
 export interface CreateTextFileInput {
   name: string;
@@ -374,6 +375,8 @@ export async function renameFile(
     })
     .where(eq(files.id, fileId));
 
+  await syncFileFts(env, fileId);
+
   logger.info('FileService', '文件重命名成功', { fileId, oldName: file.name, newName: name });
   return { success: true, message: '重命名成功' };
 }
@@ -398,6 +401,7 @@ async function softDeleteFolder(db: ReturnType<typeof getDb>, folderId: string, 
     }
     await db.update(files).set({ deletedAt, updatedAt: deletedAt }).where(eq(files.id, child.id));
     await deleteFileVector(env, child.id);
+    await deleteFileFts(env, child.id);
   }
 }
 
@@ -432,6 +436,7 @@ export async function softDeleteFile(
   }
 
   await deleteFileVector(env, fileId);
+  await deleteFileFts(env, fileId);
 
   logger.info('FileService', '文件软删除成功', { fileId, fileName: file.name, isFolder: file.isFolder });
 

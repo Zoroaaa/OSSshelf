@@ -103,6 +103,12 @@ export interface ChatCompletionRequest {
   featureType?: AiFeatureType;
 }
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens?: number;
+}
+
 export interface ChatCompletionResponse {
   id: string;
   content: string;
@@ -110,6 +116,7 @@ export interface ChatCompletionResponse {
   model: string;
   finishReason?: 'stop' | 'length' | 'content_filter' | 'tool_calls';
   reasoningContent?: string;
+  usage?: TokenUsage;
   toolCalls?: Array<{
     id: string;
     name: string;
@@ -124,6 +131,7 @@ export interface StreamChunk {
   model: string;
   done: boolean;
   reasoningContent?: string;
+  usage?: TokenUsage;
   toolCalls?: Array<{
     id: string;
     name?: string;

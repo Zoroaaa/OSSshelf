@@ -1,4 +1,4 @@
-/**
+﻿/**
  * aiChatRoutes.ts
  * AI 会话管理路由（增强版）
  *
@@ -13,15 +13,92 @@ import { Hono } from 'hono';
 import { eq, and, desc, sql, count, inArray, isNull } from 'drizzle-orm';
 import { getDb, aiChatSessions, aiChatMessages, aiConfirmRequests, aiMemories, files } from '../db';
 import { authMiddleware } from '../middleware';
+import { aiRateLimit } from '../middleware/aiRateLimit';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { ModelGateway, RagEngine } from '../lib/ai';
 import { AgentEngine, type AgentChunk } from '../lib/ai/agentEngine';
 import { AgentMemory } from '../lib/ai/agentMemory';
+import { buildAgentInstanceName, issueWsTicket } from '../agents/auth';
+import { recordUsage } from '../lib/ai/usage';
+import { getAiConfigString } from '../lib/ai/aiConfigService';
+import { estimateTokens } from '../lib/ai/utils';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
+app.use('/chat', aiRateLimit());
+app.use('/ws-ticket', aiRateLimit());
+
+function inferProvider(modelId: string): string {
+  if (modelId.startsWith('@cf/')) return 'workers_ai';
+  if (modelId.startsWith('claude')) return 'anthropic';
+  return 'openai_compatible';
+}
+
+async function resolveAgentRuntime(env: Env, userId: string): Promise<{ mode: string; allowed: boolean }> {
+  const [runtimeMode, allowlist] = await Promise.all([
+    getAiConfigString(env, 'ai.runtime.mode', 'legacy'),
+    getAiConfigString(env, 'ai.runtime.agent_user_allowlist', ''),
+  ]);
+
+  const allowedUsers = allowlist
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return {
+    mode: runtimeMode,
+    allowed: runtimeMode === 'agent' && (allowedUsers.length === 0 || allowedUsers.includes(userId)),
+  };
+}
+
+app.get('/runtime', async (c) => {
+  const userId = c.get('userId')!;
+  const runtime = await resolveAgentRuntime(c.env, userId);
+  return c.json({ success: true, data: { mode: runtime.allowed ? 'agent' : 'legacy' } });
+});
+
+app.post('/ws-ticket', async (c) => {
+  const userId = c.get('userId')!;
+  const body = await c.req.json().catch(() => ({}));
+  const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : '';
+
+  if (!sessionId) {
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少 sessionId' } }, 400);
+  }
+
+  const db = getDb(c.env.DB);
+  const session = await db
+    .select()
+    .from(aiChatSessions)
+    .where(and(eq(aiChatSessions.id, sessionId), eq(aiChatSessions.userId, userId)))
+    .get();
+
+  if (!session) {
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '会话不存在' } }, 404);
+  }
+
+  const runtime = await resolveAgentRuntime(c.env, userId);
+
+  if (!runtime.allowed) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.FEATURE_DISABLED, message: 'Agent 运行时未对当前用户开放' } },
+      403
+    );
+  }
+
+  const ticket = await issueWsTicket(c.env, userId, sessionId);
+  return c.json({
+    success: true,
+    data: {
+      ticket,
+      agent: 'OSSShelfAgent',
+      name: buildAgentInstanceName(userId, sessionId),
+      expiresIn: 60,
+    },
+  });
+});
 
 app.get('/sessions', async (c) => {
   const userId = c.get('userId')!;
@@ -74,13 +151,20 @@ app.get('/sessions', async (c) => {
 app.post('/sessions', async (c) => {
   const userId = c.get('userId')!;
   const body = await c.req.json();
-  const { title = '新对话', modelId } = body as { title?: string; modelId?: string };
+  const { title = '新对话', modelId, id } = body as { title?: string; modelId?: string; id?: string };
 
   try {
     const db = getDb(c.env.DB);
 
+    const sessionId = typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id) ? id : crypto.randomUUID();
+    const existing = await db
+      .select({ id: aiChatSessions.id })
+      .from(aiChatSessions)
+      .where(and(eq(aiChatSessions.id, sessionId), eq(aiChatSessions.userId, userId)))
+      .get();
+
     const newSession = {
-      id: crypto.randomUUID(),
+      id: sessionId,
       userId,
       title,
       modelId: modelId || null,
@@ -88,7 +172,9 @@ app.post('/sessions', async (c) => {
       updatedAt: new Date().toISOString(),
     };
 
-    await db.insert(aiChatSessions).values(newSession);
+    if (!existing) {
+      await db.insert(aiChatSessions).values(newSession);
+    }
 
     return c.json({ success: true, data: newSession });
   } catch (error) {
@@ -280,7 +366,7 @@ app.post('/chat', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }
@@ -401,6 +487,9 @@ async function handleNormalChat(
     );
 
     const latencyMs = Date.now() - startTime;
+    const inputTokens =
+      response.usage?.inputTokens ?? estimateTokens(ragContext.messages.map((m) => m.content).join('\n'));
+    const outputTokens = response.usage?.outputTokens ?? estimateTokens(response.content);
     const sourcesJson = JSON.stringify(
       ragContext.relevantFiles.map((f) => ({
         id: f.id,
@@ -418,8 +507,25 @@ async function handleNormalChat(
       sources: sourcesJson,
       modelUsed: response.model,
       latencyMs,
+      inputTokens,
+      outputTokens,
       createdAt: new Date().toISOString(),
     });
+
+    c.executionCtx.waitUntil(
+      recordUsage(c.env, {
+        userId,
+        sessionId: actualSessionId,
+        feature: 'chat',
+        provider: inferProvider(response.model),
+        modelId: response.model,
+        inputTokens,
+        outputTokens,
+        cachedTokens: response.usage?.cachedTokens ?? 0,
+        latencyMs,
+        status: 'completed',
+      })
+    );
 
     return c.json({
       success: true,
@@ -756,6 +862,19 @@ async function handleStreamChat(
                 updatedAt: new Date().toISOString(),
               })
               .where(eq(aiChatSessions.id, actualSessionId));
+
+            await recordUsage(c.env, {
+              userId,
+              sessionId: actualSessionId,
+              feature: 'chat',
+              provider: inferProvider(agentResult.meta.modelId || ''),
+              modelId: agentResult.meta.modelId || modelId || 'unknown',
+              inputTokens: agentResult.meta.inputTokens,
+              outputTokens: agentResult.meta.outputTokens,
+              latencyMs,
+              toolCalls: agentResult.meta.toolCallCount,
+              status: 'completed',
+            });
           }
 
           const toolCallsStr = collectedToolCalls.map((tc) => `${tc.toolName}: ${JSON.stringify(tc.args)}`).join('\n');

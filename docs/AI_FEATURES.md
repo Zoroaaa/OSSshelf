@@ -1,7 +1,30 @@
 # OSSshelf AI 功能说明文档
 
-**版本**: v5.1.0
-**更新日期**: 2026-06-08
+**版本**: v5.2.0
+**更新日期**: 2026-10-29
+
+---
+
+## v5.2.0 Agent 运行时升级（Cloudflare Agents SDK）
+
+| 变化 | 说明 |
+| --- | --- |
+| **Agent 运行时** | 会话消息改由 `@cloudflare/ai-chat` 的 `AIChatAgent`（Durable Object）承载，支持断线续传、多端同步、审批后同轮继续 |
+| **模型调用层** | 新增 `lib/ai/modelResolver.ts`，统一走 AI SDK provider（Workers AI / OpenAI 兼容 / Anthropic），不再逐请求新建网关 |
+| **真实用量** | 每次调用写入 `ai_usage_events`，新增日配额与分钟限流（`ai.quota.*`、`ai.rate.*`） |
+| **检索** | 分块正文落 `file_chunks`，新增 FTS5 关键词召回、可选 rerank、`search_content` 工具 |
+| **队列** | 移除 KV 并发锁，改由 Queue `max_concurrency`；`ai_task_items` 提供逐文件幂等与真续跑；`agent_batch` 走 fileService |
+| **配置** | 功能级模型配置从 KV 迁入 `ai_feature_config`（首次读取自动迁移） |
+| **前端** | 新增 `useOssShelfChat`（`useAgent` + `useAgentChat`）、`agentMessages` 映射、用量统计 Tab；旧 SSE 链路仍保留作回退 |
+
+### 灰度开关
+
+- `ai.runtime.mode`：`legacy`（默认）| `agent`
+- `ai.runtime.agent_user_allowlist`：逗号分隔的用户 ID，为空时全部用户可用（仅 mode=agent 生效）
+
+### 数据表
+
+`ai_usage_events`、`file_chunks`、`ai_task_items`、`ai_feature_config`、`files_fts`（FTS5）
 
 ---
 

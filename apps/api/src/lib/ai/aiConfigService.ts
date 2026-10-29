@@ -63,11 +63,6 @@ export async function initializeAiConfig(env: Env): Promise<void> {
   const db = getDb(env.DB);
   const existingConfigs = await db.select().from(aiConfig).all();
 
-  if (existingConfigs.length > 0) {
-    logger.info(AI_CONFIG_LOG_MODULE, `已存在 ${existingConfigs.length} 条配置，跳过初始化`);
-    return;
-  }
-
   const defaultConfigs: Array<{
     key: string;
     category: string;
@@ -139,6 +134,16 @@ export async function initializeAiConfig(env: Env): Promise<void> {
       sortOrder: 6,
     },
     {
+      key: 'ai.default_model.embedding',
+      category: 'model',
+      label: '向量嵌入模型',
+      description: '用于文件/记忆向量化的 Workers AI embedding 模型（维度必须与 Vectorize 索引一致）',
+      valueType: 'string',
+      defaultValue: '@cf/baai/bge-m3',
+      isEditable: true,
+      sortOrder: 7,
+    },
+    {
       key: 'ai.model.temperature',
       category: 'parameter',
       label: '温度参数',
@@ -177,6 +182,16 @@ export async function initializeAiConfig(env: Env): Promise<void> {
       defaultValue: '3',
       isEditable: true,
       sortOrder: 16,
+    },
+    {
+      key: 'ai.agent.max_steps',
+      category: 'agent',
+      label: 'Agent 最大推理步数',
+      description: '单轮对话中模型可执行的最大推理/工具步数',
+      valueType: 'number',
+      defaultValue: '20',
+      isEditable: true,
+      sortOrder: 18,
     },
     {
       key: 'ai.agent.image_timeout_ms',
@@ -219,6 +234,16 @@ export async function initializeAiConfig(env: Env): Promise<void> {
       sortOrder: 22,
     },
     {
+      key: 'ai.tool.max_result_bytes',
+      category: 'tool',
+      label: '工具结果最大字节数',
+      description: '单次工具结果注入模型上下文前的截断阈值',
+      valueType: 'number',
+      defaultValue: '16384',
+      isEditable: true,
+      sortOrder: 23,
+    },
+    {
       key: 'ai.rag.max_files',
       category: 'rag',
       label: 'RAG最大文件数',
@@ -237,6 +262,16 @@ export async function initializeAiConfig(env: Env): Promise<void> {
       defaultValue: '8000',
       isEditable: true,
       sortOrder: 28,
+    },
+    {
+      key: 'ai.rag.rerank_enabled',
+      category: 'rag',
+      label: '启用检索重排',
+      description: '混合检索后是否使用 bge-reranker 对候选结果重排',
+      valueType: 'boolean',
+      defaultValue: 'false',
+      isEditable: true,
+      sortOrder: 29,
     },
     {
       key: 'ai.request.max_retries',
@@ -267,6 +302,36 @@ export async function initializeAiConfig(env: Env): Promise<void> {
       defaultValue: '30000',
       isEditable: true,
       sortOrder: 32,
+    },
+    {
+      key: 'ai.quota.daily_tokens',
+      category: 'quota',
+      label: '每日 Token 配额',
+      description: '单用户每日 input+output token 上限（<=0 表示不限制）',
+      valueType: 'number',
+      defaultValue: '200000',
+      isEditable: true,
+      sortOrder: 33,
+    },
+    {
+      key: 'ai.quota.daily_requests',
+      category: 'quota',
+      label: '每日请求配额',
+      description: '单用户每日 AI 请求次数上限（<=0 表示不限制）',
+      valueType: 'number',
+      defaultValue: '200',
+      isEditable: true,
+      sortOrder: 34,
+    },
+    {
+      key: 'ai.rate.requests_per_minute',
+      category: 'quota',
+      label: '每分钟请求上限',
+      description: '单用户每分钟 AI 请求次数上限（<=0 表示不限制）',
+      valueType: 'number',
+      defaultValue: '20',
+      isEditable: true,
+      sortOrder: 35,
     },
     {
       key: 'ai.summary.prompt.default',
@@ -328,9 +393,37 @@ export async function initializeAiConfig(env: Env): Promise<void> {
       isEditable: true,
       sortOrder: 51,
     },
+    {
+      key: 'ai.runtime.mode',
+      category: 'runtime',
+      label: 'Agent 运行时',
+      description: 'legacy = 旧 AgentEngine；agent = Cloudflare Agents SDK（灰度）',
+      valueType: 'string',
+      defaultValue: 'legacy',
+      isEditable: true,
+      sortOrder: 60,
+    },
+    {
+      key: 'ai.runtime.agent_user_allowlist',
+      category: 'runtime',
+      label: 'Agent 灰度用户',
+      description: '启用 agent 运行时的用户ID，逗号分隔；为空时全部用户可用（仅 mode=agent 生效）',
+      valueType: 'string',
+      defaultValue: '',
+      isEditable: true,
+      sortOrder: 61,
+    },
   ];
 
-  for (const config of defaultConfigs) {
+  const existingKeys = new Set(existingConfigs.map((c) => c.key));
+  const missingConfigs = defaultConfigs.filter((config) => !existingKeys.has(config.key));
+
+  if (missingConfigs.length === 0) {
+    logger.info(AI_CONFIG_LOG_MODULE, `已存在 ${existingConfigs.length} 条配置，无缺失项`);
+    return;
+  }
+
+  for (const config of missingConfigs) {
     const now = new Date().toISOString();
     await db.insert(aiConfig).values({
       id: crypto.randomUUID(),
@@ -344,7 +437,7 @@ export async function initializeAiConfig(env: Env): Promise<void> {
     });
   }
 
-  logger.info(AI_CONFIG_LOG_MODULE, `成功初始化 ${defaultConfigs.length} 条默认配置`);
+  logger.info(AI_CONFIG_LOG_MODULE, `成功初始化 ${missingConfigs.length} 条默认配置`);
   clearCache(env);
 }
 

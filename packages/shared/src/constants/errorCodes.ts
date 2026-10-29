@@ -271,6 +271,17 @@ export const ERROR_CODES: Record<string, ErrorInfo> = {
   AI_NOT_SUPPORTED_FOR_FILE: { code: 'I100', httpStatus: 400, message: '此文件类型不支持AI分析' },
   AI_FILE_TOO_LARGE: { code: 'I101', httpStatus: 400, message: '文件过大，无法进行AI分析' },
   AI_QUOTA_EXCEEDED: { code: 'I102', httpStatus: 429, message: 'AI调用次数已达上限' },
+  AI_CONFIG_INVALID: { code: 'I103', httpStatus: 400, message: 'AI 模型配置无效' },
+
+  // AI 运行时 I2xx
+  AI_UNAUTHORIZED: { code: 'I200', httpStatus: 401, message: 'AI 会话身份校验失败' },
+  AI_RATE_LIMIT: { code: 'I201', httpStatus: 429, message: 'AI 请求过于频繁，请稍后重试' },
+  AI_CONTEXT_OVERFLOW: { code: 'I202', httpStatus: 400, message: '对话上下文超出模型限制' },
+
+  // AI 上游 I5xx
+  AI_TIMEOUT: { code: 'I500', httpStatus: 504, message: 'AI 模型响应超时' },
+  AI_UPSTREAM_ERROR: { code: 'I501', httpStatus: 502, message: 'AI 上游服务异常' },
+  AI_TOOL_FAILED: { code: 'I502', httpStatus: 500, message: 'AI 工具执行失败' },
 
   // ═══════════════════════════════════════════════════════════════
   // Telegram 存储模块 TG0xx-TG5xx

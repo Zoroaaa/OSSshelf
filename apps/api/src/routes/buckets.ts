@@ -1,4 +1,4 @@
-/**
+﻿/**
  * buckets.ts
  * 存储桶管理路由
  *
@@ -127,7 +127,7 @@ app.post('/', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message },
+        error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message },
       },
       400
     );
@@ -226,7 +226,7 @@ app.put('/:id', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message },
+        error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message },
       },
       400
     );

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * teams.ts
  * 团队管理路由
  *
@@ -100,7 +100,7 @@ app.post('/', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.errors[0].message },
+        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.issues[0].message },
       },
       400
     );
@@ -173,7 +173,7 @@ app.put('/:id', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.errors[0].message },
+        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.issues[0].message },
       },
       400
     );
@@ -281,7 +281,7 @@ app.post('/:id/members', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.errors[0].message },
+        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.issues[0].message },
       },
       400
     );
@@ -360,7 +360,7 @@ app.put('/:id/members/:memberUserId/role', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.errors[0].message },
+        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.issues[0].message },
       },
       400
     );
@@ -405,7 +405,7 @@ app.post('/:id/resources', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.errors[0].message },
+        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.issues[0].message },
       },
       400
     );
@@ -544,7 +544,7 @@ app.post('/:id/invites', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.errors[0].message },
+        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.issues[0].message },
       },
       400
     );
@@ -733,7 +733,7 @@ app.post('/:id/workspace/folder', async (c) => {
   const result = nameSchema.safeParse(body);
   if (!result.success)
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
 

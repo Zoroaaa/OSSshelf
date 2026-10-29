@@ -129,6 +129,7 @@ const TOOL_EXECUTOR_MAP: Record<string, (env: Env, userId: string, args: Record<
     // 🔍 搜索与发现 (search.ts)
     // ════════════════════════════════════════════════════════════════
     search_files: (env, userId, args) => SearchTools.executeSearchFiles(env, userId, args),
+    search_content: (env, userId, args) => SearchTools.executeSearchContent(env, userId, args),
     filter_files: (env, userId, args) => SearchTools.executeFilterFiles(env, userId, args),
     search_by_tag: (env, userId, args) => SearchTools.executeSearchByTag(env, userId, args),
     search_duplicates: (env, userId, args) => SearchTools.executeSearchDuplicates(env, userId, args),

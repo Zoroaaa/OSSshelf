@@ -31,6 +31,7 @@ import { ModelGateway } from './modelGateway';
 import { AgentToolExecutor, TOOL_DEFINITIONS } from './agentTools/index';
 import type { StreamChunk } from './types';
 import { logger } from '@osshelf/shared';
+import { getToolLabel } from '@osshelf/shared';
 import { getAiConfigNumber } from './aiConfigService';
 import { getDb, aiConfirmRequests, files } from '../../db';
 import { eq, and, gte, isNull, inArray } from 'drizzle-orm';
@@ -189,7 +190,7 @@ const TOOL_SUMMARY_MAP: Record<string, (args: Record<string, unknown>) => string
 function buildConfirmSummary(toolName: string, args: Record<string, unknown>): string {
   const generator = TOOL_SUMMARY_MAP[toolName];
   if (generator) return generator(args);
-  return `执行操作: ${toolName}`;
+  return `执行操作: ${getToolLabel(toolName)}`;
 }
 
 async function savePendingConfirm(
@@ -715,26 +716,7 @@ export class AgentEngine {
     }
 
     const memory = new AgentMemory(this.gateway, this.env);
-    const vectorizeQuery = async (
-      namespace: string,
-      values: number[],
-      metadata?: Record<string, string | number | boolean>
-    ): Promise<string | null> => {
-      try {
-        if (!this.env.VECTORIZE) return null;
-        const results = await this.env.VECTORIZE.query(values, {
-          topK: 1,
-          filter: metadata as any,
-          namespace,
-          returnMetadata: true,
-        });
-        return results.matches?.[0]?.id || null;
-      } catch (e) {
-        logger.warn('AgentEngine', 'vectorizeQuery failed', {}, e);
-        return null;
-      }
-    };
-    const memoryContext = await memory.recallMemories(userId, query, vectorizeQuery);
+    const memoryContext = await memory.recallMemories(userId, query);
     if (memoryContext) {
       contextPrompt += memoryContext;
     }

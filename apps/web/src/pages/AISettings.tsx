@@ -31,6 +31,7 @@ import {
   Sparkles,
   XCircle,
   ChevronDown,
+  BarChart3,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/useToast';
@@ -44,11 +45,12 @@ import {
   AdvancedConfigPanel,
   ProviderManageModal,
 } from '@/components/ai/settings';
+import { UsageTab } from '@/components/ai/settings/UsageTab';
 import { aiApi, type AiModel, type AiProviderItem, type AiSystemConfigItem } from '@/services/api';
 import type { AIIndexTask, AISummarizeTask, AITagsTask, AIIndexStats } from '@/services/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
-type TabType = 'models' | 'providers' | 'index' | 'vectors' | 'advanced' | 'memory';
+type TabType = 'models' | 'providers' | 'index' | 'vectors' | 'memory' | 'usage' | 'advanced';
 
 export function AISettings() {
   const { tab: urlTab } = useParams<{ tab?: string }>();
@@ -441,6 +443,7 @@ export function AISettings() {
     { id: 'index', label: '索引与处理', icon: Database },
     { id: 'vectors', label: '向量库', icon: Layers },
     { id: 'memory', label: '记忆管理', icon: MessageSquare },
+    { id: 'usage', label: '用量统计', icon: BarChart3 },
     { id: 'advanced', label: '高级配置', icon: Sliders },
   ];
 
@@ -732,6 +735,8 @@ export function AISettings() {
             onPageChange={setVectorPage}
           />
         )}
+
+        {activeTab === 'usage' && <UsageTab />}
 
         {activeTab === 'memory' && (
           <div className="space-y-4">
