@@ -13,7 +13,10 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { prettyJSON } from 'hono/pretty-json';
 import { secureHeaders } from 'hono/secure-headers';
+import { routeAgentRequest } from 'agents';
 import { logger as appLogger } from '@osshelf/shared';
+import { OSSShelfAgent } from './agents/OSSShelfAgent';
+import { verifyAgentConnection } from './agents/auth';
 import authRoutes from './routes/auth';
 import filesRoutes from './routes/files';
 import shareRoutes from './routes/share';
@@ -41,6 +44,7 @@ import webhooksRoutes from './routes/webhooks';
 import aiRoutes from './routes/ai';
 import aiConfigRoutes from './routes/aiConfigRoutes';
 import aiChatRoutes from './routes/aiChatRoutes';
+import aiUsageRoutes from './routes/aiUsageRoutes';
 import analyticsRoutes from './routes/analytics';
 import notificationsRoutes from './routes/notifications';
 import { createDocsRoutes } from './routes/docs';
@@ -167,6 +171,7 @@ app.route('/api/teams', teamsRoutes);
 app.route('/api/invite', invitePublicRoutes);
 app.route('/api/invite', inviteProtectedRoutes);
 app.route('/api/webhooks', webhooksRoutes);
+app.route('/api/ai/usage', aiUsageRoutes);
 app.route('/api/ai', aiRoutes);
 app.route('/api/ai-config', aiConfigRoutes);
 app.route('/api/ai-chat', aiChatRoutes);
@@ -181,8 +186,22 @@ app.notFound((c) => {
   return c.json({ success: false, error: { code: 'NOT_FOUND', message: '路由不存在' } }, 404);
 });
 
+export { OSSShelfAgent };
+
 export default {
-  fetch: app.fetch,
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    const url = new URL(request.url);
+
+    if (url.pathname.startsWith('/agents/')) {
+      const agentResponse = await routeAgentRequest(request, env, {
+        onBeforeConnect: (req, route) => verifyAgentConnection(req, route, env),
+        onBeforeRequest: (req, route) => verifyAgentConnection(req, route, env),
+      });
+      if (agentResponse) return agentResponse;
+    }
+
+    return app.fetch(request, env, ctx);
+  },
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     appLogger.info('CRON', '定时任务触发', { time: new Date().toISOString() });
     ctx.waitUntil(

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * migrate.ts
  * 存储桶迁移路由
  *
@@ -155,7 +155,7 @@ app.post('/start', async (c) => {
   const result = startMigrateSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }

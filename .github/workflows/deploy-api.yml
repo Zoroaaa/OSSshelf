@@ -34,12 +34,18 @@ jobs:
       - name: Build shared package
         run: pnpm --filter @osshelf/shared build
 
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
       - name: Create Vectorize index
         run: |
           echo "Checking if Vectorize index exists..."
           if ! npx wrangler vectorize list 2>/dev/null | grep -q "ossshelf-files"; then
             echo "Creating Vectorize index..."
-            npx wrangler vectorize create ossshelf-files --dimensions=768 --metric=cosine
+            npx wrangler vectorize create ossshelf-files --dimensions=1024 --metric=cosine
           else
             echo "Vectorize index already exists, skipping creation"
           fi
@@ -65,7 +71,7 @@ jobs:
           cat > apps/api/wrangler.toml << EOF
           name = "ossshelf-api"
           main = "src/index.ts"
-          compatibility_date = "2024-01-01"
+          compatibility_date = "2026-05-01"
           compatibility_flags = ["nodejs_compat"]
 
           [ai]
@@ -74,6 +80,14 @@ jobs:
           [[vectorize]]
           binding = "VECTORIZE"
           index_name = "ossshelf-files"
+
+          [[durable_objects.bindings]]
+          name = "OSSShelfAgent"
+          class_name = "OSSShelfAgent"
+
+          [[migrations]]
+          tag = "v1"
+          new_sqlite_classes = ["OSSShelfAgent"]
 
           [[d1_databases]]
           binding = "DB"
@@ -94,6 +108,7 @@ jobs:
           max_batch_timeout = 5
           max_retries = 3
           retry_delay = 60
+          max_concurrency = 10
 
           [observability]
           enabled = false

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * directLink.ts
  * 文件直链路由
  *
@@ -87,7 +87,7 @@ app.post('/', authMiddleware, async (c) => {
   const result = createDirectLinkSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }

@@ -8,20 +8,19 @@
  */
 
 import type { Env, AiTaskMessage } from '../../types/env';
-import { getDb, aiTasks, files } from '../../db';
+import { getDb, aiTasks, aiTaskItems, files } from '../../db';
 import { eq, and, sql } from 'drizzle-orm';
 import { logger } from '@osshelf/shared';
 import { indexFileVector, buildFileTextForVector } from './vectorIndex';
 import { generateFileSummary, generateImageTags } from './features';
+import { syncFileFts } from './retrieval/fts';
+import { moveFile, softDeleteFile, renameFile } from '../fileService';
 import { dispatchWebhook } from '../webhook';
 
 export type TaskStatus = 'running' | 'completed' | 'failed' | 'cancelled';
 
-// 背压控制配置
-const GLOBAL_MAX_CONCURRENT = 10; // 全局最大并发任务数
-const USER_MAX_CONCURRENT = 3; // 每用户最大并发任务数
-const CONCURRENCY_KEY_PREFIX = 'ai_concurrency:';
-const USER_CONCURRENCY_KEY_PREFIX = 'ai_user_concurrency:';
+// 背压控制：并发由 wrangler [[queues.consumers]] max_concurrency 统一控制，
+// 不再使用 KV 读改写锁（非原子、会产生竞态）。
 
 export interface TaskProgress {
   id: string;
@@ -162,6 +161,7 @@ async function handleIndexTask(env: Env, message: AiTaskMessage): Promise<{ succ
     }
 
     await indexFileVector(env, fileId, text);
+    await syncFileFts(env, fileId);
     await incrementProcessed(env, taskId);
 
     try {
@@ -192,6 +192,7 @@ async function handleSummaryTask(env: Env, message: AiTaskMessage): Promise<{ su
 
   try {
     await generateFileSummary(env, fileId, undefined, userId);
+    await syncFileFts(env, fileId);
     await incrementProcessed(env, taskId);
 
     try {
@@ -236,6 +237,7 @@ async function handleTagsTask(env: Env, message: AiTaskMessage): Promise<{ succe
 
   try {
     await generateImageTags(env, fileId, undefined, userId);
+    await syncFileFts(env, fileId);
     await incrementProcessed(env, taskId);
 
     try {
@@ -284,45 +286,33 @@ async function handleAgentBatchTask(env: Env, message: AiTaskMessage): Promise<{
   const { fileId, userId, taskId } = message;
 
   try {
-    const db = getDb(env.DB);
-    const file = await db.select().from(files).where(eq(files.id, fileId)).get();
-    if (!file) {
-      await incrementFailed(env, taskId);
-      return { success: false, error: '文件不存在' };
-    }
-
-    const operation = (message as any).operation || (message as any)._defaultOp || '';
+    const operation = (message as any).operation || '';
     logger.info('AI_QUEUE', 'Processing agent_batch operation', { operation, fileId, taskId });
 
+    let result: { success: boolean; error?: string };
     switch (operation) {
-      case 'move': {
-        const targetFolderId = (message as any).targetFolderId;
-        if (targetFolderId) {
-          await db
-            .update(files)
-            .set({ parentId: targetFolderId, updatedAt: new Date().toISOString() })
-            .where(eq(files.id, fileId));
-        }
+      case 'move':
+        result = await moveFile(env, userId, fileId, {
+          targetParentId: ((message as any).targetFolderId as string | null) ?? null,
+        });
         break;
-      }
       case 'delete':
-        await db
-          .update(files)
-          .set({ deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
-          .where(eq(files.id, fileId));
+        result = await softDeleteFile(env, userId, fileId);
         break;
       case 'rename': {
         const newName = (message as any).newName;
-        if (newName) {
-          await db
-            .update(files)
-            .set({ name: newName, updatedAt: new Date().toISOString() })
-            .where(eq(files.id, fileId));
-        }
+        result = newName
+          ? await renameFile(env, userId, fileId, { name: newName })
+          : { success: false, error: '缺少新名称' };
         break;
       }
       default:
-        logger.warn('AI_QUEUE', 'Unknown agent_batch operation', { operation });
+        result = { success: false, error: `未知操作: ${operation}` };
+    }
+
+    if (!result.success) {
+      await incrementFailed(env, taskId);
+      return { success: false, error: result.error };
     }
 
     await incrementProcessed(env, taskId);
@@ -330,7 +320,6 @@ async function handleAgentBatchTask(env: Env, message: AiTaskMessage): Promise<{
     try {
       await dispatchWebhook(env, userId, 'ai.agent_batch_complete', {
         fileId,
-        fileName: file.name,
         operation,
       });
     } catch (webhookError) {
@@ -346,11 +335,74 @@ async function handleAgentBatchTask(env: Env, message: AiTaskMessage): Promise<{
   }
 }
 
+// ─── 任务项（幂等 / 真续跑）───────────────────────────────────────────────
+
+export async function getTaskItem(
+  env: Env,
+  taskId: string,
+  fileId: string
+): Promise<typeof aiTaskItems.$inferSelect | null> {
+  const db = getDb(env.DB);
+  return (
+    (await db
+      .select()
+      .from(aiTaskItems)
+      .where(and(eq(aiTaskItems.taskId, taskId), eq(aiTaskItems.fileId, fileId)))
+      .get()) ?? null
+  );
+}
+
+async function ensureTaskItems(env: Env, taskId: string, fileIds: string[]): Promise<void> {
+  if (fileIds.length === 0) return;
+  const now = new Date().toISOString();
+  const db = getDb(env.DB);
+
+  await db
+    .insert(aiTaskItems)
+    .values(
+      fileIds.map((fileId) => ({
+        id: crypto.randomUUID(),
+        taskId,
+        fileId,
+        status: 'pending',
+        attempts: 0,
+        updatedAt: now,
+      }))
+    )
+    .onConflictDoNothing();
+}
+
+async function markTaskItemRunning(env: Env, taskId: string, fileId: string): Promise<void> {
+  const db = getDb(env.DB);
+  await db
+    .update(aiTaskItems)
+    .set({
+      status: 'running',
+      attempts: sql`attempts + 1`,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(and(eq(aiTaskItems.taskId, taskId), eq(aiTaskItems.fileId, fileId)));
+}
+
+async function finalizeTaskItem(
+  env: Env,
+  taskId: string,
+  fileId: string,
+  status: 'completed' | 'failed',
+  error?: string
+): Promise<void> {
+  const db = getDb(env.DB);
+  await db
+    .update(aiTaskItems)
+    .set({ status, error: error ?? null, updatedAt: new Date().toISOString() })
+    .where(and(eq(aiTaskItems.taskId, taskId), eq(aiTaskItems.fileId, fileId)));
+}
+
 export async function processAiTaskMessage(
   message: AiTaskMessage,
   env: Env
 ): Promise<{ success: boolean; error?: string }> {
-  const { type, fileId, userId, taskId } = message;
+  const { type, fileId, taskId } = message;
 
   logger.info('AI_QUEUE', 'Processing task', { type, fileId, taskId });
 
@@ -367,116 +419,35 @@ export async function processAiTaskMessage(
     return { success: false, error: '任务已取消' };
   }
 
-  // ── 背压控制：检查并发限制 ──
-  try {
-    // 全局并发检查
-    const globalCount = await env.KV.get(CONCURRENCY_KEY_PREFIX + 'count');
-    if (globalCount && parseInt(globalCount) >= GLOBAL_MAX_CONCURRENT) {
-      logger.warn('AI_QUEUE', 'Global concurrency limit reached, requeuing', {
-        currentGlobal: globalCount,
-        limit: GLOBAL_MAX_CONCURRENT,
-        userId,
-        taskId,
-      });
-      // 延迟重新入队（指数退避）
-      setTimeout(
-        () => {
-          if (env.AI_TASKS_QUEUE) {
-            (env.AI_TASKS_QUEUE as any).send({ body: message });
-          }
-        },
-        Math.random() * 5000 + 1000
-      ); // 1-6 秒随机延迟
-      return { success: false, error: '全局并发已达上限，稍后重试' };
-    }
-
-    // 用户级并发检查
-    const userCount = await env.KV.get(USER_CONCURRENCY_KEY_PREFIX + userId);
-    if (userCount && parseInt(userCount) >= USER_MAX_CONCURRENT) {
-      logger.warn('AI_QUEUE', 'User concurrency limit reached, requeuing', {
-        currentUser: userCount,
-        limit: USER_MAX_CONCURRENT,
-        userId,
-        taskId,
-      });
-      // 延迟重新入队（指数退避）
-      setTimeout(
-        () => {
-          if (env.AI_TASKS_QUEUE) {
-            (env.AI_TASKS_QUEUE as any).send({ body: message });
-          }
-        },
-        Math.random() * 3000 + 1000
-      ); // 1-4 秒随机延迟
-      return { success: false, error: `用户并发已达上限 (${USER_MAX_CONCURRENT})，稍后重试` };
-    }
-
-    // 获取并发锁（原子递增）
-    await env.KV.put(
-      CONCURRENCY_KEY_PREFIX + 'count',
-      String(parseInt(globalCount || '0') + 1),
-      { expirationTtl: 120 } // 2 分钟 TTL，防死锁
-    );
-    await env.KV.put(USER_CONCURRENCY_KEY_PREFIX + userId, String(parseInt(userCount || '0') + 1), {
-      expirationTtl: 120,
-    });
-
-    logger.debug('AI_QUEUE', 'Concurrency acquired', {
-      global: parseInt(globalCount || '0') + 1,
-      user: parseInt(userCount || '0') + 1,
-      userId,
-      taskId,
-    });
-  } catch (concurrencyError) {
-    logger.error('AI_QUEUE', 'Failed to acquire concurrency lock', { taskId }, concurrencyError);
-    // 获取锁失败时仍然执行任务（降级处理），避免任务丢失
+  // ── 幂等：同一任务下同一文件已成功处理则直接确认 ──
+  const item = await getTaskItem(env, taskId, fileId);
+  if (item?.status === 'completed') {
+    logger.info('AI_QUEUE', 'Task item already completed, skipping', { taskId, fileId });
+    return { success: true };
   }
 
-  try {
-    let result;
-    switch (type) {
-      case 'index':
-        result = await handleIndexTask(env, message);
-        break;
-      case 'summary':
-        result = await handleSummaryTask(env, message);
-        break;
-      case 'tags':
-        result = await handleTagsTask(env, message);
-        break;
-      case 'agent_batch':
-        result = await handleAgentBatchTask(env, message);
-        break;
-      default:
-        result = { success: false, error: `未知任务类型: ${type}` };
-    }
-    return result;
-  } finally {
-    // ── 释放并发锁 ──
-    try {
-      const currentGlobal = await env.KV.get(CONCURRENCY_KEY_PREFIX + 'count');
-      if (currentGlobal) {
-        const newGlobal = Math.max(0, parseInt(currentGlobal) - 1);
-        if (newGlobal > 0) {
-          await env.KV.put(CONCURRENCY_KEY_PREFIX + 'count', String(newGlobal), { expirationTtl: 120 });
-        } else {
-          await env.KV.delete(CONCURRENCY_KEY_PREFIX + 'count');
-        }
-      }
+  await markTaskItemRunning(env, taskId, fileId);
 
-      const currentUser = await env.KV.get(USER_CONCURRENCY_KEY_PREFIX + userId);
-      if (currentUser) {
-        const newUser = Math.max(0, parseInt(currentUser) - 1);
-        if (newUser > 0) {
-          await env.KV.put(USER_CONCURRENCY_KEY_PREFIX + userId, String(newUser), { expirationTtl: 120 });
-        } else {
-          await env.KV.delete(USER_CONCURRENCY_KEY_PREFIX + userId);
-        }
-      }
-    } catch (releaseError) {
-      logger.error('AI_QUEUE', 'Failed to release concurrency lock', { taskId }, releaseError);
-    }
+  let result: { success: boolean; error?: string };
+  switch (type) {
+    case 'index':
+      result = await handleIndexTask(env, message);
+      break;
+    case 'summary':
+      result = await handleSummaryTask(env, message);
+      break;
+    case 'tags':
+      result = await handleTagsTask(env, message);
+      break;
+    case 'agent_batch':
+      result = await handleAgentBatchTask(env, message);
+      break;
+    default:
+      result = { success: false, error: `未知任务类型: ${type}` };
   }
+
+  await finalizeTaskItem(env, taskId, fileId, result.success ? 'completed' : 'failed', result.error);
+  return result;
 }
 
 // ─── 入队 ─────────────────────────────────────────────────────────────────
@@ -540,6 +511,12 @@ export async function enqueueAiTasks(
       }
       return { body: baseMessage as AiTaskMessage };
     });
+
+    await ensureTaskItems(
+      env,
+      taskId,
+      batch.map((message) => message.body.fileId)
+    );
 
     await env.AI_TASKS_QUEUE.sendBatch(batch);
     logger.info('AI_QUEUE', 'Enqueued batch', {

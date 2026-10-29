@@ -1,4 +1,4 @@
-/**
+﻿/**
  * batch.ts
  * 批量操作路由
  *
@@ -73,7 +73,7 @@ app.post('/delete', async (c) => {
   const result = batchDeleteSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }
@@ -127,7 +127,7 @@ app.post('/move', async (c) => {
   const result = batchMoveSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }
@@ -262,7 +262,7 @@ app.post('/rename', async (c) => {
   const result = batchRenameSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }
@@ -352,7 +352,7 @@ app.post('/permanent-delete', async (c) => {
   const result = batchDeleteSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }
@@ -453,7 +453,7 @@ app.post('/restore', async (c) => {
   const result = batchDeleteSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }
@@ -514,7 +514,7 @@ app.post('/zip', async (c) => {
   const result = batchZipSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }

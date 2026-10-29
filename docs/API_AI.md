@@ -35,6 +35,60 @@
 | 向量索引  | `/api/ai/index`                        | 向量索引管理                   |
 | AI 配置   | `/api/ai/config`                       | 系统配置管理                   |
 | 记忆管理  | `/api/ai/memories`                     | 跨会话记忆 CRUD（v4.7.0 新增） |
+| 用量统计  | `/api/ai/usage`                        | 真实 token 记账与配额（v5.2.0）|
+| Agent 运行时 | `/api/ai-chat/runtime`、`/api/ai-chat/ws-ticket` | Agents SDK WebSocket 会话（v5.2.0）|
+
+---
+
+## v5.2.0 Agent 运行时（Cloudflare Agents SDK）
+
+### 运行时探测
+
+```http
+GET /api/ai-chat/runtime
+Authorization: Bearer <token>
+```
+
+返回 `{ mode: 'agent' | 'legacy' }`。由 `ai.runtime.mode` 与 `ai.runtime.agent_user_allowlist` 控制。
+
+### 换取 WebSocket 票据
+
+```http
+POST /api/ai-chat/ws-ticket
+Content-Type: application/json
+
+{ "sessionId": "<uuid>" }
+```
+
+返回 60 秒有效的一次性 ticket。客户端使用 `agents/react` 的 `useAgent` 连接：
+
+```
+wss://<api-host>/agents/OSSShelfAgent/<userId>:<sessionId>?ticket=<ticket>
+```
+
+票据只用于建立连接，长期 JWT 不会出现在 URL 或日志中。
+
+### 用量
+
+```http
+GET /api/ai/usage/summary?days=7
+GET /api/ai/usage/events?limit=50
+```
+
+每次模型调用写入 `ai_usage_events`（真实 input/output token、延迟、工具次数、错误码）。配额键：
+`ai.quota.daily_tokens`、`ai.quota.daily_requests`、`ai.rate.requests_per_minute`。
+
+### 索引重建
+
+```http
+POST /api/ai/index/rebuild
+```
+
+清空 `vectorIndexedAt` 后重新入队全部文件，并同步 FTS5 索引。
+
+### 工具
+
+新增 `search_content`：分块语义检索，返回命中片段正文（`file_chunks`）而不是整文件。
 
 ---
 

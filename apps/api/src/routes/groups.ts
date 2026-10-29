@@ -1,4 +1,4 @@
-/**
+﻿/**
  * groups.ts
  * 用户组管理路由
  *
@@ -78,7 +78,7 @@ app.post('/', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }
@@ -175,7 +175,7 @@ app.put('/:id', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }
@@ -322,7 +322,7 @@ app.post('/:id/members', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }

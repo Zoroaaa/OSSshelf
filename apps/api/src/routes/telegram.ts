@@ -1,4 +1,4 @@
-/**
+﻿/**
  * telegram.ts
  * Telegram 存储专用路由
  *
@@ -28,7 +28,7 @@ app.post('/test', async (c) => {
   const result = schema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }

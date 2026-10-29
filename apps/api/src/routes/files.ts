@@ -1,4 +1,4 @@
-/**
+﻿/**
  * files.ts
  * 文件管理路由
  *
@@ -1020,7 +1020,7 @@ app.post('/folders/size', async (c) => {
   const result = schema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }
@@ -1191,7 +1191,7 @@ app.post('/', async (c) => {
   const result = createFolderSchema.safeParse(body);
   if (!result.success)
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
 
@@ -1276,7 +1276,7 @@ app.post('/create', async (c) => {
   const result = createFileSchema.safeParse(body);
   if (!result.success)
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
 
@@ -1763,7 +1763,7 @@ app.put('/:id', async (c) => {
   const result = updateFileSchema.safeParse(body);
   if (!result.success)
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
 
@@ -1875,7 +1875,7 @@ app.put('/:id/content', async (c) => {
   const result = updateContentSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }
@@ -2002,7 +2002,7 @@ app.put('/:id/settings', async (c) => {
   const result = updateFolderSettingsSchema.safeParse(body);
   if (!result.success)
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
 
@@ -2043,7 +2043,7 @@ app.post('/:id/move', async (c) => {
   const result = moveFileSchema.safeParse(body);
   if (!result.success)
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
 

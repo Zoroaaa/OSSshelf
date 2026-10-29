@@ -79,6 +79,11 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
           };
           finish_reason: string;
         }> | null;
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          prompt_tokens_details?: { cached_tokens?: number };
+        };
         error?: {
           message: string;
           type: string;
@@ -124,6 +129,13 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
           | 'content_filter'
           | 'tool_calls',
         reasoningContent: reasoningContent || undefined,
+        usage: data.usage
+          ? {
+              inputTokens: data.usage.prompt_tokens ?? 0,
+              outputTokens: data.usage.completion_tokens ?? 0,
+              cachedTokens: data.usage.prompt_tokens_details?.cached_tokens ?? 0,
+            }
+          : undefined,
         toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
       };
     } catch (error) {
@@ -145,6 +157,7 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
         messages: request.messages.map((msg) => this.formatMessage(msg)),
         temperature: request.temperature ?? this.config.temperature,
         stream: true,
+        stream_options: { include_usage: true },
       };
 
       if (request.tools && request.tools.length > 0) {
@@ -180,6 +193,7 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
       let buffer = '';
       let contentBuffer = '';
       const toolCallMap = new Map<number, { id?: string; name?: string; arguments: string }>();
+      let finalUsage: { inputTokens: number; outputTokens: number; cachedTokens?: number } | undefined;
       let lastEmittedReasoningLen = 0; // 追踪已 emit 的 reasoning 长度，避免 <think> 未闭合时重复发送
 
       // eslint-disable-next-line no-constant-condition -- 流式读取标准模式
@@ -242,6 +256,7 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
                 role: 'assistant',
                 model: this.config.modelId,
                 done: true,
+                usage: finalUsage,
               });
             }
             continue;
@@ -252,6 +267,14 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
               const data = JSON.parse(trimmedLine.slice(6));
               const choice = data.choices?.[0];
               const delta = choice?.delta;
+
+              if (data.usage) {
+                finalUsage = {
+                  inputTokens: data.usage.prompt_tokens ?? 0,
+                  outputTokens: data.usage.completion_tokens ?? 0,
+                  cachedTokens: data.usage.prompt_tokens_details?.cached_tokens ?? 0,
+                };
+              }
 
               if (delta?.content) {
                 contentBuffer += delta.content;

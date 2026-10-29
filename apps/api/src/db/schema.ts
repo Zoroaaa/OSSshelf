@@ -804,6 +804,97 @@ export const aiMemories = sqliteTable(
 export type AiMemory = typeof aiMemories.$inferSelect;
 
 // ═══════════════════════════════════════════════════════════════════════════
+// AI 运行时（Agents SDK）相关表
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const aiUsageEvents = sqliteTable(
+  'ai_usage_events',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    sessionId: text('session_id'),
+    requestId: text('request_id'),
+    feature: text('feature').notNull().default('chat'),
+    provider: text('provider').notNull(),
+    modelId: text('model_id').notNull(),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    cachedTokens: integer('cached_tokens').notNull().default(0),
+    latencyMs: integer('latency_ms').notNull().default(0),
+    toolCalls: integer('tool_calls').notNull().default(0),
+    status: text('status').notNull().default('completed'),
+    errorCode: text('error_code'),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => ({
+    userCreatedIdx: index('idx_ai_usage_user_created').on(table.userId, table.createdAt),
+    userModelIdx: index('idx_ai_usage_user_model').on(table.userId, table.modelId),
+    sessionIdx: index('idx_ai_usage_session').on(table.sessionId),
+  })
+);
+
+export type AiUsageEvent = typeof aiUsageEvents.$inferSelect;
+
+export const fileChunks = sqliteTable(
+  'file_chunks',
+  {
+    id: text('id').primaryKey(),
+    fileId: text('file_id').notNull(),
+    chunkIndex: integer('chunk_index').notNull(),
+    content: text('content').notNull(),
+    contentHash: text('content_hash').notNull(),
+    embeddingModel: text('embedding_model').notNull(),
+    tokenCount: integer('token_count').notNull().default(0),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => ({
+    fileChunkUnique: uniqueIndex('idx_file_chunks_file_index').on(table.fileId, table.chunkIndex),
+    fileIdx: index('idx_file_chunks_file').on(table.fileId),
+  })
+);
+
+export type FileChunk = typeof fileChunks.$inferSelect;
+
+export const aiTaskItems = sqliteTable(
+  'ai_task_items',
+  {
+    id: text('id').primaryKey(),
+    taskId: text('task_id').notNull(),
+    fileId: text('file_id').notNull(),
+    status: text('status').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    error: text('error'),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    taskFileUnique: uniqueIndex('idx_ai_task_items_task_file').on(table.taskId, table.fileId),
+    taskStatusIdx: index('idx_ai_task_items_task_status').on(table.taskId, table.status),
+  })
+);
+
+export type AiTaskItem = typeof aiTaskItems.$inferSelect;
+
+export const aiFeatureConfig = sqliteTable(
+  'ai_feature_config',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    feature: text('feature').notNull(),
+    modelId: text('model_id'),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    userFeatureUnique: uniqueIndex('idx_ai_feature_config_user_feature').on(table.userId, table.feature),
+  })
+);
+
+export type AiFeatureConfig = typeof aiFeatureConfig.$inferSelect;
+
+// 说明：files_fts 为 FTS5 虚拟表，Drizzle 不建模，见 migrations/110_ai_agents.sql
+
+// ═══════════════════════════════════════════════════════════════════════════
 // 团队协作相关表
 // ═══════════════════════════════════════════════════════════════════════════
 

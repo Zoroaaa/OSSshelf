@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ai.ts
  * AI 功能路由
  *
@@ -14,6 +14,7 @@ import { Hono } from 'hono';
 import { eq, and, isNull, sql } from 'drizzle-orm';
 import { getDb, files } from '../db';
 import { authMiddleware } from '../middleware';
+import { aiRateLimit } from '../middleware/aiRateLimit';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
@@ -34,9 +35,28 @@ import {
 } from '../lib/ai/features';
 import { sendNotification } from '../lib/notificationUtils';
 import { enqueueAiTasks, createTaskRecord, cancelTask, getLatestTaskByUserType } from '../lib/ai/aiTaskQueue';
+import { rebuildFtsForUser } from '../lib/ai/retrieval/fts';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
+
+const aiQuotaGuard = aiRateLimit();
+for (const path of [
+  '/index/batch',
+  '/index/all',
+  '/index/rebuild',
+  '/summarize/batch',
+  '/tags/batch',
+  '/process-selected',
+  '/search',
+  '/summarize/:fileId',
+  '/tags/:fileId',
+  '/rename-suggest/:fileId',
+  '/name-suggest',
+  '/index/:fileId',
+]) {
+  app.use(path, aiQuotaGuard);
+}
 
 const searchSchema = z.object({
   query: z.string().min(0),
@@ -166,6 +186,54 @@ app.post('/index/all', async (c) => {
     const message = error instanceof Error ? error.message : '启动任务失败';
     return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
   }
+});
+
+app.post('/index/rebuild', async (c) => {
+  const userId = c.get('userId')!;
+
+  if (!c.env.AI_TASKS_QUEUE) {
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: 'AI 任务队列未配置，请联系管理员' } },
+      503
+    );
+  }
+
+  const existingTask = await getLatestTaskByUserType(c.env, userId, 'index');
+  if (existingTask && existingTask.status === 'running') {
+    return c.json({ success: false, error: { code: ERROR_CODES.CONFLICT, message: '已有索引任务正在运行' } }, 409);
+  }
+
+  const db = getDb(c.env.DB);
+  const userFiles = await db
+    .select({ id: files.id })
+    .from(files)
+    .where(and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false)))
+    .all();
+
+  if (userFiles.length === 0) {
+    return c.json({ success: true, data: { message: '没有可重建的文件', task: null } });
+  }
+
+  await db
+    .update(files)
+    .set({ vectorIndexedAt: null })
+    .where(and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false)));
+
+  const task = await createTaskRecord(c.env, 'index', userId, userFiles.length);
+  await enqueueAiTasks(
+    c.env,
+    'index',
+    userFiles.map((file) => file.id),
+    userId,
+    task.id
+  );
+
+  c.executionCtx.waitUntil(rebuildFtsForUser(c.env, userId));
+
+  return c.json({
+    success: true,
+    data: { message: `索引重建任务已启动，共 ${userFiles.length} 个文件`, task },
+  });
 });
 
 app.get('/index/status', async (c) => {
@@ -386,7 +454,7 @@ app.post('/process-selected', async (c) => {
   const result = processSelectedSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }
@@ -672,7 +740,7 @@ app.post('/search', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }
@@ -804,7 +872,7 @@ app.post('/name-suggest', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }

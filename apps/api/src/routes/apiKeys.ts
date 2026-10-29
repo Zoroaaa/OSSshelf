@@ -1,4 +1,4 @@
-/**
+﻿/**
  * apiKeys.ts
  * API Key 管理路由
  *
@@ -71,7 +71,7 @@ app.post('/', async (c) => {
   const result = createApiKeySchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }
@@ -153,7 +153,7 @@ app.patch('/:id', async (c) => {
   const result = updateApiKeySchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.errors[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
       400
     );
   }

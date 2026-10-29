@@ -33,6 +33,7 @@ export interface Env {
   KV: KVNamespace;
   AI?: Ai;
   VECTORIZE?: VectorizeIndex;
+  OSSShelfAgent: DurableObjectNamespace;
   AI_TASKS_QUEUE?: Queue<AiTaskMessage>;
   ENVIRONMENT: string;
   JWT_SECRET: string;

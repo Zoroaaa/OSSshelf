@@ -438,12 +438,54 @@ export const aiApi = {
   },
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // usage — AI 用量统计
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  usage: {
+    getSummary: (days = 7) =>
+      api.get<
+        ApiResponse<{
+          days: number;
+          totals: { inputTokens: number; outputTokens: number; requests: number };
+          byDay: Array<{ day: string; inputTokens: number; outputTokens: number; requests: number }>;
+          byModel: Array<{ modelId: string; inputTokens: number; outputTokens: number; requests: number }>;
+        }>
+      >(`/api/ai/usage/summary?days=${days}`),
+    getEvents: (limit = 50) =>
+      api.get<
+        ApiResponse<
+          Array<{
+            id: string;
+            modelId: string;
+            provider: string;
+            inputTokens: number;
+            outputTokens: number;
+            latencyMs: number;
+            toolCalls: number;
+            status: string;
+            createdAt: string;
+          }>
+        >
+      >(`/api/ai/usage/events?limit=${limit}`),
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // chatSession — AI 聊天会话管理
   // ═══════════════════════════════════════════════════════════════════════════
 
   chatSession: {
     getSessions: () => api.get<ApiResponse<AiChatSession[]>>('/api/ai-chat/sessions'),
     getSession: (sessionId: string) => api.get<ApiResponse<AiChatSessionDetail>>(`/api/ai-chat/sessions/${sessionId}`),
+    createSession: (data: { id?: string; title?: string; modelId?: string }) =>
+      api.post<ApiResponse<AiChatSession>>('/api/ai-chat/sessions', data),
+    getRuntime: async (): Promise<'agent' | 'legacy'> => {
+      try {
+        const res = await api.get<ApiResponse<{ mode: 'agent' | 'legacy' }>>('/api/ai-chat/runtime');
+        return res.data?.data?.mode ?? 'legacy';
+      } catch {
+        return 'legacy';
+      }
+    },
     updateSession: (sessionId: string, data: { title: string }) =>
       api.put<ApiResponse<AiChatSession>>(`/api/ai-chat/sessions/${sessionId}`, data),
     deleteSession: (sessionId: string) =>
@@ -452,6 +494,19 @@ export const aiApi = {
       api.post<ApiResponse<{ result: unknown; confirmedAt: string }>>('/api/ai-chat/confirm', { confirmId }),
     cancelAction: (confirmId: string) =>
       api.post<ApiResponse<{ cancelledAt: string }>>('/api/ai-chat/cancel', { confirmId }),
+
+    /** 换取 Agent WebSocket 短期票据；未开放 Agent 运行时返回 null */
+    wsTicket: async (sessionId: string): Promise<{ ticket: string; agent: string; name: string } | null> => {
+      try {
+        const res = await api.post<ApiResponse<{ ticket: string; agent: string; name: string; expiresIn: number }>>(
+          '/api/ai-chat/ws-ticket',
+          { sessionId }
+        );
+        return res.data?.data ?? null;
+      } catch {
+        return null;
+      }
+    },
 
     /**
      * SSE 流式聊天接口

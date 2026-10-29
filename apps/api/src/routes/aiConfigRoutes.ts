@@ -1,4 +1,4 @@
-/**
+﻿/**
  * aiConfigRoutes.ts
  * AI 配置管理路由
  *
@@ -17,6 +17,7 @@ import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { ModelGateway, WorkersAiAdapter, OpenAiCompatibleAdapter } from '../lib/ai';
+import { getFeatureModelConfig, saveFeatureModelConfig } from '../lib/ai/featureConfigService';
 import type { ModelConfig, ModelCapability } from '../lib/ai/types';
 import { logger } from '@osshelf/shared';
 import { encryptCredential, decryptCredential, getEncryptionKey, isAesGcmFormat } from '../lib/crypto';
@@ -134,7 +135,7 @@ app.post('/ai-providers', async (c) => {
   const result = createProviderSchema.safeParse(body);
 
   if (!result.success) {
-    const firstError = result.error.errors[0];
+    const firstError = result.error.issues[0];
     const fieldPath = firstError.path.join('.') || 'unknown';
     return c.json(
       {
@@ -218,7 +219,7 @@ app.put('/ai-providers/:providerId', async (c) => {
   const result = updateProviderSchema.safeParse(body);
 
   if (!result.success) {
-    const firstError = result.error.errors[0];
+    const firstError = result.error.issues[0];
     const fieldPath = firstError.path.join('.') || 'unknown';
     return c.json(
       {
@@ -399,7 +400,7 @@ app.post('/models', async (c) => {
   const result = createModelSchema.safeParse(body);
 
   if (!result.success) {
-    const firstError = result.error.errors[0];
+    const firstError = result.error.issues[0];
     const fieldPath = firstError.path.join('.') || 'unknown';
     return c.json(
       {
@@ -477,7 +478,7 @@ app.put('/models/:modelId', async (c) => {
   const result = updateModelSchema.safeParse(body);
 
   if (!result.success) {
-    const firstError = result.error.errors[0];
+    const firstError = result.error.issues[0];
     const fieldPath = firstError.path.join('.') || 'unknown';
     return c.json(
       {
@@ -650,22 +651,20 @@ app.get('/status', async (c) => {
 });
 
 // 功能级模型配置
-const FEATURE_CONFIG_KEY = (userId: string) => `ai:feature-model-config:${userId}`;
-
 // 获取功能模型配置
 app.get('/feature-config', async (c) => {
   const userId = c.get('userId')!;
 
   try {
-    const config = await c.env.KV.get(FEATURE_CONFIG_KEY(userId), 'json');
+    const config = await getFeatureModelConfig(c.env, userId);
 
     return c.json({
       success: true,
-      data: config || {
-        summary: null,
-        imageCaption: null,
-        imageTag: null,
-        rename: null,
+      data: {
+        summary: config.summary ?? null,
+        imageCaption: config.imageCaption ?? null,
+        imageTag: config.imageTag ?? null,
+        rename: config.rename ?? null,
       },
     });
   } catch (error) {
@@ -814,7 +813,12 @@ app.put('/feature-config', async (c) => {
   };
 
   try {
-    await c.env.KV.put(FEATURE_CONFIG_KEY(userId), JSON.stringify(config), { expirationTtl: 86400 * 30 });
+    await saveFeatureModelConfig(c.env, userId, {
+      summary: config.summary ?? undefined,
+      imageCaption: config.imageCaption ?? undefined,
+      imageTag: config.imageTag ?? undefined,
+      rename: config.rename ?? undefined,
+    });
 
     logger.info('AI Config', 'Feature model config saved', { userId, config });
 

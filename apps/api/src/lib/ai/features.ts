@@ -21,6 +21,7 @@ import { getEncryptionKey } from '../crypto';
 import { isEditableFile, logger, logAiError } from '@osshelf/shared';
 import { indexFileVector, buildFileTextForVector } from './vectorIndex';
 import { createTaskRecord } from './aiTaskQueue';
+import { syncFileFts } from './retrieval/fts';
 import { ModelGateway } from './modelGateway';
 import type { ChatCompletionRequest } from './types';
 import { decryptSecret } from '../s3client';
@@ -157,12 +158,8 @@ export interface RenameSuggestion {
 }
 
 // 功能级模型配置接口
-export interface FeatureModelConfig {
-  summary?: string;
-  imageCaption?: string;
-  imageTag?: string;
-  rename?: string;
-}
+export type { FeatureModelConfig } from './featureConfigService';
+import { getFeatureModelConfig, type FeatureModelConfig } from './featureConfigService';
 
 // AiFeatureType 到 FeatureModelConfig 键名的映射
 function mapFeatureTypeToConfigKey(featureType: string): keyof FeatureModelConfig {
@@ -231,25 +228,6 @@ export function shouldIndexFile(mimeType: string | null, _fileSize?: number): bo
 
 export function isAIConfigured(env: Env): boolean {
   return !!(env.AI || env.VECTORIZE);
-}
-
-/**
- * 获取用户的 功能级模型配置
- */
-async function getFeatureModelConfig(env: Env, userId: string): Promise<FeatureModelConfig> {
-  try {
-    const configKey = `ai:feature-model-config:${userId}`;
-    const cached = await env.KV.get(configKey, 'json');
-
-    if (cached) {
-      return cached as FeatureModelConfig;
-    }
-
-    return {};
-  } catch (error) {
-    logger.error('AI', 'Failed to get feature model config', { userId }, error);
-    return {};
-  }
 }
 
 /**
@@ -556,6 +534,8 @@ export async function generateFileSummary(
       db.update(files).set({ aiSummary: summary, aiSummaryAt: new Date().toISOString() }).where(eq(files.id, fileId)),
     ]);
 
+    await syncFileFts(env, fileId);
+
     return { summary, cached: false };
   } catch (error) {
     logAiError('生成摘要', fileId, error);
@@ -631,6 +611,8 @@ export async function generateImageTags(
         ...(caption ? { aiSummary: caption, aiSummaryAt: now } : {}),
       })
       .where(eq(files.id, fileId));
+
+    await syncFileFts(env, fileId);
 
     return { tags, caption };
   } catch (error) {
