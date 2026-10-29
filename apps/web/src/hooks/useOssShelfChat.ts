@@ -32,11 +32,25 @@ interface OssShelfChatHandle {
   addToolApprovalResponse: (options: { id: string; approved: boolean }) => void;
 }
 
+function toHost(value: string): string {
+  return value
+    .replace(/^wss?:\/\//, '')
+    .replace(/^https?:\/\//, '')
+    .replace(/\/.*$/, '');
+}
+
 function resolveWsHost(): string {
-  const configured = import.meta.env.VITE_WS_URL;
-  if (typeof configured === 'string' && configured.length > 0) {
-    return configured.replace(/^wss?:\/\//, '').replace(/^https?:\/\//, '');
+  const configuredWs = import.meta.env.VITE_WS_URL;
+  if (typeof configuredWs === 'string' && configuredWs.length > 0) {
+    return toHost(configuredWs);
   }
+
+  // 前后端分离部署时必须使用 API 域名，否则 /agents/* 会落到前端 Pages 的 SPA 回退
+  const apiUrl = import.meta.env.VITE_API_URL;
+  if (typeof apiUrl === 'string' && apiUrl.length > 0) {
+    return toHost(apiUrl);
+  }
+
   return window.location.host;
 }
 

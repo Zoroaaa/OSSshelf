@@ -194,6 +194,7 @@ export default {
 
     if (url.pathname.startsWith('/agents/')) {
       const agentResponse = await routeAgentRequest(request, env, {
+        cors: true,
         onBeforeConnect: (req, route) => verifyAgentConnection(req, route, env),
         onBeforeRequest: (req, route) => verifyAgentConnection(req, route, env),
       });
