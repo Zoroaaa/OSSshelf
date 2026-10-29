@@ -4,11 +4,11 @@
  *
  * 连接策略:
  * - 先通过 REST 换票（2h 有效期），再以固定 query 对象连接，避免 useAgent 因异步 query 反复 suspend
- * - 初始消息按 session 缓存，避免重连时重新拉取导致整页空白
+ * - 初始消息交给 useAgentChat 内置逻辑：它在拿到真实 agent URL 后才拉取，并按地址缓存
  * - 未就绪（无用户/会话或被禁用）时不建立连接
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAgent } from 'agents/react';
 import { useAgentChat } from '@cloudflare/ai-chat/react';
 import type { UIMessage } from 'ai';
@@ -56,29 +56,6 @@ function resolveWsHost(): string {
   return window.location.host;
 }
 
-const initialMessagesCache = new Map<string, Promise<UIMessage[]>>();
-
-function fetchInitialMessages(sessionId: string, url: string): Promise<UIMessage[]> {
-  const cached = initialMessagesCache.get(sessionId);
-  if (cached) return cached;
-
-  const promise = fetch(`${url}/get-messages`)
-    .then(async (response) => {
-      if (!response.ok) return [];
-      const text = await response.text();
-      if (!text.trim()) return [];
-      try {
-        return JSON.parse(text) as UIMessage[];
-      } catch {
-        return [];
-      }
-    })
-    .catch(() => []);
-
-  initialMessagesCache.set(sessionId, promise);
-  return promise;
-}
-
 export function useOssShelfChat({ userId, sessionId, enabled }: UseOssShelfChatOptions): OssShelfChatHandle {
   const active = Boolean(enabled && userId && sessionId);
   const host = useMemo(resolveWsHost, []);
@@ -108,16 +85,8 @@ export function useOssShelfChat({ userId, sessionId, enabled }: UseOssShelfChatO
     query,
   });
 
-  const getInitialMessages = useCallback(
-    ({ url }: { url?: string }) => {
-      if (!url || !sessionId) return Promise.resolve([] as UIMessage[]);
-      return fetchInitialMessages(sessionId, url);
-    },
-    [sessionId]
-  );
-
   // 50ms 批量刷新：流式 token 不再逐块触发整页重渲染
-  const chat = useAgentChat({ agent, getInitialMessages, experimental_throttle: 50 });
+  const chat = useAgentChat({ agent, experimental_throttle: 50 });
 
   return {
     identified: agent.identified,
