@@ -32,4 +32,4 @@ export {
 } from './settings';
 
 // 类型导出
-export type { Message, ToolCallEvent, SseChunk, AgentFile } from './types';
+export type { Message, ToolCallEvent, AgentFile } from './types';

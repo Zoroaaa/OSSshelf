@@ -1,7 +1,7 @@
 # OSSshelf AI API 文档
 
-**版本**: v5.1.0
-**更新日期**: 2026-06-08
+**版本**: v5.2.0
+**更新日期**: 2026-10-29
 
 ---
 
@@ -11,12 +11,11 @@
 - [认证](#认证)
 - [AI 提供商 API](#ai-提供商-api)
 - [AI 对话 API](#ai-对话-api)
-- [Agent API](#agent-api)
+- [Agent 运行时 API](#agent-运行时-api)
 - [模型管理 API](#模型管理-api)
 - [AI 功能 API](#ai-功能-api)
 - [向量索引 API](#向量索引-api)
 - [AI 配置 API](#ai-配置-api)
-- [SSE 事件格式](#sse-事件格式)
 - [错误处理](#错误处理)
 
 ---
@@ -28,28 +27,17 @@
 | 模块      | 路径前缀                               | 功能                           |
 | --------- | -------------------------------------- | ------------------------------ |
 | AI 提供商 | `/api/ai-config/providers`             | 提供商管理（v4.4.0 新增）      |
-| AI 对话   | `/api/ai/chat`                         | 会话管理、消息发送             |
-| Agent     | `/api/ai/agent`                        | Agent 引擎、工具调用、确认操作 |
+| AI 对话/运行时 | `/api/ai-chat/*`、`/agents/*`     | 会话 CRUD、票据、WebSocket 对话 |
 | 模型管理  | `/api/ai/models`                       | 模型配置、激活、测试           |
 | AI 功能   | `/api/ai/summarize`, `/api/ai/tags` 等 | 摘要、标签、重命名             |
 | 向量索引  | `/api/ai/index`                        | 向量索引管理                   |
 | AI 配置   | `/api/ai/config`                       | 系统配置管理                   |
-| 记忆管理  | `/api/ai/memories`                     | 跨会话记忆 CRUD（v4.7.0 新增） |
+| 记忆管理  | `/api/ai-chat/memories`                | 跨会话记忆 CRUD（v4.7.0 新增） |
 | 用量统计  | `/api/ai/usage`                        | 真实 token 记账与配额（v5.2.0）|
-| Agent 运行时 | `/api/ai-chat/runtime`、`/api/ai-chat/ws-ticket` | Agents SDK WebSocket 会话（v5.2.0）|
 
 ---
 
 ## v5.2.0 Agent 运行时（Cloudflare Agents SDK）
-
-### 运行时探测
-
-```http
-GET /api/ai-chat/runtime
-Authorization: Bearer <token>
-```
-
-返回 `{ mode: 'agent' | 'legacy' }`。由 `ai.runtime.mode` 与 `ai.runtime.agent_user_allowlist` 控制。
 
 ### 换取 WebSocket 票据
 
@@ -60,7 +48,7 @@ Content-Type: application/json
 { "sessionId": "<uuid>" }
 ```
 
-返回 60 秒有效的一次性 ticket。客户端使用 `agents/react` 的 `useAgent` 连接：
+返回 2 小时有效的 ticket。客户端使用 `agents/react` 的 `useAgent` 连接：
 
 ```
 wss://<api-host>/agents/OSSShelfAgent/<userId>:<sessionId>?ticket=<ticket>
@@ -303,101 +291,33 @@ Content-Type: application/json
 
 ---
 
-## Agent API
+## Agent 运行时 API
 
-### 发送消息（流式响应）
+对话消息只能通过 Durable Object WebSocket 发送；HTTP 侧仅负责会话 CRUD、票据与记忆。
 
-v4.3.0 Agent 引擎支持多轮推理和工具调用。
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/ai-chat/sessions` | 会话列表 |
+| POST | `/api/ai-chat/sessions` | 创建会话（可传客户端生成的 `id`） |
+| PUT | `/api/ai-chat/sessions/:sessionId` | 重命名会话 |
+| DELETE | `/api/ai-chat/sessions/:sessionId` | 删除会话及其消息 |
+| POST | `/api/ai-chat/ws-ticket` | 换取 2h WebSocket ticket |
+| GET | `/api/ai-chat/memories` | 记忆列表 |
+| DELETE | `/api/ai-chat/memories/:id` | 删除记忆 |
 
-```http
-POST /api/ai/agent/chat
-Content-Type: application/json
+WebSocket 建立后，发送消息、工具审批、停止与重新生成均由 `@cloudflare/ai-chat/react` 的 `useAgentChat` 完成：
 
-{
-  "message": "帮我找一下所有图片文件",
-  "sessionId": "uuid",        // 可选，不传则创建新会话
-  "modelId": "uuid",          // 可选，不传则使用默认模型
-  "history": [                // 可选，历史消息
-    { "role": "user", "content": "..." },
-    { "role": "assistant", "content": "..." }
-  ]
-}
+```typescript
+const agent = useAgent({ agent: 'OSSShelfAgent', name: `${userId}:${sessionId}`, host, query: { ticket } });
+const chat = useAgentChat({ agent });
+
+chat.sendMessage({ text: '帮我找一下所有图片文件' }, { body: { contextFileIds } });
+chat.addToolApprovalResponse({ id: approvalId, approved: true });
+chat.stop();
+chat.regenerate();
 ```
 
-**响应**: SSE 流式响应，参见 [SSE 事件格式](#sse-事件格式)
-
-### 确认写操作
-
-v4.3.0 新增：用户确认敏感操作后调用。
-
-```http
-POST /api/ai/agent/confirm
-Content-Type: application/json
-
-{
-  "confirmId": "uuid"
-}
-```
-
-**响应**:
-
-```json
-{
-  "success": true,
-  "result": {
-    "message": "文件已删除",
-    "fileId": "xxx"
-  }
-}
-```
-
-### 获取可用工具列表
-
-```http
-GET /api/ai/agent/tools
-```
-
-**响应**:
-
-```json
-{
-  "tools": [
-    {
-      "name": "search_files",
-      "description": "搜索文件",
-      "category": "search",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "query": { "type": "string" },
-          "limit": { "type": "number" }
-        }
-      }
-    }
-  ],
-  "total": 100+
-}
-```
-
-### 按类别获取工具
-
-```http
-GET /api/ai/agent/tools?category=search
-```
-
-**响应**:
-
-```json
-{
-  "tools": [
-    { "name": "search_files", ... },
-    { "name": "filter_files", ... },
-    { "name": "search_by_tag", ... }
-  ],
-  "category": "search",
-  "total": 6
-}
-```
+审批不再有独立 HTTP 接口：写工具声明 `needsApproval`，客户端回传 `approvalId` 后在同一轮继续执行。
 
 ---
 
@@ -869,219 +789,6 @@ DELETE /api/ai/memories/:memoryId
 
 ---
 
-## SSE 事件格式
-
-v4.3.0 Agent 引擎使用 SSE（Server-Sent Events）进行流式响应。
-
-### 事件类型
-
-#### 文本内容事件
-
-```
-event: text
-data: {"content": "你好", "done": false}
-
-event: text
-data: {"content": "！", "done": false}
-```
-
-#### 推理内容事件
-
-```
-event: reasoning
-data: {"content": "让我思考一下...", "done": false}
-```
-
-#### 工具调用开始事件
-
-```
-event: tool_start
-data: {
-  "toolCallId": "call_xxx",
-  "toolName": "search_files",
-  "args": {
-    "query": "配置文件",
-    "limit": 10
-  },
-  "done": false
-}
-```
-
-#### 工具调用结果事件
-
-```
-event: tool_result
-data: {
-  "toolCallId": "call_xxx",
-  "toolName": "search_files",
-  "result": {
-    "files": [...],
-    "total": 5
-  },
-  "done": false
-}
-```
-
-#### 确认请求事件（v4.3.0 新增）
-
-```
-event: confirm_request
-data: {
-  "confirmId": "uuid",
-  "toolName": "delete_file",
-  "args": {
-    "fileId": "xxx"
-  },
-  "summary": "删除文件: document.pdf",
-  "done": true
-}
-```
-
-#### 完成事件
-
-```
-event: done
-data: {
-  "sessionId": "uuid",
-  "sources": [
-    {
-      "fileId": "xxx",
-      "fileName": "config.json",
-      "mimeType": "application/json"
-    }
-  ],
-  "done": true
-}
-```
-
-#### 错误事件
-
-```
-event: error
-data: {
-  "message": "模型调用失败",
-  "done": true
-}
-```
-
-#### 执行计划事件（v4.7.0 新增）
-
-```
-event: plan
-data: {
-  "plan": {
-    "goal": "整理下载文件夹中的文件",
-    "steps": [
-      {
-        "id": "step-1",
-        "description": "扫描下载文件夹获取所有文件列表",
-        "toolHint": "filter_files",
-        "status": "pending"
-      },
-      {
-        "id": "step-2",
-        "description": "按文件类型分类归档",
-        "dependsOn": ["step-1"],
-        "status": "pending"
-      }
-    ],
-    "estimatedToolCalls": 8
-  },
-  "done": false
-}
-```
-
-#### 步骤状态更新事件（v4.7.0 新增）
-
-```
-event: plan_step_update
-data: {
-  "stepId": "step-1",
-  "status": "running",
-  "done": false
-}
-
-event: plan_step_update
-data: {
-  "stepId": "step-1",
-  "status": "done",
-  "done": false
-}
-```
-
-### 前端使用示例
-
-```typescript
-const eventSource = new EventSource('/api/ai/agent/chat', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ message: '你好' }),
-});
-
-eventSource.addEventListener('text', (e) => {
-  const data = JSON.parse(e.data);
-  appendText(data.content);
-});
-
-eventSource.addEventListener('tool_start', (e) => {
-  const data = JSON.parse(e.data);
-  showToolCall(data.toolName, data.args);
-});
-
-eventSource.addEventListener('tool_result', (e) => {
-  const data = JSON.parse(e.data);
-  updateToolResult(data.toolCallId, data.result);
-});
-
-eventSource.addEventListener('confirm_request', (e) => {
-  const data = JSON.parse(e.data);
-  showConfirmCard(data.confirmId, data.summary);
-});
-
-eventSource.addEventListener('done', (e) => {
-  const data = JSON.parse(e.data);
-  showSources(data.sources);
-  eventSource.close();
-});
-
-eventSource.addEventListener('error', (e) => {
-  const data = JSON.parse(e.data);
-  showError(data.message);
-  eventSource.close();
-});
-
-eventSource.addEventListener('plan', (e) => {
-  const data = JSON.parse(e.data);
-  showExecutionPlan(data.plan);
-});
-
-eventSource.addEventListener('plan_step_update', (e) => {
-  const data = JSON.parse(e.data);
-  updatePlanStepStatus(data.stepId, data.status);
-});
-
-// v4.7.0 新增：中断处理
-// 当用户手动停止或连接中断时，前端应保留已接收内容
-const abortController = new AbortController();
-eventSource.addEventListener('error', async (e) => {
-  // 检查是否为用户主动中断
-  if (abortController.signal.aborted) {
-    // 保留已输出内容，标记 aborted 状态
-    markMessageAsAborted(lastMessageId);
-    showAbortIndicator();
-  }
-  eventSource.close();
-});
-
-// 手动停止
-function stopGeneration() {
-  abortController.abort();
-  // API 层会抛出 DOMException('AbortError')，前端统一捕获
-}
-```
-
----
-
 ## 错误处理
 
 ### 错误响应格式
@@ -1116,8 +823,6 @@ function stopGeneration() {
 | `AI_REQUEST_FAILED`   | AI 请求失败                        | 500         |
 | `RATE_LIMIT_EXCEEDED` | 请求频率超限                       | 429         |
 | `TASK_RUNNING`        | 任务正在运行                       | 409         |
-| `CONFIRM_EXPIRED`     | 确认请求已过期                     | 400         |
-| `CONFIRM_CONSUMED`    | 确认请求已使用                     | 400         |
 | `TOKEN_EXPIRED`       | Token 已过期（v4.7.0 修正为 A006） | 401         |
 
 ### 错误处理最佳实践

@@ -15,16 +15,11 @@
 | **检索** | 分块正文落 `file_chunks`，新增 FTS5 关键词召回、可选 rerank、`search_content` 工具 |
 | **队列** | 移除 KV 并发锁，改由 Queue `max_concurrency`；`ai_task_items` 提供逐文件幂等与真续跑；`agent_batch` 走 fileService |
 | **配置** | 功能级模型配置从 KV 迁入 `ai_feature_config`（首次读取自动迁移） |
-| **前端** | 新增 `useOssShelfChat`（`useAgent` + `useAgentChat`）、`agentMessages` 映射、用量统计 Tab；旧 SSE 链路仍保留作回退 |
-
-### 灰度开关
-
-- `ai.runtime.mode`：`legacy`（默认）| `agent`
-- `ai.runtime.agent_user_allowlist`：逗号分隔的用户 ID，为空时全部用户可用（仅 mode=agent 生效）
+| **前端** | `useOssShelfChat`（`useAgent` + `useAgentChat`）、`agentMessages` 映射、用量统计 Tab；旧 SSE 链路与 AgentEngine 已完全移除 |
 
 ### 数据表
 
-`ai_usage_events`、`file_chunks`、`ai_task_items`、`ai_feature_config`、`files_fts`（FTS5）
+`ai_usage_events`、`file_chunks`、`ai_task_items`、`ai_feature_config`、`files_fts`（FTS5）；`ai_chat_messages` 作为管理端审计镜像保留（由 Agent `onFinish` 写入）
 
 ---
 
@@ -33,7 +28,7 @@
 - [功能概述](#功能概述)
 - [AI 提供商管理](#ai-提供商管理)
 - [AI 对话系统](#ai-对话系统)
-- [Agent 引擎](#agent-引擎)
+- [Agent 运行时](#agent-运行时)
 - [智能工具集](#智能工具集)
 - [AI 文件处理功能](#ai-文件处理功能)
 - [多模型支持](#多模型支持)
@@ -269,7 +264,7 @@ closed（正常）──失败计数≥3──→ open（熔断）
 - `network_timeout`：不触发熔断（直接重试）
 - `unknown`：记录日志
 
-**集成位置**：agentEngine.ts 的 native 和 prompt-based 两条路径
+**集成位置**：`OSSShelfAgent` 的 `streamText` 调用链（v5.2.0）
 
 ### v4.7.0 安全性与稳定性修复详解 🛡️
 
@@ -575,11 +570,11 @@ v4.4.0 新增提供商管理功能，支持 16 个系统内置提供商和用户
 
 ---
 
-## Agent 引擎
+## Agent 运行时
 
 ### 架构概述
 
-v4.3.0 采用 **ReAct 架构**（Reason → Act → Observe → Reason...），实现多轮推理和链式工具调用：
+v5.2.0 由 `OSSShelfAgent`（Cloudflare Agents SDK `AIChatAgent` + Durable Object）承载，`streamText` 驱动 ReAct 循环（Reason → Act → Observe → Reason...），实现多轮推理和链式工具调用：
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -666,48 +661,28 @@ const VISUAL_INTENT_PATTERNS = [
 ```
 用户请求删除文件
        ↓
-Agent 调用 delete_file 工具
+Agent 调用 delete_file 工具（needsApproval）
        ↓
-系统检测到写操作，暂停执行
-       ↓
-返回 confirm_request 事件
+Durable Object 暂停该轮，向客户端推送 approval-requested
        ↓
 前端展示确认卡片
        ↓
 用户点击"确认执行"
        ↓
-调用确认 API，执行操作
+addToolApprovalResponse({ id, approved: true })
+       ↓
+同一轮继续执行工具
 ```
 
-### SSE 事件类型
+### 流式消息格式
 
-流式响应支持以下事件类型：
+运行时输出 AI SDK v7 `UIMessage` 流，前端由 `useAgentChat` 消费，并通过 `mapUIMessages` 映射为 UI 结构：
 
-```typescript
-// 文本内容
-{ type: "text", content: "文本内容", done: false }
+- `text` / `reasoning`：正文与推理内容
+- `tool-*`：工具调用及其 `state`（`output-available` / `approval-requested` / `output-denied` 等）
+- `data-plan` / `data-sources`：执行计划与引用来源
 
-// 推理内容
-{ type: "reasoning", content: "思考过程...", done: false }
-
-// 工具调用开始
-{ type: "tool_start", toolName: "search_files", toolCallId: "xxx", args: {...}, done: false }
-
-// 工具调用结果
-{ type: "tool_result", toolCallId: "xxx", toolName: "search_files", result: {...}, done: false }
-
-// 确认请求（写操作）
-{ type: "confirm_request", confirmId: "xxx", toolName: "delete_file", args: {...}, summary: "删除文件", done: true }
-
-// 执行计划（v4.7.0 新增）
-{ type: "plan", plan: ExecutionPlan, done: false }
-
-// 步骤状态更新（v4.7.0 新增）
-{ type: "plan_step_update", stepId: "step-1", status: "running", done: false }
-
-// 完成
-{ type: "done", sessionId: "xxx", sources: [...] }
-```
+不再使用自研 SSE 事件协议。
 
 ### 推理内容支持
 
@@ -1058,7 +1033,7 @@ v4.3.0 提供了 **100+ 个智能工具**，分为 13 个功能模块：
 | `chat`             | 文本对话   | 摘要生成、智能重命名、对话 |
 | `vision`           | 图片理解   | 图片描述、图片标签         |
 | `embedding`        | 文本向量化 | 语义搜索                   |
-| `function_calling` | 工具调用   | Agent 引擎                 |
+| `function_calling` | 工具调用   | Agent 运行时               |
 
 ---
 
@@ -1327,11 +1302,12 @@ apps/api/src/lib/ai/
 ├── index.ts                    # 模块导出
 ├── types.ts                    # 类型定义
 ├── modelGateway.ts             # 模型网关（核心）
-├── agentEngine.ts              # Agent 引擎 (v4.3.0 重构, v4.7.0 增强)
+├── modelResolver.ts            # AI SDK 模型解析 (v5.2.0 新增)
+├── completion.ts               # 非流式生成兼容层 (v5.2.0 新增)
+├── toolAdapter.ts              # 工具 → AI SDK tools (v5.2.0 新增)
 ├── agentMemory.ts              # 跨会话记忆管理 (v4.7.0 新增)
 ├── circuitBreaker.ts           # 模型调用熔断器 (v4.7.0 新增)
 ├── aiConfigService.ts          # AI 配置服务
-├── ragEngine.ts                # RAG 引擎
 ├── features.ts                 # 文件处理功能
 ├── utils.ts                    # 工具函数
 ├── vendorConfig.ts             # 供应商配置
@@ -1402,31 +1378,18 @@ class ModelGateway {
 }
 ```
 
-#### AgentEngine（Agent 引擎）v4.3.0
+#### OSSShelfAgent（Agent 运行时）v5.2.0
 
 ```typescript
-class AgentEngine {
-  run(userId, query, history, modelId?, onChunk?, signal?, sessionId?): Promise<AgentResult>;
-  executeConfirmAction(confirmId, userId): Promise<unknown>;
+class OSSShelfAgent extends AIChatAgent {
+  onChatMessage(onFinish, options): Promise<Response>;
 }
-
-// SSE 事件类型
-type AgentChunk =
-  | { type: 'text'; content: string; done: false }
-  | { type: 'reasoning'; content: string; done: false }
-  | { type: 'tool_start'; toolName: string; toolCallId: string; args: Record<string, unknown>; done: false }
-  | { type: 'tool_result'; toolCallId: string; toolName: string; result: unknown; done: false }
-  | {
-      type: 'confirm_request';
-      confirmId: string;
-      toolName: string;
-      args: Record<string, unknown>;
-      summary: string;
-      done: true;
-    }
-  | { type: 'done'; sessionId: string; sources: AgentSource[]; done: true }
-  | { type: 'error'; message: string; done: true };
 ```
+
+- 会话状态（消息、审批）由 Durable Object 持有，支持断线续传与多端同步
+- `streamText` + `toUIMessageStreamResponse()` 输出 AI SDK v7 UI 消息流
+- 写操作通过 `needsApproval` 暂停，用户批准后在同一轮继续执行
+- `onFinish` 写入 `ai_usage_events`（真实 token）与 `ai_chat_messages`（审计镜像）
 
 #### AgentToolExecutor（工具执行器）v4.3.0
 
@@ -1507,19 +1470,9 @@ interface ToolDefinition {
 | latency_ms | integer? | 响应延迟（毫秒）                |
 | created_at | text     | 创建时间                        |
 
-#### ai_confirm_requests（确认请求表）v4.3.0
+#### ai_confirm_requests（确认请求表）— 已移除
 
-| 字段       | 类型  | 说明                     |
-| ---------- | ----- | ------------------------ |
-| id         | text  | 主键 UUID                |
-| user_id    | text  | 用户 ID                  |
-| session_id | text? | 会话 ID                  |
-| tool_name  | text  | 工具名称                 |
-| args       | text  | 参数 JSON                |
-| summary    | text  | 操作摘要                 |
-| status     | text  | 状态: pending / consumed |
-| created_at | text  | 创建时间                 |
-| expires_at | text  | 过期时间                 |
+v5.2.0 起工具审批由 AI SDK `needsApproval` 在 Durable Object 内管理，迁移 `111_remove_legacy_chat.sql` 已删除该表。
 
 ---
 

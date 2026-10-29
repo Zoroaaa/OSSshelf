@@ -73,6 +73,7 @@ export function mapUIMessages(uiMessages: UIMessage[], options: MapOptions = {})
             result: toolPart.output,
             status,
             confirmStatus,
+            approvalId: toolPart.approval?.id,
           });
 
           if (state === 'approval-requested' && toolPart.approval?.id) {

@@ -13,7 +13,7 @@
 import { AIChatAgent, type ChatResponseResult, type OnChatMessageOptions } from '@cloudflare/ai-chat';
 import { convertToModelMessages, pruneMessages, stepCountIs, streamText } from 'ai';
 import type { UIMessage } from 'ai';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { Connection, ConnectionContext } from 'agents';
 import type { Env } from '../types/env';
 import { getVerifiedIdentity } from './auth';
@@ -21,7 +21,7 @@ import { getDb, aiChatMessages, aiChatSessions } from '../db';
 import { resolveLanguageModel } from '../lib/ai/modelResolver';
 import { buildAgentTools } from '../lib/ai/toolAdapter';
 import { getAiConfigNumber } from '../lib/ai/aiConfigService';
-import { AGENT_SYSTEM_PROMPT } from '../lib/ai/agentEngine';
+import { AGENT_SYSTEM_PROMPT } from '../lib/ai/prompts/agentSystem';
 import { recordUsage } from '../lib/ai/usage';
 import { mapAiError } from '../lib/ai/aiErrors';
 import { logger } from '@osshelf/shared';
@@ -30,10 +30,16 @@ export interface OSSshelfAgentState {
   userId: string;
   sessionId: string;
   modelId?: string;
-  importedAt?: boolean;
 }
 
 const DEFAULT_MAX_STEPS = 20;
+
+function getMessageText(message: UIMessage): string {
+  return message.parts
+    .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
+    .map((part) => part.text)
+    .join('');
+}
 
 export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
   initialState: OSSshelfAgentState = { userId: '', sessionId: '' };
@@ -75,8 +81,6 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
     }
 
     try {
-      await this.importLegacyHistory();
-
       const requestedModelId =
         typeof options?.body?.modelId === 'string' ? (options.body.modelId as string) : undefined;
 
@@ -97,6 +101,27 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
       });
 
       const startedAt = Date.now();
+      const db = getDb(this.env.DB);
+
+      // D1 审计镜像：供管理端与历史统计使用，DO 仍是消息事实源
+      const userMessage = [...this.messages].reverse().find((message) => message.role === 'user');
+      if (userMessage) {
+        try {
+          await db
+            .insert(aiChatMessages)
+            .values({
+              id: userMessage.id,
+              sessionId,
+              role: 'user',
+              content: getMessageText(userMessage),
+              mentionedFiles: JSON.stringify(options?.body?.contextFileIds ?? []),
+              createdAt: new Date().toISOString(),
+            })
+            .onConflictDoNothing();
+        } catch {
+          // 审计写入失败不阻塞对话
+        }
+      }
 
       const result = streamText({
         model,
@@ -110,6 +135,8 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
           await onFinish(event);
 
           const usage = event.totalUsage ?? event.usage;
+          const toolCallCount = event.toolCalls?.length ?? 0;
+
           await recordUsage(this.env, {
             userId,
             sessionId,
@@ -120,16 +147,40 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
             inputTokens: usage?.inputTokens ?? 0,
             outputTokens: usage?.outputTokens ?? 0,
             latencyMs: Date.now() - startedAt,
-            toolCalls: event.toolCalls?.length ?? 0,
+            toolCalls: toolCallCount,
             status: 'completed',
           });
 
           try {
-            const db = getDb(this.env.DB);
+            await db
+              .insert(aiChatMessages)
+              .values({
+                id: crypto.randomUUID(),
+                sessionId,
+                role: 'assistant',
+                content: event.text ?? '',
+                toolCalls: JSON.stringify(event.toolCalls ?? []),
+                reasoning:
+                  (event as unknown as { reasoning?: Array<{ text?: string }> }).reasoning
+                    ?.map((part) => part.text ?? '')
+                    .join('') || null,
+                modelUsed: config.modelId,
+                latencyMs: Date.now() - startedAt,
+                inputTokens: usage?.inputTokens ?? 0,
+                outputTokens: usage?.outputTokens ?? 0,
+                createdAt: new Date().toISOString(),
+              });
+          } catch {
+            // 审计写入失败不阻塞回复
+          }
+
+          try {
             await db
               .update(aiChatSessions)
               .set({
                 modelId: config.modelId,
+                lastToolCallCount: toolCallCount,
+                totalTokensUsed: sql`total_tokens_used + ${(usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0)}`,
                 updatedAt: new Date().toISOString(),
               })
               .where(eq(aiChatSessions.id, sessionId));
@@ -162,44 +213,6 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
         .where(eq(aiChatSessions.id, this.state.sessionId));
     } catch {
       // ignore
-    }
-  }
-
-  /**
-   * 旧会话从 D1 一次性导入到 DO SQLite。
-   * 新会话在 D1 无消息，仅标记 importedAt，避免每轮重复查询。
-   */
-  private async importLegacyHistory(): Promise<void> {
-    if (this.state.importedAt) return;
-
-    try {
-      const db = getDb(this.env.DB);
-      const rows = await db
-        .select()
-        .from(aiChatMessages)
-        .where(eq(aiChatMessages.sessionId, this.state.sessionId))
-        .orderBy(aiChatMessages.createdAt)
-        .all();
-
-      const existingIds = new Set(this.messages.map((message) => message.id));
-      const imported: UIMessage[] = rows
-        .filter((row) => (row.role === 'user' || row.role === 'assistant') && row.content && !existingIds.has(row.id))
-        .map((row) => ({
-          id: row.id,
-          role: row.role as 'user' | 'assistant',
-          parts: [{ type: 'text' as const, text: row.content }],
-          createdAt: new Date(row.createdAt),
-        }));
-
-      if (imported.length > 0) {
-        await this.persistMessages([...imported, ...this.messages]);
-        logger.info('Agent', 'Legacy history imported', {
-          sessionId: this.state.sessionId,
-          count: imported.length,
-        });
-      }
-    } finally {
-      this.setState({ ...this.state, importedAt: true });
     }
   }
 }

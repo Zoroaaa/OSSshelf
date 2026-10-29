@@ -20,6 +20,7 @@ export interface ToolCallEvent {
   result?: unknown;
   status: 'running' | 'done' | 'error' | 'pending_confirm';
   confirmStatus?: 'pending' | 'confirmed' | 'cancelled';
+  approvalId?: string;
 }
 
 export interface PreviewDiff {
@@ -47,29 +48,6 @@ export interface Message {
   isLoading?: boolean;
   aborted?: boolean;
   mentionedFiles?: Array<{ id: string; name: string }>;
-}
-
-export interface SseChunk {
-  type?: 'reset' | 'plan' | 'plan_step_update';
-  content?: string;
-  done?: boolean;
-  sessionId?: string;
-  sources?: Array<{ id: string; name: string; mimeType: string | null; score: number }>;
-  error?: string;
-  usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
-  reasoning?: boolean;
-  toolStart?: boolean;
-  toolResult?: boolean;
-  toolName?: string;
-  toolCallId?: string;
-  args?: Record<string, unknown>;
-  result?: unknown;
-  confirmRequest?: boolean;
-  confirmId?: string;
-  summary?: string;
-  plan?: ExecutionPlan;
-  stepId?: string;
-  status?: string;
 }
 
 export interface ExecutionPlanStep {

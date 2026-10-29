@@ -13,7 +13,6 @@
  */
 
 import api from './api-client';
-import { useAuthStore } from '../stores/auth';
 import type { ApiResponse, FileItem } from '@osshelf/shared';
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -475,27 +474,14 @@ export const aiApi = {
 
   chatSession: {
     getSessions: () => api.get<ApiResponse<AiChatSession[]>>('/api/ai-chat/sessions'),
-    getSession: (sessionId: string) => api.get<ApiResponse<AiChatSessionDetail>>(`/api/ai-chat/sessions/${sessionId}`),
     createSession: (data: { id?: string; title?: string; modelId?: string }) =>
       api.post<ApiResponse<AiChatSession>>('/api/ai-chat/sessions', data),
-    getRuntime: async (): Promise<'agent' | 'legacy'> => {
-      try {
-        const res = await api.get<ApiResponse<{ mode: 'agent' | 'legacy' }>>('/api/ai-chat/runtime');
-        return res.data?.data?.mode ?? 'legacy';
-      } catch {
-        return 'legacy';
-      }
-    },
     updateSession: (sessionId: string, data: { title: string }) =>
       api.put<ApiResponse<AiChatSession>>(`/api/ai-chat/sessions/${sessionId}`, data),
     deleteSession: (sessionId: string) =>
       api.delete<ApiResponse<{ message: string }>>(`/api/ai-chat/sessions/${sessionId}`),
-    confirmAction: (confirmId: string) =>
-      api.post<ApiResponse<{ result: unknown; confirmedAt: string }>>('/api/ai-chat/confirm', { confirmId }),
-    cancelAction: (confirmId: string) =>
-      api.post<ApiResponse<{ cancelledAt: string }>>('/api/ai-chat/cancel', { confirmId }),
 
-    /** 换取 Agent WebSocket 短期票据；未开放 Agent 运行时返回 null */
+    /** 换取 Agent WebSocket 票据 */
     wsTicket: async (sessionId: string): Promise<{ ticket: string; agent: string; name: string } | null> => {
       try {
         const res = await api.post<ApiResponse<{ ticket: string; agent: string; name: string; expiresIn: number }>>(
@@ -505,153 +491,6 @@ export const aiApi = {
         return res.data?.data ?? null;
       } catch {
         return null;
-      }
-    },
-
-    /**
-     * SSE 流式聊天接口
-     *
-     * 支持自动重试机制（最多 MAX_RETRIES 次，指数退避），
-     * 通过 onChunk 回调实时推送解析后的 SSE 数据块。
-     * 支持 AbortSignal 取消请求。
-     */
-    chatStream: async (
-      query: string,
-      options: {
-        sessionId?: string;
-        modelId?: string;
-        maxFiles?: number;
-        includeFileContent?: boolean;
-        contextFolderId?: string;
-        contextFileIds?: string[];
-        onChunk: (chunk: {
-          content?: string;
-          done?: boolean;
-          sessionId?: string;
-          sources?: Array<{ id: string; name: string; mimeType: string | null; score: number }>;
-          error?: string;
-          toolStart?: boolean;
-          toolResult?: boolean;
-          toolName?: string;
-          toolCallId?: string;
-          args?: Record<string, unknown>;
-          result?: unknown;
-          confirmRequest?: boolean;
-          confirmId?: string;
-          summary?: string;
-          reasoning?: boolean;
-          reset?: boolean;
-        }) => void;
-        onError?: (error: Error) => void;
-        signal?: AbortSignal;
-      }
-    ) => {
-      const token = useAuthStore.getState().token;
-      const baseUrl = import.meta.env.VITE_API_URL || '';
-      const MAX_RETRIES = 3;
-      const RETRY_DELAY = 1000;
-
-      let retryCount = 0;
-      let lastError: Error | null = null;
-
-      while (retryCount <= MAX_RETRIES) {
-        try {
-          if (options.signal?.aborted) throw new DOMException('The operation was aborted.', 'AbortError');
-
-          const response = await fetch(`${baseUrl}/api/ai-chat/chat`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ query, ...options, stream: true }),
-            signal: options.signal,
-          });
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            let errorMessage = `HTTP error! status: ${response.status}`;
-            try {
-              const errorJson = JSON.parse(errorText);
-              errorMessage = errorJson.error || errorJson.message || errorMessage;
-            } catch {
-              if (errorText) errorMessage = errorText;
-            }
-            throw new Error(errorMessage);
-          }
-
-          const reader = response.body?.getReader();
-          if (!reader) throw new Error('No reader available');
-
-          const decoder = new TextDecoder();
-          let buffer = '';
-          let streamDone = false;
-
-          while (!streamDone) {
-            if (options.signal?.aborted) {
-              try {
-                await reader.cancel();
-              } catch {
-                /* ignore */
-              }
-              throw new DOMException('The operation was aborted.', 'AbortError');
-            }
-
-            const { done, value } = await reader.read();
-            if (done) {
-              streamDone = true;
-              break;
-            }
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-
-            for (const line of lines) {
-              const trimmedLine = line.trim();
-              if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
-              try {
-                const data = JSON.parse(trimmedLine.slice(6));
-                options.onChunk(data);
-                if (data.done) return;
-                if (data.error) {
-                  lastError = new Error(data.error);
-                  // 不可重试的错误类型：认证、权限、参数校验、配置、资源不存在
-                  const isNonRetryable =
-                    data.error.includes('认证') ||
-                    data.error.includes('权限') ||
-                    data.error.includes('参数') ||
-                    data.error.includes('配置') ||
-                    data.error.includes('不存在') ||
-                    data.error.includes('validation') ||
-                    data.error.includes('not found');
-                  if (retryCount < MAX_RETRIES && !isNonRetryable) {
-                    retryCount++;
-                    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY * retryCount));
-                    continue;
-                  }
-                  throw lastError;
-                }
-              } catch (parseError) {
-                if (parseError instanceof SyntaxError) continue;
-                throw parseError;
-              }
-            }
-          }
-          return;
-        } catch (error) {
-          lastError = error instanceof Error ? error : new Error(String(error));
-          if (options.signal?.aborted || lastError.name === 'AbortError') {
-            throw new DOMException('The operation was aborted.', 'AbortError');
-          }
-          if (retryCount >= MAX_RETRIES) {
-            options.onError?.(lastError);
-            throw lastError;
-          }
-          retryCount++;
-          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY * retryCount));
-        }
-      }
-      if (lastError) {
-        options.onError?.(lastError);
-        throw lastError;
       }
     },
   },

@@ -35,7 +35,7 @@ import {
   AtSign,
   Reply,
 } from 'lucide-react';
-import { aiApi, filesApi, type AiChatMessage } from '@/services/api';
+import { aiApi, filesApi } from '@/services/api';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatDate, formatBytes } from '@/utils';
 import { FilePreview } from '@/components/files/FilePreview';
@@ -52,7 +52,7 @@ import {
   WelcomeScreen,
   PlanProgressBar,
 } from '@/components/ai/chat';
-import type { Message, ToolCallEvent, SseChunk, PendingConfirm, ExecutionPlan } from '@/components/ai/types';
+import type { ExecutionPlan } from '@/components/ai/types';
 import { useOssShelfChat } from '@/hooks/useOssShelfChat';
 import { extractPlan, mapUIMessages } from '@/utils/agentMessages';
 
@@ -210,9 +210,7 @@ export function AIChat() {
   const { token, user } = useAuthStore();
   const { toast } = useToast();
 
-  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
-  const [legacyLoading, setLegacyLoading] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [showSidebar, setShowSidebar] = useState(() => window.innerWidth >= 1024);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -240,61 +238,50 @@ export function AIChat() {
     role: string;
   } | null>(null);
 
-  // ═══ Agent 运行时（灰度）═══
-  const { data: runtimeMode = 'legacy' } = useQuery({
-    queryKey: ['ai-runtime-mode'],
-    queryFn: () => aiApi.chatSession.getRuntime(),
-    staleTime: 60_000,
-  });
-  const agentMode = runtimeMode === 'agent';
-
+  // ═══ Agent 运行时 ═══
   const agent = useOssShelfChat({
     userId: user?.id,
     sessionId: currentSessionId,
-    enabled: agentMode,
+    enabled: true,
   });
 
-  const agentMessages = useMemo(
+  const displayMessages = useMemo(
     () => mapUIMessages(agent.messages, { streaming: Boolean(agent.isStreaming) }),
     [agent.messages, agent.isStreaming]
   );
 
-  const displayMessages = agentMode ? agentMessages : messages;
   const [pendingAgentSend, setPendingAgentSend] = useState<{
     text: string;
     body: Record<string, unknown>;
   } | null>(null);
-  const isLoading = agentMode
-    ? Boolean(
-        pendingAgentSend ||
-        agent.isStreaming ||
-        agent.isRecovering ||
-        agent.status === 'submitted' ||
-        agent.status === 'streaming'
-      )
-    : legacyLoading;
+  const isLoading = Boolean(
+    pendingAgentSend ||
+    agent.isStreaming ||
+    agent.isRecovering ||
+    agent.status === 'submitted' ||
+    agent.status === 'streaming'
+  );
 
   useEffect(() => {
-    if (!agentMode || !agent.identified || !pendingAgentSend) return;
+    if (!agent.identified || !pendingAgentSend) return;
     const payload = pendingAgentSend;
     setPendingAgentSend(null);
     void agent.sendMessage({ text: payload.text }, { body: payload.body });
-  }, [agentMode, agent.identified, pendingAgentSend, agent.sendMessage]);
+  }, [agent.identified, pendingAgentSend, agent.sendMessage]);
 
   useEffect(() => {
-    if (!agentMode) return;
     const plan = extractPlan(agent.messages);
     if (!plan) return;
-    const lastAssistant = [...agentMessages].reverse().find((message) => message.role === 'assistant');
+    const lastAssistant = [...displayMessages].reverse().find((message) => message.role === 'assistant');
     if (!lastAssistant) return;
     setExecutionPlans((prev) => (prev.has(lastAssistant.id) ? prev : new Map(prev).set(lastAssistant.id, plan)));
-  }, [agentMode, agent.messages, agentMessages]);
+  }, [agent.messages, displayMessages]);
 
   useEffect(() => {
-    if (agentMode && !agent.isStreaming) {
+    if (!agent.isStreaming) {
       queryClient.invalidateQueries({ queryKey: ['ai-chat-sessions'] });
     }
-  }, [agentMode, agent.isStreaming, queryClient]);
+  }, [agent.isStreaming, queryClient]);
 
   // ═══ @文件引用搜索查询 ═══
   const { data: mentionSearchResults = [] } = useQuery({
@@ -439,10 +426,10 @@ export function AIChat() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const autoScrollRef = useRef(true);
   const scrollPositionsRef = useRef<Map<string, number>>(new Map());
   const prevSessionIdRef = useRef<string | null>(null);
 
@@ -461,8 +448,9 @@ export function AIChat() {
   }, [currentSessionId]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [displayMessages]);
+    if (!autoScrollRef.current) return;
+    messagesEndRef.current?.scrollIntoView({ behavior: agent.isStreaming ? 'auto' : 'smooth' });
+  }, [displayMessages, agent.isStreaming]);
 
   useEffect(() => {
     if (currentSessionId && displayMessages.length > 0) {
@@ -479,8 +467,8 @@ export function AIChat() {
     inputRef.current?.focus();
   }, []);
   useEffect(() => {
-    if (urlSessionId && urlSessionId !== currentSessionId) loadSession(urlSessionId);
-  }, [urlSessionId, agentMode]);
+    if (urlSessionId && urlSessionId !== currentSessionId) setCurrentSessionId(urlSessionId);
+  }, [urlSessionId, currentSessionId]);
 
   const autoResize = (el: HTMLTextAreaElement) => {
     el.style.height = 'auto';
@@ -513,58 +501,10 @@ export function AIChat() {
 
   const closePreview = useCallback(() => setPreviewFile(null), []);
 
-  const loadSession = async (sessionId: string) => {
-    if (agentMode) {
-      setCurrentSessionId(sessionId);
-      setMessages([]);
-      setLegacyLoading(false);
-      return;
-    }
-
-    try {
-      setLegacyLoading(true);
-      const res = await aiApi.chatSession.getSession(sessionId);
-      if (res.data.success && res.data.data) {
-        setCurrentSessionId(sessionId);
-        setMessages(
-          res.data.data.messages.map((m: AiChatMessage) => {
-            const isInterrupted = m.role === 'assistant' && !m.content && !m.aborted;
-            return {
-              id: m.id,
-              role: m.role as 'user' | 'assistant',
-              content: m.content,
-              sources: m.sources,
-              toolCalls: m.toolCalls || [],
-              reasoning: m.reasoning || undefined,
-              aborted: m.aborted || isInterrupted,
-              mentionedFiles: m.mentionedFiles,
-              timestamp: new Date(m.createdAt),
-            };
-          })
-        );
-      } else {
-        toast({
-          title: '加载失败',
-          description: '无法加载会话内容',
-          variant: 'destructive',
-        });
-      }
-    } catch (e) {
-      console.error(e);
-      toast({
-        title: '加载会话出错',
-        description: e instanceof Error ? e.message : '网络错误，请重试',
-        variant: 'destructive',
-      });
-    } finally {
-      setLegacyLoading(false);
-    }
-  };
-
   const MAX_QUERY_LENGTH = 15000;
 
   const sendMessage = useCallback(
-    async (query: string, regenerateFromId?: string) => {
+    async (query: string) => {
       if (!query.trim() || isLoading) return;
 
       if (query.length > MAX_QUERY_LENGTH) {
@@ -578,237 +518,27 @@ export function AIChat() {
 
       const finalQuery = quotedMessage ? `[引用]: ${quotedMessage.content}\n\n${query}` : query;
 
-      if (agentMode) {
-        if (regenerateFromId) {
-          agent.regenerate();
-          return;
-        }
+      const currentMentioned = [...mentionedFilesRef.current];
+      const body: Record<string, unknown> = {
+        contextFolderId: contextFolderId ?? null,
+        contextFileIds: currentMentioned.length > 0 ? currentMentioned.map((f) => f.id) : undefined,
+      };
 
-        const currentMentioned = [...mentionedFilesRef.current];
-        const body: Record<string, unknown> = {
-          contextFolderId: contextFolderId ?? null,
-          contextFileIds: currentMentioned.length > 0 ? currentMentioned.map((f) => f.id) : undefined,
-        };
-
-        let sessionId = currentSessionId;
-        if (!sessionId) {
-          sessionId = crypto.randomUUID();
-          await aiApi.chatSession.createSession({ id: sessionId, title: finalQuery.slice(0, 50) });
-          setCurrentSessionId(sessionId);
-          if (!urlSessionId) navigate(`/ai-chat/${sessionId}`, { replace: true });
-          queryClient.invalidateQueries({ queryKey: ['ai-chat-sessions'] });
-        }
-
-        setInput('');
-        setMentionedFiles([]);
-        mentionedFilesRef.current = [];
-        if (inputRef.current) inputRef.current.style.height = 'auto';
-        setQuotedMessage(null);
-        setPendingAgentSend({ text: finalQuery, body });
-        return;
+      let sessionId = currentSessionId;
+      if (!sessionId) {
+        sessionId = crypto.randomUUID();
+        await aiApi.chatSession.createSession({ id: sessionId, title: finalQuery.slice(0, 50) });
+        setCurrentSessionId(sessionId);
+        if (!urlSessionId) navigate(`/ai-chat/${sessionId}`, { replace: true });
+        queryClient.invalidateQueries({ queryKey: ['ai-chat-sessions'] });
       }
 
-      let contextFileIdsForApi: string[] | undefined;
-
-      if (regenerateFromId) {
-        setMessages((prev) => {
-          const idx = prev.findIndex((m) => m.id === regenerateFromId);
-          return idx >= 0 ? prev.slice(0, idx) : prev;
-        });
-      } else {
-        const currentMentionedFiles = [...mentionedFilesRef.current];
-        contextFileIdsForApi = currentMentionedFiles.length > 0 ? currentMentionedFiles.map((f) => f.id) : undefined;
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            role: 'user',
-            content: finalQuery,
-            mentionedFiles: currentMentionedFiles.length > 0 ? currentMentionedFiles : undefined,
-            timestamp: new Date(),
-          },
-        ]);
-        setInput('');
-        setMentionedFiles([]);
-        mentionedFilesRef.current = [];
-        if (inputRef.current) inputRef.current.style.height = 'auto';
-        setQuotedMessage(null);
-      }
-
-      setLegacyLoading(true);
-      const assistantId = crypto.randomUUID();
-      const toolCallsMap = new Map<string, ToolCallEvent>();
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: assistantId,
-          role: 'assistant',
-          content: '',
-          toolCalls: [],
-          timestamp: new Date(),
-          isLoading: true,
-        },
-      ]);
-
-      abortRef.current = new AbortController();
-
-      try {
-        await aiApi.chatSession.chatStream(finalQuery, {
-          sessionId: currentSessionId || undefined,
-          maxFiles: 8,
-          includeFileContent: false,
-          contextFolderId,
-          contextFileIds: contextFileIdsForApi,
-          onChunk: (raw: SseChunk) => {
-            if (raw.type === 'plan' && raw.plan) {
-              setExecutionPlans((prev) => new Map(prev).set(assistantId, raw.plan!));
-              return;
-            }
-
-            if (raw.type === 'plan_step_update' && raw.stepId && raw.status) {
-              setExecutionPlans((prev) => {
-                const currentPlan = prev.get(assistantId);
-                if (!currentPlan) return prev;
-                const updatedPlan = {
-                  ...currentPlan,
-                  steps: currentPlan.steps.map((s) =>
-                    s.id === raw.stepId ? { ...s, status: raw.status as ExecutionPlan['steps'][number]['status'] } : s
-                  ),
-                };
-                const newMap = new Map(prev);
-                newMap.set(assistantId, updatedPlan);
-                return newMap;
-              });
-              return;
-            }
-
-            // 处理 reset 信号：清空当前 assistant 消息的已渲染内容
-            if (raw.type === 'reset') {
-              setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: '', reasoning: '' } : m)));
-              return;
-            }
-
-            if (raw.toolStart && raw.toolCallId && raw.toolName) {
-              const tc: ToolCallEvent = {
-                id: raw.toolCallId,
-                toolName: raw.toolName,
-                args: raw.args || {},
-                status: 'running',
-              };
-              toolCallsMap.set(raw.toolCallId, tc);
-              setMessages((prev) =>
-                prev.map((m) => (m.id === assistantId ? { ...m, toolCalls: [...(m.toolCalls || []), tc] } : m))
-              );
-              return;
-            }
-
-            if (raw.toolResult && raw.toolCallId) {
-              const existing = toolCallsMap.get(raw.toolCallId);
-              if (existing) {
-                existing.result = raw.result;
-                existing.status = 'done';
-              }
-              const resultObj =
-                raw.result && typeof raw.result === 'object' ? (raw.result as Record<string, unknown>) : null;
-              const isPendingConfirm = resultObj?.status === 'pending_confirm';
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantId
-                    ? {
-                        ...m,
-                        toolCalls: (m.toolCalls || []).map((tc) =>
-                          tc.id === raw.toolCallId
-                            ? {
-                                ...tc,
-                                result: raw.result,
-                                status: 'done' as const,
-                                ...(isPendingConfirm ? { confirmStatus: 'pending' as const } : {}),
-                              }
-                            : tc
-                        ),
-                      }
-                    : m
-                )
-              );
-              return;
-            }
-
-            if (raw.reasoning && raw.content) {
-              setMessages((prev) =>
-                prev.map((m) => (m.id === assistantId ? { ...m, reasoning: (m.reasoning || '') + raw.content! } : m))
-              );
-              return;
-            }
-
-            if (raw.content) {
-              setMessages((prev) =>
-                prev.map((m) => (m.id === assistantId ? { ...m, content: (m.content || '') + raw.content! } : m))
-              );
-            }
-
-            if (raw.error && !raw.done) {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantId
-                    ? { ...m, content: (m.content || '') + `\n\n❌ 错误: ${raw.error}`, isLoading: false }
-                    : m
-                )
-              );
-              return;
-            }
-
-            if (raw.done) {
-              if (raw.confirmRequest && raw.confirmId && raw.summary) {
-                const pendingConfirm: PendingConfirm = {
-                  confirmId: raw.confirmId,
-                  toolName: raw.toolName || '',
-                  summary: raw.summary,
-                  args: raw.args || {},
-                };
-                setMessages((prev) =>
-                  prev.map((m) => (m.id === assistantId ? { ...m, isLoading: false, pendingConfirm } : m))
-                );
-              } else {
-                setMessages((prev) =>
-                  prev.map((m) => (m.id === assistantId ? { ...m, isLoading: false, sources: raw.sources || [] } : m))
-                );
-              }
-              if (raw.sessionId) {
-                setCurrentSessionId(raw.sessionId);
-                if (!urlSessionId) navigate(`/ai-chat/${raw.sessionId}`, { replace: true });
-                queryClient.invalidateQueries({ queryKey: ['ai-chat-sessions'] });
-              }
-            }
-          },
-          signal: abortRef.current.signal,
-        });
-      } catch (e) {
-        const name = (e as Error).name;
-        if (name === 'AbortError') {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
-                ? {
-                    ...m,
-                    isLoading: false,
-                    aborted: true,
-                    content: m.content || '',
-                  }
-                : m
-            )
-          );
-        } else {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId ? { ...m, content: '抱歉，遇到了问题，请稍后再试。', isLoading: false } : m
-            )
-          );
-        }
-      } finally {
-        setLegacyLoading(false);
-        abortRef.current = null;
-      }
+      setInput('');
+      setMentionedFiles([]);
+      mentionedFilesRef.current = [];
+      if (inputRef.current) inputRef.current.style.height = 'auto';
+      setQuotedMessage(null);
+      setPendingAgentSend({ text: finalQuery, body });
     },
     [
       isLoading,
@@ -816,8 +546,6 @@ export function AIChat() {
       urlSessionId,
       navigate,
       queryClient,
-      agentMode,
-      agent,
       contextFolderId,
       quotedMessage,
       toast,
@@ -825,123 +553,25 @@ export function AIChat() {
   );
 
   const handleConfirm = useCallback(
-    async (msgId: string, confirmId: string) => {
-      if (agentMode) {
-        agent.addToolApprovalResponse({ id: confirmId, approved: true });
-        return;
-      }
-      setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, isLoading: true } : m)));
-      try {
-        const res = await aiApi.chatSession.confirmAction(confirmId);
-        if (res.data.success && res.data.data) {
-          const resultData = res.data.data;
-          const resultStr =
-            typeof resultData.result === 'object'
-              ? JSON.stringify(resultData.result, null, 2)
-              : String(resultData.result ?? '操作已完成');
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === msgId
-                ? {
-                    ...m,
-                    isLoading: false,
-                    pendingConfirm: undefined,
-                    content: (m.content || '') + `\n\n✅ 操作执行成功:\n${resultStr}`,
-                    toolCalls: (m.toolCalls || []).map((tc) => {
-                      const resultObj =
-                        tc.result && typeof tc.result === 'object' ? (tc.result as Record<string, unknown>) : null;
-                      const wasPendingConfirm =
-                        tc.confirmStatus === 'pending' ||
-                        (resultObj?.status === 'pending_confirm' && !tc.confirmStatus);
-                      if (wasPendingConfirm) {
-                        return { ...tc, result: resultData.result, confirmStatus: 'confirmed' as const };
-                      }
-                      return tc;
-                    }),
-                  }
-                : m
-            )
-          );
-        }
-      } catch (e) {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === msgId ? { ...m, isLoading: false, content: (m.content || '') + '\n\n❌ 操作执行失败' } : m
-          )
-        );
-      }
+    (confirmId: string) => {
+      agent.addToolApprovalResponse({ id: confirmId, approved: true });
     },
-    [agentMode, agent]
+    [agent]
   );
 
   const handleCancelConfirm = useCallback(
-    async (msgId: string, confirmId?: string) => {
-      const message = displayMessages.find((m) => m.id === msgId);
-      const tc = message?.toolCalls?.find(
-        (t) =>
-          t.confirmStatus === 'pending' ||
-          (t.result &&
-            typeof t.result === 'object' &&
-            (t.result as Record<string, unknown>).status === 'pending_confirm' &&
-            !t.confirmStatus)
-      );
-      const actualConfirmId =
-        confirmId ||
-        message?.pendingConfirm?.confirmId ||
-        (tc?.result && typeof tc.result === 'object'
-          ? ((tc.result as Record<string, unknown>).confirmId as string | undefined)
-          : undefined);
-
-      if (agentMode) {
-        if (actualConfirmId) {
-          agent.addToolApprovalResponse({ id: actualConfirmId, approved: false });
-        }
-        return;
-      }
-
-      if (actualConfirmId) {
-        try {
-          await aiApi.chatSession.cancelAction(actualConfirmId);
-        } catch (e) {
-          console.error('Failed to cancel action:', e);
-        }
-      }
-
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === msgId
-            ? {
-                ...m,
-                pendingConfirm: undefined,
-                content: (m.content || '') + '\n\n⛔ 用户已取消操作',
-                toolCalls: (m.toolCalls || []).map((tc) => {
-                  const resultObj =
-                    tc.result && typeof tc.result === 'object' ? (tc.result as Record<string, unknown>) : null;
-                  const wasPendingConfirm =
-                    tc.confirmStatus === 'pending' || (resultObj?.status === 'pending_confirm' && !tc.confirmStatus);
-                  if (wasPendingConfirm) {
-                    return { ...tc, confirmStatus: 'cancelled' as const };
-                  }
-                  return tc;
-                }),
-              }
-            : m
-        )
-      );
+    (confirmId?: string) => {
+      if (!confirmId) return;
+      agent.addToolApprovalResponse({ id: confirmId, approved: false });
     },
-    [displayMessages, agentMode, agent]
+    [agent]
   );
 
-  const handleRegenerate = (msgId: string) => {
-    const idx = displayMessages.findIndex((m) => m.id === msgId);
-    if (idx <= 0) return;
-    const userMsg = displayMessages[idx - 1];
-    if (userMsg?.role !== 'user') return;
-    sendMessage(userMsg.content, msgId);
+  const handleRegenerate = () => {
+    agent.regenerate();
   };
 
   const handleNewChat = () => {
-    setMessages([]);
     setCurrentSessionId(null);
     navigate('/ai-chat');
   };
@@ -986,7 +616,7 @@ export function AIChat() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const lastAssistantIdx = messages.reduce((last, m, i) => (m.role === 'assistant' ? i : last), -1);
+  const lastAssistantIdx = displayMessages.reduce((last, m, i) => (m.role === 'assistant' ? i : last), -1);
 
   return (
     <div className="flex bg-slate-50 dark:bg-slate-950 overflow-hidden h-screen">
@@ -1017,7 +647,15 @@ export function AIChat() {
           onToggleSidebar={() => setShowSidebar(!showSidebar)}
         />
 
-        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto min-h-0">
+        <div
+          ref={messagesContainerRef}
+          className="flex-1 overflow-y-auto min-h-0"
+          onScroll={() => {
+            const container = messagesContainerRef.current;
+            if (!container) return;
+            autoScrollRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
+          }}
+        >
           <div className="max-w-3xl mx-auto px-4 py-6 space-y-5">
             {contextFolderId && (
               <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg text-sm text-blue-700 dark:text-blue-300">
@@ -1066,7 +704,6 @@ export function AIChat() {
                         <ToolCallCard
                           key={tc.id}
                           tc={tc}
-                          msgId={msg.id}
                           onFileClick={handleToolFileClick}
                           onConfirmAction={handleConfirm}
                           onCancelConfirm={handleCancelConfirm}
@@ -1098,14 +735,14 @@ export function AIChat() {
                       </div>
                       <div className="flex gap-2.5 mt-3 justify-end">
                         <button
-                          onClick={() => handleCancelConfirm(msg.id, msg.pendingConfirm?.confirmId)}
+                          onClick={() => handleCancelConfirm(msg.pendingConfirm?.confirmId)}
                           disabled={msg.isLoading}
                           className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-600 transition-all duration-200 border border-slate-200 dark:border-slate-600 disabled:opacity-50 active:scale-95"
                         >
                           取消
                         </button>
                         <button
-                          onClick={() => handleConfirm(msg.id, msg.pendingConfirm!.confirmId)}
+                          onClick={() => handleConfirm(msg.pendingConfirm!.confirmId)}
                           disabled={msg.isLoading}
                           className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-white transition-all duration-200 shadow-md shadow-amber-500/25 disabled:opacity-50 flex items-center gap-1.5 active:scale-95"
                         >
@@ -1211,9 +848,9 @@ export function AIChat() {
                               <Copy className="h-3.5 w-3.5" />
                             )}
                           </button>
-                          {(index === lastAssistantIdx || msg.aborted) && !isLoading && (
+                          {index === lastAssistantIdx && !isLoading && (
                             <button
-                              onClick={() => handleRegenerate(msg.id)}
+                              onClick={handleRegenerate}
                               className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-violet-600 dark:hover:text-violet-400 transition-all duration-200"
                               title="重新生成"
                             >
@@ -1318,7 +955,7 @@ export function AIChat() {
               <div className="flex items-center pb-0.5 flex-shrink-0">
                 {isLoading ? (
                   <button
-                    onClick={() => (agentMode ? agent.stop() : abortRef.current?.abort())}
+                    onClick={() => agent.stop()}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-500 hover:bg-red-100 text-xs font-medium transition-colors border border-red-200 dark:border-red-800"
                   >
                     <StopCircle className="h-3.5 w-3.5" />

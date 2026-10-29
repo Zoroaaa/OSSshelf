@@ -22,7 +22,6 @@ import {
   searchHistory,
   notifications,
   aiTasks,
-  aiConfirmRequests,
 } from '../db';
 import { TRASH_RETENTION_DAYS, DEVICE_SESSION_EXPIRY, logger } from '@osshelf/shared';
 import type { Env } from '../types/env';
@@ -210,34 +209,6 @@ app.post('/cron/version-cleanup', async (c) => {
       500
     );
   }
-});
-
-// ── AI Confirm Requests cleanup ─────────────────────────────────────────────
-app.post('/cron/ai-confirm-cleanup', async (c) => {
-  const db = getDb(c.env.DB);
-
-  // 清理 7 天前的已处理记录（expired 和 consumed 状态）
-  const retentionDays = 7;
-  const threshold = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
-
-  const cleanedRecords = await db
-    .delete(aiConfirmRequests)
-    .where(
-      and(
-        or(eq(aiConfirmRequests.status, 'expired'), eq(aiConfirmRequests.status, 'consumed')),
-        lt(aiConfirmRequests.createdAt, threshold)
-      )
-    )
-    .returning({ id: aiConfirmRequests.id });
-
-  logger.info('CRON', `AI确认请求清理完成: ${cleanedRecords.length} 条记录`);
-
-  return c.json({
-    success: true,
-    data: {
-      cleanedCount: cleanedRecords.length,
-    },
-  });
 });
 
 app.post('/cron/data-cleanup', async (c) => {
