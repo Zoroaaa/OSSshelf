@@ -330,9 +330,8 @@ interface ToolCallCardProps {
   tc: ToolCallEvent;
   onFileClick: (id: string) => void;
   onConfirm?: (toolName: string, args: Record<string, unknown>) => void;
-  onConfirmAction?: (msgId: string, confirmId: string) => void;
-  onCancelConfirm?: (msgId: string, confirmId?: string) => void;
-  msgId?: string;
+  onConfirmAction?: (confirmId: string) => void;
+  onCancelConfirm?: (confirmId?: string) => void;
   toolMeta?: Record<string, { label: string; icon: React.ReactNode }>;
 }
 
@@ -342,7 +341,6 @@ export function ToolCallCard({
   onConfirm,
   onConfirmAction,
   onCancelConfirm,
-  msgId,
   toolMeta = {},
 }: ToolCallCardProps) {
   const [expanded, setExpanded] = useState(false);
@@ -360,7 +358,7 @@ export function ToolCallCard({
     tc.confirmStatus === 'pending' || (resultObj?.status === 'pending_confirm' && !tc.confirmStatus);
   const isCancelled = tc.confirmStatus === 'cancelled';
   const confirmMessage = resultObj?.message as string | undefined;
-  const confirmId = resultObj?.confirmId as string | undefined;
+  const confirmId = tc.approvalId ?? (resultObj?.confirmId as string | undefined);
   const previewDiff = resultObj?.previewDiff as PreviewDiff | undefined;
 
   const resultFiles: AgentFile[] = (() => {
@@ -597,8 +595,8 @@ export function ToolCallCard({
               <div className="flex gap-2.5 pt-1">
                 <button
                   onClick={() => {
-                    if (onConfirmAction && msgId && confirmId) {
-                      onConfirmAction(msgId, confirmId);
+                    if (onConfirmAction && confirmId) {
+                      onConfirmAction(confirmId);
                     } else if (onConfirm) {
                       onConfirm(tc.toolName, tc.args);
                     }
@@ -609,8 +607,8 @@ export function ToolCallCard({
                 </button>
                 <button
                   onClick={() => {
-                    if (onCancelConfirm && msgId) {
-                      onCancelConfirm(msgId, confirmId);
+                    if (onCancelConfirm) {
+                      onCancelConfirm(confirmId);
                     }
                     setExpanded(false);
                   }}

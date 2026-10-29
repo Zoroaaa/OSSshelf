@@ -709,27 +709,6 @@ export type AiModel = typeof aiModels.$inferSelect;
 export type AiChatSession = typeof aiChatSessions.$inferSelect;
 export type AiChatMessage = typeof aiChatMessages.$inferSelect;
 
-export const aiConfirmRequests = sqliteTable(
-  'ai_confirm_requests',
-  {
-    id: text('id').primaryKey(),
-    userId: text('user_id').notNull(),
-    sessionId: text('session_id'),
-    toolName: text('tool_name').notNull(),
-    args: text('args').notNull(),
-    summary: text('summary').notNull(),
-    status: text('status').notNull().default('pending'),
-    createdAt: text('created_at').notNull(),
-    expiresAt: text('expires_at').notNull(),
-  },
-  (table) => ({
-    userStatusIdx: index('idx_confirm_user_status').on(table.userId, table.status),
-    expiresIdx: index('idx_confirm_expires').on(table.expiresAt),
-  })
-);
-
-export type AiConfirmRequest = typeof aiConfirmRequests.$inferSelect;
-
 export const aiTasks = sqliteTable(
   'ai_tasks',
   {

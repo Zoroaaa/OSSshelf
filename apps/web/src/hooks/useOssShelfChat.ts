@@ -2,12 +2,13 @@
  * hooks/useOssShelfChat.ts
  * Agents SDK WebSocket 聊天连接
  *
- * - 通过 /api/ai-chat/ws-ticket 换取 60s 票据
- * - useAgent 负责连接与自动重连；useAgentChat 负责消息、流式、审批
- * - 未开启 Agent 运行时（enabled=false）时不建立连接
+ * 连接策略:
+ * - 先通过 REST 换票（2h 有效期），再以固定 query 对象连接，避免 useAgent 因异步 query 反复 suspend
+ * - 初始消息按 session 缓存，避免重连时重新拉取导致整页空白
+ * - 未就绪（无用户/会话或被禁用）时不建立连接
  */
 
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAgent } from 'agents/react';
 import { useAgentChat } from '@cloudflare/ai-chat/react';
 import type { UIMessage } from 'ai';
@@ -21,6 +22,7 @@ interface UseOssShelfChatOptions {
 
 interface OssShelfChatHandle {
   identified: boolean;
+  ready: boolean;
   messages: UIMessage[];
   status: string;
   isStreaming: boolean;
@@ -54,28 +56,72 @@ function resolveWsHost(): string {
   return window.location.host;
 }
 
+const initialMessagesCache = new Map<string, Promise<UIMessage[]>>();
+
+function fetchInitialMessages(sessionId: string, url: string): Promise<UIMessage[]> {
+  const cached = initialMessagesCache.get(sessionId);
+  if (cached) return cached;
+
+  const promise = fetch(`${url}/get-messages`)
+    .then(async (response) => {
+      if (!response.ok) return [];
+      const text = await response.text();
+      if (!text.trim()) return [];
+      try {
+        return JSON.parse(text) as UIMessage[];
+      } catch {
+        return [];
+      }
+    })
+    .catch(() => []);
+
+  initialMessagesCache.set(sessionId, promise);
+  return promise;
+}
+
 export function useOssShelfChat({ userId, sessionId, enabled }: UseOssShelfChatOptions): OssShelfChatHandle {
   const active = Boolean(enabled && userId && sessionId);
   const host = useMemo(resolveWsHost, []);
+  const [ticket, setTicket] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setTicket(null);
+    if (!active || !sessionId) return;
+
+    aiApi.chatSession.wsTicket(sessionId).then((result) => {
+      if (!cancelled) setTicket(result?.ticket ?? null);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [active, sessionId]);
+
+  const query = useMemo(() => (ticket ? { ticket } : undefined), [ticket]);
 
   const agent = useAgent({
     agent: 'OSSShelfAgent',
     name: active ? `${userId}:${sessionId}` : undefined,
     host,
-    enabled: active,
-    query: async () => {
-      if (!sessionId) return { ticket: '' };
-      const ticket = await aiApi.chatSession.wsTicket(sessionId);
-      return { ticket: ticket?.ticket ?? '' };
-    },
-    queryDeps: [sessionId],
-    cacheTtl: 50_000,
+    enabled: active && Boolean(ticket),
+    query,
   });
 
-  const chat = useAgentChat({ agent });
+  const getInitialMessages = useCallback(
+    ({ url }: { url?: string }) => {
+      if (!url || !sessionId) return Promise.resolve([] as UIMessage[]);
+      return fetchInitialMessages(sessionId, url);
+    },
+    [sessionId]
+  );
+
+  // 50ms 批量刷新：流式 token 不再逐块触发整页重渲染
+  const chat = useAgentChat({ agent, getInitialMessages, experimental_throttle: 50 });
 
   return {
     identified: agent.identified,
+    ready: Boolean(ticket),
     messages: chat.messages,
     status: chat.status,
     isStreaming: chat.isStreaming,

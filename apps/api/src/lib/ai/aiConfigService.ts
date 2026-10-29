@@ -393,26 +393,6 @@ export async function initializeAiConfig(env: Env): Promise<void> {
       isEditable: true,
       sortOrder: 51,
     },
-    {
-      key: 'ai.runtime.mode',
-      category: 'runtime',
-      label: 'Agent 运行时',
-      description: 'legacy = 旧 AgentEngine；agent = Cloudflare Agents SDK（灰度）',
-      valueType: 'string',
-      defaultValue: 'legacy',
-      isEditable: true,
-      sortOrder: 60,
-    },
-    {
-      key: 'ai.runtime.agent_user_allowlist',
-      category: 'runtime',
-      label: 'Agent 灰度用户',
-      description: '启用 agent 运行时的用户ID，逗号分隔；为空时全部用户可用（仅 mode=agent 生效）',
-      valueType: 'string',
-      defaultValue: '',
-      isEditable: true,
-      sortOrder: 61,
-    },
   ];
 
   const existingKeys = new Set(existingConfigs.map((c) => c.key));

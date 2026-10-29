@@ -10,7 +10,7 @@
 
 import type { Env } from '../types/env';
 
-export const WS_TICKET_TTL_MS = 60_000;
+export const WS_TICKET_TTL_MS = 2 * 60 * 60_000;
 
 const USER_HEADER = 'x-osshelf-user-id';
 const SESSION_HEADER = 'x-osshelf-session-id';

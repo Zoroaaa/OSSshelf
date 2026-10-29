@@ -417,21 +417,14 @@ export class AiEnhanceTools {
     }
 
     try {
-      const { ModelGateway } = await import('../modelGateway');
-      const { RagEngine } = await import('../ragEngine');
+      const { searchChunkContent } = await import('../vectorIndex');
+      const { chatCompletion } = await import('../completion');
 
-      const gateway = new ModelGateway(env);
-      const ragEngine = new RagEngine(env);
+      const chunks = await searchChunkContent(env, question, userId, { limit: topK });
 
-      const ragContext = await ragEngine.buildContext({
-        query: question,
-        userId,
-        maxFiles: topK,
-      });
-
-      if (!ragContext.relevantFiles || ragContext.relevantFiles.length === 0) {
+      if (chunks.length === 0) {
         return {
-          error: `未找到与"${question.slice(0, 50)}..."相关的文档。
+          error: `未找到与"${question.slice(0, 50)}..."相关的文档内容。
 
 建议：
 1. 确保已上传相关文件到系统
@@ -444,44 +437,43 @@ export class AiEnhanceTools {
         };
       }
 
-      const systemPrompt = `你是文档问答助手。基于以下检索到的文档内容回答用户问题。
+      const systemPrompt = `你是文档问答助手。基于以下检索到的文档片段回答用户问题。
 要求：
 1. 仅基于提供的文档内容回答，不要编造信息
 2. 如果文档中没有答案，明确告知用户
 3. 引用具体的文件名作为来源
 4. 用中文回答`;
 
-      const completion = await gateway.chatCompletion(userId, {
+      const contextText = chunks
+        .map((chunk, index) => `[${index + 1}] ${chunk.name}（第 ${chunk.chunkIndex + 1} 段）\n${chunk.snippet}`)
+        .join('\n\n');
+
+      const completion = await chatCompletion(env, userId, {
         messages: [
           { role: 'system', content: systemPrompt },
-          ...ragContext.messages,
-          { role: 'user' as const, content: question },
+          { role: 'user', content: `文档片段：\n${contextText}\n\n问题：${question}` },
         ],
         temperature: 0.3,
-      } as any);
+      });
 
-      const answer =
-        typeof completion === 'string'
-          ? completion
-          : (completion as any)?.content || (completion as any)?.choices?.[0]?.message?.content || '无法生成答案';
+      const answer = completion.content.trim() || '无法生成答案';
+
+      const sources = Array.from(
+        new Map(chunks.map((chunk) => [chunk.fileId, { id: chunk.fileId, name: chunk.name, mimeType: chunk.mimeType, score: chunk.score }])).values()
+      );
 
       logger.info('AgentTool', 'RAG question answered', {
         userId,
         question: question.slice(0, 50),
-        sourceCount: ragContext.relevantFiles.length,
+        sourceCount: sources.length,
       });
 
       return {
         success: true,
         answer,
         question,
-        sources: ragContext.relevantFiles.map((f) => ({
-          id: f.id,
-          name: f.name,
-          mimeType: f.mimeType,
-          score: f.similarityScore || 0,
-        })),
-        sourceCount: ragContext.relevantFiles.length,
+        sources,
+        sourceCount: sources.length,
         scope,
         _next_actions: [
           '如需查看某个来源文件的详细内容，可调用 read_file_text',
