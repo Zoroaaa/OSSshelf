@@ -41,6 +41,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   feature: '功能配置',
   rag: 'RAG 配置',
   retry: '重试策略',
+  quota: '配额与限流',
+  runtime: 'Agent 运行时',
   prompt: '提示词模板',
 };
 
@@ -281,7 +283,7 @@ export function AdvancedConfigPanel({
     );
   }
 
-  const categories = ['model', 'parameter', 'agent', 'tool', 'feature', 'rag', 'retry', 'prompt'];
+  const categories = ['model', 'parameter', 'agent', 'tool', 'feature', 'rag', 'retry', 'quota', 'runtime', 'prompt'];
 
   return (
     <div className="space-y-3">
