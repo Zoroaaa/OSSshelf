@@ -481,8 +481,18 @@ export const aiApi = {
     deleteSession: (sessionId: string) =>
       api.delete<ApiResponse<{ message: string }>>(`/api/ai-chat/sessions/${sessionId}`),
 
+    /** 首轮对话后生成标题（失败时后端返回原标题） */
+    generateTitle: (sessionId: string) =>
+      api.post<ApiResponse<{ id: string; title: string }>>(`/api/ai-chat/sessions/${sessionId}/title`, {}),
+
+    /** 导出会话为 Markdown 文件 */
+    exportMarkdown: (sessionId: string) =>
+      api.get<Blob>(`/api/ai-chat/sessions/${sessionId}/export`, { responseType: 'blob' }),
+
     /** 换取 Agent WebSocket 票据 */
-    wsTicket: async (sessionId: string): Promise<{ ticket: string; agent: string; name: string } | null> => {
+    wsTicket: async (
+      sessionId: string
+    ): Promise<{ ticket: string; agent: string; name: string; expiresIn: number } | null> => {
       try {
         const res = await api.post<ApiResponse<{ ticket: string; agent: string; name: string; expiresIn: number }>>(
           '/api/ai-chat/ws-ticket',

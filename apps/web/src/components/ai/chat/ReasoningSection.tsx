@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { Sparkles, ChevronDown } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ChevronDown, Sparkles } from 'lucide-react';
 
 interface ReasoningSectionProps {
   content: string;
@@ -9,80 +9,58 @@ interface ReasoningSectionProps {
 export function ReasoningSection({ content, isStreaming = false }: ReasoningSectionProps) {
   const [expanded, setExpanded] = useState(isStreaming);
   const contentRef = useRef<HTMLDivElement>(null);
-  const prevContentLengthRef = useRef(0);
-  const userManuallyToggledRef = useRef(false);
-  const hasAutoCollapsedRef = useRef(false);
+  const prevLengthRef = useRef(0);
+  const userToggledRef = useRef(false);
 
-  // ═══ Effect 1: Streaming 开始时自动展开 + 实时滚动 ═══
   useEffect(() => {
-    if (isStreaming && !expanded) {
-      setExpanded(true);
-      userManuallyToggledRef.current = false;
+    if (isStreaming) {
+      if (!userToggledRef.current) setExpanded(true);
+      if (content.length !== prevLengthRef.current && contentRef.current) {
+        contentRef.current.scrollTop = contentRef.current.scrollHeight;
+      }
     }
-
-    if (isStreaming && content.length !== prevContentLengthRef.current && contentRef.current) {
-      contentRef.current.scrollTop = contentRef.current.scrollHeight;
-    }
-    prevContentLengthRef.current = content.length;
+    prevLengthRef.current = content.length;
   }, [content, isStreaming]);
 
-  // ═══ Effect 2: Streaming 结束时自动折叠（仅执行一次）═══
+  // 生成结束后自动收起长思考内容；用户手动展开过则尊重用户选择
   useEffect(() => {
-    if (!isStreaming && !hasAutoCollapsedRef.current) {
-      if (content.length > 500 && !userManuallyToggledRef.current) {
-        const timer = setTimeout(() => {
-          setExpanded(false);
-          hasAutoCollapsedRef.current = true;
-        }, 800);
-        return () => clearTimeout(timer);
-      }
-      hasAutoCollapsedRef.current = true;
+    if (isStreaming) return;
+    if (content.length > 500 && !userToggledRef.current) {
+      const timer = window.setTimeout(() => setExpanded(false), 600);
+      return () => window.clearTimeout(timer);
     }
     return undefined;
-  }, [isStreaming]);
-
-  // ═══ 手动切换时标记用户操作 ═══
-  const handleToggle = () => {
-    userManuallyToggledRef.current = true;
-    setExpanded((v) => !v);
-  };
+  }, [isStreaming, content.length]);
 
   if (!content.trim()) return null;
 
   const wordCount = content.replace(/\s/g, '').length;
-  const displayTitle = isStreaming ? `思考中… (${wordCount} 字)` : `思考了 ${wordCount} 字`;
+  const title = isStreaming ? `思考中…（${wordCount} 字）` : `思考过程（${wordCount} 字）`;
 
   return (
-    <div className="my-2 rounded-xl overflow-hidden border-l-2 border-violet-400 dark:border-violet-500 bg-gradient-to-r from-violet-50/80 via-purple-50/40 to-transparent dark:from-violet-950/20 dark:via-purple-950/10 shadow-sm">
+    <div className="my-2 overflow-hidden rounded-lg border border-border bg-muted/40">
       <button
-        onClick={handleToggle}
-        className="flex items-center gap-2.5 w-full px-3.5 py-2.5 hover:bg-violet-100/30 dark:hover:bg-violet-900/20 transition-all duration-200 text-left group"
+        type="button"
+        onClick={() => {
+          userToggledRef.current = true;
+          setExpanded((value) => !value);
+        }}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/40"
       >
-        <span
-          className={`flex items-center justify-center h-5 w-5 rounded-full flex-shrink-0 transition-all duration-300 ${isStreaming ? 'bg-violet-200 dark:bg-violet-800/60 animate-pulse' : 'bg-violet-100 dark:bg-violet-900/40'} ${!expanded ? 'group-hover:bg-violet-200 dark:group-hover:bg-violet-800/60' : ''}`}
-        >
-          <Sparkles
-            className={`h-3 w-3 text-violet-600 dark:text-violet-400 ${isStreaming ? 'animate-spin-slow' : ''}`}
-          />
-        </span>
-        <span className="text-[12px] font-semibold text-violet-700 dark:text-violet-300">{displayTitle}</span>
-        {!isStreaming && wordCount > 0 && (
-          <span className="text-[10px] font-mono text-violet-400 dark:text-violet-500 ml-auto mr-1 tabular-nums">
-            {Math.ceil(wordCount / 100)}s
-          </span>
-        )}
+        <Sparkles className={`h-3.5 w-3.5 flex-shrink-0 text-primary ${isStreaming ? 'animate-pulse' : ''}`} />
+        <span className="flex-1 text-[12px] font-medium text-foreground">{title}</span>
         <ChevronDown
-          className={`h-3.5 w-3.5 text-violet-400 dark:text-violet-500 transition-transform duration-300 flex-shrink-0 ${expanded ? 'rotate-180' : ''}`}
+          className={`h-3.5 w-3.5 flex-shrink-0 text-muted-foreground transition-transform ${
+            expanded ? 'rotate-180' : ''
+          }`}
         />
       </button>
       {expanded && (
-        <div className="px-3.5 pb-3 pt-1 border-t border-violet-100/60 dark:border-violet-900/30">
-          <div
-            ref={contentRef}
-            className="text-[12px] text-slate-600 dark:text-slate-400 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto scrollbar-thin scrollbar-thumb-violet-300 dark:scrollbar-thumb-violet-700 scrollbar-track-transparent"
-          >
-            {content}
-          </div>
+        <div
+          ref={contentRef}
+          className="max-h-60 overflow-y-auto border-t border-border/70 px-3 py-2 text-[12px] leading-relaxed whitespace-pre-wrap text-muted-foreground"
+        >
+          {content}
         </div>
       )}
     </div>

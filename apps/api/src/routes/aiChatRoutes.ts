@@ -8,19 +8,31 @@
  */
 
 import { Hono } from 'hono';
-import { and, count, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
+import { getAgentByName } from 'agents';
 import { authMiddleware } from '../middleware';
 import { aiRateLimit } from '../middleware/aiRateLimit';
 import { getDb, aiChatSessions, aiChatMessages, aiMemories, aiUsageEvents } from '../db';
 import { AgentMemory } from '../lib/ai/agentMemory';
 import { ModelGateway } from '../lib/ai/modelGateway';
 import { buildAgentInstanceName, issueWsTicket, WS_TICKET_TTL_MS } from '../agents/auth';
+import type { OSSShelfAgent } from '../agents/OSSShelfAgent';
 import type { Env, Variables } from '../types/env';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
 app.use('/ws-ticket', aiRateLimit());
+app.use('/sessions/:sessionId/title', aiRateLimit());
+
+/** 标题清洗：去换行、去首尾引号、限长 */
+function normalizeTitle(input: string, maxLength = 60): string {
+  return input
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/^["'“”‘’\s]+|["'“”‘’\s]+$/g, '')
+    .trim()
+    .slice(0, maxLength);
+}
 
 app.post('/ws-ticket', async (c) => {
   const userId = c.get('userId')!;
@@ -28,10 +40,7 @@ app.post('/ws-ticket', async (c) => {
   const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : '';
 
   if (!sessionId) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少 sessionId' } },
-      400
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少 sessionId' } }, 400);
   }
 
   const db = getDb(c.env.DB);
@@ -146,6 +155,7 @@ app.post('/sessions', async (c) => {
   try {
     const db = getDb(c.env.DB);
     const sessionId = typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id) ? id : crypto.randomUUID();
+    const safeTitle = normalizeTitle(title) || '新对话';
 
     const existing = await db
       .select({ id: aiChatSessions.id })
@@ -156,7 +166,7 @@ app.post('/sessions', async (c) => {
     const newSession = {
       id: sessionId,
       userId,
-      title,
+      title: safeTitle,
       modelId: modelId || null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -205,6 +215,126 @@ app.put('/sessions/:sessionId', async (c) => {
   }
 });
 
+/**
+ * 首轮对话后自动生成标题。
+ * 失败不覆盖原标题：前端只在成功时刷新列表。
+ */
+app.post('/sessions/:sessionId/title', async (c) => {
+  const userId = c.get('userId')!;
+  const sessionId = c.req.param('sessionId');
+  const db = getDb(c.env.DB);
+
+  const session = await db
+    .select()
+    .from(aiChatSessions)
+    .where(and(eq(aiChatSessions.id, sessionId), eq(aiChatSessions.userId, userId)))
+    .get();
+
+  if (!session) {
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '会话不存在' } }, 404);
+  }
+
+  try {
+    const rows = await db
+      .select({ role: aiChatMessages.role, content: aiChatMessages.content })
+      .from(aiChatMessages)
+      .where(eq(aiChatMessages.sessionId, sessionId))
+      .orderBy(asc(aiChatMessages.createdAt))
+      .limit(4)
+      .all();
+
+    const transcript = rows
+      .filter((row) => row.content.trim())
+      .map((row) => `${row.role === 'user' ? '用户' : '助手'}：${row.content.slice(0, 800)}`)
+      .join('\n')
+      .slice(0, 2400);
+
+    if (!transcript) {
+      return c.json({ success: true, data: { id: sessionId, title: session.title } });
+    }
+
+    const gateway = new ModelGateway(c.env);
+    const response = await gateway.chatCompletion(userId, {
+      messages: [
+        {
+          role: 'system',
+          content:
+            '你是会话标题生成器。根据对话前两轮内容生成一个 8-16 字的中文标题，概括用户意图。只输出标题本身，不要引号、标点结尾或解释。',
+        },
+        { role: 'user', content: transcript },
+      ],
+      temperature: 0.2,
+    });
+
+    const title = normalizeTitle(response.content ?? '', 24);
+    if (!title) {
+      return c.json({ success: true, data: { id: sessionId, title: session.title } });
+    }
+
+    await db
+      .update(aiChatSessions)
+      .set({ title, updatedAt: new Date().toISOString() })
+      .where(eq(aiChatSessions.id, sessionId));
+
+    return c.json({ success: true, data: { id: sessionId, title } });
+  } catch (error) {
+    logger.error('AI Chat', 'Generate session title failed', { userId, sessionId }, error);
+    return c.json({ success: true, data: { id: sessionId, title: session.title } });
+  }
+});
+
+/** 导出会话为 Markdown：数据来自 D1 审计镜像，按时间正序 */
+app.get('/sessions/:sessionId/export', async (c) => {
+  const userId = c.get('userId')!;
+  const sessionId = c.req.param('sessionId');
+  const db = getDb(c.env.DB);
+
+  const session = await db
+    .select()
+    .from(aiChatSessions)
+    .where(and(eq(aiChatSessions.id, sessionId), eq(aiChatSessions.userId, userId)))
+    .get();
+
+  if (!session) {
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '会话不存在' } }, 404);
+  }
+
+  const rows = await db
+    .select()
+    .from(aiChatMessages)
+    .where(eq(aiChatMessages.sessionId, sessionId))
+    .orderBy(asc(aiChatMessages.createdAt))
+    .all();
+
+  const lines: string[] = [`# ${session.title}`, '', `> 导出时间：${new Date().toISOString()}`, ''];
+  for (const row of rows) {
+    lines.push(row.role === 'user' ? '## 你' : '## 助手', '');
+    if (row.content.trim()) lines.push(row.content.trim(), '');
+    if (row.aborted) lines.push('> 该回复被中断', '');
+    if (row.toolCalls) {
+      try {
+        const calls = JSON.parse(row.toolCalls) as Array<{ toolName?: string; input?: unknown }>;
+        for (const call of calls) {
+          if (!call.toolName) continue;
+          const args = JSON.stringify(call.input ?? {});
+          lines.push(`> 工具调用：\`${call.toolName}\` ${args.slice(0, 300)}`, '>');
+        }
+        if (calls.length > 0) lines.push('');
+      } catch {
+        // 审计数据损坏时跳过工具段
+      }
+    }
+  }
+
+  const markdown = lines.join('\n');
+  const safeName = session.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 40);
+  return c.body(markdown, 200, {
+    'Content-Type': 'text/markdown; charset=utf-8',
+    'Content-Disposition': `attachment; filename="${encodeURIComponent(safeName)}.md"`,
+    'Cache-Control': 'private, no-store',
+  });
+});
+
 app.delete('/sessions/:sessionId', async (c) => {
   const userId = c.get('userId')!;
   const sessionId = c.req.param('sessionId');
@@ -221,6 +351,18 @@ app.delete('/sessions/:sessionId', async (c) => {
   }
 
   try {
+    // 先清空 DO 内的消息，否则同名会话再次打开会读到"已删除"的旧对话。
+    // 失败不阻塞 D1 删除：会话列表已不可见，残留数据不会暴露给同用户之外的人。
+    try {
+      const stub = await getAgentByName<Env, OSSShelfAgent>(
+        c.env.OSSShelfAgent as unknown as DurableObjectNamespace<OSSShelfAgent>,
+        buildAgentInstanceName(userId, sessionId)
+      );
+      await stub.resetConversation();
+    } catch (error) {
+      logger.warn('AI Chat', 'Failed to reset agent conversation', { userId, sessionId }, error);
+    }
+
     await db.delete(aiChatMessages).where(eq(aiChatMessages.sessionId, sessionId));
     await db.delete(aiMemories).where(eq(aiMemories.sessionId, sessionId));
     await db.delete(aiChatSessions).where(eq(aiChatSessions.id, sessionId));

@@ -112,8 +112,8 @@ export const WRITE_TOOLS = new Set([
   'tag_folder',
 
   // 分享管理
-  'create_share',
-  'update_share',
+  'create_share_link',
+  'update_share_settings',
   'revoke_share',
   'create_direct_link',
   'revoke_direct_link',
@@ -124,7 +124,7 @@ export const WRITE_TOOLS = new Set([
   'set_version_retention',
 
   // 笔记管理
-  'write_note',
+  'add_note',
   'update_note',
   'delete_note',
 

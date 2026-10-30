@@ -281,9 +281,82 @@ export const definitions: ToolDefinition[] = [
       ],
     },
   },
+
+  // 12. update_plan — 执行计划（只读、无需确认）
+  {
+    type: 'function',
+    function: {
+      name: 'update_plan',
+      description: `【执行计划】为多步任务创建或更新执行计划，前端会渲染为进度条。
+适用场景：
+• 需要 3 个及以上步骤的任务
+• 需要 2 次以上不同工具调用的任务
+• "整理 / 批量 / 迁移 / 检查并处理"类请求
+
+用法：
+1. 复杂请求开始时先调用一次，生成完整步骤
+2. 每完成一步再次调用，更新对应步骤 status 为 done，并把下一步置为 running
+3. 简单问答不要调用`,
+      parameters: {
+        type: 'object',
+        properties: {
+          goal: { type: 'string', description: '本次任务目标（一句话）' },
+          steps: {
+            type: 'array',
+            description: '执行步骤列表（按顺序）',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: '步骤唯一 id，如 step-1' },
+                description: { type: 'string', description: '步骤描述' },
+                toolHint: { type: 'string', description: '预计使用的工具（可选）' },
+                status: {
+                  type: 'string',
+                  enum: ['pending', 'running', 'done', 'skipped'],
+                  description: '步骤状态',
+                },
+              },
+              required: ['id', 'description', 'status'],
+            },
+          },
+        },
+        required: ['goal', 'steps'],
+      },
+      examples: [
+        {
+          user_query: '帮我把所有重复的图片删掉',
+          tool_call: {
+            goal: '清理重复图片',
+            steps: [
+              { id: 'step-1', description: '查找重复文件', toolHint: 'search_duplicates', status: 'running' },
+              { id: 'step-2', description: '筛选出图片类重复项', toolHint: 'filter_files', status: 'pending' },
+              { id: 'step-3', description: '删除冗余副本', toolHint: 'batch_delete', status: 'pending' },
+            ],
+          },
+        },
+      ],
+    },
+  },
 ];
 
 export class SystemTools {
+  /** update_plan 不写库：原样回显给前端渲染进度，同时作为模型自己的状态锚点 */
+  static async executeUpdatePlan(_env: Env, _userId: string, args: Record<string, unknown>) {
+    const goal = typeof args.goal === 'string' ? args.goal : '';
+    const steps = Array.isArray(args.steps) ? args.steps : [];
+
+    if (!goal || steps.length === 0) {
+      return { error: '缺少必要参数: goal 和 steps' };
+    }
+
+    return {
+      goal,
+      steps,
+      estimatedToolCalls: steps.length,
+      _next_actions: ['按计划顺序执行步骤', '每完成一步调用 update_plan 更新状态'],
+    };
+  }
+
   static async executeGetSystemStatus(env: Env, userId: string, _args: Record<string, unknown>) {
     const db = getDb(env.DB);
 

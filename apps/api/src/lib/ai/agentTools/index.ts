@@ -268,6 +268,7 @@ const TOOL_EXECUTOR_MAP: Record<string, (env: Env, userId: string, args: Record<
     list_webhooks: (env, userId, args) => SystemTools.executeListWebhooks(env, userId, args),
     create_webhook: (env, userId, args) => SystemTools.executeCreateWebhook(env, userId, args),
     get_audit_logs: (env, userId, args) => SystemTools.executeGetAuditLogs(env, userId, args),
+    update_plan: (env, userId, args) => SystemTools.executeUpdatePlan(env, userId, args),
 
     // ════════════════════════════════════════════════════════════════
     // 🤖 AI增强 (ai-enhance.ts)
