@@ -5,7 +5,7 @@
 
 import { Hono } from 'hono';
 import { authMiddleware } from '../middleware';
-import { getUsageSummary, listUsageEvents } from '../lib/ai/usage';
+import { getUsageSummary, listUsageEvents, getQuotaStatus } from '../lib/ai/usage';
 import type { Env, Variables } from '../types/env';
 import { logger } from '@osshelf/shared';
 
@@ -22,6 +22,18 @@ app.get('/summary', async (c) => {
   } catch (error) {
     logger.error('AI_USAGE', 'Failed to get usage summary', { userId }, error);
     return c.json({ success: false, error: { code: 'INTERNAL_ERROR', message: '获取用量统计失败' } }, 500);
+  }
+});
+
+app.get('/quota', async (c) => {
+  const userId = c.get('userId')!;
+
+  try {
+    const quota = await getQuotaStatus(c.env, userId);
+    return c.json({ success: true, data: quota });
+  } catch (error) {
+    logger.error('AI_USAGE', 'Failed to get quota status', { userId }, error);
+    return c.json({ success: false, error: { code: 'INTERNAL_ERROR', message: '获取配额状态失败' } }, 500);
   }
 });
 

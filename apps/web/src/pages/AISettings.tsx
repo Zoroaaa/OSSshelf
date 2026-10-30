@@ -32,6 +32,7 @@ import {
   XCircle,
   ChevronDown,
   BarChart3,
+  Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/useToast';
@@ -88,6 +89,8 @@ export function AISettings() {
 
   const [vectorPage, setVectorPage] = useState(1);
   const [deletingVectorId, setDeletingVectorId] = useState<string | null>(null);
+  const [selectedVectorIds, setSelectedVectorIds] = useState<Set<string>>(new Set());
+  const [isVectorBatchDeleting, setIsVectorBatchDeleting] = useState(false);
 
   const [editingConfigKey, setEditingConfigKey] = useState<string | null>(null);
   const [configEditValue, setConfigEditValue] = useState('');
@@ -95,6 +98,8 @@ export function AISettings() {
   const [memoryTypeFilter, setMemoryTypeFilter] = useState<string>('');
   const [memoryPage, setMemoryPage] = useState(1);
   const [deletingMemoryId, setDeletingMemoryId] = useState<string | null>(null);
+  const [selectedMemoryIds, setSelectedMemoryIds] = useState<Set<string>>(new Set());
+  const [isMemoryBatchDeleting, setIsMemoryBatchDeleting] = useState(false);
 
   const { data: models = [], isLoading: modelsLoading } = useQuery({
     queryKey: ['ai-models'],
@@ -198,6 +203,122 @@ export function AISettings() {
     if (!confirm(`确定要删除文件 "${fileName}" 的向量索引吗？`)) return;
     setDeletingVectorId(fileId);
     deleteVectorMutation.mutate(fileId);
+  };
+
+  const toggleVectorSelect = (fileId: string) => {
+    setSelectedVectorIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(fileId)) next.delete(fileId);
+      else next.add(fileId);
+      return next;
+    });
+  };
+
+  const toggleVectorSelectAll = (fileIds: string[], selected: boolean) => {
+    setSelectedVectorIds((prev) => {
+      const next = new Set(prev);
+      for (const id of fileIds) {
+        if (selected) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  };
+
+  const handleDeleteSelectedVectors = async () => {
+    const count = selectedVectorIds.size;
+    if (count === 0) return;
+    if (!confirm(`确定删除选中的 ${count} 个文件的向量索引吗？源文件不受影响。`)) return;
+
+    setIsVectorBatchDeleting(true);
+    try {
+      await aiApi.deleteVectorsBatch(Array.from(selectedVectorIds));
+      setSelectedVectorIds(new Set());
+      await refetchVectors();
+      await fetchStats();
+      toast({ title: '已删除', description: `共删除 ${count} 个向量索引` });
+    } catch (error) {
+      toast({
+        title: '批量删除失败',
+        description: error instanceof Error ? error.message : '请稍后重试',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsVectorBatchDeleting(false);
+    }
+  };
+
+  const handleClearAllVectors = async () => {
+    if (!confirm('确定清空向量库？将删除全部文件的向量索引并重置索引状态，源文件不受影响。')) return;
+
+    setIsVectorBatchDeleting(true);
+    try {
+      const response = await aiApi.deleteAllVectors();
+      setSelectedVectorIds(new Set());
+      setVectorPage(1);
+      await refetchVectors();
+      await fetchStats();
+      toast({ title: '向量库已清空', description: `共清理 ${response.data.data?.deleted ?? 0} 个文件` });
+    } catch (error) {
+      toast({
+        title: '清空失败',
+        description: error instanceof Error ? error.message : '请稍后重试',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsVectorBatchDeleting(false);
+    }
+  };
+
+  const toggleMemorySelect = (memoryId: string) => {
+    setSelectedMemoryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(memoryId)) next.delete(memoryId);
+      else next.add(memoryId);
+      return next;
+    });
+  };
+
+  const handleDeleteSelectedMemories = async () => {
+    const count = selectedMemoryIds.size;
+    if (count === 0) return;
+    if (!confirm(`确定删除选中的 ${count} 条记忆吗？`)) return;
+
+    setIsMemoryBatchDeleting(true);
+    try {
+      await aiApi.memories.deleteMany(Array.from(selectedMemoryIds));
+      setSelectedMemoryIds(new Set());
+      queryClient.invalidateQueries({ queryKey: ['ai-memories'] });
+      toast({ title: '已删除', description: `共删除 ${count} 条记忆` });
+    } catch (error) {
+      toast({
+        title: '批量删除失败',
+        description: error instanceof Error ? error.message : '请稍后重试',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsMemoryBatchDeleting(false);
+    }
+  };
+
+  const handleClearAllMemories = async () => {
+    if (!confirm('确定清空全部记忆？该操作不可恢复。')) return;
+
+    setIsMemoryBatchDeleting(true);
+    try {
+      const response = await aiApi.memories.deleteAll();
+      setSelectedMemoryIds(new Set());
+      queryClient.invalidateQueries({ queryKey: ['ai-memories'] });
+      toast({ title: '记忆已清空', description: `共清理 ${response.data.data?.deleted ?? 0} 条` });
+    } catch (error) {
+      toast({
+        title: '清空失败',
+        description: error instanceof Error ? error.message : '请稍后重试',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsMemoryBatchDeleting(false);
+    }
   };
 
   const formatFileSize = (bytes: number): string => {
@@ -305,6 +426,26 @@ export function AISettings() {
     },
   });
 
+  const cancelTaskMutation = useMutation({
+    mutationFn: (type: 'index' | 'summarize' | 'tags') => {
+      if (type === 'index') return aiApi.cancelIndexTask();
+      if (type === 'summarize') return aiApi.cancelSummarizeTask();
+      return aiApi.cancelTagsTask();
+    },
+    onSuccess: () => {
+      fetchAllTaskStatus();
+      fetchStats();
+    },
+  });
+
+  const rebuildIndexMutation = useMutation({
+    mutationFn: () => aiApi.rebuildIndex(),
+    onSuccess: (response) => {
+      if (response.data.data?.task) setTask(response.data.data.task);
+      fetchAllTaskStatus();
+    },
+  });
+
   const handleFeatureConfigChange = (feature: string, value: string) => {
     if (!featureConfig) return;
     const newConfig = { ...featureConfig, [feature]: value === '__default__' ? null : value };
@@ -369,7 +510,10 @@ export function AISettings() {
   useEffect(() => {
     const isAnyTaskRunning = [task, summarizeTask, tagsTask].some((t) => t && t.status === 'running');
     if (!isAnyTaskRunning) return;
-    const interval = setInterval(fetchAllTaskStatus, 10000);
+    const interval = setInterval(() => {
+      fetchAllTaskStatus();
+      fetchStats();
+    }, 10000);
     return () => clearInterval(interval);
   }, [task?.status, summarizeTask?.status, tagsTask?.status]);
 
@@ -426,6 +570,16 @@ export function AISettings() {
     } finally {
       setIsStarting(false);
     }
+  };
+
+  const handleCancelTask = (type: 'index' | 'summarize' | 'tags') => {
+    if (!confirm('确定取消当前任务？已处理的部分会保留。')) return;
+    cancelTaskMutation.mutate(type);
+  };
+
+  const handleRebuildIndex = () => {
+    if (!confirm('重建会清空现有全部索引并重新处理所有文件，可能消耗较多 AI 配额，确定继续？')) return;
+    rebuildIndexMutation.mutate();
   };
 
   const handleSaveConfig = (config: AiSystemConfigItem) => {
@@ -707,6 +861,7 @@ export function AISettings() {
             providersData={providersData}
             configLoading={configLoading}
             isSavingConfig={isSavingConfig}
+            queueConfigured={status?.queueConfigured ?? true}
             task={task}
             summarizeTask={summarizeTask}
             tagsTask={tagsTask}
@@ -715,6 +870,10 @@ export function AISettings() {
             onStartSummarize={handleStartSummarize}
             onStartTags={handleStartTags}
             onStartIndex={handleStartIndex}
+            onRebuildIndex={handleRebuildIndex}
+            onCancelIndex={() => handleCancelTask('index')}
+            onCancelSummarize={() => handleCancelTask('summarize')}
+            onCancelTags={() => handleCancelTask('tags')}
             onFeatureConfigChange={handleFeatureConfigChange}
           />
         )}
@@ -729,7 +888,13 @@ export function AISettings() {
             totalPages={vectorsData?.pagination.totalPages || 1}
             totalRecords={vectorsData?.pagination.total || 0}
             formatFileSize={formatFileSize}
+            selectedIds={selectedVectorIds}
+            isBatchDeleting={isVectorBatchDeleting}
+            onToggleSelect={toggleVectorSelect}
+            onToggleAll={toggleVectorSelectAll}
             onDeleteVector={handleDeleteVector}
+            onDeleteSelected={handleDeleteSelectedVectors}
+            onClearAll={handleClearAllVectors}
             onViewDetail={handleViewDetail}
             onRefresh={() => refetchVectors()}
             onPageChange={setVectorPage}
@@ -742,7 +907,7 @@ export function AISettings() {
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <h2 className="text-lg sm:text-xl font-semibold">AI 记忆管理</h2>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <select
                   value={memoryTypeFilter}
                   onChange={(e) => {
@@ -757,6 +922,30 @@ export function AISettings() {
                   <option value="path">常用路径</option>
                   <option value="file_ref">文件引用</option>
                 </select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDeleteSelectedMemories}
+                  disabled={selectedMemoryIds.size === 0 || isMemoryBatchDeleting}
+                  className="gap-2 text-destructive hover:text-destructive"
+                >
+                  {isMemoryBatchDeleting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                  删除选中{selectedMemoryIds.size > 0 ? ` (${selectedMemoryIds.size})` : ''}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleClearAllMemories}
+                  disabled={isMemoryBatchDeleting || (memoriesData?.total ?? 0) === 0}
+                  className="gap-2 text-destructive hover:text-destructive"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  全部清空
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
@@ -783,13 +972,50 @@ export function AISettings() {
               </div>
             ) : (
               <>
-                <div className="text-sm text-muted-foreground mb-2">共 {memoriesData.total} 条记忆</div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm text-muted-foreground">
+                    共 {memoriesData.total} 条记忆
+                    {selectedMemoryIds.size > 0 && (
+                      <span className="ml-2 text-primary">已选 {selectedMemoryIds.size} 项</span>
+                    )}
+                  </div>
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={memoriesData.items.every((item) => selectedMemoryIds.has(item.id))}
+                      onChange={() => {
+                        const allSelected = memoriesData.items.every((item) => selectedMemoryIds.has(item.id));
+                        setSelectedMemoryIds((prev) => {
+                          const next = new Set(prev);
+                          for (const item of memoriesData.items) {
+                            if (allSelected) next.delete(item.id);
+                            else next.add(item.id);
+                          }
+                          return next;
+                        });
+                      }}
+                      className="h-4 w-4 accent-primary"
+                    />
+                    全选本页
+                  </label>
+                </div>
                 <div className="space-y-2">
                   {memoriesData.items.map((m) => (
                     <div
                       key={m.id}
-                      className="flex items-start gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors group"
+                      className={`flex items-start gap-3 p-3 rounded-xl border bg-white dark:bg-slate-800/50 transition-colors group ${
+                        selectedMemoryIds.has(m.id)
+                          ? 'border-primary/60 bg-primary/[0.03] dark:bg-primary/[0.06]'
+                          : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+                      }`}
                     >
+                      <input
+                        type="checkbox"
+                        checked={selectedMemoryIds.has(m.id)}
+                        onChange={() => toggleMemorySelect(m.id)}
+                        className="mt-1 h-4 w-4 flex-shrink-0 accent-primary"
+                        aria-label="选择记忆"
+                      />
                       <span
                         className={`flex-shrink-0 px-2 py-0.5 rounded-full text-[10px] font-medium ${
                           m.type === 'operation'

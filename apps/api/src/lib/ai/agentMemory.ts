@@ -186,6 +186,65 @@ export class AgentMemory {
     }
   }
 
+  /** 批量删除：只删除属于该用户的记忆，并同步清理 Vectorize 向量 */
+  async deleteMemories(ids: string[], userId: string): Promise<number> {
+    if (ids.length === 0) return 0;
+
+    try {
+      const db = getDb(this.env.DB);
+      // D1 单条 SQL 绑定参数上限为 100，按批查询与删除
+      const DB_CHUNK = 100;
+      const ownedIds: string[] = [];
+      for (let i = 0; i < ids.length; i += DB_CHUNK) {
+        const rows = await db
+          .select({ id: aiMemories.id })
+          .from(aiMemories)
+          .where(and(eq(aiMemories.userId, userId), inArray(aiMemories.id, ids.slice(i, i + DB_CHUNK))))
+          .all();
+        ownedIds.push(...rows.map((row) => row.id));
+      }
+      if (ownedIds.length === 0) return 0;
+
+      for (let i = 0; i < ownedIds.length; i += DB_CHUNK) {
+        await db
+          .delete(aiMemories)
+          .where(and(eq(aiMemories.userId, userId), inArray(aiMemories.id, ownedIds.slice(i, i + DB_CHUNK))));
+      }
+
+      if (this.env.VECTORIZE) {
+        const vectorIds = ownedIds.map((id) => `${MEMORY_VECTOR_PREFIX}${id}`);
+        const BATCH = 1000;
+        for (let i = 0; i < vectorIds.length; i += BATCH) {
+          try {
+            await this.env.VECTORIZE.deleteByIds(vectorIds.slice(i, i + BATCH));
+          } catch (error) {
+            logger.warn('AgentMemory', 'deleteMemories vector cleanup failed', { count: BATCH }, error);
+          }
+        }
+      }
+
+      return ownedIds.length;
+    } catch (error) {
+      logger.error('AgentMemory', 'deleteMemories failed', { count: ids.length }, error);
+      return 0;
+    }
+  }
+
+  /** 清空该用户的全部记忆 */
+  async deleteAllMemories(userId: string): Promise<number> {
+    try {
+      const db = getDb(this.env.DB);
+      const rows = await db.select({ id: aiMemories.id }).from(aiMemories).where(eq(aiMemories.userId, userId)).all();
+      return this.deleteMemories(
+        rows.map((row) => row.id),
+        userId
+      );
+    } catch (error) {
+      logger.error('AgentMemory', 'deleteAllMemories failed', { userId }, error);
+      return 0;
+    }
+  }
+
   private async storeMemoryVector(userId: string, memoryId: string, summary: string): Promise<string | null> {
     if (!this.env.VECTORIZE || !this.env.AI) return null;
 

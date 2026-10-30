@@ -28,7 +28,9 @@ import { getDb, aiModels } from '../../db';
 import { eq, and } from 'drizzle-orm';
 import { getAiConfigString, getAiConfigNumber } from './aiConfigService';
 import { AI_LOG_MODULE } from './constants';
-import { buildThinkingConfig } from './utils';
+import { buildThinkingConfig, estimateTokens } from './utils';
+import { recordUsage } from './usage';
+import type { TokenUsage } from './types';
 
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_BASE_DELAY_MS = 500;
@@ -178,6 +180,49 @@ export class ModelGateway {
     this.retryConfig = null;
   }
 
+  /**
+   * 统一用量记账。
+   *
+   * 只覆盖经网关的非 Agent 调用（摘要/图片标签/重命名/会话标题/记忆提取等）；
+   * Agent 走 AI SDK 的 streamText，不经网关，由 OSSShelfAgent.onFinish 单独记账，二者不重复。
+   * provider 未返回 usage 时按文本长度估算。
+   */
+  private async recordCall(
+    userId: string,
+    config: ModelConfig,
+    request: ChatCompletionRequest,
+    usage: TokenUsage | undefined,
+    latencyMs: number,
+    status: 'completed' | 'error',
+    options: { outputText?: string; errorCode?: string } = {}
+  ): Promise<void> {
+    const promptText = request.messages
+      .map((message) => {
+        if (typeof message.content === 'string') return message.content;
+        if (Array.isArray(message.content)) {
+          return message.content
+            .filter((part) => part.type === 'text')
+            .map((part) => part.text ?? '')
+            .join('\n');
+        }
+        return '';
+      })
+      .join('\n');
+
+    await recordUsage(this.env, {
+      userId,
+      feature: request.featureType ?? 'chat',
+      provider: config.provider,
+      modelId: config.modelId,
+      inputTokens: usage?.inputTokens ?? estimateTokens(promptText),
+      outputTokens: usage?.outputTokens ?? estimateTokens(options.outputText ?? ''),
+      cachedTokens: usage?.cachedTokens ?? 0,
+      latencyMs,
+      status,
+      errorCode: options.errorCode ?? null,
+    });
+  }
+
   private async callWithRetry<T>(fn: () => Promise<T>, operation: string): Promise<T> {
     const { maxRetries, baseDelayMs } = await this.getRetryConfig();
     let lastError: unknown;
@@ -223,15 +268,28 @@ export class ModelGateway {
     }
 
     const timeoutSignal = await this.createTimeoutSignal(signal);
+    const startedAt = Date.now();
 
     try {
-      return await adapter.chatCompletion(
+      const response = await adapter.chatCompletion(
         {
           ...request,
           temperature: request.temperature ?? modelConfig.temperature,
         },
         timeoutSignal.controller.signal
       );
+
+      void this.recordCall(userId, modelConfig, request, response.usage, Date.now() - startedAt, 'completed', {
+        outputText: response.content,
+      });
+
+      return response;
+    } catch (error) {
+      void this.recordCall(userId, modelConfig, request, undefined, Date.now() - startedAt, 'error', {
+        errorCode:
+          typeof (error as { code?: unknown })?.code === 'string' ? (error as { code: string }).code : undefined,
+      });
+      throw error;
     } finally {
       timeoutSignal.clear();
     }
@@ -255,16 +313,34 @@ export class ModelGateway {
     }
 
     const timeoutSignal = await this.createTimeoutSignal(options?.signal);
+    const startedAt = Date.now();
+    let outputText = '';
+    let lastUsage: TokenUsage | undefined;
 
     try {
-      return await adapter.chatCompletionStream(
+      await adapter.chatCompletionStream(
         {
           ...request,
           temperature: request.temperature ?? modelConfig.temperature,
         },
-        onChunk,
+        (chunk) => {
+          if (chunk.content) outputText += chunk.content;
+          if (chunk.usage) lastUsage = chunk.usage;
+          onChunk(chunk);
+        },
         timeoutSignal.controller.signal
       );
+
+      void this.recordCall(userId, modelConfig, request, lastUsage, Date.now() - startedAt, 'completed', {
+        outputText,
+      });
+    } catch (error) {
+      void this.recordCall(userId, modelConfig, request, undefined, Date.now() - startedAt, 'error', {
+        outputText,
+        errorCode:
+          typeof (error as { code?: unknown })?.code === 'string' ? (error as { code: string }).code : undefined,
+      });
+      throw error;
     } finally {
       timeoutSignal.clear();
     }

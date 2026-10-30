@@ -112,20 +112,63 @@ export async function cancelTask(env: Env, userId: string, type: string): Promis
   return { ...existing, status: 'cancelled', completedAt: now, updatedAt: now, error: '用户手动取消' };
 }
 
-// ─── 原子自增进度（关键：避免并发计数丢失）─────────────────────────────────
+// ─── 原子进度重算（关键：以任务项状态为准，避免重试重复计数）───────────────
 
-async function incrementProcessed(env: Env, taskId: string): Promise<void> {
+const STALE_TASK_MS = 30 * 60_000;
+
+/**
+ * 用 ai_task_items 的真实状态回写任务进度。
+ *
+ * 早期实现是"每处理一条 +1"，但队列失败会 message.retry()，同一文件重试时
+ * 计数会重复增长，导致任务提前完成或失败数超过总数。改为每次收尾后重算，
+ * 让 processed/failed 恒等于任务项的真实分布。
+ */
+export async function recomputeTaskProgress(env: Env, taskId: string): Promise<void> {
   const db = getDb(env.DB);
   const now = new Date().toISOString();
-  await db.run(sql`UPDATE ai_tasks SET processed = processed + 1, updated_at = ${now} WHERE id = ${taskId}`);
+  await db.run(sql`
+    UPDATE ai_tasks
+    SET processed = (SELECT count(*) FROM ai_task_items WHERE task_id = ${taskId} AND status = 'completed'),
+        failed = (SELECT count(*) FROM ai_task_items WHERE task_id = ${taskId} AND status = 'failed'),
+        updated_at = ${now}
+    WHERE id = ${taskId}
+  `);
   await checkAndCompleteTask(env, taskId);
 }
 
-async function incrementFailed(env: Env, taskId: string): Promise<void> {
+/** 入队失败 / 不可恢复时把任务落为 failed，避免永久占位 */
+export async function markTaskFailed(env: Env, taskId: string, error: string): Promise<void> {
   const db = getDb(env.DB);
   const now = new Date().toISOString();
-  await db.run(sql`UPDATE ai_tasks SET failed = failed + 1, updated_at = ${now} WHERE id = ${taskId}`);
-  await checkAndCompleteTask(env, taskId);
+  await db
+    .update(aiTasks)
+    .set({ status: 'failed', error, completedAt: now, updatedAt: now })
+    .where(and(eq(aiTasks.id, taskId), eq(aiTasks.status, 'running')));
+}
+
+/**
+ * 回收停滞任务：running 且 30 分钟未更新。
+ * 典型场景：队列消费者未部署、消息被丢弃、Worker 异常退出。
+ */
+export async function recoverStaleTasks(env: Env, userId: string): Promise<number> {
+  const db = getDb(env.DB);
+  const cutoff = new Date(Date.now() - STALE_TASK_MS).toISOString();
+  const now = new Date().toISOString();
+
+  const result = await db.run(sql`
+    UPDATE ai_tasks
+    SET status = 'failed',
+        completed_at = ${now},
+        updated_at = ${now},
+        error = '任务停滞超过30分钟，已自动回收，可重新启动'
+    WHERE user_id = ${userId} AND status = 'running' AND updated_at < ${cutoff}
+  `);
+
+  const changes = Number((result as { meta?: { changes?: number } })?.meta?.changes ?? 0);
+  if (changes > 0) {
+    logger.warn('AI_QUEUE', 'Recovered stale tasks', { userId, count: changes });
+  }
+  return changes;
 }
 
 export async function checkAndCompleteTask(env: Env, taskId: string): Promise<boolean> {
@@ -156,13 +199,11 @@ async function handleIndexTask(env: Env, message: AiTaskMessage): Promise<{ succ
   try {
     const text = await buildFileTextForVector(env, fileId);
     if (!text || text.trim().length === 0) {
-      await incrementFailed(env, taskId);
       return { success: false, error: '文件内容为空' };
     }
 
     await indexFileVector(env, fileId, text);
     await syncFileFts(env, fileId);
-    await incrementProcessed(env, taskId);
 
     try {
       const db = getDb(env.DB);
@@ -182,7 +223,6 @@ async function handleIndexTask(env: Env, message: AiTaskMessage): Promise<{ succ
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     logger.error('AI_QUEUE', 'Index task failed', { fileId, taskId }, error);
-    await incrementFailed(env, taskId);
     return { success: false, error: errorMsg };
   }
 }
@@ -193,7 +233,6 @@ async function handleSummaryTask(env: Env, message: AiTaskMessage): Promise<{ su
   try {
     await generateFileSummary(env, fileId, undefined, userId);
     await syncFileFts(env, fileId);
-    await incrementProcessed(env, taskId);
 
     try {
       const db = getDb(env.DB);
@@ -227,7 +266,6 @@ async function handleSummaryTask(env: Env, message: AiTaskMessage): Promise<{ su
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     logger.error('AI_QUEUE', 'Summary task failed', { fileId, taskId }, error);
-    await incrementFailed(env, taskId);
     return { success: false, error: errorMsg };
   }
 }
@@ -238,7 +276,6 @@ async function handleTagsTask(env: Env, message: AiTaskMessage): Promise<{ succe
   try {
     await generateImageTags(env, fileId, undefined, userId);
     await syncFileFts(env, fileId);
-    await incrementProcessed(env, taskId);
 
     try {
       const db = getDb(env.DB);
@@ -277,7 +314,6 @@ async function handleTagsTask(env: Env, message: AiTaskMessage): Promise<{ succe
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     logger.error('AI_QUEUE', 'Tags task failed', { fileId, taskId }, error);
-    await incrementFailed(env, taskId);
     return { success: false, error: errorMsg };
   }
 }
@@ -311,11 +347,8 @@ async function handleAgentBatchTask(env: Env, message: AiTaskMessage): Promise<{
     }
 
     if (!result.success) {
-      await incrementFailed(env, taskId);
       return { success: false, error: result.error };
     }
-
-    await incrementProcessed(env, taskId);
 
     try {
       await dispatchWebhook(env, userId, 'ai.agent_batch_complete', {
@@ -330,7 +363,6 @@ async function handleAgentBatchTask(env: Env, message: AiTaskMessage): Promise<{
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     logger.error('AI_QUEUE', 'Agent batch task failed', { fileId, taskId }, error);
-    await incrementFailed(env, taskId);
     return { success: false, error: errorMsg };
   }
 }
@@ -414,9 +446,10 @@ export async function processAiTaskMessage(
     return { success: false, error: '任务不存在' };
   }
 
+  // 已取消的任务直接 ack：返回 success 让队列不再重试，避免占住队列与重试额度
   if (task.status === 'cancelled') {
     logger.info('AI_QUEUE', 'Task cancelled, skipping', { type, taskId });
-    return { success: false, error: '任务已取消' };
+    return { success: true };
   }
 
   // ── 幂等：同一任务下同一文件已成功处理则直接确认 ──
@@ -424,6 +457,11 @@ export async function processAiTaskMessage(
   if (item?.status === 'completed') {
     logger.info('AI_QUEUE', 'Task item already completed, skipping', { taskId, fileId });
     return { success: true };
+  }
+
+  // 兜底：自动处理等路径可能没走 enqueueAiTasks，缺少任务项时补建，保证进度可回写
+  if (!item) {
+    await ensureTaskItems(env, taskId, [fileId]);
   }
 
   await markTaskItemRunning(env, taskId, fileId);
@@ -447,6 +485,7 @@ export async function processAiTaskMessage(
   }
 
   await finalizeTaskItem(env, taskId, fileId, result.success ? 'completed' : 'failed', result.error);
+  await recomputeTaskProgress(env, taskId);
   return result;
 }
 
@@ -518,7 +557,14 @@ export async function enqueueAiTasks(
       batch.map((message) => message.body.fileId)
     );
 
-    await env.AI_TASKS_QUEUE.sendBatch(batch);
+    try {
+      await env.AI_TASKS_QUEUE.sendBatch(batch);
+    } catch (error) {
+      // 入队失败：任务不能停留在 running，否则会永久封锁后续批量任务
+      const message = error instanceof Error ? error.message : String(error);
+      await markTaskFailed(env, taskId, `任务入队失败：${message}`);
+      throw error;
+    }
     logger.info('AI_QUEUE', 'Enqueued batch', {
       type,
       batch: Math.floor(i / BATCH_SIZE) + 1,

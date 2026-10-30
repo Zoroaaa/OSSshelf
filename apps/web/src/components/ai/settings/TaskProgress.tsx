@@ -53,7 +53,7 @@ export function TaskProgress({ task, onCancel }: TaskProgressProps) {
     }
   };
 
-  const canCancel = task.status === 'running' || task.status === 'cancelled';
+  const canCancel = task.status === 'running';
 
   return (
     <div className="space-y-2 mt-3">
@@ -64,7 +64,7 @@ export function TaskProgress({ task, onCancel }: TaskProgressProps) {
         </div>
         {onCancel && canCancel && (
           <Button variant="outline" size="sm" onClick={onCancel} className="text-xs">
-            {task.status === 'running' ? '取消' : '清除'}
+            取消
           </Button>
         )}
       </div>

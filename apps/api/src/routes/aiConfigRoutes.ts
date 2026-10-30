@@ -631,6 +631,7 @@ app.get('/status', async (c) => {
     success: true,
     data: {
       configured: allModels.length > 0 || isWorkersAiConfigured,
+      queueConfigured: !!c.env.AI_TASKS_QUEUE,
       activeModel: activeModel
         ? {
             id: activeModel.id,

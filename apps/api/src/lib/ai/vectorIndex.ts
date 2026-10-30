@@ -206,11 +206,17 @@ export async function deleteFileVectors(env: Env, fileIds: string[]): Promise<vo
 
   try {
     const db = getDb(env.DB);
-    const chunks = await db
-      .select({ fileId: fileChunks.fileId, chunkIndex: fileChunks.chunkIndex })
-      .from(fileChunks)
-      .where(inArray(fileChunks.fileId, fileIds))
-      .all();
+    // D1 单条 SQL 绑定参数上限为 100，按批查询与删除
+    const DB_CHUNK = 100;
+    const chunks: Array<{ fileId: string; chunkIndex: number }> = [];
+    for (let i = 0; i < fileIds.length; i += DB_CHUNK) {
+      const rows = await db
+        .select({ fileId: fileChunks.fileId, chunkIndex: fileChunks.chunkIndex })
+        .from(fileChunks)
+        .where(inArray(fileChunks.fileId, fileIds.slice(i, i + DB_CHUNK)))
+        .all();
+      chunks.push(...rows);
+    }
 
     const ids = new Set<string>();
     for (const fileId of fileIds) {
@@ -229,7 +235,9 @@ export async function deleteFileVectors(env: Env, fileIds: string[]): Promise<vo
       await env.VECTORIZE.deleteByIds(allIds.slice(i, i + BATCH));
     }
 
-    await db.delete(fileChunks).where(inArray(fileChunks.fileId, fileIds));
+    for (let i = 0; i < fileIds.length; i += DB_CHUNK) {
+      await db.delete(fileChunks).where(inArray(fileChunks.fileId, fileIds.slice(i, i + DB_CHUNK)));
+    }
 
     logger.info(VECTOR_LOG_MODULE, '批量删除向量成功', {
       fileCount: fileIds.length,
