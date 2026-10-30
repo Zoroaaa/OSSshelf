@@ -24,6 +24,7 @@ interface ChatSidebarProps {
   onNewChat: () => void;
   onSelectSession: (id: string) => void;
   onDeleteSession: (event: React.MouseEvent, id: string) => void;
+  onClearAllSessions: () => void;
   onStartRename: (session: SessionItem) => void;
   onConfirmRename: (id: string) => void;
   onCancelRename: () => void;
@@ -63,6 +64,7 @@ export function ChatSidebar({
   onNewChat,
   onSelectSession,
   onDeleteSession,
+  onClearAllSessions,
   onStartRename,
   onConfirmRename,
   onCancelRename,
@@ -72,6 +74,7 @@ export function ChatSidebar({
   const renameRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [confirmingClearAll, setConfirmingClearAll] = useState(false);
 
   useEffect(() => {
     if (renamingId) {
@@ -117,6 +120,16 @@ export function ChatSidebar({
             </button>
             <button
               type="button"
+              onClick={() => setConfirmingClearAll(true)}
+              disabled={sessions.length === 0}
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+              title="清空全部对话"
+              aria-label="清空全部对话"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
               onClick={onCloseMobile}
               className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground lg:hidden"
               title="关闭"
@@ -126,6 +139,31 @@ export function ChatSidebar({
             </button>
           </div>
         </div>
+
+        {confirmingClearAll && (
+          <div className="mx-3 mt-2 flex items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-2 py-1.5">
+            <span className="text-xs text-destructive">清空全部对话？不可恢复</span>
+            <span className="flex flex-shrink-0 gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmingClearAll(false);
+                  onClearAllSessions();
+                }}
+                className="rounded bg-destructive px-1.5 py-0.5 text-[10px] font-medium text-destructive-foreground"
+              >
+                清空
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmingClearAll(false)}
+                className="rounded border border-border px-1.5 py-0.5 text-[10px] text-foreground"
+              >
+                取消
+              </button>
+            </span>
+          </div>
+        )}
 
         <div className="flex-shrink-0 px-3 py-2">
           <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-2 py-1.5">

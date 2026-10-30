@@ -11,8 +11,8 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, isNull, sql } from 'drizzle-orm';
-import { getDb, files } from '../db';
+import { eq, and, isNull, sql, inArray } from 'drizzle-orm';
+import { getDb, files, fileChunks } from '../db';
 import { authMiddleware } from '../middleware';
 import { aiRateLimit } from '../middleware/aiRateLimit';
 import { ERROR_CODES, logger } from '@osshelf/shared';
@@ -22,6 +22,7 @@ import { z } from 'zod';
 import {
   indexFileVector,
   deleteFileVector,
+  deleteFileVectors,
   buildFileTextForVector,
   isAIConfigured,
   searchAndFetchFiles,
@@ -34,7 +35,14 @@ import {
   canGenerateSummary,
 } from '../lib/ai/features';
 import { sendNotification } from '../lib/notificationUtils';
-import { enqueueAiTasks, createTaskRecord, cancelTask, getLatestTaskByUserType } from '../lib/ai/aiTaskQueue';
+import {
+  enqueueAiTasks,
+  createTaskRecord,
+  cancelTask,
+  getLatestTaskByUserType,
+  recoverStaleTasks,
+  markTaskFailed,
+} from '../lib/ai/aiTaskQueue';
 import { rebuildFtsForUser } from '../lib/ai/retrieval/fts';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -71,6 +79,7 @@ app.get('/status', async (c) => {
     success: true,
     data: {
       configured,
+      queueConfigured: !!c.env.AI_TASKS_QUEUE,
       features: {
         semanticSearch: configured,
         summary: !!c.env.AI,
@@ -135,6 +144,8 @@ app.post('/index/all', async (c) => {
     );
   }
 
+  await recoverStaleTasks(c.env, userId);
+
   const existingTask = await getLatestTaskByUserType(c.env, userId, 'index');
   if (existingTask && existingTask.status === 'running') {
     return c.json({
@@ -184,6 +195,7 @@ app.post('/index/all', async (c) => {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : '启动任务失败';
+    await markTaskFailed(c.env, task.id, message);
     return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
   }
 });
@@ -197,6 +209,8 @@ app.post('/index/rebuild', async (c) => {
       503
     );
   }
+
+  await recoverStaleTasks(c.env, userId);
 
   const existingTask = await getLatestTaskByUserType(c.env, userId, 'index');
   if (existingTask && existingTask.status === 'running') {
@@ -220,13 +234,19 @@ app.post('/index/rebuild', async (c) => {
     .where(and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false)));
 
   const task = await createTaskRecord(c.env, 'index', userId, userFiles.length);
-  await enqueueAiTasks(
-    c.env,
-    'index',
-    userFiles.map((file) => file.id),
-    userId,
-    task.id
-  );
+  try {
+    await enqueueAiTasks(
+      c.env,
+      'index',
+      userFiles.map((file) => file.id),
+      userId,
+      task.id
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '启动重建任务失败';
+    await markTaskFailed(c.env, task.id, message);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
+  }
 
   c.executionCtx.waitUntil(rebuildFtsForUser(c.env, userId));
 
@@ -238,6 +258,7 @@ app.post('/index/rebuild', async (c) => {
 
 app.get('/index/status', async (c) => {
   const userId = c.get('userId')!;
+  await recoverStaleTasks(c.env, userId);
   const task = await getLatestTaskByUserType(c.env, userId, 'index');
   if (!task) {
     return c.json({ success: true, data: { id: '', status: 'idle', total: 0, processed: 0, failed: 0 } });
@@ -270,6 +291,8 @@ app.post('/summarize/batch', async (c) => {
       503
     );
   }
+
+  await recoverStaleTasks(c.env, userId);
 
   const existingTask = await getLatestTaskByUserType(c.env, userId, 'summarize');
   if (existingTask && existingTask.status === 'running') {
@@ -316,12 +339,14 @@ app.post('/summarize/batch', async (c) => {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : '启动任务失败';
+    await markTaskFailed(c.env, task.id, message);
     return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
   }
 });
 
 app.get('/summarize/task', async (c) => {
   const userId = c.get('userId')!;
+  await recoverStaleTasks(c.env, userId);
   const task = await getLatestTaskByUserType(c.env, userId, 'summarize');
   if (!task) {
     return c.json({ success: true, data: { id: '', status: 'idle', total: 0, processed: 0, failed: 0 } });
@@ -344,6 +369,8 @@ app.post('/tags/batch', async (c) => {
       503
     );
   }
+
+  await recoverStaleTasks(c.env, userId);
 
   const existingTask = await getLatestTaskByUserType(c.env, userId, 'tags');
   if (existingTask && existingTask.status === 'running') {
@@ -396,6 +423,7 @@ app.post('/tags/batch', async (c) => {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : '启动任务失败';
+    await markTaskFailed(c.env, task.id, message);
     return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
   }
 });
@@ -422,6 +450,7 @@ app.delete('/tags/batch', async (c) => {
 
 app.get('/tags/task', async (c) => {
   const userId = c.get('userId')!;
+  await recoverStaleTasks(c.env, userId);
   const task = await getLatestTaskByUserType(c.env, userId, 'tags');
   if (!task) {
     return c.json({ success: true, data: { id: '', status: 'idle', total: 0, processed: 0, failed: 0 } });
@@ -598,16 +627,36 @@ app.get('/index/vectors', async (c) => {
   const offset = (page - 1) * pageSize;
   const paginatedFiles = indexedFiles.slice(offset, offset + pageSize);
 
-  const vectorsWithMetadata = paginatedFiles.map((file) => ({
-    id: file.id,
-    name: file.name,
-    mimeType: file.mimeType,
-    size: file.size,
-    vectorIndexedAt: file.vectorIndexedAt,
-    aiSummary: file.aiSummary,
-    indexedTextLength: (file.name + (file.aiSummary || '') + (file.description || '')).length,
-    indexedTextPreview: file.name + (file.aiSummary ? ` - ${file.aiSummary.slice(0, 100)}...` : ''),
-  }));
+  // 真实索引数据以 file_chunks 为准
+  const pageIds = paginatedFiles.map((file) => file.id);
+  const chunkRows = pageIds.length
+    ? await db
+        .select({
+          fileId: fileChunks.fileId,
+          chunkCount: sql<number>`count(*)`,
+          textLength: sql<number>`coalesce(sum(length(${fileChunks.content})), 0)`,
+        })
+        .from(fileChunks)
+        .where(inArray(fileChunks.fileId, pageIds))
+        .groupBy(fileChunks.fileId)
+        .all()
+    : [];
+  const chunkMap = new Map(chunkRows.map((row) => [row.fileId, row]));
+
+  const vectorsWithMetadata = paginatedFiles.map((file) => {
+    const chunk = chunkMap.get(file.id);
+    return {
+      id: file.id,
+      name: file.name,
+      mimeType: file.mimeType,
+      size: file.size,
+      vectorIndexedAt: file.vectorIndexedAt,
+      aiSummary: file.aiSummary,
+      chunkCount: chunk?.chunkCount ?? 0,
+      indexedTextLength: chunk?.textLength ?? 0,
+      indexedTextPreview: file.name + (file.aiSummary ? ` - ${file.aiSummary.slice(0, 100)}...` : ''),
+    };
+  });
 
   return c.json({
     success: true,
@@ -621,6 +670,80 @@ app.get('/index/vectors', async (c) => {
       },
     },
   });
+});
+
+app.post('/index/vectors/batch-delete', async (c) => {
+  const userId = c.get('userId')!;
+  const body = await c.req.json().catch(() => ({}));
+  const rawIds: unknown[] = Array.isArray(body?.fileIds) ? body.fileIds : [];
+  const fileIds = rawIds.filter((id): id is string => typeof id === 'string' && id.length > 0).slice(0, 200);
+
+  if (fileIds.length === 0) {
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请提供文件ID列表' } }, 400);
+  }
+
+  const db = getDb(c.env.DB);
+  // D1 单条 SQL 绑定参数上限为 100
+  const DB_CHUNK = 100;
+  const ownedIds: string[] = [];
+  for (let i = 0; i < fileIds.length; i += DB_CHUNK) {
+    const rows = await db
+      .select({ id: files.id })
+      .from(files)
+      .where(and(eq(files.userId, userId), inArray(files.id, fileIds.slice(i, i + DB_CHUNK))))
+      .all();
+    ownedIds.push(...rows.map((file) => file.id));
+  }
+
+  if (ownedIds.length === 0) {
+    return c.json({ success: true, data: { deleted: 0 } });
+  }
+
+  await deleteFileVectors(c.env, ownedIds);
+  for (let i = 0; i < ownedIds.length; i += DB_CHUNK) {
+    await db
+      .update(files)
+      .set({ vectorIndexedAt: null })
+      .where(inArray(files.id, ownedIds.slice(i, i + DB_CHUNK)));
+  }
+
+  return c.json({ success: true, data: { deleted: ownedIds.length } });
+});
+
+app.delete('/index/vectors/all', async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+
+  let deleted = 0;
+  const PAGE = 100;
+  // 分批处理：既避免一次性加载全部文件，也避开 D1 绑定参数上限
+  for (let guard = 0; guard < 200; guard++) {
+    const batch = await db
+      .select({ id: files.id })
+      .from(files)
+      .where(
+        and(
+          eq(files.userId, userId),
+          isNull(files.deletedAt),
+          eq(files.isFolder, false),
+          sql`${files.vectorIndexedAt} IS NOT NULL`
+        )
+      )
+      .limit(PAGE)
+      .all();
+
+    if (batch.length === 0) break;
+
+    const ids = batch.map((file) => file.id);
+    await deleteFileVectors(c.env, ids);
+    await db.update(files).set({ vectorIndexedAt: null }).where(inArray(files.id, ids));
+    deleted += ids.length;
+
+    if (ids.length < PAGE) break;
+  }
+
+  logger.info('AI', 'All vectors cleared', { userId, deleted });
+  return c.json({ success: true, data: { deleted } });
 });
 
 app.get('/index/sample/:fileId', async (c) => {
@@ -638,6 +761,19 @@ app.get('/index/sample/:fileId', async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
   }
 
+  const chunks = await db
+    .select({
+      chunkIndex: fileChunks.chunkIndex,
+      content: fileChunks.content,
+      embeddingModel: fileChunks.embeddingModel,
+      tokenCount: fileChunks.tokenCount,
+      contentHash: fileChunks.contentHash,
+    })
+    .from(fileChunks)
+    .where(eq(fileChunks.fileId, fileId))
+    .orderBy(fileChunks.chunkIndex)
+    .all();
+
   const result = {
     file: {
       id: file.id,
@@ -646,37 +782,28 @@ app.get('/index/sample/:fileId', async (c) => {
       vectorIndexedAt: file.vectorIndexedAt,
       aiSummary: file.aiSummary,
     },
+    chunkCount: chunks.length,
     vectorize: null as {
       found: boolean;
       metadata: Record<string, unknown> | null;
     } | null,
-    indexedText: '',
+    indexedText: chunks
+      .slice(0, 3)
+      .map((chunk) => chunk.content)
+      .join('\n---\n')
+      .slice(0, 1200),
   };
 
   try {
-    if (c.env.VECTORIZE) {
-      const testVector = new Array(1024).fill(0).map(() => Math.random());
-      const searchResult = await c.env.VECTORIZE.query(testVector, {
-        topK: 1000,
-        filter: { userId } as VectorizeVectorMetadataFilter,
-        returnMetadata: 'all',
-      });
-
-      const found = searchResult.matches.find((m) => m.id === fileId);
+    if (c.env.VECTORIZE && chunks.length > 0) {
+      const vectors = await c.env.VECTORIZE.getByIds([`${fileId}:0`]);
       result.vectorize = {
-        found: !!found,
-        metadata: found ? (found.metadata as Record<string, unknown>) : null,
+        found: vectors.length > 0 && vectors[0].id === `${fileId}:0`,
+        metadata: vectors.length > 0 ? ((vectors[0].metadata as Record<string, unknown>) ?? null) : null,
       };
     }
   } catch (error) {
     logger.error('AI', 'Failed to check vectorize', { fileId }, error);
-  }
-
-  try {
-    const text = await buildFileTextForVector(c.env, fileId);
-    result.indexedText = text.slice(0, 500) + (text.length > 500 ? '...' : '');
-  } catch (error) {
-    logger.error('AI', 'Failed to build text', { fileId }, error);
   }
 
   return c.json({ success: true, data: result });

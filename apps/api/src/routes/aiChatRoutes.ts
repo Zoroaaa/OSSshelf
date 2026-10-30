@@ -8,7 +8,7 @@
  */
 
 import { Hono } from 'hono';
-import { and, asc, count, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
 import { getAgentByName } from 'agents';
 import { authMiddleware } from '../middleware';
 import { aiRateLimit } from '../middleware/aiRateLimit';
@@ -335,6 +335,57 @@ app.get('/sessions/:sessionId/export', async (c) => {
   });
 });
 
+app.delete('/sessions', async (c) => {
+  const userId = c.get('userId')!;
+  const db = getDb(c.env.DB);
+
+  const sessions = await db
+    .select({ id: aiChatSessions.id })
+    .from(aiChatSessions)
+    .where(eq(aiChatSessions.userId, userId))
+    .all();
+
+  const ids = sessions.map((session) => session.id);
+  if (ids.length === 0) {
+    return c.json({ success: true, data: { deleted: 0 } });
+  }
+
+  // 逐个重置 DO 内的对话，失败不阻塞 D1 清理
+  const AGENT_BATCH = 20;
+  for (let i = 0; i < ids.length; i += AGENT_BATCH) {
+    await Promise.allSettled(
+      ids.slice(i, i + AGENT_BATCH).map(async (sessionId) => {
+        try {
+          const stub = await getAgentByName<Env, OSSShelfAgent>(
+            c.env.OSSShelfAgent as unknown as DurableObjectNamespace<OSSShelfAgent>,
+            buildAgentInstanceName(userId, sessionId)
+          );
+          await stub.resetConversation();
+        } catch (error) {
+          logger.warn('AI Chat', 'Failed to reset agent conversation', { userId, sessionId }, error);
+        }
+      })
+    );
+  }
+
+  // D1 单条 SQL 绑定参数上限为 100，按批清理
+  const CHUNK = 100;
+  try {
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const slice = ids.slice(i, i + CHUNK);
+      await db.delete(aiChatMessages).where(inArray(aiChatMessages.sessionId, slice));
+      await db.delete(aiMemories).where(inArray(aiMemories.sessionId, slice));
+    }
+    await db.delete(aiChatSessions).where(eq(aiChatSessions.userId, userId));
+  } catch (error) {
+    logger.error('AI Chat', 'Failed to clear sessions', { userId }, error);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '清空会话失败' } }, 500);
+  }
+
+  // ai_usage_events 保留：计费与审计口径
+  return c.json({ success: true, data: { deleted: ids.length } });
+});
+
 app.delete('/sessions/:sessionId', async (c) => {
   const userId = c.get('userId')!;
   const sessionId = c.req.param('sessionId');
@@ -387,6 +438,39 @@ app.get('/memories', async (c) => {
   } catch (error) {
     logger.error('AI Chat', 'List memories failed', { userId }, error);
     return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '获取记忆列表失败' } }, 500);
+  }
+});
+
+app.post('/memories/batch-delete', async (c) => {
+  const userId = c.get('userId')!;
+  const body = await c.req.json().catch(() => ({}));
+  const rawIds: unknown[] = Array.isArray(body?.ids) ? body.ids : [];
+  const ids = rawIds.filter((id): id is string => typeof id === 'string' && id.length > 0).slice(0, 200);
+
+  if (ids.length === 0) {
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请提供记忆ID列表' } }, 400);
+  }
+
+  try {
+    const memory = new AgentMemory(new ModelGateway(c.env), c.env);
+    const deleted = await memory.deleteMemories(ids, userId);
+    return c.json({ success: true, data: { deleted } });
+  } catch (error) {
+    logger.error('AI Chat', 'Batch delete memories failed', { userId, count: ids.length }, error);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '批量删除记忆失败' } }, 500);
+  }
+});
+
+app.delete('/memories', async (c) => {
+  const userId = c.get('userId')!;
+
+  try {
+    const memory = new AgentMemory(new ModelGateway(c.env), c.env);
+    const deleted = await memory.deleteAllMemories(userId);
+    return c.json({ success: true, data: { deleted } });
+  } catch (error) {
+    logger.error('AI Chat', 'Delete all memories failed', { userId }, error);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '清空记忆失败' } }, 500);
   }
 });
 

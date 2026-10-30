@@ -401,6 +401,25 @@ export function AIChat() {
     if (window.innerWidth < 1024) setShowSidebar(false);
   };
 
+  const handleClearAllSessions = async () => {
+    try {
+      const response = await aiApi.chatSession.deleteAllSessions();
+      for (const session of sessions) {
+        queryClient.removeQueries({ queryKey: agentMessagesKey(user?.id, session.id) });
+      }
+      agent.clearMessages();
+      queryClient.invalidateQueries({ queryKey: ['ai-chat-sessions'] });
+      handleNewChat();
+      toast({ title: '已清空', description: `共删除 ${response.data.data?.deleted ?? 0} 个对话` });
+    } catch (error) {
+      toast({
+        title: '清空失败',
+        description: error instanceof Error ? error.message : '请稍后重试',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleDeleteSession = async (_event: React.MouseEvent, id: string) => {
     try {
       await aiApi.chatSession.deleteSession(id);
@@ -515,6 +534,7 @@ export function AIChat() {
         onNewChat={handleNewChat}
         onSelectSession={handleSelectSession}
         onDeleteSession={handleDeleteSession}
+        onClearAllSessions={handleClearAllSessions}
         onStartRename={(session) => {
           setRenamingId(session.id);
           setRenameValue(session.title);

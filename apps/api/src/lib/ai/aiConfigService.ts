@@ -154,36 +154,6 @@ export async function initializeAiConfig(env: Env): Promise<void> {
       sortOrder: 11,
     },
     {
-      key: 'ai.agent.temperature',
-      category: 'agent',
-      label: 'Agent温度参数',
-      description: 'Agent对话时的温度参数（0-2之间，越低越确定）',
-      valueType: 'number',
-      defaultValue: '0.3',
-      isEditable: true,
-      sortOrder: 14,
-    },
-    {
-      key: 'ai.agent.max_tool_calls',
-      category: 'agent',
-      label: '最大工具调用次数',
-      description: '单次Agent响应中最大工具调用次数',
-      valueType: 'number',
-      defaultValue: '20',
-      isEditable: true,
-      sortOrder: 15,
-    },
-    {
-      key: 'ai.agent.max_idle_rounds',
-      category: 'agent',
-      label: '最大空转轮数',
-      description: '连续无新文件信息后自动退出的轮数',
-      valueType: 'number',
-      defaultValue: '3',
-      isEditable: true,
-      sortOrder: 16,
-    },
-    {
       key: 'ai.agent.max_steps',
       category: 'agent',
       label: 'Agent 最大推理步数',
@@ -192,16 +162,6 @@ export async function initializeAiConfig(env: Env): Promise<void> {
       defaultValue: '20',
       isEditable: true,
       sortOrder: 18,
-    },
-    {
-      key: 'ai.agent.image_timeout_ms',
-      category: 'agent',
-      label: '图片分析超时(ms)',
-      description: '单张图片分析的超时时间（毫秒）',
-      valueType: 'number',
-      defaultValue: '25000',
-      isEditable: true,
-      sortOrder: 20,
     },
     {
       key: 'ai.agent.max_context_tokens',
@@ -242,26 +202,6 @@ export async function initializeAiConfig(env: Env): Promise<void> {
       defaultValue: '16384',
       isEditable: true,
       sortOrder: 23,
-    },
-    {
-      key: 'ai.rag.max_files',
-      category: 'rag',
-      label: 'RAG最大文件数',
-      description: 'RAG检索时返回的最大文件数',
-      valueType: 'number',
-      defaultValue: '5',
-      isEditable: true,
-      sortOrder: 27,
-    },
-    {
-      key: 'ai.rag.max_context_length',
-      category: 'rag',
-      label: 'RAG最大上下文长度',
-      description: 'RAG上下文的最大字符数',
-      valueType: 'number',
-      defaultValue: '8000',
-      isEditable: true,
-      sortOrder: 28,
     },
     {
       key: 'ai.rag.rerank_enabled',
@@ -398,7 +338,12 @@ export async function initializeAiConfig(env: Env): Promise<void> {
   const existingKeys = new Set(existingConfigs.map((c) => c.key));
   const missingConfigs = defaultConfigs.filter((config) => !existingKeys.has(config.key));
 
-  if (missingConfigs.length === 0) {
+  // 注册表是唯一事实来源：不在注册表中的历史残留键直接清理，
+  // 避免旧版本配置继续出现在「高级配置」里。
+  const definedKeys = new Set(defaultConfigs.map((config) => config.key));
+  const obsoleteKeys = existingConfigs.filter((config) => !definedKeys.has(config.key)).map((config) => config.key);
+
+  if (missingConfigs.length === 0 && obsoleteKeys.length === 0) {
     logger.info(AI_CONFIG_LOG_MODULE, `已存在 ${existingConfigs.length} 条配置，无缺失项`);
     return;
   }
@@ -415,6 +360,13 @@ export async function initializeAiConfig(env: Env): Promise<void> {
       createdAt: now,
       updatedAt: now,
     });
+  }
+
+  if (obsoleteKeys.length > 0) {
+    for (const key of obsoleteKeys) {
+      await db.delete(aiConfig).where(eq(aiConfig.key, key));
+    }
+    logger.info(AI_CONFIG_LOG_MODULE, `已清理 ${obsoleteKeys.length} 条历史配置`, { keys: obsoleteKeys });
   }
 
   logger.info(AI_CONFIG_LOG_MODULE, `成功初始化 ${missingConfigs.length} 条默认配置`);

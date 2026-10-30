@@ -45,6 +45,19 @@ const CATEGORY_LABELS: Record<string, string> = {
   prompt: '提示词模板',
 };
 
+// 分类顺序固定，但只渲染后端实际返回的分类：
+// 被清理掉的旧配置项不会留下空分组。
+const CATEGORY_ORDER = ['model', 'parameter', 'agent', 'tool', 'feature', 'rag', 'retry', 'quota', 'prompt'];
+
+function resolveCategories(systemConfigs: AiSystemConfigItem[]): string[] {
+  const present = new Set(systemConfigs.map((config) => config.category));
+  const ordered = CATEGORY_ORDER.filter((category) => present.has(category));
+  const extra = Array.from(present)
+    .filter((category) => !CATEGORY_ORDER.includes(category))
+    .sort();
+  return [...ordered, ...extra];
+}
+
 function ConfigItem({
   config,
   models,
@@ -282,7 +295,7 @@ export function AdvancedConfigPanel({
     );
   }
 
-  const categories = ['model', 'parameter', 'agent', 'tool', 'feature', 'rag', 'retry', 'quota', 'prompt'];
+  const categories = resolveCategories(systemConfigs);
 
   return (
     <div className="space-y-3">

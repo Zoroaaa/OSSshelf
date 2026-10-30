@@ -22,6 +22,7 @@ import {
   Play,
   Database,
   BarChart3,
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { StatsCard } from './StatsCard';
@@ -50,9 +51,14 @@ interface IndexProcessingTabProps {
   tagsTask: AITagsTask | null;
   isStartingSummarize: boolean;
   isStartingTags: boolean;
+  queueConfigured: boolean;
   onStartSummarize: () => void;
   onStartTags: () => void;
   onStartIndex: () => void;
+  onRebuildIndex: () => void;
+  onCancelSummarize: () => void;
+  onCancelTags: () => void;
+  onCancelIndex: () => void;
   onFeatureConfigChange: (feature: string, value: string) => void;
 }
 
@@ -71,9 +77,14 @@ export function IndexProcessingTab({
   tagsTask,
   isStartingSummarize,
   isStartingTags,
+  queueConfigured,
   onStartSummarize,
   onStartTags,
   onStartIndex,
+  onRebuildIndex,
+  onCancelSummarize,
+  onCancelTags,
+  onCancelIndex,
   onFeatureConfigChange,
 }: IndexProcessingTabProps) {
   if (!isAIAvailable) {
@@ -130,6 +141,18 @@ export function IndexProcessingTab({
 
   return (
     <div className="space-y-6">
+      {!queueConfigured && (
+        <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+          <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-destructive" />
+          <div>
+            <p className="text-sm font-medium text-destructive">AI 任务队列未配置</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              批量摘要、批量标签、一键索引依赖 Cloudflare Queues（AI_TASKS_QUEUE 绑定），当前环境未绑定，
+              批量任务无法入队。请补齐 wrangler 配置后重新部署。
+            </p>
+          </div>
+        </div>
+      )}
       <section className="border rounded-lg p-4 sm:p-6">
         <div className="flex items-center gap-2 mb-4">
           <Settings2 className="h-5 w-5 text-purple-500" />
@@ -209,7 +232,7 @@ export function IndexProcessingTab({
                 size="sm"
                 className="w-full"
                 onClick={onStartSummarize}
-                disabled={isStartingSummarize || summarizeTask?.status === 'running'}
+                disabled={isStartingSummarize || summarizeTask?.status === 'running' || !queueConfigured}
               >
                 {isStartingSummarize || summarizeTask?.status === 'running' ? (
                   <>
@@ -224,7 +247,7 @@ export function IndexProcessingTab({
                 )}
               </Button>
               {summarizeTask && summarizeTask.status !== 'idle' && (
-                <TaskProgress task={summarizeTask} onCancel={() => {}} />
+                <TaskProgress task={summarizeTask} onCancel={onCancelSummarize} />
               )}
             </div>
           }
@@ -245,7 +268,7 @@ export function IndexProcessingTab({
                 size="sm"
                 className="w-full"
                 onClick={onStartTags}
-                disabled={isStartingTags || tagsTask?.status === 'running'}
+                disabled={isStartingTags || tagsTask?.status === 'running' || !queueConfigured}
               >
                 {isStartingTags || tagsTask?.status === 'running' ? (
                   <>
@@ -259,7 +282,7 @@ export function IndexProcessingTab({
                   </>
                 )}
               </Button>
-              {tagsTask && tagsTask.status !== 'idle' && <TaskProgress task={tagsTask} onCancel={() => {}} />}
+              {tagsTask && tagsTask.status !== 'idle' && <TaskProgress task={tagsTask} onCancel={onCancelTags} />}
             </div>
           }
         />
@@ -283,18 +306,29 @@ export function IndexProcessingTab({
               为所有文件建立向量索引，支持智能语义搜索。建议先完成摘要和标签生成后再执行。
             </p>
           </div>
-          <Button
-            variant="default"
-            onClick={onStartIndex}
-            disabled={task?.status === 'running'}
-            className="w-full sm:w-auto"
-          >
-            <Database className="h-4 w-4 mr-2" />
-            一键生成索引
-          </Button>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <Button
+              variant="outline"
+              onClick={onRebuildIndex}
+              disabled={task?.status === 'running' || !queueConfigured}
+              className="w-full sm:w-auto"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              重建全部索引
+            </Button>
+            <Button
+              variant="default"
+              onClick={onStartIndex}
+              disabled={task?.status === 'running' || !queueConfigured}
+              className="w-full sm:w-auto"
+            >
+              <Database className="h-4 w-4 mr-2" />
+              一键生成索引
+            </Button>
+          </div>
         </div>
 
-        {task && task.status !== 'idle' && <TaskProgress task={task} onCancel={() => {}} />}
+        {task && task.status !== 'idle' && <TaskProgress task={task} onCancel={onCancelIndex} />}
       </div>
 
       {stats && (

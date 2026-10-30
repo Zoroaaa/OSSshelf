@@ -120,6 +120,7 @@ export interface AIIndexDiagnose {
 /** 索引样本详情 */
 export interface AIIndexSample {
   file: { id: string; name: string; mimeType: string | null; vectorIndexedAt: string | null; aiSummary: string | null };
+  chunkCount?: number;
   vectorize: { found: boolean; metadata: Record<string, unknown> | null } | null;
   indexedText: string;
 }
@@ -132,7 +133,7 @@ export interface VectorItem {
   size: number | null;
   vectorIndexedAt: string | null;
   aiSummary: string | null;
-  vectorize: { found: boolean; metadata: Record<string, unknown> | null };
+  chunkCount?: number;
   indexedTextLength: number;
   indexedTextPreview: string;
 }
@@ -271,6 +272,7 @@ export interface AiOpenAiModel {
 /** AI 配置总览状态 */
 export interface AiConfigStatus {
   configured: boolean;
+  queueConfigured?: boolean;
   activeModel: { id: string; name: string; provider: string; modelId: string } | null;
   totalModels: number;
   features: { workersAi: boolean; customApi: boolean; chat: boolean; embedding: boolean };
@@ -370,8 +372,13 @@ export const aiApi = {
 
   // ── 索引诊断 & 管理 ──
   getIndexStats: () => api.get<ApiResponse<AIIndexStats>>('/api/ai/index/stats'),
+  rebuildIndex: () => api.post<ApiResponse<{ message: string; task: AIIndexTask }>>('/api/ai/index/rebuild'),
   getVectors: (params?: { page?: number; pageSize?: number; search?: string }) =>
     api.get<ApiResponse<VectorListResponse>>('/api/ai/index/vectors', { params }),
+  deleteVectorsBatch: (fileIds: string[]) =>
+    api.post<ApiResponse<{ deleted: number }>>('/api/ai/index/vectors/batch-delete', { fileIds }),
+  deleteAllVectors: () =>
+    api.delete<ApiResponse<{ deleted: number }>>('/api/ai/index/vectors/all'),
   getIndexSample: (fileId: string) => api.get<ApiResponse<AIIndexSample>>(`/api/ai/index/sample/${fileId}`),
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -448,8 +455,22 @@ export const aiApi = {
           totals: { inputTokens: number; outputTokens: number; requests: number };
           byDay: Array<{ day: string; inputTokens: number; outputTokens: number; requests: number }>;
           byModel: Array<{ modelId: string; inputTokens: number; outputTokens: number; requests: number }>;
+          byFeature: Array<{ feature: string; inputTokens: number; outputTokens: number; requests: number }>;
         }>
       >(`/api/ai/usage/summary?days=${days}`),
+    getQuota: () =>
+      api.get<
+        ApiResponse<{
+          allowed: boolean;
+          reason?: string;
+          usedTokens: number;
+          tokenLimit: number;
+          usedRequests: number;
+          requestLimit: number;
+          minuteRequests: number;
+          minuteLimit: number;
+        }>
+      >('/api/ai/usage/quota'),
     getEvents: (limit = 50) =>
       api.get<
         ApiResponse<
@@ -480,6 +501,7 @@ export const aiApi = {
       api.put<ApiResponse<AiChatSession>>(`/api/ai-chat/sessions/${sessionId}`, data),
     deleteSession: (sessionId: string) =>
       api.delete<ApiResponse<{ message: string }>>(`/api/ai-chat/sessions/${sessionId}`),
+    deleteAllSessions: () => api.delete<ApiResponse<{ deleted: number }>>('/api/ai-chat/sessions'),
 
     /** 首轮对话后生成标题（失败时后端返回原标题） */
     generateTitle: (sessionId: string) =>
@@ -518,5 +540,8 @@ export const aiApi = {
         }>
       >('/api/ai-chat/memories', { params }),
     delete: (memoryId: string) => api.delete<ApiResponse<{ success: boolean }>>(`/api/ai-chat/memories/${memoryId}`),
+    deleteMany: (ids: string[]) =>
+      api.post<ApiResponse<{ deleted: number }>>('/api/ai-chat/memories/batch-delete', { ids }),
+    deleteAll: () => api.delete<ApiResponse<{ deleted: number }>>('/api/ai-chat/memories'),
   },
 };

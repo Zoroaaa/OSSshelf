@@ -34,6 +34,7 @@ export interface UsageSummary {
   totals: { inputTokens: number; outputTokens: number; requests: number };
   byDay: Array<{ day: string; inputTokens: number; outputTokens: number; requests: number }>;
   byModel: Array<{ modelId: string; inputTokens: number; outputTokens: number; requests: number }>;
+  byFeature: Array<{ feature: string; inputTokens: number; outputTokens: number; requests: number }>;
 }
 
 function startOfUtcDay(date = new Date()): string {
@@ -120,10 +121,24 @@ export async function getUsageSummary(env: Env, userId: string, days = 7): Promi
     .orderBy(desc(sql`count(*)`))
     .all();
 
+  const byFeature = await db
+    .select({
+      feature: aiUsageEvents.feature,
+      inputTokens: sql<number>`coalesce(sum(${aiUsageEvents.inputTokens}), 0)`,
+      outputTokens: sql<number>`coalesce(sum(${aiUsageEvents.outputTokens}), 0)`,
+      requests: sql<number>`count(*)`,
+    })
+    .from(aiUsageEvents)
+    .where(and(eq(aiUsageEvents.userId, userId), gte(aiUsageEvents.createdAt, since)))
+    .groupBy(aiUsageEvents.feature)
+    .orderBy(desc(sql`count(*)`))
+    .all();
+
   return {
     totals: totals ?? { inputTokens: 0, outputTokens: 0, requests: 0 },
     byDay,
     byModel,
+    byFeature,
   };
 }
 
@@ -149,6 +164,8 @@ export interface QuotaDecision {
   tokenLimit: number;
   usedRequests: number;
   requestLimit: number;
+  minuteRequests: number;
+  minuteLimit: number;
 }
 
 const DEFAULT_DAILY_TOKENS = 200_000;
@@ -190,6 +207,8 @@ export async function checkAiQuota(env: Env, userId: string): Promise<QuotaDecis
     tokenLimit,
     usedRequests: daily.requests,
     requestLimit,
+    minuteRequests: minuteCount,
+    minuteLimit: rpm,
   };
 
   if (rpm > 0 && minuteCount >= rpm) {
@@ -203,4 +222,9 @@ export async function checkAiQuota(env: Env, userId: string): Promise<QuotaDecis
   }
 
   return decision;
+}
+
+/** 配额状态查询（只读，不占用配额） */
+export async function getQuotaStatus(env: Env, userId: string): Promise<QuotaDecision> {
+  return checkAiQuota(env, userId);
 }

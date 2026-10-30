@@ -21,6 +21,7 @@ import {
   auditLogs,
   aiChatSessions,
   aiChatMessages,
+  aiUsageEvents,
   aiMemories,
   fileVersions,
 } from '../db';
@@ -737,6 +738,29 @@ app.get('/ai/traces', async (c) => {
 
   const total = countResult?.count ?? 0;
 
+  // Token 以 ai_usage_events 为准（Agent 写入），ai_chat_messages 不再承担记账职责
+  const sessionIds = sessions.map((session) => session.id);
+  const usageRows =
+    sessionIds.length === 0
+      ? []
+      : await db
+          .select({
+            sessionId: aiUsageEvents.sessionId,
+            input: sql<number>`coalesce(sum(${aiUsageEvents.inputTokens}), 0)`,
+            output: sql<number>`coalesce(sum(${aiUsageEvents.outputTokens}), 0)`,
+          })
+          .from(aiUsageEvents)
+          .where(
+            sql`${aiUsageEvents.sessionId} IN (${sql.join(
+              sessionIds.map((id) => sql`${id}`),
+              sql`, `
+            )})`
+          )
+          .groupBy(aiUsageEvents.sessionId)
+          .all();
+
+  const usageMap = new Map(usageRows.map((row) => [row.sessionId, row]));
+
   const items = await Promise.all(
     sessions.map(async (session) => {
       const messages = await db.select().from(aiChatMessages).where(eq(aiChatMessages.sessionId, session.id)).all();
@@ -744,13 +768,12 @@ app.get('/ai/traces', async (c) => {
       const toolCalls = messages.flatMap((m) => (m.toolCalls ? JSON.parse(m.toolCalls as string) : []));
       const assistantMessages = messages.filter((m) => m.role === 'assistant');
 
-      const tokenUsage = { input: 0, output: 0 };
+      const usage = usageMap.get(session.id);
+      const tokenUsage = { input: usage?.input ?? 0, output: usage?.output ?? 0 };
       let hasPlan = false;
       let reasoningLength = 0;
 
       for (const msg of assistantMessages) {
-        tokenUsage.input += msg.inputTokens ?? 0;
-        tokenUsage.output += msg.outputTokens ?? 0;
         if (msg.content && msg.content.includes('"type":"plan"')) hasPlan = true;
         if (msg.reasoning) reasoningLength += String(msg.reasoning).length;
       }
@@ -821,14 +844,21 @@ app.get('/ai/traces/:traceId', async (c) => {
 
   const assistantMsgs = messages.filter((m) => m.role === 'assistant');
 
-  const tokenUsage = { input: 0, output: 0 };
+  const usageRow = await db
+    .select({
+      input: sql<number>`coalesce(sum(${aiUsageEvents.inputTokens}), 0)`,
+      output: sql<number>`coalesce(sum(${aiUsageEvents.outputTokens}), 0)`,
+    })
+    .from(aiUsageEvents)
+    .where(eq(aiUsageEvents.sessionId, sessionId))
+    .get();
+
+  const tokenUsage = { input: usageRow?.input ?? 0, output: usageRow?.output ?? 0 };
   const plan = null;
   let reasoning = '';
   let memoryRecalled: string[] = [];
 
   for (const msg of assistantMsgs) {
-    tokenUsage.input += msg.inputTokens ?? 0;
-    tokenUsage.output += msg.outputTokens ?? 0;
     if (msg.reasoning) reasoning += String(msg.reasoning);
   }
 
