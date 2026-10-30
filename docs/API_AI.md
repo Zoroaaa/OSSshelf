@@ -1,1264 +1,379 @@
-# OSSshelf AI API 文档
+# OSSshelf AI API 文档（v5.0，Cloudflare Agents SDK）
 
-**版本**: v5.2.0
-**更新日期**: 2026-10-29
+> 运行时：`OSSShelfAgent`（Durable Object）+ AI SDK `streamText`。
+> HTTP 接口只负责会话/记忆管理、模型配置、索引任务与用量查询；对话本体走 `/agents/*` WebSocket。
 
----
+## 鉴权
 
-## 📋 目录
+除健康检查外，所有接口都需要登录态（Bearer JWT 或 API Key）。AI 相关写操作接口额外经过 `aiRateLimit`：
 
-- [API 概述](#api-概述)
-- [认证](#认证)
-- [AI 提供商 API](#ai-提供商-api)
-- [AI 对话 API](#ai-对话-api)
-- [Agent 运行时 API](#agent-运行时-api)
-- [模型管理 API](#模型管理-api)
-- [AI 功能 API](#ai-功能-api)
-- [向量索引 API](#向量索引-api)
-- [AI 配置 API](#ai-配置-api)
-- [错误处理](#错误处理)
+- 日 Token 配额：`ai.quota.daily_tokens`
+- 日请求配额：`ai.quota.daily_requests`
+- 每分钟请求上限：`ai.rate.requests_per_minute`
 
----
+超限返回 `429`，`error.code` 为 `AI_RATE_LIMIT` 或 `AI_QUOTA_EXCEEDED`。
 
-## API 概述
+## 环境依赖
 
-所有 AI 相关 API 都位于 `/api/ai` 路径下，主要功能包括：
-
-| 模块      | 路径前缀                               | 功能                           |
-| --------- | -------------------------------------- | ------------------------------ |
-| AI 提供商 | `/api/ai-config/providers`             | 提供商管理（v4.4.0 新增）      |
-| AI 对话/运行时 | `/api/ai-chat/*`、`/agents/*`     | 会话 CRUD、票据、WebSocket 对话 |
-| 模型管理  | `/api/ai/models`                       | 模型配置、激活、测试           |
-| AI 功能   | `/api/ai/summarize`, `/api/ai/tags` 等 | 摘要、标签、重命名             |
-| 向量索引  | `/api/ai/index`                        | 向量索引管理                   |
-| AI 配置   | `/api/ai/config`                       | 系统配置管理                   |
-| 记忆管理  | `/api/ai-chat/memories`                | 跨会话记忆 CRUD（v4.7.0 新增） |
-| 用量统计  | `/api/ai/usage`                        | 真实 token 记账与配额（v5.2.0）|
+| 绑定 / 变量 | 必需 | 说明 |
+| --- | --- | --- |
+| `AI` | 是 | Workers AI 推理与小规模 embedding |
+| `VECTORIZE` | 是 | 文件/记忆向量索引 |
+| `AI_TASKS_QUEUE` | 是（批量任务） | 一键索引/摘要/标签的队列 |
+| `OSSShelfAgent` | 是 | 对话 Durable Object |
+| `CF_ACCOUNT_ID` / `CF_API_TOKEN` | 可选 | 实时拉取 Workers AI 模型目录（权限 Workers AI Read） |
+| `ai_usage_events` / `file_chunks` / `ai_task_items` / `ai_feature_config` / `files_fts` | 是 | 由 `110_ai_agents.sql` 创建，需手动执行迁移 |
 
 ---
 
-## v5.2.0 Agent 运行时（Cloudflare Agents SDK）
+# 对话（WebSocket）
 
-### 换取 WebSocket 票据
+## POST /api/ai-chat/ws-ticket
 
-```http
-POST /api/ai-chat/ws-ticket
-Content-Type: application/json
-
-{ "sessionId": "<uuid>" }
-```
-
-返回 2 小时有效的 ticket。客户端使用 `agents/react` 的 `useAgent` 连接：
-
-```
-wss://<api-host>/agents/OSSShelfAgent/<userId>:<sessionId>?ticket=<ticket>
-```
-
-票据只用于建立连接，长期 JWT 不会出现在 URL 或日志中。
-
-### 用量
-
-```http
-GET /api/ai/usage/summary?days=7
-GET /api/ai/usage/events?limit=50
-```
-
-每次模型调用写入 `ai_usage_events`（真实 input/output token、延迟、工具次数、错误码）。配额键：
-`ai.quota.daily_tokens`、`ai.quota.daily_requests`、`ai.rate.requests_per_minute`。
-
-### 索引重建
-
-```http
-POST /api/ai/index/rebuild
-```
-
-清空 `vectorIndexedAt` 后重新入队全部文件，并同步 FTS5 索引。
-
-### 工具
-
-新增 `search_content`：分块语义检索，返回命中片段正文（`file_chunks`）而不是整文件。
-
----
-
-## 认证
-
-所有 API 请求需要通过 Clerk 认证：
-
-```http
-Authorization: Bearer <session_token>
-```
-
-或使用 Cookie 认证。
-
----
-
-## AI 提供商 API
-
-v4.4.0 新增提供商管理功能。
-
-### 获取系统内置提供商列表
-
-```http
-GET /api/ai-config/providers
-```
-
-**响应**:
+换取连接 `/agents/OSSShelfAgent/{userId}:{sessionId}` 的短期票据。
 
 ```json
-{
-  "workersAiModels": [
-    {
-      "id": "@cf/meta/llama-3.1-8b-instruct",
-      "name": "Llama 3.1 8B",
-      "capabilities": ["chat"]
-    }
-  ]
-}
+{ "sessionId": "uuid" }
 ```
 
-### 获取所有提供商
-
-```http
-GET /api/ai-config/ai-providers
-```
-
-**响应**:
-
-```json
-{
-  "data": [
-    {
-      "id": "vendor-deepseek",
-      "name": "DeepSeek",
-      "apiEndpoint": "https://api.deepseek.com/v1",
-      "description": "DeepSeek深度求索大模型",
-      "thinkingConfig": "{\"paramFormat\":\"object\",\"paramName\":\"thinking\",\"nestedKey\":\"type\",\"enabledValue\":\"enabled\",\"disabledValue\":\"disabled\"}",
-      "isSystem": true,
-      "isDefault": false,
-      "isActive": true,
-      "sortOrder": 91
-    }
-  ]
-}
-```
-
-### 创建自定义提供商
-
-```http
-POST /api/ai-config/ai-providers
-Content-Type: application/json
-
-{
-  "name": "我的自定义提供商",
-  "apiEndpoint": "https://api.example.com/v1",
-  "description": "自定义 OpenAI 兼容 API",
-  "thinkingConfig": "{\"paramFormat\":\"boolean\",\"paramName\":\"enable_thinking\",\"enabledValue\":true,\"disabledValue\":false}"
-}
-```
-
-### 更新提供商
-
-```http
-PUT /api/ai-config/ai-providers/:id
-Content-Type: application/json
-
-{
-  "name": "新名称",
-  "isDefault": true
-}
-```
-
-### 删除提供商
-
-```http
-DELETE /api/ai-config/ai-providers/:id
-```
-
-> 注意：系统内置提供商无法删除
-
-### 设置默认提供商
-
-```http
-POST /api/ai-config/ai-providers/:providerId/set-default
-```
-
-**响应**:
+返回：
 
 ```json
 {
   "success": true,
   "data": {
-    "message": "已设为默认提供商",
-    "providerId": "uuid"
+    "ticket": "…",
+    "agent": "OSSShelfAgent",
+    "name": "userId:sessionId",
+    "expiresIn": 7200
   }
 }
 ```
 
-> 注意：会将该用户的其他提供商的 isDefault 设为 false
+连接后由 Agent 处理消息、工具审批与流式输出，HTTP 层不再提供 SSE/`chat` 接口。
+
+## GET /api/ai-chat/sessions
+
+返回当前用户最近 50 个会话，附带 `messageCount`、`totalTokensUsed`、`lastToolCallCount`（用量来自 `ai_usage_events`）。
+
+## POST /api/ai-chat/sessions
+
+```json
+{ "id": "uuid（可选，前端预生成）", "title": "新对话", "modelId": "模型记录ID（可选）" }
+```
+
+## PUT /api/ai-chat/sessions/:sessionId
+
+```json
+{ "title": "新标题" }
+```
+
+## POST /api/ai-chat/sessions/:sessionId/title
+
+用前几轮对话自动生成 8-16 字标题；失败时返回原标题，不会覆盖。
+
+## GET /api/ai-chat/sessions/:sessionId/export
+
+导出该会话为 Markdown（`text/markdown` 附件），内容来自 D1 审计镜像。
+
+## DELETE /api/ai-chat/sessions
+
+清空当前用户全部会话：逐个重置 DO 内对话，删除 `ai_chat_messages` / `ai_memories` / `ai_chat_sessions`；`ai_usage_events` 保留（计费口径）。
+
+```json
+{ "deleted": 12 }
+```
+
+## DELETE /api/ai-chat/sessions/:sessionId
+
+删除单个会话（同样会重置对应 DO）。
+
+## GET /api/ai-chat/memories
+
+查询参数：`type`（`operation` / `preference` / `path` / `file_ref`）、`limit`、`offset`。
+
+## POST /api/ai-chat/memories/batch-delete
+
+```json
+{ "ids": ["memoryId"] }
+```
+
+最多 200 条，同时删除 `mem_*` 向量。
+
+## DELETE /api/ai-chat/memories
+
+清空当前用户全部记忆（含向量）。
+
+## DELETE /api/ai-chat/memories/:id
+
+删除单条记忆（含向量）。
 
 ---
 
-## AI 对话 API
+# 模型与提供商（/api/ai-config）
 
-### 创建会话
+## GET /models
 
-```http
-POST /api/ai/chat/sessions
-Content-Type: application/json
+查询参数：`capability`（`chat` / `vision` / `embedding` / `function_calling` / `completion`）。
 
-{
-  "title": "新对话"  // 可选，默认自动生成
-}
-```
-
-**响应**:
+## POST /models
 
 ```json
 {
-  "id": "uuid",
-  "userId": "user_xxx",
-  "title": "新对话",
-  "createdAt": "2026-04-08T10:00:00Z",
-  "updatedAt": "2026-04-08T10:00:00Z"
+  "name": "显示名",
+  "provider": "workers_ai | openai_compatible",
+  "providerId": "可选，自定义提供商ID",
+  "modelId": "模型 ID",
+  "apiEndpoint": "https://…（openai_compatible 必填）",
+  "apiKey": "可选，服务端加密存储",
+  "capabilities": ["chat", "vision"],
+  "temperature": 0.7,
+  "isActive": true
 }
 ```
 
-### 获取会话列表
+## PUT /models/:modelId
 
-```http
-GET /api/ai/chat/sessions
-```
+字段同创建接口，全部可选；`apiKey` 留空表示不修改。
 
-**响应**:
+## DELETE /models/:modelId
+
+## POST /models/:modelId/activate
+
+将该模型设为当前激活模型（同一用户仅一个激活模型）。
+
+## GET /ai-providers / POST /ai-providers / PUT /ai-providers/:id / DELETE /ai-providers/:id
+
+自定义 OpenAI 兼容提供商 CRUD。删除前会检查是否仍被模型引用。
+
+## POST /ai-providers/:id/set-default
+
+## GET /providers
+
+返回 `ModelGateway.getAvailableProviders()` 与 Workers AI 模型清单（与实时目录一致）。
+
+## GET /workers-ai/models?refresh=1
+
+Workers AI 模型目录。
 
 ```json
 {
-  "sessions": [
-    {
-      "id": "uuid",
-      "title": "关于项目的讨论",
-      "createdAt": "2026-04-08T10:00:00Z",
-      "updatedAt": "2026-04-08T10:30:00Z"
-    }
-  ]
-}
-```
-
-### 获取会话消息
-
-```http
-GET /api/ai/chat/sessions/:sessionId/messages
-```
-
-**响应**:
-
-```json
-{
-  "messages": [
-    {
-      "id": "uuid",
-      "role": "user",
-      "content": "帮我找一下项目配置文件",
-      "createdAt": "2026-04-08T10:00:00Z"
-    },
-    {
-      "id": "uuid",
-      "role": "assistant",
-      "content": "我找到了以下配置文件...",
-      "sources": [{ "fileId": "xxx", "fileName": "config.json" }],
-      "createdAt": "2026-04-08T10:00:05Z"
-    }
-  ]
-}
-```
-
-### 删除会话
-
-```http
-DELETE /api/ai/chat/sessions/:sessionId
-```
-
-### 更新会话标题
-
-```http
-PATCH /api/ai/chat/sessions/:sessionId
-Content-Type: application/json
-
-{
-  "title": "新标题"
-}
-```
-
----
-
-## Agent 运行时 API
-
-对话消息只能通过 Durable Object WebSocket 发送；HTTP 侧仅负责会话 CRUD、票据与记忆。
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/ai-chat/sessions` | 会话列表 |
-| POST | `/api/ai-chat/sessions` | 创建会话（可传客户端生成的 `id`） |
-| PUT | `/api/ai-chat/sessions/:sessionId` | 重命名会话 |
-| DELETE | `/api/ai-chat/sessions/:sessionId` | 删除会话及其消息 |
-| POST | `/api/ai-chat/ws-ticket` | 换取 2h WebSocket ticket |
-| GET | `/api/ai-chat/memories` | 记忆列表 |
-| DELETE | `/api/ai-chat/memories/:id` | 删除记忆 |
-
-WebSocket 建立后，发送消息、工具审批、停止与重新生成均由 `@cloudflare/ai-chat/react` 的 `useAgentChat` 完成：
-
-```typescript
-const agent = useAgent({ agent: 'OSSShelfAgent', name: `${userId}:${sessionId}`, host, query: { ticket } });
-const chat = useAgentChat({ agent });
-
-chat.sendMessage({ text: '帮我找一下所有图片文件' }, { body: { contextFileIds } });
-chat.addToolApprovalResponse({ id: approvalId, approved: true });
-chat.stop();
-chat.regenerate();
-```
-
-审批不再有独立 HTTP 接口：写工具声明 `needsApproval`，客户端回传 `approvalId` 后在同一轮继续执行。
-
----
-
-## 模型管理 API
-
-### 获取模型列表
-
-```http
-GET /api/ai/models
-```
-
-**响应**:
-
-```json
-{
+  "source": "live | fallback",
+  "configured": true,
+  "fetchedAt": "ISO 时间",
+  "error": "同步失败原因（可选）",
   "models": [
     {
-      "id": "uuid",
-      "name": "Llama 3.1 8B",
-      "provider": "workers_ai",
-      "modelId": "@cf/meta/llama-3.1-8b-instruct",
-      "isActive": true,
+      "id": "@cf/…",
+      "name": "模型名",
+      "description": "描述",
+      "task": "Text Generation",
       "capabilities": ["chat"],
-      "maxTokens": 4096,
-      "temperature": 0.7
+      "properties": [{ "key": "context_window", "value": "8192" }],
+      "pricing": "可选，官方返回 price/pricing 字段时展示",
+      "beta": false,
+      "deprecated": false
     }
   ]
 }
 ```
 
-### 添加模型
+- 配置 `CF_ACCOUNT_ID` + `CF_API_TOKEN` 时为 `live`，缓存 6 小时，`refresh=1` 强制刷新。
+- 未配置或同步失败时为 `fallback`（内置兜底清单），响应中的 `configured/error` 用于前端提示。
 
-```http
-POST /api/ai/models
-Content-Type: application/json
+## GET /status
 
-{
-  "name": "GPT-4o",
-  "provider": "openai_compatible",
-  "modelId": "gpt-4o",
-  "apiEndpoint": "https://api.openai.com/v1",
-  "apiKey": "sk-xxx",
-  "capabilities": ["chat", "vision"],
-  "maxTokens": 4096,
-  "temperature": 0.7,
-  "systemPrompt": "你是一个有帮助的助手。"
-}
+返回当前激活模型、模型总数、队列是否配置、Workers AI 是否可用。
+
+## GET /feature-config / PUT /feature-config
+
+功能级模型（摘要 / 图片描述 / 图片标签 / 智能重命名）。
+
+## POST /test
+
+```json
+{ "modelId": "模型记录ID" }
 ```
 
-### 更新模型
+或临时配置：
 
-```http
-PATCH /api/ai/models/:modelId
-Content-Type: application/json
-
-{
-  "name": "新名称",
-  "temperature": 0.5
-}
+```json
+{ "provider": "workers_ai | openai_compatible", "modelId": "…", "apiEndpoint": "…", "apiKey": "…" }
 ```
 
-### 删除模型
+## GET /system-config
 
-```http
-DELETE /api/ai/models/:modelId
+读取全部系统配置；首次调用会初始化默认值，并清理注册表之外的历史配置键。
+
+## PUT /system-config/:key
+
+```json
+{ "value": "任意类型，按配置项 valueType 解析" }
 ```
 
-### 激活模型
+## POST /system-config/:key/reset
 
-```http
-POST /api/ai/models/:modelId/activate
+重置为默认值。
+
+---
+
+# 索引、摘要与标签（/api/ai）
+
+## GET /status
+
+```json
+{ "configured": true, "queueConfigured": true, "features": { "semanticSearch": true, "summary": true, "imageTags": true, "renameSuggest": true } }
 ```
 
-### 测试模型连接
+## POST /index/all
 
-```http
-POST /api/ai/models/:modelId/test
-Content-Type: application/json
+为所有 `vector_indexed_at IS NULL` 的文件建立向量索引。需要队列；已有运行中任务时返回 `409`。
 
-{
-  "message": "Hello"
-}
+## POST /index/rebuild
+
+清空全部索引标记并重新索引所有文件（先重置 `vector_indexed_at`，再入队）。
+
+## GET /index/status
+
+返回最近一次索引任务。读取前会自动回收停滞超过 30 分钟的任务（标记 `failed`）。
+
+## DELETE /index/task
+
+取消当前运行中的索引任务。
+
+## POST /summarize/batch / POST /tags/batch
+
+批量摘要 / 批量标签，需要队列。返回任务对象。
+
+## GET /summarize/task / GET /tags/task
+
+查询任务状态（同样会回收停滞任务）。
+
+## DELETE /summarize/batch / DELETE /tags/batch
+
+取消对应任务。
+
+## POST /process-selected
+
+```json
+{ "fileIds": ["…"], "types": ["summary", "tags"] }
 ```
 
-**响应**:
+对选中文件提交摘要/标签任务（最多 100 个文件）。
+
+## GET /tasks/failed-items?taskId=…&limit=50
+
+失败明细，用于排查批量任务。
 
 ```json
 {
-  "success": true,
-  "response": "Hello! How can I help you today?",
-  "latencyMs": 1234
+  "taskId": "…",
+  "taskError": "任务级错误（如停滞回收）",
+  "taskStatus": "failed",
+  "items": [{ "fileId": "…", "fileName": "…", "error": "失败原因", "attempts": 2, "updatedAt": "…" }]
 }
 ```
 
-### 获取可用模型供应商
+## GET /index/stats
 
-```http
-GET /api/ai/models/providers
+可编辑文件 / 图片 / 其他文件的未摘要、未索引数量。
+
+## GET /index/vectors?page=1&pageSize=20&search=
+
+已索引文件列表，含真实 `chunkCount` 与 `indexedTextLength`（来自 `file_chunks`）。
+
+## POST /index/vectors/batch-delete
+
+```json
+{ "fileIds": ["…"] }
 ```
 
-**响应**:
+最多 200 个；删除 `file_chunks` + Vectorize 向量，并重置 `vector_indexed_at`。
+
+## DELETE /index/vectors/all
+
+清空当前用户全部向量索引（分批处理，返回 `{ "deleted": n }`）。
+
+## GET /index/sample/:fileId
+
+索引详情：chunk 数、前 3 段正文预览、Vectorize 首块元数据。
+
+## DELETE /index/:fileId
+
+删除单个文件的向量索引并重置索引状态。
+
+## POST /search
+
+```json
+{ "query": "关键词", "limit": 20, "threshold": 0.7, "mimeType": "可选" }
+```
+
+向量 + FTS5 混合检索（RRF 融合），返回文件记录。
+
+## POST /summarize/:fileId / POST /tags/:fileId
+
+单文件摘要 / 单图片标签。
+
+## POST /rename-suggest/:fileId
+
+基于文件内容生成重命名建议。
+
+## POST /name-suggest
+
+```json
+{ "content": "≥30 字符", "mimeType": "可选", "extension": "可选" }
+```
+
+---
+
+# 用量与配额（/api/ai/usage）
+
+## GET /summary?days=7
 
 ```json
 {
-  "providers": [
-    {
-      "id": "workers_ai",
-      "name": "Workers AI",
-      "models": [
-        {
-          "modelId": "@cf/meta/llama-3.1-8b-instruct",
-          "name": "Llama 3.1 8B",
-          "capabilities": ["chat"]
-        }
-      ]
-    }
-  ]
+  "days": 7,
+  "totals": { "inputTokens": 0, "outputTokens": 0, "requests": 0 },
+  "byDay": [{ "day": "2026-10-30", "inputTokens": 0, "outputTokens": 0, "requests": 0 }],
+  "byModel": [{ "modelId": "@cf/…", "inputTokens": 0, "outputTokens": 0, "requests": 0 }],
+  "byFeature": [{ "feature": "chat", "inputTokens": 0, "outputTokens": 0, "requests": 0 }]
+}
+```
+
+记账口径：Agent 对话由 `OSSShelfAgent` 写入；摘要/标签/重命名/标题/记忆提取由 `ModelGateway` 统一写入。`feature` 取值 `chat` / `summary` / `image_caption` / `image_tag` / `image_analysis` / `rename`。
+
+## GET /quota
+
+```json
+{
+  "allowed": true,
+  "usedTokens": 0,
+  "tokenLimit": 200000,
+  "usedRequests": 0,
+  "requestLimit": 200,
+  "minuteRequests": 0,
+  "minuteLimit": 20
 }
 ```
 
 ---
 
-## AI 功能 API
-
-### 文件摘要
-
-#### 单文件摘要
-
-```http
-POST /api/ai/summarize
-Content-Type: application/json
-
-{
-  "fileId": "uuid"
-}
-```
-
-**响应**:
+## 错误响应
 
 ```json
-{
-  "summary": "这是一个配置文件，包含数据库连接信息...",
-  "modelUsed": "@cf/meta/llama-3.1-8b-instruct"
-}
+{ "success": false, "error": { "code": "…", "message": "…" } }
 ```
 
-#### 批量摘要
-
-```http
-POST /api/ai/summarize/batch
-```
-
-**响应**:
-
-```json
-{
-  "taskId": "uuid",
-  "status": "running",
-  "total": 100,
-  "processed": 0,
-  "failed": 0
-}
-```
-
-#### 查询批量任务状态
-
-```http
-GET /api/ai/summarize/task
-```
-
-#### 取消批量任务
-
-```http
-DELETE /api/ai/summarize/batch
-```
-
-### 图片标签和描述
-
-#### 单图片处理
-
-```http
-POST /api/ai/tags
-Content-Type: application/json
-
-{
-  "fileId": "uuid"
-}
-```
-
-**响应**:
-
-```json
-{
-  "description": "一张风景照片，包含山脉和湖泊",
-  "tags": ["风景", "自然", "山脉", "湖泊"],
-  "modelUsed": "@cf/llava-hf/llava-1.5-7b-hf"
-}
-```
-
-#### 批量处理
-
-```http
-POST /api/ai/tags/batch
-GET /api/ai/tags/task
-DELETE /api/ai/tags/batch
-```
-
-### 智能重命名
-
-```http
-POST /api/ai/rename-suggest
-Content-Type: application/json
-
-{
-  "fileId": "uuid"
-}
-```
-
-**响应**:
-
-```json
-{
-  "suggestions": ["UserLoginForm.jsx", "LoginFormComponent.tsx", "AuthLoginPage.js"],
-  "modelUsed": "@cf/meta/llama-3.1-8b-instruct"
-}
-```
-
-### RAG 问答
-
-```http
-POST /api/ai/rag/query
-Content-Type: application/json
-
-{
-  "query": "项目中有哪些配置文件？",
-  "topK": 5
-}
-```
-
-**响应**:
-
-```json
-{
-  "answer": "项目中包含以下配置文件...",
-  "sources": [
-    {
-      "fileId": "uuid",
-      "fileName": "config.json",
-      "score": 0.95,
-      "snippet": "..."
-    }
-  ]
-}
-```
-
----
-
-## 向量索引 API
-
-### 索引单个文件
-
-```http
-POST /api/ai/index
-Content-Type: application/json
-
-{
-  "fileId": "uuid"
-}
-```
-
-### 批量索引
-
-```http
-POST /api/ai/index/all
-```
-
-### 查询索引状态
-
-```http
-GET /api/ai/index/status
-```
-
-### 获取向量索引列表
-
-```http
-GET /api/ai/index/vectors?page=1&limit=20&search=keyword
-```
-
-**响应**:
-
-```json
-{
-  "vectors": [
-    {
-      "fileId": "uuid",
-      "fileName": "document.pdf",
-      "mimeType": "application/pdf",
-      "size": 1024000,
-      "indexedAt": "2026-04-08T10:00:00Z",
-      "hasSummary": true
-    }
-  ],
-  "total": 50,
-  "page": 1,
-  "limit": 20
-}
-```
-
-### 删除向量索引
-
-```http
-DELETE /api/ai/index/vectors/:fileId
-```
-
-### 向量索引诊断
-
-```http
-GET /api/ai/index/diagnose
-```
-
-**响应**:
-
-```json
-{
-  "status": "healthy",
-  "totalIndexed": 50,
-  "totalFiles": 100,
-  "indexCoverage": "50%",
-  "errors": []
-}
-```
-
-### 获取索引样本
-
-```http
-GET /api/ai/index/sample/:fileId
-```
-
----
-
-## AI 配置 API
-
-### 获取所有配置
-
-```http
-GET /api/ai/config
-```
-
-**响应**:
-
-```json
-{
-  "configs": [
-    {
-      "key": "ai.default_model.chat",
-      "value": "@cf/meta/llama-3.1-8b-instruct",
-      "description": "默认聊天模型",
-      "category": "default_model"
-    },
-    {
-      "key": "ai.parameter.temperature",
-      "value": "0.7",
-      "description": "默认温度",
-      "category": "parameter"
-    },
-    {
-      "key": "ai.agent.max_tool_calls",
-      "value": "20",
-      "description": "最大工具调用次数",
-      "category": "agent"
-    }
-  ]
-}
-```
-
-### 获取单个配置
-
-```http
-GET /api/ai/config/:key
-```
-
-### 更新配置
-
-```http
-PATCH /api/ai/config/:key
-Content-Type: application/json
-
-{
-  "value": "0.5"
-}
-```
-
-### 重置配置
-
-```http
-POST /api/ai/config/:key/reset
-```
-
-### 批量更新配置
-
-```http
-PATCH /api/ai/config
-Content-Type: application/json
-
-{
-  "configs": [
-    { "key": "ai.parameter.temperature", "value": "0.5" },
-    { "key": "ai.parameter.max_tokens", "value": "2048" }
-  ]
-}
-```
-
----
-
-## 记忆管理 API（v4.7.0 新增）
-
-跨会话语义记忆系统，支持 Agent 跨对话记住用户偏好、操作历史、常用路径等信息。
-
-### 获取记忆列表
-
-```http
-GET /api/ai/memories?type=operation&limit=20&offset=0
-```
-
-**查询参数**：
-
-| 参数   | 类型   | 必填 | 说明                                             |
-| ------ | ------ | ---- | ------------------------------------------------ |
-| type   | string | 否   | 记忆类型筛选：operation/preference/path/file_ref |
-| limit  | number | 否   | 每页数量（默认 50）                              |
-| offset | number | 否   | 偏移量（默认 0）                                 |
-
-**响应**：
-
-```json
-{
-  "data": {
-    "items": [
-      {
-        "id": "memory-uuid",
-        "userId": "user-uuid",
-        "sessionId": "session-uuid",
-        "type": "operation",
-        "summary": "用户将设计文件夹归档到 /Archive/2024/Design",
-        "embeddingId": "vector-uuid",
-        "createdAt": "2026-04-15T10:00:00Z"
-      }
-    ],
-    "total": 25
-  }
-}
-```
-
-### 删除单条记忆
-
-```http
-DELETE /api/ai/memories/:memoryId
-```
-
-**响应**：
-
-```json
-{
-  "success": true
-}
-```
-
-**注意**：只能删除当前用户的记忆，跨用户操作返回 403。
-
----
-
-## 错误处理
-
-### 错误响应格式
-
-```json
-{
-  "error": {
-    "code": "MODEL_NOT_FOUND",
-    "message": "模型不存在",
-    "details": {
-      "modelId": "uuid"
-    }
-  }
-}
-```
-
-### 错误码
-
-| 错误码                | 说明                               | HTTP 状态码 |
-| --------------------- | ---------------------------------- | ----------- |
-| `UNAUTHORIZED`        | 未认证                             | 401         |
-| `FORBIDDEN`           | 无权限                             | 403         |
-| `NOT_FOUND`           | 资源不存在                         | 404         |
-| `VALIDATION_ERROR`    | 参数验证失败                       | 400         |
-| `MODEL_NOT_FOUND`     | 模型不存在                         | 404         |
-| `MODEL_INACTIVE`      | 模型未激活                         | 400         |
-| `MODEL_TEST_FAILED`   | 模型测试失败                       | 500         |
-| `FILE_NOT_FOUND`      | 文件不存在                         | 404         |
-| `FILE_NOT_TEXT`       | 文件不是文本类型                   | 400         |
-| `FILE_NOT_IMAGE`      | 文件不是图片类型                   | 400         |
-| `VECTORIZE_ERROR`     | 向量化失败                         | 500         |
-| `AI_REQUEST_FAILED`   | AI 请求失败                        | 500         |
-| `RATE_LIMIT_EXCEEDED` | 请求频率超限                       | 429         |
-| `TASK_RUNNING`        | 任务正在运行                       | 409         |
-| `TOKEN_EXPIRED`       | Token 已过期（v4.7.0 修正为 A006） | 401         |
-
-### 错误处理最佳实践
-
-```typescript
-try {
-  const response = await fetch('/api/ai/models', {
-    method: 'POST',
-    body: JSON.stringify(modelConfig),
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    switch (error.error.code) {
-      case 'VALIDATION_ERROR':
-        showValidationErrors(error.error.details);
-        break;
-      case 'MODEL_TEST_FAILED':
-        showModelTestError(error.error.message);
-        break;
-      default:
-        showGenericError(error.error.message);
-    }
-    return;
-  }
-
-  const model = await response.json();
-  // 处理成功响应
-} catch (err) {
-  showNetworkError();
-}
-```
-
-### v4.7.0 中断处理机制（流式输出稳定性）
-
-**问题背景**：v4.7.0 修复了 AI 对话流式输出中断时内容丢失的问题。
-
-**消息类型扩展（aborted 字段）**
-
-```typescript
-interface AiChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  sources?: Array<{ id: string; fileName: string; score?: number }>;
-  toolCalls?: Array<{
-    id: string;
-    toolName: string;
-    args: Record<string, unknown>;
-    result?: unknown;
-    status: 'running' | 'done' | 'error';
-  }>;
-  reasoning?: string;
-  modelUsed?: string;
-  latencyMs?: number;
-  aborted?: boolean; // v4.7.0 新增：标记消息是否被中断
-  mentionedFiles?: Array<{
-    // v4.7.0 新增：@mention 引用的文件列表
-    id: string;
-    name: string;
-  }>;
-  createdAt: string;
-}
-```
-
-**中断处理流程**
-
-```
-用户点击停止 / 连接超时
-       ↓
-AbortController.abort() → signal.aborted = true
-       ↓
-API 层检测到 signal → 抛出 DOMException('AbortError')
-       ↓
-前端 catch AbortError → 保留已接收的 content
-       ↓
-设置 aborted: true + 显示"输出已中断"提示
-       ↓
-显示"重新生成"按钮（可基于当前上下文重新发起）
-```
-
-**前端实现要点**
-
-1. `api.ts` 中请求开始前检查 `signal.aborted`
-2. 流式读取循环中每轮检查中断信号，及时取消 `reader`
-3. 统一抛出标准 `DOMException('AbortError')`，避免被重试逻辑误捕获
-4. `AIChat.tsx` 中中断时设置 `content: m.content || ''`（保留已输出内容）
-
----
-
-## v4.7.0 新增工具 API
-
-> **v4.7.0 更新**: Agent 工具集从 99+ 个扩展至 **100+** 个，新增 2 个批量操作工具。同时为所有高频工具补充了 `examples` 字段（Few-shot 示例），提升弱模型工具选择准确率。
-
-### v4.7.0 新增工具列表
-
-| 工具名称       | 模块       | 说明                           | 版本   |
-| -------------- | ---------- | ------------------------------ | ------ |
-| `batch_move`   | fileops.ts | 批量移动文件（超阈值自动入队） | v4.7.0 |
-| `batch_delete` | fileops.ts | 批量删除文件（超阈值自动入队） | v4.7.0 |
-
-### v4.6.0 工具列表（保留）
-
-| 工具名称                   | 模块          | 说明                           | 版本   |
-| -------------------------- | ------------- | ------------------------------ | ------ |
-| `list_expired_permissions` | permission.ts | 查询已过期/快过期的文件授权    | v4.6.0 |
-| `draft_and_create_file`    | fileops.ts    | 对话式文件创建（支持草稿预览） | v4.6.0 |
-| `smart_organize_suggest`   | ai-enhance.ts | 智能整理建议（四维度分析）     | v4.6.0 |
-| `analyze_file_collection`  | content.ts    | 文件集合分析（多场景分析）     | v4.6.0 |
-
-### 1. list_expired_permissions
-
-查询已过期或即将过期的文件授权。
-
-**参数**：
-
-```typescript
-{
-  includeExpiringSoon?: boolean,  // 是否包含快过期授权（默认 false）
-  withinDays?: number            // 快过期阈值天数（默认 7 天）
-}
-```
-
-**响应**：
-
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "fileId": "file-uuid",
-      "fileName": "project.docx",
-      "userId": "user-uuid",
-      "permission": "read",
-      "expiresAt": "2026-03-01T00:00:00Z",
-      "status": "expired"
-    },
-    {
-      "fileId": "file-uuid-2",
-      "fileName": "report.pdf",
-      "userId": "user-uuid-2",
-      "permission": "write",
-      "expiresAt": "2026-04-20T00:00:00Z",
-      "status": "expiring_soon"
-    }
-  ],
-  "_next_actions": ["可调用 revoke_permission 批量撤销"]
-}
-```
-
-**使用场景**：
-
-- 定期清理已过期授权
-- 查找即将到期的授权并通知用户
-- 批量撤销不再需要的权限
-
-### 2. draft_and_create_file
-
-对话式文件创建工具，支持草稿预览和多轮确认流程。
-
-**参数**：
-
-```typescript
-{
-  fileName: string,           // 目标文件名（含扩展名）
-  targetFolderId?: string,    // 目标文件夹 ID（可选，默认根目录）
-  userRequest: string,        // 用户原始需求
-  draftContent: string,       // Agent 生成的草稿内容
-  _confirmed?: boolean        // 是否确认（false=返回草稿，true=创建文件）
-}
-```
-
-**响应（\_confirmed = false）**：
-
-```json
-{
-  "success": true,
-  "type": "pending_confirm",
-  "data": {
-    "confirmId": "confirm-uuid",
-    "message": "是否创建文件 \"README.md\"？",
-    "draftContent": "# 项目名称\n\n## 简介\n\n这是一个新项目...",
-    "previewType": "draft"
-  }
-}
-```
-
-**响应（\_confirmed = true）**：
-
-```json
-{
-  "success": true,
-  "data": {
-    "fileId": "file-uuid",
-    "fileName": "README.md",
-    "path": "/folder/README.md"
-  }
-}
-```
-
-**工作流程**：
-
-1. Agent 调用工具生成草稿（\_confirmed=false）
-2. 前端渲染 DraftPreview 组件展示草稿
-3. 用户确认后再次调用（\_confirmed=true）
-4. 文件创建完成
-
-**支持的预览格式**：
-
-- `.md` → Markdown 渲染
-- `.py/.js/.ts/.json` → 代码高亮
-- 其他 → 纯文本显示
-
-### 3. smart_organize_suggest
-
-智能分析文件库并提供整理建议（四维度分析）。
-
-**参数**：
-
-```typescript
-{
-  scope: 'all' | 'folder' | 'untagged',  // 分析范围
-  folderId?: string,                     // 文件夹 ID（scope='folder' 时必填）
-  limit?: number                         // 最大扫描数（默认 200）
-}
-```
-
-**响应**：
-
-```json
-{
-  "success": true,
-  "data": {
-    "scannedCount": 500,
-    "namingIssues": [
-      {
-        "fileId": "file-uuid",
-        "currentName": "IMG_001.jpg",
-        "issue": "不规范命名：以 IMG 开头"
-      }
-    ],
-    "missingTags": [
-      {
-        "fileId": "file-uuid-2",
-        "fileName": "document.pdf"
-      }
-    ],
-    "relocateSuggestions": [
-      {
-        "fileId": "file-uuid-3",
-        "fileName": "image1.png",
-        "suggestedFolderName": "图片",
-        "reason": "根目录有 5 个图片文件，建议归类"
-      }
-    ],
-    "structureIssues": [
-      {
-        "folderId": "folder-uuid",
-        "folderName": "uploads",
-        "issue": "子文件数过多（120个）",
-        "suggestion": "建议按类型拆分为多个文件夹"
-      }
-    ],
-    "_next_actions": ["可调用 batch_rename 修复命名问题", "可调用 auto_tag_files 补充标签", "可调用 move_file 归类文件"]
-  }
-}
-```
-
-**分析维度详解**：
-
-1. **命名问题** (namingIssues)
-   - 匹配规则：/^(IMG|DSC|截图|Screenshot|未命名|Untitled|New )/i 或纯数字
-   - 建议：使用 batch_rename 批量重命名
-
-2. **标签缺失** (missingTags)
-   - 条件：aiTags 为空 AND aiSummary 非空
-   - 建议：使用 auto_tag_files 自动打标签
-
-3. **归类建议** (relocateSuggestions)
-   - 条件：根目录文件且同 MIME 类型 > 3 个
-   - 建议：归入同一文件夹
-
-4. **结构问题** (structureIssues)
-   - 条件：单文件夹直接子文件 > 100 或路径层级 > 5
-   - 建议：拆分文件夹或平铺结构
-
-### 4. analyze_file_collection
-
-对文件集合进行多维度分析，支持多种分析类型。
-
-**参数**：
-
-```typescript
-{
-  scope: 'folder' | 'tag' | 'starred',     // 分析范围
-  folderId?: string,                        // 文件夹 ID（scope='folder' 时）
-  tagName?: string,                         // 标签名（scope='tag' 时）
-  analysisType: 'summary' | 'compare' | 'extract_common' | 'timeline',
-  maxFiles?: number                          // 最大文件数（默认 20）
-}
-```
-
-**响应**：
-
-```json
-{
-  "success": true,
-  "data": {
-    "files": [
-      {
-        "id": "file-uuid",
-        "name": "project-plan.md",
-        "mimeType": "text/markdown",
-        "size": 10240,
-        "summary": "项目计划文档，包含时间线和里程碑...",
-        "updatedAt": "2026-04-10T10:00:00Z"
-      }
-    ],
-    "totalCount": 15,
-    "truncated": false,
-    "analysisType": "summary",
-    "_next_actions": ["请基于以上文件摘要生成整体报告"]
-  }
-}
-```
-
-**analysisType 类型说明**：
-
-| 类型             | 说明                     | 输出示例                        |
-| ---------------- | ------------------------ | ------------------------------- |
-| `summary`        | 生成整体报告             | 文件夹概览、主要主题、统计信息  |
-| `compare`        | 对比异同点               | 文档差异、版本对比、优缺点对比  |
-| `extract_common` | 提取共同主题/条款/关键词 | 合同要点、论文共同观点、API规范 |
-| `timeline`       | 按时间顺序梳理脉络       | 项目进展、事件时间线、变更历史  |
-
-**技术特点**：
-
-- **性能优化**：优先使用 aiSummary 字段，减少实际文件读取
-- **灵活范围**：支持 folder/tag/starred 三种筛选方式
-- **智能截断**：超过 maxFiles 时优先保留有 aiSummary 的文件
-- **Agent 驱动**：返回的 \_next_actions 指导 Agent 进行下一步分析
-
-### 5. batch_move（v4.7.0 新增）
-
-批量移动文件到目标文件夹，超过阈值时自动入队执行。
-
-**参数**：
-
-```typescript
-{
-  fileIds: string[],        // 要移动的文件 ID 数组（必填）
-  targetFolderId: string    // 目标文件夹 ID（必填）
-}
-```
-
-**响应（文件数 ≤ 20，同步执行）**：
-
-```json
-{
-  "status": "completed",
-  "message": "批量移动完成：15 成功，0 失败",
-  "totalFiles": 15,
-  "successCount": 15,
-  "failCount": 0,
-  "_next_actions": ["✅ 已将 15 个文件移到目标文件夹"]
-}
-```
-
-**响应（文件数 > 20，异步入队）**：
-
-```json
-{
-  "status": "queued",
-  "taskId": "task-uuid",
-  "message": "批量移动任务已提交到队列（共 50 个文件），预计 3 分钟完成",
-  "totalFiles": 50,
-  "estimatedMinutes": 3,
-  "_next_actions": ["✅ 批量移动任务已入队（taskId: task-uuid）", "可通过 GET /api/ai/index/task 查看进度"]
-}
-```
-
-**关键特性**：
-
-- **BATCH_THRESHOLD = 20**：文件数超过此值自动入队
-- **降级机制**：队列失败时自动降级为同步执行
-- **任务追踪**：返回 taskId 可通过 Task Center 查看进度
-
-### 6. batch_delete（v4.7.0 新增）
-
-批量删除文件（软删除，移入回收站），超过阈值时自动入队执行。
-
-**参数**：
-
-```typescript
-{
-  fileIds: string[],     // 要删除的文件 ID 数组（必填）
-  reason?: string        // 删除原因（可选）
-}
-```
-
-**响应（文件数 ≤ 20，同步执行）**：
-
-```json
-{
-  "status": "completed",
-  "message": "批量删除完成：10 成功，0 失败",
-  "totalFiles": 10,
-  "successCount": 10,
-  "failCount": 0,
-  "_next_actions": ["✅ 已将 10 个文件移入回收站"]
-}
-```
-
-**响应（文件数 > 20，异步入队）**：
-
-```json
-{
-  "status": "queued",
-  "taskId": "task-uuid",
-  "message": "批量删除任务已提交到队列（共 100 个文件），预计 5 分钟完成。文件将被移入回收站，可通过 restore_file 恢复",
-  "totalFiles": 100,
-  "estimatedMinutes": 5,
-  "_next_actions": ["✅ 批量删除任务已入队（taskId: task-uuid）", "删除的文件可在回收站中恢复"]
-}
-```
-
-**关键特性**：
-
-- **软删除**：文件移入回收站而非永久删除，可通过 `restore_file` 恢复
-- **BATCH_THRESHOLD = 20**：与 batch_move 相同的阈值
-- **可恢复性**：明确提示用户可在回收站中恢复
-
----
+常见 `code`：
+
+- `VALIDATION_ERROR`：参数不合法
+- `NOT_FOUND`：会话/记忆/文件/任务不存在
+- `CONFLICT`：已有同名任务在运行
+- `AI_RATE_LIMIT` / `AI_QUOTA_EXCEEDED`：触发限流或配额
+- `INTERNAL_ERROR`：服务端异常（含队列未配置）
 
 ## 相关文档
 
 - [AI 功能说明](./AI_FEATURES.md)
-- [更新日志](../CHANGELOG.md)
-- [架构文档](./architecture.md)
+- [部署说明](./deployment.md)
+- [架构说明](./architecture.md)

@@ -106,7 +106,6 @@ export type { ApiKey } from './api-keys';
 
 export type {
   AIStatus,
-  AIFileStatus,
   AISummaryResult,
   AIImageTagResult,
   AIRenameSuggestion,
@@ -114,7 +113,6 @@ export type {
   AISummarizeTask,
   AITagsTask,
   AIIndexStats,
-  AIIndexDiagnose,
   AIIndexSample,
   VectorItem,
   VectorListResponse,
@@ -125,11 +123,11 @@ export type {
   AiProviderItem,
   CreateAiProviderParams,
   AiWorkersAiModel,
-  AiOpenAiModel,
+  AiWorkersAiModelProperty,
+  AiWorkersAiCatalogModel,
+  AiWorkersAiCatalog,
   AiConfigStatus,
   AiChatSession,
-  AiChatMessage,
-  AiChatSessionDetail,
 } from './ai';
 
 export default (await import('./api-client')).default;

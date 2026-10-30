@@ -242,72 +242,51 @@ OSSshelf/
 
 ## AI 模块架构
 
-v4.7.0 AI 模块采用分层架构，核心是 Agent 引擎、工具系统和提供商管理。v4.7.0 版本新增 Planning 层、跨会话记忆系统、模型熔断器、批量操作队列打通等核心能力，工具总数扩展至 **100+** 个。
+v5.0 AI 模块基于 Cloudflare Agents SDK：对话由 `OSSShelfAgent`（Durable Object）承载，HTTP 层只负责会话/记忆管理、模型配置、索引任务与用量查询。旧的自研 Agent 引擎、RAG 引擎、SSE 链路、熔断器与工具选择器均已删除。
 
 ### 架构图
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                            AI 模块架构 v4.7.0                                 │
+│                            AI 模块架构 v5.0                                  │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                          API 层 (routes/ai.ts)                        │    │
-│  │  /api/ai/agent/chat  │  /api/ai/models  │  /api/ai/config  │  ...    │    │
-│  │  /api/ai/memories    │  (v4.7.0 新增: 记忆管理)                     │    │
-│  └─────────────────────────────────────────────────────────────────────┘    │
+│  HTTP 层                                                                     │
+│  routes/ai.ts          —— 索引/摘要/标签任务、向量库、语义搜索               │
+│  routes/aiConfigRoutes —— 模型/提供商/系统配置、Workers AI 目录              │
+│  routes/aiChatRoutes   —— 会话 CRUD、记忆管理、WS 票据                       │
+│  routes/aiUsageRoutes  —— 用量汇总、配额状态                                 │
 │                                      │                                       │
 │                                      ▼                                       │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                         Agent 引擎 (agentEngine.ts)                   │    │
-│  │  ┌─────────────────────────────────────────────────────────────┐    │    │
-│  │  │                    ReAct 循环 + Planning 层 (v4.7.0 新增)     │    │    │
-│  │  │  Reason → Plan → Act → Observe → Reason → Act → ...         │    │    │
-│  │  └─────────────────────────────────────────────────────────────┘    │    │
-│  │                                                                      │    │
-│  │  功能：                                                              │    │
-│  │  - 意图识别与工具选择                                                │    │
-│  │  - 结构化任务规划（ExecutionPlan）(v4.7.0 新增)                       │    │
-│  │  - 链式推理与自动规划                                                │    │
-│  │  - 循环防护与去重                                                    │    │
-│  │  - 写操作确认机制                                                    │    │
-│  │  - SSE 流式响应（含 plan/plan_step_update 事件）(v4.7.0 增强)        │    │
-│  │  - 模型熔断器集成 (circuitBreaker.ts, v4.7.0 新增)                  │    │
-│  │  - 跨会话记忆召回 (agentMemory.ts, v4.7.0 新增)                      │    │
+│  │              OSSShelfAgent（Durable Object，每会话一个）              │    │
+│  │  - AI SDK streamText + toUIMessageStreamResponse                     │    │
+│  │  - 工具集由 toolAdapter 生成（agentTools/ 13 个模块）                 │    │
+│  │  - 写操作 needsApproval，用户确认后同轮继续                           │    │
+│  │  - 跨会话记忆召回（agentMemory：D1 + Vectorize）                      │    │
+│  │  - onFinish → ai_usage_events + ai_chat_messages（审计镜像）          │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
 │                                      │                                       │
 │          ┌───────────────────────────┼───────────────────────────┐          │
 │          ▼                           ▼                           ▼          │
 │  ┌───────────────┐         ┌───────────────┐         ┌───────────────┐    │
-│  │  工具执行器   │         │  模型网关     │         │  RAG 引擎     │    │
-│  │ (agentTools/) │         │(modelGateway) │         │ (ragEngine)   │    │
+│  │  工具执行器   │         │  模型网关     │         │  能力层       │    │
+│  │ (agentTools/) │         │(modelGateway) │         │ features/     │    │
+│  │ 13+ 模块      │         │ 统一用量记账   │         │ vectorIndex   │    │
 │  └───────────────┘         └───────────────┘         └───────────────┘    │
 │          │                           │                           │          │
 │          ▼                           ▼                           ▼          │
 │  ┌───────────────┐         ┌───────────────┐         ┌───────────────┐    │
-│  │ 100+ 个工具   │         │  提供商管理   │         │  Vectorize    │    │
-│  │  13+ 个模块   │         │ (aiProviders) │         │  向量搜索     │    │
-│  │              │         │  16 个内置    │         │              │    │
+│  │  文件/权限/   │         │  Workers AI   │         │ file_chunks   │    │
+│  │  分享/标签等  │         │  OpenAI 兼容  │         │ Vectorize     │    │
+│  │  Agent 工具   │         │  适配器       │         │ FTS5          │    │
 │  └───────────────┘         └───────────────┘         └───────────────┘    │
 │                                                                              │
-│  v4.7.0 新增模块：                                                           │
-│  ├─ agentMemory.ts — 跨会话记忆管理（D1+Vectorize 双存储）                   │
-│  ├─ circuitBreaker.ts — 模型调用熔断器（三态状态机）                         │
-│  ├─ batch_move/batch_delete — 批量操作工具（BATCH_THRESHOLD=20）            │
-│  │                                                                          │
-│  v4.6.0 新增工具 (4个)：                                                     │
-│  ├─ list_expired_permissions (permission.ts)                                │
-│  ├─ draft_and_create_file (fileops.ts)                                     │
-│  ├─ smart_organize_suggest (ai-enhance.ts)                                 │
-│  └─ analyze_file_collection (content.ts)                                   │
-│                                                                              │
-│                                      │                                       │
-│                                      ▼                                       │
-│                      ┌───────────────────────────────┐                      │
-│                      │        模型适配器             │                      │
-│                      ├───────────────────────────────┤                      │
-│                      │  Workers AI  │ OpenAI 兼容   │                      │
-│                      └───────────────────────────────┘                      │
+│  支撑模块：                                                                  │
+│  ├─ aiTaskQueue.ts — Queues + ai_task_items（进度重算、停滞回收、失败明细）  │
+│  ├─ workersAiCatalog.ts — Workers AI 模型目录实时同步（含内置兜底）          │
+│  ├─ usage.ts — 用量记账、日配额与分钟限流                                    │
+│  └─ aiConfigService.ts — 系统配置注册表与历史配置清理                        │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -740,19 +719,6 @@ CREATE TABLE ai_chat_messages (
     model_used TEXT,
     latency_ms INTEGER,
     created_at TEXT
-);
-
--- AI 确认请求表 (v4.3.0 新增)
-CREATE TABLE ai_confirm_requests (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    session_id TEXT,
-    tool_name TEXT NOT NULL,
-    args TEXT NOT NULL,  -- JSON
-    summary TEXT NOT NULL,
-    status TEXT DEFAULT 'pending',  -- 'pending', 'consumed'
-    created_at TEXT,
-    expires_at TEXT
 );
 
 -- AI 记忆表 (v4.7.0 新增)

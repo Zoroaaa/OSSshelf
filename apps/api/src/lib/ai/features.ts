@@ -15,8 +15,8 @@
  */
 
 import type { Env } from '../../types/env';
-import { getDb, files, storageBuckets, fileVersions } from '../../db';
-import { eq, desc } from 'drizzle-orm';
+import { getDb, files, storageBuckets } from '../../db';
+import { eq } from 'drizzle-orm';
 import { getEncryptionKey } from '../crypto';
 import { isEditableFile, logger, logAiError } from '@osshelf/shared';
 import { indexFileVector, buildFileTextForVector } from './vectorIndex';
@@ -934,49 +934,3 @@ async function autoProcessFileDirect(env: Env, file: typeof files.$inferSelect, 
   }
 }
 
-export async function generateVersionSummary(
-  env: Env,
-  fileId: string,
-  newVersionId: string,
-  userId?: string
-): Promise<void> {
-  const db = getDb(env.DB);
-
-  const versions = await db
-    .select()
-    .from(fileVersions)
-    .where(eq(fileVersions.fileId, fileId))
-    .orderBy(desc(fileVersions.version))
-    .limit(2)
-    .all();
-
-  if (versions.length < 2) return;
-
-  const [newVer, oldVer] = versions;
-  if (!canGenerateSummary(newVer.mimeType, newVer.r2Key || '')) return;
-
-  try {
-    const newText = await buildFileTextForVector(env, fileId);
-    if (!newText || newText.length < 50) return;
-
-    const summary = await callChatModel(env, userId || 'default', 'summary', {
-      messages: [
-        {
-          role: 'system',
-          content: '你是文件变更分析助手。用 1-2 句话描述这次文件更新的主要变化。只关注内容变化，不提文件名或时间。',
-        },
-        {
-          role: 'user',
-          content: `版本：v${oldVer.version} → v${newVer.version}\n当前内容摘要：\n${newText.slice(0, 2000)}`,
-        },
-      ],
-    });
-
-    if (summary && summary.trim().length > 0) {
-      await db.update(fileVersions).set({ aiChangeSummary: summary.trim() }).where(eq(fileVersions.id, newVersionId));
-      logger.info('AI', '版本摘要生成成功', { fileId, versionId: newVersionId });
-    }
-  } catch (error) {
-    logger.error('AI', '版本摘要生成失败', { fileId, newVersionId }, error);
-  }
-}

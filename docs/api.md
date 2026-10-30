@@ -59,7 +59,7 @@ GET /api/health
 | Analytics     | `/api/analytics`                            | 存储分析统计                            |
 | Notifications | `/api/notifications`                        | 通知系统                                |
 | Admin         | `/api/admin`                                | 管理员接口                              |
-| AI            | `/api/ai`, `/api/ai-config`, `/api/ai-chat` | AI 功能                                 |
+| AI            | `/api/ai`, `/api/ai-config`, `/api/ai-chat`, `/api/ai/usage` | AI 功能 |
 | Telegram      | `/api/telegram`                             | Telegram Bot 集成                       |
 | Migrate       | `/api/migrate`                              | 跨存储桶数据迁移                        |
 | Cron          | `/cron`                                     | 定时清理任务                            |

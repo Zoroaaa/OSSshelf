@@ -12,21 +12,14 @@
 
 import { Hono } from 'hono';
 import { eq, and, isNull, sql, inArray } from 'drizzle-orm';
-import { getDb, files, fileChunks } from '../db';
+import { getDb, files, fileChunks, aiTasks, aiTaskItems } from '../db';
 import { authMiddleware } from '../middleware';
 import { aiRateLimit } from '../middleware/aiRateLimit';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 
-import {
-  indexFileVector,
-  deleteFileVector,
-  deleteFileVectors,
-  buildFileTextForVector,
-  isAIConfigured,
-  searchAndFetchFiles,
-} from '../lib/ai/vectorIndex';
+import { deleteFileVector, deleteFileVectors, isAIConfigured, searchAndFetchFiles } from '../lib/ai/vectorIndex';
 import {
   generateFileSummary,
   generateImageTags,
@@ -50,7 +43,6 @@ app.use('/*', authMiddleware);
 
 const aiQuotaGuard = aiRateLimit();
 for (const path of [
-  '/index/batch',
   '/index/all',
   '/index/rebuild',
   '/summarize/batch',
@@ -61,7 +53,6 @@ for (const path of [
   '/tags/:fileId',
   '/rename-suggest/:fileId',
   '/name-suggest',
-  '/index/:fileId',
 ]) {
   app.use(path, aiQuotaGuard);
 }
@@ -91,42 +82,6 @@ app.get('/status', async (c) => {
 });
 
 // ── 具体路径必须在 :fileId 参数路由之前，否则 Hono 会把 "batch"/"all"/"status" 当 fileId 匹配 ──
-
-app.post('/index/batch', async (c) => {
-  const userId = c.get('userId')!;
-  const { fileIds } = await c.req.json();
-
-  if (!Array.isArray(fileIds) || fileIds.length === 0) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请提供文件ID列表' } }, 400);
-  }
-
-  const db = getDb(c.env.DB);
-  const validFiles = await db
-    .select({ id: files.id })
-    .from(files)
-    .where(and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false)))
-    .all();
-
-  const validIds = new Set(validFiles.map((f) => f.id));
-  const filteredIds = fileIds.filter((id: string) => validIds.has(id));
-
-  const results = [];
-  for (const fileId of filteredIds) {
-    try {
-      const text = await buildFileTextForVector(c.env, fileId);
-      await indexFileVector(c.env, fileId, text);
-      results.push({ fileId, status: 'success' });
-    } catch (error) {
-      results.push({
-        fileId,
-        status: 'failed',
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  return c.json({ success: true, data: results });
-});
 
 app.post('/index/all', async (c) => {
   const userId = c.get('userId')!;
@@ -253,6 +208,66 @@ app.post('/index/rebuild', async (c) => {
   return c.json({
     success: true,
     data: { message: `索引重建任务已启动，共 ${userFiles.length} 个文件`, task },
+  });
+});
+
+/**
+ * 失败明细：供前端排查批量索引/摘要/标签的失败原因。
+ * error 来自 ai_task_items（每个文件的最终失败信息），taskError 是任务级错误（如停滞回收）。
+ */
+app.get('/tasks/failed-items', async (c) => {
+  const userId = c.get('userId')!;
+  const taskId = c.req.query('taskId') || '';
+  const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '50', 10) || 50, 1), 200);
+
+  if (!taskId) {
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少任务ID' } }, 400);
+  }
+
+  const db = getDb(c.env.DB);
+  const task = await db
+    .select()
+    .from(aiTasks)
+    .where(and(eq(aiTasks.id, taskId), eq(aiTasks.userId, userId)))
+    .get();
+
+  if (!task) {
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+  }
+
+  const items = await db
+    .select()
+    .from(aiTaskItems)
+    .where(and(eq(aiTaskItems.taskId, taskId), eq(aiTaskItems.status, 'failed')))
+    .limit(limit)
+    .all();
+
+  const fileIds = Array.from(new Set(items.map((item) => item.fileId)));
+  const nameMap = new Map<string, string>();
+  const DB_CHUNK = 100;
+  for (let i = 0; i < fileIds.length; i += DB_CHUNK) {
+    const rows = await db
+      .select({ id: files.id, name: files.name })
+      .from(files)
+      .where(inArray(files.id, fileIds.slice(i, i + DB_CHUNK)))
+      .all();
+    for (const row of rows) nameMap.set(row.id, row.name);
+  }
+
+  return c.json({
+    success: true,
+    data: {
+      taskId,
+      taskError: task.error ?? null,
+      taskStatus: task.status,
+      items: items.map((item) => ({
+        fileId: item.fileId,
+        fileName: nameMap.get(item.fileId) ?? item.fileId,
+        error: item.error ?? '未知错误',
+        attempts: item.attempts,
+        updatedAt: item.updatedAt,
+      })),
+    },
   });
 });
 
@@ -809,35 +824,6 @@ app.get('/index/sample/:fileId', async (c) => {
   return c.json({ success: true, data: result });
 });
 
-// :fileId 参数路由放在所有具体路径之后
-app.post('/index/:fileId', async (c) => {
-  const userId = c.get('userId')!;
-  const fileId = c.req.param('fileId');
-  const db = getDb(c.env.DB);
-
-  const file = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId)))
-    .get();
-
-  if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
-  }
-
-  if (file.isFolder) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '文件夹不支持向量化' } },
-      400
-    );
-  }
-
-  const text = await buildFileTextForVector(c.env, fileId);
-  await indexFileVector(c.env, fileId, text);
-
-  return c.json({ success: true, data: { message: '向量化完成' } });
-});
-
 app.delete('/index/:fileId', async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('fileId');
@@ -1013,36 +999,6 @@ app.post('/name-suggest', async (c) => {
     const message = error instanceof Error ? error.message : '生成命名建议失败';
     return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
   }
-});
-
-app.get('/file/:fileId', async (c) => {
-  const userId = c.get('userId')!;
-  const fileId = c.req.param('fileId');
-  const db = getDb(c.env.DB);
-
-  const file = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, userId)))
-    .get();
-
-  if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
-  }
-
-  return c.json({
-    success: true,
-    data: {
-      hasSummary: !!file.aiSummary,
-      summary: file.aiSummary,
-      summaryAt: file.aiSummaryAt,
-      hasTags: !!file.aiTags,
-      tags: file.aiTags ? JSON.parse(file.aiTags) : [],
-      tagsAt: file.aiTagsAt,
-      vectorIndexed: !!file.vectorIndexedAt,
-      vectorIndexedAt: file.vectorIndexedAt,
-    },
-  });
 });
 
 export default app;

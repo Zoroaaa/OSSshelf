@@ -47,7 +47,13 @@ import {
   ProviderManageModal,
 } from '@/components/ai/settings';
 import { UsageTab } from '@/components/ai/settings/UsageTab';
-import { aiApi, type AiModel, type AiProviderItem, type AiSystemConfigItem } from '@/services/api';
+import {
+  aiApi,
+  type AiModel,
+  type AiProviderItem,
+  type AiSystemConfigItem,
+  type AiWorkersAiCatalogModel,
+} from '@/services/api';
 import type { AIIndexTask, AISummarizeTask, AITagsTask, AIIndexStats } from '@/services/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
@@ -465,18 +471,19 @@ export function AISettings() {
   });
 
   const quickActivateMutation = useMutation({
-    mutationFn: async (workersAiModelId: string) => {
-      const existingModel = models.find((m) => m.provider === 'workers_ai' && m.modelId === workersAiModelId);
+    mutationFn: async (workersAiModel: AiWorkersAiCatalogModel) => {
+      const existingModel = models.find((m) => m.provider === 'workers_ai' && m.modelId === workersAiModel.id);
       if (existingModel) {
         await aiApi.config.activateModel(existingModel.id);
         return { action: 'activated', modelId: existingModel.id };
       } else {
         const createResult = await aiApi.config.createModel({
-          name: providersData?.workersAiModels.find((m) => m.id === workersAiModelId)?.name || workersAiModelId,
+          name: workersAiModel.name || workersAiModel.id,
           provider: 'workers_ai',
-          modelId: workersAiModelId,
+          modelId: workersAiModel.id,
           isActive: true,
-          capabilities: ['chat'],
+          capabilities:
+            workersAiModel.capabilities.length > 0 ? workersAiModel.capabilities : ['chat'],
         });
         return { action: 'created', modelId: createResult.data.data?.id };
       }
@@ -842,12 +849,7 @@ export function AISettings() {
         )}
 
         {activeTab === 'providers' && (
-          <ProvidersSection
-            models={models}
-            status={status ?? null}
-            providersData={providersData}
-            quickActivateMutation={quickActivateMutation}
-          />
+          <ProvidersSection models={models} status={status ?? null} quickActivateMutation={quickActivateMutation} />
         )}
 
         {activeTab === 'index' && (

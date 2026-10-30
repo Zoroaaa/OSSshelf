@@ -14,21 +14,13 @@
 import { useState, useEffect } from 'react';
 import { X, Key, Loader2, Brain } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import {
-  aiApi,
-  type AiModel,
-  type AiProvider,
-  type AiWorkersAiModel,
-  type AiOpenAiModel,
-  type AiProviderItem,
-} from '@/services/api';
+import { aiApi, type AiModel, type AiProvider, type AiWorkersAiModel, type AiProviderItem } from '@/services/api';
 
 interface ModelFormModalProps {
   model: AiModel | null;
   providersData?: {
     providers: AiProvider[];
     workersAiModels: AiWorkersAiModel[];
-    openAiModels: AiOpenAiModel[];
   };
   onClose: () => void;
   onSubmit: (data: any) => void;
@@ -269,29 +261,6 @@ export function ModelFormModal({ model, providersData, onClose, onSubmit, isLoad
                     placeholder="例如：gpt-4o、claude-3-opus-20240229"
                     required
                   />
-                  {providersData?.openAiModels && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {providersData.openAiModels.slice(0, 8).map((m) => (
-                        <button
-                          key={m.id}
-                          type="button"
-                          onClick={() =>
-                            setFormData({
-                              ...formData,
-                              modelId: m.id,
-                              capabilities: m.capabilities.length > 0 ? [...m.capabilities] : ['chat'],
-                            })
-                          }
-                          className={`px-2 py-1 text-xs border rounded transition-colors ${
-                            formData.modelId === m.id ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-accent'
-                          }`}
-                          title={m.description}
-                        >
-                          {m.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
 
                 <div>

@@ -1,26 +1,10 @@
 /**
  * index.ts
  * AI 模块统一导出
+ *
+ * 仅保留外部实际引用的入口，其余能力请直接从具体模块导入，
+ * 避免出现"导出但无人使用"的死代码。
  */
 
-export * from './types';
 export { ModelGateway } from './modelGateway';
 export { WorkersAiAdapter } from './adapters/workersAiAdapter';
-export {
-  OpenAiCompatibleAdapter,
-  OpenAiCompatibleAdapter as OpenAICompatibleAdapter,
-} from './adapters/openAiCompatibleAdapter';
-export {
-  canGenerateSummary,
-  isImageFile,
-  isAIConfigured,
-  generateFileSummary,
-  generateImageTags,
-  suggestFileName,
-  suggestFileNameFromContent,
-  autoProcessFile,
-  enqueueAutoProcessFile,
-} from './features';
-export type { SummaryResult, ImageTagResult, RenameSuggestion } from './features';
-export { AgentToolExecutor, TOOL_DEFINITIONS } from './agentTools';
-export type { AgentFile, ToolDefinition, ToolCall, ToolResultBase } from './agentTools';

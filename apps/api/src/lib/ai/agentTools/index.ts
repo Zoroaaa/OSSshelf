@@ -528,14 +528,6 @@ function findSimilarTools(toolName: string, allTools: string[], maxResults: numb
     .map((s) => s.name);
 }
 
-export function getAvailableToolNames(): string[] {
-  return Object.keys(TOOL_EXECUTOR_MAP).sort();
-}
-
-export function getToolDefinitionByName(toolName: string): (typeof TOOL_DEFINITIONS)[number] | undefined {
-  return TOOL_DEFINITIONS.find((def) => def.function.name === toolName);
-}
-
 export function getToolsByCategory(): Record<string, string[]> {
   const categories: Record<string, string[]> = {
     '🔍 搜索与发现': [
