@@ -4,6 +4,8 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import './index.css';
+// 代码高亮主题：rehype-highlight 输出 hljs class，需配套样式才会生效
+import 'highlight.js/styles/github-dark.css';
 
 const queryClient = new QueryClient({
   defaultOptions: {

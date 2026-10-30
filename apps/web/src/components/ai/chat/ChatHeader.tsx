@@ -1,77 +1,133 @@
 /**
  * ChatHeader.tsx
- * 聊天页面顶部导航栏组件
- *
- * 功能:
- * - 返回文件管理页面按钮
- * - 侧边栏切换按钮
- * - 标题展示
- * - 工具信息按钮（带角标）
- * - 设置入口
+ * 聊天页顶部栏：返回、会话历史开关、标题、模型选择、导出、工具说明、设置。
  */
 
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, PanelLeftClose, PanelLeft, Sparkles, Settings, Info } from 'lucide-react';
-
+import { ArrowLeft, Download, Info, Loader2, PanelLeft, PanelLeftClose, Settings, Sparkles } from 'lucide-react';
 import { cn } from '@/utils';
 
+export interface HeaderModelOption {
+  id: string;
+  name: string;
+}
+
 interface ChatHeaderProps {
+  title?: string;
   toolCount: number;
   onShowToolInfo: () => void;
   showSidebar: boolean;
   onToggleSidebar: () => void;
+  models?: HeaderModelOption[];
+  modelId?: string;
+  onModelChange?: (modelId: string) => void;
+  onExport?: () => void;
+  exporting?: boolean;
+  connected?: boolean;
 }
 
-export function ChatHeader({ toolCount, onShowToolInfo, showSidebar, onToggleSidebar }: ChatHeaderProps) {
+export function ChatHeader({
+  title,
+  toolCount,
+  onShowToolInfo,
+  showSidebar,
+  onToggleSidebar,
+  models = [],
+  modelId,
+  onModelChange,
+  onExport,
+  exporting,
+  connected,
+}: ChatHeaderProps) {
   const navigate = useNavigate();
 
   return (
-    <header className="flex items-center justify-between px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex-shrink-0">
-      <div className="flex items-center gap-2.5">
+    <header className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-border bg-background px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 sm:px-4">
+      <div className="flex min-w-0 items-center gap-1.5">
         <button
+          type="button"
           onClick={() => navigate('/files')}
-          className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           title="返回文件管理"
+          aria-label="返回文件管理"
         >
           <ArrowLeft className="h-4 w-4" />
         </button>
         <button
+          type="button"
           onClick={onToggleSidebar}
           className={cn(
-            'h-8 w-8 rounded-lg flex items-center justify-center transition-colors',
-            showSidebar
-              ? 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
-              : 'text-violet-600 bg-violet-50 dark:bg-violet-900/20'
+            'flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
+            showSidebar ? 'text-muted-foreground hover:bg-accent hover:text-foreground' : 'bg-primary/10 text-primary'
           )}
           title={showSidebar ? '隐藏对话历史' : '显示对话历史'}
+          aria-label={showSidebar ? '隐藏对话历史' : '显示对话历史'}
         >
           {showSidebar ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
         </button>
-        <div className="flex items-center gap-2">
-          <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-sm">
-            <Sparkles className="h-3.5 w-3.5 text-white" />
+
+        <div className="ml-1 flex min-w-0 items-center gap-2">
+          <div className="hidden h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 sm:flex">
+            <Sparkles className="h-3.5 w-3.5 text-primary" />
           </div>
-          <div>
-            <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">文件管理助手</span>
-            <span className="hidden md:inline text-xs text-slate-400 ml-2">· 可直接查询您的文件</span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-foreground">{title || '文件管理助手'}</p>
+            <p className="hidden truncate text-[11px] text-muted-foreground md:block">
+              {connected === false ? '连接中断，正在重试' : '可直接查询与操作你的文件'}
+            </p>
           </div>
         </div>
       </div>
-      <div className="flex items-center gap-2">
+
+      <div className="flex flex-shrink-0 items-center gap-1.5">
+        {models.length > 0 && (
+          <select
+            value={modelId ?? ''}
+            onChange={(event) => onModelChange?.(event.target.value)}
+            disabled={!connected}
+            className="hidden h-8 max-w-[180px] rounded-lg border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60 sm:block"
+            title="切换模型"
+          >
+            {models.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.name}
+              </option>
+            ))}
+          </select>
+        )}
+
         <button
+          type="button"
           onClick={onShowToolInfo}
-          className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-500 hover:bg-violet-50 dark:hover:bg-violet-900/20 hover:text-violet-600 transition-colors relative"
+          className="relative flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           title={`查看全部 ${toolCount} 个可用工具`}
+          aria-label="查看可用工具"
         >
           <Info className="h-4 w-4" />
-          <span className="absolute -top-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-violet-500 text-[8px] text-white flex items-center justify-center font-bold leading-none">
-            {toolCount}
+          <span className="absolute right-0 top-0 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-bold leading-none text-primary-foreground">
+            {toolCount > 99 ? '99+' : toolCount}
           </span>
         </button>
+
+        {onExport && (
+          <button
+            type="button"
+            onClick={onExport}
+            disabled={exporting}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-60"
+            title="导出为 Markdown"
+            aria-label="导出为 Markdown"
+          >
+            {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          </button>
+        )}
+
         <button
+          type="button"
           onClick={() => navigate('/ai-settings')}
-          className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           title="AI 设置"
+          aria-label="AI 设置"
         >
           <Settings className="h-4 w-4" />
         </button>

@@ -2,6 +2,52 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v5.0.2] - 2026-10-30
+
+### Fixed - AI 会话链路全面修复 🛠️
+
+本次修复聚焦 Agents SDK 迁移后遗留的协议断层：旧确认/计划/来源/中断/上下文链路仍在 UI 与工具定义中，但新运行时不再产生或消费，导致"看起来有功能、实际不生效"。
+
+#### Critical（功能失效）
+
+- **写操作审批缺口**：`WRITE_TOOLS` 中的 `create_share` / `update_share` / `write_note` 与实际工具名不一致，导致 `create_share_link` / `update_share_settings` / `add_note` 绕过确认直接执行；已重写集合并补充契约测试
+- **草稿创建死循环**：`draft_and_create_file` 先走 `needsApproval`，执行时又因缺少 `_confirmed` 返回"待确认"，文件永远无法创建；已移除旧确认分支
+- **`_confirmed` 参数冲突**：删除文件/批量删除/撤销权限/撤销直链/恢复版本的 schema 仍要求 `_confirmed`，模型漏传即校验失败；已在工具适配层统一剥离，并在系统提示词中移除相关说明
+- **`@` 文件引用 / 文件夹上下文无效**：`contextFileIds` / `contextFolderId` 此前只写入审计表；现已注入 system prompt，引用文件优先处理
+- **错误全静默**：连接、换票、模型、工具错误均无 UI；现新增错误条与重试入口，并暴露连接/恢复状态
+- **消息时间失真**：每条消息渲染时重新 `new Date()`；服务端现写入 `metadata.createdAt`，前端读取
+- **中断状态丢失**：`aborted` 标记未写入；现由服务端写入 metadata，UI 显示"输出已中断 + 重新生成"
+- **历史工具卡片丢失**：审计种子只恢复 reasoning+text，且助手审计使用随机 id；现复用 DO message.id 并以 upsert 镜像，历史恢复包含工具调用
+- **删除会话残留**：删除只清 D1，Durable Object 仍保留消息；现先调用 `resetConversation()` 清理
+- **无上下文 Token 预算**：`ai.agent.max_context_tokens` 配置未生效；现按预算裁剪历史消息
+
+#### Added（补齐已宣称能力）
+
+- **跨会话记忆**：对话开始时召回相关记忆注入 system；完成后节流提取（每 4 条消息一次）
+- **执行计划**：新增 `update_plan` 工具，复杂任务先出计划，前端渲染进度条
+- **来源引用**：从搜索类工具结果派生"参考文件"chips
+- **Diff 预览**：审批前由前端复算 edit/append/find_replace 的变更预览
+- **对话导出**：`GET /api/ai-chat/sessions/:id/export` 导出 Markdown
+- **自动标题**：首轮完成后 `POST /api/ai-chat/sessions/:id/title` 生成 8-24 字标题
+- **模型切换**：会话头部选择模型，随消息 body 下发
+- **工具裁剪**：分享/权限/存储/系统管理类工具按关键词注入，降低 schema token 与误选
+
+#### Changed（UI / 交互）
+
+- AI 会话页按全站 design token 重构：移除大面积渐变与重阴影，工具调用降噪为单行活动卡
+- 安装 `tailwindcss-animate`，修复此前全部失效的 `animate-in` / `slide-in-from-*` 动画
+- 引入 `highlight.js/styles/github-dark.css`，聊天与预览的代码高亮生效
+- 移动端：头部/输入区安全区适配、会话抽屉、长按引用
+- `@` 下拉补齐键盘导航、300ms 防抖、空查询不请求
+- 流式期间输入框可编辑；新增"回到最新"按钮；代码块复制修复
+- 删除会话增加二次确认；会话列表支持搜索与日期分组
+
+#### Docs
+
+- README / AI_FEATURES 修正"PDF 导出"、SSE 计划推送、`_confirmed` 等与实现不符的描述
+
+---
+
 ## [v5.1.0] - 2026-06-09
 
 ### Added - 团队共享工作空间 🖥️

@@ -1,24 +1,12 @@
 /**
  * ChatSidebar.tsx
- * 聊天会话历史侧边栏组件
- *
- * 功能:
- * - 展示会话列表
- * - 新建对话
- * - 重命名/删除会话
- * - 移动端遮罩
+ * 会话历史：搜索、按日期分组、重命名、删除（二次确认）、移动端抽屉。
  */
 
-import { Plus, Trash2, Pencil, X, Check, Zap, Coins } from 'lucide-react';
-import { useEffect, useRef } from 'react';
-import { formatDate } from '@/utils';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Check, CheckCircle2, MessageSquare, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 
-function formatTokenCount(tokens: number): string {
-  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`;
-  return `${tokens}`;
-}
-
-interface SessionItem {
+export interface SessionItem {
   id: string;
   title: string;
   updatedAt: string;
@@ -35,12 +23,35 @@ interface ChatSidebarProps {
   renameValue: string;
   onNewChat: () => void;
   onSelectSession: (id: string) => void;
-  onDeleteSession: (e: React.MouseEvent, id: string) => void;
+  onDeleteSession: (event: React.MouseEvent, id: string) => void;
   onStartRename: (session: SessionItem) => void;
   onConfirmRename: (id: string) => void;
   onCancelRename: () => void;
   onRenameValueChange: (value: string) => void;
   onCloseMobile: () => void;
+}
+
+function dayKey(value: string): 'today' | 'yesterday' | 'older' {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'older';
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000;
+  const time = date.getTime();
+  if (time >= startOfToday) return 'today';
+  if (time >= startOfYesterday) return 'yesterday';
+  return 'older';
+}
+
+const GROUP_LABEL: Record<'today' | 'yesterday' | 'older', string> = {
+  today: '今天',
+  yesterday: '昨天',
+  older: '更早',
+};
+
+function compactTokens(tokens: number): string {
+  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`;
+  return String(tokens);
 }
 
 export function ChatSidebar({
@@ -59,6 +70,8 @@ export function ChatSidebar({
   onCloseMobile,
 }: ChatSidebarProps) {
   const renameRef = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState('');
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     if (renamingId) {
@@ -67,115 +80,207 @@ export function ChatSidebar({
     }
   }, [renamingId]);
 
+  const groups = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    const filtered = normalized
+      ? sessions.filter((session) => session.title.toLowerCase().includes(normalized))
+      : sessions;
+    const buckets: Record<'today' | 'yesterday' | 'older', SessionItem[]> = { today: [], yesterday: [], older: [] };
+    for (const session of filtered) buckets[dayKey(session.updatedAt)].push(session);
+    return (['today', 'yesterday', 'older'] as const)
+      .map((key) => ({ key, label: GROUP_LABEL[key], items: buckets[key] }))
+      .filter((group) => group.items.length > 0);
+  }, [sessions, query]);
+
   return (
     <>
       {showSidebar && (
-        <div className="lg:hidden fixed inset-0 z-20 bg-black/40 backdrop-blur-sm" onClick={onCloseMobile} />
+        <div className="fixed inset-0 z-20 bg-black/40 backdrop-blur-sm lg:hidden" onClick={onCloseMobile} />
       )}
 
       <aside
-        className={`flex flex-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 transition-all duration-300 flex-shrink-0 ${
-          showSidebar ? 'w-64' : 'w-0'
-        } fixed inset-y-0 left-0 z-30 lg:relative lg:z-auto overflow-hidden`}
+        className={`flex flex-shrink-0 flex-col overflow-hidden border-r border-border bg-background pb-[env(safe-area-inset-bottom)] transition-all duration-300 ${
+          showSidebar ? 'w-72' : 'w-0 border-r-0'
+        } fixed inset-y-0 left-0 z-30 lg:relative lg:z-auto`}
       >
-        <div className="flex items-center justify-between px-3 py-3 border-b border-slate-200 dark:border-slate-800 flex-shrink-0">
-          <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-            对话历史
-          </span>
-          <button
-            onClick={onNewChat}
-            className="h-7 w-7 rounded-lg flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-violet-600 transition-colors"
-            title="新建对话"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
+        <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))]">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">对话历史</span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={onNewChat}
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              title="新建对话"
+              aria-label="新建对话"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onCloseMobile}
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground lg:hidden"
+              title="关闭"
+              aria-label="关闭"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto min-h-0 p-1.5 space-y-0.5">
-          {sessions.length === 0 ? (
-            <p className="text-xs text-slate-400 text-center py-10">暂无对话记录</p>
-          ) : (
-            sessions.map((session) => (
-              <div
-                key={session.id}
-                onClick={() => onSelectSession(session.id)}
-                className={`relative group rounded-lg px-3 py-2 cursor-pointer transition-colors ${
-                  session.id === currentSessionId
-                    ? 'bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800'
-                    : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
-                }`}
+        <div className="flex-shrink-0 px-3 py-2">
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-2 py-1.5">
+            <Search className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索会话"
+              className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery('')}
+                className="text-muted-foreground hover:text-foreground"
+                aria-label="清空搜索"
               >
-                {renamingId === session.id ? (
-                  <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      ref={renameRef}
-                      value={renameValue}
-                      onChange={(e) => onRenameValueChange(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') onConfirmRename(session.id);
-                        if (e.key === 'Escape') onCancelRename();
-                      }}
-                      className="flex-1 text-xs bg-white dark:bg-slate-700 border border-violet-300 dark:border-violet-600 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-violet-500"
-                    />
-                    <button
-                      onClick={() => onConfirmRename(session.id)}
-                      className="p-1 rounded text-green-600 hover:bg-green-100"
-                    >
-                      <Check className="h-3 w-3" />
-                    </button>
-                    <button onClick={onCancelRename} className="p-1 rounded text-slate-400 hover:bg-slate-100">
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-start gap-1">
-                      <span
-                        className={`text-xs font-medium truncate flex-1 leading-snug ${
-                          session.id === currentSessionId
-                            ? 'text-violet-700 dark:text-violet-300'
-                            : 'text-slate-700 dark:text-slate-300'
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
+          {groups.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
+              <MessageSquare className="h-6 w-6 text-muted-foreground/60" />
+              <p className="text-xs text-muted-foreground">{query ? '没有匹配的会话' : '暂无对话记录'}</p>
+            </div>
+          ) : (
+            groups.map((group) => (
+              <div key={group.key} className="mb-2">
+                <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                  {group.label}
+                </p>
+                <div className="space-y-0.5">
+                  {group.items.map((session) => {
+                    const active = session.id === currentSessionId;
+                    const renaming = renamingId === session.id;
+                    const confirmingDelete = pendingDeleteId === session.id;
+
+                    return (
+                      <div
+                        key={session.id}
+                        onClick={() => {
+                          if (renaming || confirmingDelete) return;
+                          onSelectSession(session.id);
+                        }}
+                        className={`group relative rounded-lg px-2.5 py-2 transition-colors ${
+                          active ? 'bg-primary/10' : 'cursor-pointer hover:bg-accent/60'
                         }`}
                       >
-                        {session.title}
-                      </span>
-                      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onStartRename(session);
-                          }}
-                          className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400"
-                          title="重命名"
-                        >
-                          <Pencil className="h-2.5 w-2.5" />
-                        </button>
-                        <button
-                          onClick={(e) => onDeleteSession(e, session.id)}
-                          className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500"
-                          title="删除"
-                        >
-                          <Trash2 className="h-2.5 w-2.5" />
-                        </button>
+                        {renaming ? (
+                          <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
+                            <input
+                              ref={renameRef}
+                              value={renameValue}
+                              onChange={(event) => onRenameValueChange(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') onConfirmRename(session.id);
+                                if (event.key === 'Escape') onCancelRename();
+                              }}
+                              className="min-w-0 flex-1 rounded border border-primary/50 bg-background px-2 py-0.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => onConfirmRename(session.id)}
+                              className="rounded p-1 text-emerald-600 hover:bg-emerald-500/10"
+                              aria-label="确认重命名"
+                            >
+                              <Check className="h-3 w-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={onCancelRename}
+                              className="rounded p-1 text-muted-foreground hover:bg-accent"
+                              aria-label="取消重命名"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ) : confirmingDelete ? (
+                          <div
+                            className="flex items-center justify-between gap-2"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <span className="truncate text-xs text-destructive">删除该会话？</span>
+                            <span className="flex flex-shrink-0 gap-1">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  setPendingDeleteId(null);
+                                  onDeleteSession(event, session.id);
+                                }}
+                                className="rounded bg-destructive px-1.5 py-0.5 text-[10px] font-medium text-destructive-foreground"
+                              >
+                                删除
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPendingDeleteId(null)}
+                                className="rounded border border-border px-1.5 py-0.5 text-[10px] text-foreground"
+                              >
+                                取消
+                              </button>
+                            </span>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-1">
+                              <span
+                                className={`min-w-0 flex-1 truncate text-xs leading-snug ${
+                                  active ? 'font-medium text-foreground' : 'text-muted-foreground'
+                                }`}
+                              >
+                                {session.title}
+                              </span>
+                              <span className="flex flex-shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    onStartRename(session);
+                                  }}
+                                  className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                                  aria-label="重命名会话"
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setPendingDeleteId(session.id);
+                                  }}
+                                  className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                  aria-label="删除会话"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </span>
+                            </div>
+                            {(session.totalTokensUsed ?? 0) > 0 && (
+                              <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+                                <CheckCircle2 className="h-2.5 w-2.5" />
+                                {compactTokens(session.totalTokensUsed ?? 0)}
+                                {session.lastToolCallCount ? ` · ${session.lastToolCallCount} 次调用` : ''}
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <p className="text-[10px] text-slate-400">{formatDate(session.updatedAt)}</p>
-                      {(session.lastToolCallCount ?? 0) > 0 && (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] text-amber-600 dark:text-amber-400">
-                          <Zap className="h-2.5 w-2.5" />
-                          {session.lastToolCallCount}
-                        </span>
-                      )}
-                      {(session.totalTokensUsed ?? 0) > 0 && (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] text-blue-500 dark:text-blue-400">
-                          <Coins className="h-2.5 w-2.5" />
-                          {formatTokenCount(session.totalTokensUsed!)}
-                        </span>
-                      )}
-                    </div>
-                  </>
-                )}
+                    );
+                  })}
+                </div>
               </div>
             ))
           )}

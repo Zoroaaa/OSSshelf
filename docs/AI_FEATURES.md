@@ -48,7 +48,7 @@ v4.7.0 版本对 AI 模块进行了全面升级，核心变化如下：
 
 | 功能                       | 说明                                                | 版本                     |
 | -------------------------- | --------------------------------------------------- | ------------------------ |
-| **Planning 层**            | 结构化任务规划、ExecutionPlan 接口、SSE 实时进度    | v4.7.0 新增              |
+| **Planning 层**            | `update_plan` 工具、ExecutionPlan 接口、实时进度    | v4.7.0 新增              |
 | **跨会话语义记忆**         | D1+Vectorize 双存储、自动提取/召回、记忆管理 UI     | v4.7.0 新增              |
 | **工具 Few-shot Examples** | ToolDefinition examples 字段、弱模型准确率提升      | v4.7.0 新增              |
 | **批量操作队列打通**       | batch_move/batch_delete、BATCH_THRESHOLD=20         | v4.7.0 新增              |
@@ -75,9 +75,9 @@ v4.7.0 版本对 AI 模块进行了全面升级，核心变化如下：
 
 **核心能力**：
 
-- 复杂任务自动生成结构化执行计划
-- SSE 实时推送计划进度，前端渲染 PlanProgressBar
-- 超出 `maxToolCalls` 时优先完成当前步骤再暂停
+- 复杂任务由模型调用 `update_plan` 工具生成结构化执行计划
+- 计划以工具调用结果随 WebSocket 流式下发，前端渲染 PlanProgressBar
+- 每完成一步，模型再次调用 `update_plan` 更新步骤状态
 
 **ExecutionPlan 接口**：
 
@@ -88,7 +88,6 @@ interface ExecutionPlan {
     id: string; // step-1, step-2 ...
     description: string; // 人类可读描述
     toolHint?: string; // 预期使用的工具
-    dependsOn?: string[]; // 依赖哪些步骤完成
     status: 'pending' | 'running' | 'done' | 'skipped';
   }>;
   estimatedToolCalls: number; // 预估工具调用次数
@@ -100,15 +99,11 @@ interface ExecutionPlan {
 ```
 用户输入复杂任务
        ↓
-意图复杂度判断（关键词 + LLM）
+模型判断复杂度，先调用 update_plan（goal + steps）
        ↓
-planPhase() → LLM 输出 JSON 计划
+工具结果随流下发 → 前端渲染 PlanProgressBar
        ↓
-SSE 推送 { type: 'plan', plan: ExecutionPlan }
-       ↓
-前端渲染 PlanProgressBar
-       ↓
-逐步执行 → 每步完成推送 plan_step_update
+逐步执行 → 每步完成再次调用 update_plan 更新状态
 ```
 
 #### 2. 跨会话语义记忆系统（1.2）
@@ -348,7 +343,7 @@ closed（正常）──失败计数≥3──→ open（熔断）
 | 📦 Zip 打包下载   | 文件夹一键打包                   |
 | 📋 文件访问日志   | 文件维度访问记录                 |
 | 🏷️ 标签全局管理   | 合并/重命名/批量删除             |
-| 📄 AI 对话导出    | Markdown/PDF 导出                |
+| 📄 AI 对话导出    | Markdown 导出                    |
 
 ### v4.6.0 AI 新功能详解
 
@@ -375,7 +370,8 @@ closed（正常）──失败计数≥3──→ open（熔断）
 AI: 调用 grant_permission(folderId, userId, 'read', expiresInDays=30)
 
 用户: "清理所有已过期授权"
-AI: 调用 list_expired_permissions() → 逐个 revoke_permission(_confirmed=true)
+AI: 调用 list_expired_permissions() → 逐个 revoke_permission()
+（写操作由系统自动弹出确认卡片）
 ```
 
 #### 2. 对话式文件创建（含草稿预览）
@@ -383,10 +379,9 @@ AI: 调用 list_expired_permissions() → 逐个 revoke_permission(_confirmed=tr
 **工作流程**：
 
 1. 用户请求创建文件（如"帮我写一个README"）
-2. Agent 调用 `draft_and_create_file` 工具生成草稿
-3. 工具返回 pending_confirm 状态，携带 draftContent 和 previewType: 'draft'
-4. 前端 ToolCallCard 渲染 DraftPreview 组件展示草稿
-5. 用户确认后，Agent 再次调用 `_confirmed=true` 完成创建
+2. Agent 调用 `draft_and_create_file` 工具，携带 fileName 与 draftContent
+3. 工具进入待确认状态（needsApproval），前端 ToolCallCard 渲染 DraftPreview 展示草稿
+4. 用户点击"确认执行"后，工具真正创建文件（无需二次调用）
 
 **DraftPreview 组件特性**：
 
@@ -522,7 +517,7 @@ v4.4.0 新增提供商管理功能，支持 16 个系统内置提供商和用户
 
 全新的 AI 对话页面，提供现代化的聊天体验：
 
-- **SSE 流式响应**：实时打字效果，无需等待完整回复
+- **WebSocket 流式响应**：实时打字效果，无需等待完整回复
 - **会话管理**：创建、切换、删除多个对话会话
 - **RAG 集成**：基于用户存储的文件内容进行智能问答
 - **Markdown 渲染**：支持代码高亮、表格、列表等格式

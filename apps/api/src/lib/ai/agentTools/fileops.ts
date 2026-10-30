@@ -18,7 +18,7 @@ import { eq, and, isNull, inArray } from 'drizzle-orm';
 import { getDb, files } from '../../../db';
 import type { Env } from '../../../types/env';
 import { logger } from '@osshelf/shared';
-import type { ToolDefinition, PendingConfirmResult } from './types';
+import type { ToolDefinition } from './types';
 import { formatBytes } from '../utils';
 import {
   createTextFile,
@@ -521,7 +521,7 @@ export const definitions: ToolDefinition[] = [
             description: '要重命名的文件ID列表',
           },
           template: { type: 'string', description: '重命名模板（支持变量和正则）' },
-          previewOnly: { type: 'boolean', description: '仅预览不执行，默认 true（安全起见建议先预览）' },
+          previewOnly: { type: 'boolean', description: '仅预览不执行（默认 false，审批后会直接执行）' },
           _confirmed: { type: 'boolean', description: '用户确认' },
         },
         required: ['fileIds', 'template'],
@@ -1150,7 +1150,8 @@ services:
   static async executeBatchRename(env: Env, userId: string, args: Record<string, unknown>) {
     const fileIds = args.fileIds as string[];
     const template = args.template as string;
-    const previewOnly = args.previewOnly !== false;
+    // 审批已由 needsApproval 完成；默认直接执行，只有显式传入 previewOnly=true 才只预览
+    const previewOnly = args.previewOnly === true;
     const db = getDb(env.DB);
 
     if (fileIds.length > BATCH_THRESHOLD && !previewOnly) {
@@ -1206,7 +1207,7 @@ services:
     if (previewOnly) {
       return {
         mode: 'preview',
-        message: '以下是预览结果（未实际执行），确认后设置 _confirmed=true 再次调用',
+        message: '以下是预览结果（未实际执行），确认后再次调用并设置 previewOnly=false',
         totalFiles: previews.length,
         previews,
       };
@@ -1394,30 +1395,13 @@ services:
   static async executeDraftAndCreateFile(env: Env, userId: string, args: Record<string, unknown>) {
     const fileName = args.fileName as string;
     const targetFolderId = args.targetFolderId as string | undefined;
-    const userRequest = args.userRequest as string | undefined;
     const draftContent = args.draftContent as string;
-    const _confirmed = args._confirmed as boolean;
 
     if (!fileName || !draftContent) {
       return { error: '缺少必要参数: fileName 和 draftContent' };
     }
 
-    // 未确认时返回草稿供预览
-    if (!_confirmed) {
-      return {
-        success: false,
-        pendingConfirm: true,
-        confirmId: `draft-${Date.now()}`,
-        message: `是否创建文件 "${fileName}"？`,
-        previewType: 'draft',
-        draftContent,
-        fileName,
-        userRequest,
-        _next_actions: ['用户确认后将正式创建文件', '用户可查看并编辑草稿内容'],
-      } as unknown as PendingConfirmResult;
-    }
-
-    // 确认后创建文件
+    // 审批已由 needsApproval 完成：执行即正式创建
     const ext = getFileExtension(fileName);
     const folderId: string | null = targetFolderId || null;
 

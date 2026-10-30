@@ -41,12 +41,16 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   reasoning?: string;
-  sources?: Array<{ id: string; name: string; mimeType: string | null; score: number }>;
+  sources?: Array<{ id: string; name: string; mimeType: string | null; score?: number }>;
   toolCalls?: ToolCallEvent[];
   pendingConfirm?: PendingConfirm;
+  /** 由 update_plan 工具调用派生 */
+  plan?: ExecutionPlan;
   timestamp: Date;
   isLoading?: boolean;
   aborted?: boolean;
+  /** 本地乐观消息：已发出但 Agent 连接尚未就绪 */
+  pending?: boolean;
   mentionedFiles?: Array<{ id: string; name: string }>;
 }
 
