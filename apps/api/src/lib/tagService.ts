@@ -156,39 +156,6 @@ export async function getAllUserTags(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 批量查询文件的标签
-// 与 routes/permissions.ts POST /tags/batch 逻辑一致
-// ─────────────────────────────────────────────────────────────────────────────
-
-export async function batchGetFileTags(
-  env: Env,
-  userId: string,
-  fileIds: string[]
-): Promise<Record<string, TagResult[]>> {
-  const db = getDb(env.DB);
-
-  if (fileIds.length === 0) return {};
-
-  const permittedFileIds: string[] = [];
-  for (const fid of fileIds) {
-    const { hasAccess } = await checkFilePermission(db, fid, userId, 'read', env);
-    if (hasAccess) permittedFileIds.push(fid);
-  }
-
-  if (permittedFileIds.length === 0) return {};
-
-  const tags = await db.select().from(fileTags).where(inArray(fileTags.fileId, permittedFileIds)).all();
-
-  const tagsByFileId: Record<string, TagResult[]> = {};
-  for (const tag of tags) {
-    if (!tagsByFileId[tag.fileId]) tagsByFileId[tag.fileId] = [];
-    tagsByFileId[tag.fileId].push({ id: tag.id, name: tag.name, color: tag.color, createdAt: tag.createdAt });
-  }
-
-  return tagsByFileId;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // 获取标签使用统计（AgentTools专用扩展）
 // ─────────────────────────────────────────────────────────────────────────────
 

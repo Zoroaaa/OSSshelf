@@ -16,7 +16,6 @@ import {
   teamMembers,
   teamResources,
   permissionRequests,
-  roleTemplates,
 } from '../db';
 import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';
@@ -420,124 +419,6 @@ export async function listExpiredPermissions(
   });
 
   return result;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 基于角色模板授权
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface GrantWithRoleTemplateInput {
-  fileId: string;
-  targetUserId?: string;
-  targetGroupId?: string;
-  targetTeamId?: string;
-  roleTemplate: 'viewer' | 'editor' | 'manager';
-  expiresAt?: string;
-}
-
-const ROLE_TEMPLATE_PERMISSION_MAP: Record<string, 'read' | 'write' | 'admin'> = {
-  viewer: 'read',
-  editor: 'write',
-  manager: 'admin',
-};
-
-const PERMISSION_LEVEL_ORDER: Record<string, number> = { read: 1, write: 2, admin: 3 };
-
-export async function grantWithRoleTemplate(
-  env: Env,
-  grantedByUserId: string,
-  input: GrantWithRoleTemplateInput
-): Promise<{ success: true; message: string } | { success: false; error: string }> {
-  const db = getDb(env.DB);
-  const { fileId, targetUserId, targetGroupId, targetTeamId, roleTemplate, expiresAt } = input;
-
-  // 验证操作者是否是文件所有者
-  const ownerFile = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.id, fileId), eq(files.userId, grantedByUserId)))
-    .get();
-  if (!ownerFile) {
-    return { success: false, error: '文件不存在或您无权对此文件授权' };
-  }
-
-  // 检查目标至少指定一个
-  if (!targetUserId && !targetGroupId && !targetTeamId) {
-    return { success: false, error: '必须指定 targetUserId、targetGroupId 或 targetTeamId 其中之一' };
-  }
-
-  // 查询角色模板
-  const template = await db.select().from(roleTemplates).where(eq(roleTemplates.slug, roleTemplate)).get();
-
-  if (!template) {
-    return { success: false, error: `角色模板 "${roleTemplate}" 不存在` };
-  }
-
-  // 解析模板权限，取最高级别
-  const templatePermissions: string[] = JSON.parse(template.permissions || '[]');
-  let highestPermission = ROLE_TEMPLATE_PERMISSION_MAP[roleTemplate];
-  for (const perm of templatePermissions) {
-    if (PERMISSION_LEVEL_ORDER[perm] > PERMISSION_LEVEL_ORDER[highestPermission]) {
-      highestPermission = perm as 'read' | 'write' | 'admin';
-    }
-  }
-
-  const now = new Date().toISOString();
-  const subjectType = targetTeamId ? 'team' : targetGroupId ? 'group' : 'user';
-
-  // 查找是否已有权限记录
-  const existingConditions = [eq(filePermissions.fileId, fileId), eq(filePermissions.subjectType, subjectType)];
-  if (targetUserId) existingConditions.push(eq(filePermissions.userId, targetUserId));
-  else existingConditions.push(isNull(filePermissions.userId));
-  if (targetGroupId) existingConditions.push(eq(filePermissions.groupId, targetGroupId));
-  else existingConditions.push(isNull(filePermissions.groupId));
-  if (targetTeamId) existingConditions.push(eq(filePermissions.teamId, targetTeamId));
-  else existingConditions.push(isNull(filePermissions.teamId));
-
-  const existing = await db
-    .select()
-    .from(filePermissions)
-    .where(and(...existingConditions))
-    .get();
-
-  if (existing) {
-    await db
-      .update(filePermissions)
-      .set({
-        permission: highestPermission,
-        expiresAt: expiresAt || null,
-        updatedAt: now,
-      })
-      .where(eq(filePermissions.id, existing.id));
-  } else {
-    await db.insert(filePermissions).values({
-      id: crypto.randomUUID(),
-      fileId,
-      userId: targetUserId || null,
-      groupId: targetGroupId || null,
-      teamId: targetTeamId || null,
-      subjectType,
-      permission: highestPermission,
-      grantedBy: grantedByUserId,
-      expiresAt: expiresAt || null,
-      inheritToChildren: true, // 角色模板授权默认穿透
-      scope: 'explicit',
-      createdAt: now,
-      updatedAt: now,
-    });
-  }
-
-  // 失效缓存
-  invalidatePermissionCache(env, fileId);
-
-  logger.info('PermissionService', '基于角色模板授权', {
-    fileId,
-    roleTemplate,
-    subjectType,
-    permission: highestPermission,
-  });
-
-  return { success: true, message: `已使用模板 "${roleTemplate}" 授权（权限级别：${highestPermission}）` };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

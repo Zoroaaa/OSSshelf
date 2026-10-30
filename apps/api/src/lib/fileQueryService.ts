@@ -31,31 +31,6 @@ export async function getFileById(env: Env, userId: string, fileId: string): Pro
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 批量查询文件列表（带权限过滤）
-// ─────────────────────────────────────────────────────────────────────────────
-
-export async function getFilesByIds(
-  env: Env,
-  userId: string,
-  fileIds: string[]
-): Promise<(typeof files.$inferSelect)[]> {
-  if (fileIds.length === 0) return [];
-
-  const db = getDb(env.DB);
-
-  const permittedFiles: (typeof files.$inferSelect)[] = [];
-  for (const fid of fileIds) {
-    const { hasAccess } = await checkFilePermission(db, fid, userId, 'read', env);
-    if (hasAccess) {
-      const file = await db.select().from(files).where(eq(files.id, fid)).get();
-      if (file) permittedFiles.push(file);
-    }
-  }
-
-  return permittedFiles;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // 验证文件是否存在且用户有访问权限
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -71,16 +46,4 @@ export async function validateFileAccess(
   }
 
   return { valid: true, file };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 获取文件的父目录路径
-// ─────────────────────────────────────────────────────────────────────────────
-
-export async function getParentPath(env: Env, parentId: string): Promise<string | null> {
-  const db = getDb(env.DB);
-
-  const parent = await db.select({ path: files.path }).from(files).where(eq(files.id, parentId)).get();
-
-  return parent?.path || null;
 }

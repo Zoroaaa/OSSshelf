@@ -153,39 +153,3 @@ export function inferMimeType(fileName: string, providedMimeType?: string | null
 
   return 'application/octet-stream';
 }
-
-export const INSTALLER_MIME_TYPES = [
-  'application/x-msdownload',
-  'application/x-msi',
-  'application/x-apple-diskimage',
-  'application/x-newton-compatible-pkg',
-  'application/vnd.debian.binary-package',
-  'application/x-rpm',
-  'application/vnd.android.package-archive',
-  'application/x-executable',
-];
-
-export function isInstallerMimeType(mimeType: string | null | undefined): boolean {
-  if (!mimeType) return false;
-  return INSTALLER_MIME_TYPES.includes(mimeType);
-}
-
-export const INSTALLER_EXTENSIONS = [
-  '.exe',
-  '.msi',
-  '.dmg',
-  '.pkg',
-  '.deb',
-  '.rpm',
-  '.apk',
-  '.ipa',
-  '.app',
-  '.appimage',
-];
-
-export function isInstallerExtension(fileName: string): boolean {
-  const lastDot = fileName.lastIndexOf('.');
-  if (lastDot === -1) return false;
-  const ext = fileName.slice(lastDot).toLowerCase();
-  return INSTALLER_EXTENSIONS.includes(ext);
-}

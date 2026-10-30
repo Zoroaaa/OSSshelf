@@ -52,16 +52,6 @@ export function deobfuscate(value: string, key: string): string {
   }
 }
 
-export function obfuscate(value: string, key: string): string {
-  const keyBytes = new TextEncoder().encode(key.repeat(Math.ceil(value.length / key.length)));
-  const valueBytes = new TextEncoder().encode(value);
-  const result = new Uint8Array(valueBytes.length);
-  for (let i = 0; i < valueBytes.length; i++) {
-    result[i] = valueBytes[i] ^ keyBytes[i];
-  }
-  return btoa(String.fromCharCode(...result));
-}
-
 // ── Endpoint resolution ──────────────────────────────────────────────────
 export function resolveEndpoint(provider: string, endpoint: string | null, region: string | null): string {
   if (endpoint) return endpoint.replace(/\/$/, '');
@@ -673,29 +663,6 @@ export async function s3Delete(config: S3BucketConfig, key: string): Promise<voi
   }
 }
 
-/**
- * Head an object (check existence, get metadata).
- */
-export async function s3Head(config: S3BucketConfig, key: string): Promise<Response> {
-  const { url, host, canonicalUri } = buildObjectUrl(config, key);
-  const region = config.region || 'us-east-1';
-  const payloadHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
-
-  const signed = await signRequest({
-    method: 'HEAD',
-    url,
-    host,
-    canonicalUri,
-    queryString: '',
-    payloadHash,
-    accessKeyId: config.accessKeyId,
-    secretAccessKey: config.secretAccessKey,
-    region,
-  });
-
-  return fetch(signed.url, { method: 'HEAD', headers: signed.headers });
-}
-
 export interface S3ObjectInfo {
   key: string;
   size: number;
@@ -1066,41 +1033,6 @@ export async function s3ListObjects(
   }
 }
 
-export async function s3ListAllBucketsObjects(buckets: Array<{ config: S3BucketConfig; prefix?: string }>): Promise<
-  Array<{
-    bucketId: string;
-    bucketName: string;
-    provider: string;
-    result: ListObjectsResult;
-    error?: string;
-  }>
-> {
-  const results = await Promise.all(
-    buckets.map(async ({ config, prefix }) => {
-      try {
-        const result = await s3ListObjects(config, { prefix });
-        return {
-          bucketId: config.id,
-          bucketName: config.bucketName,
-          provider: config.provider,
-          result,
-        };
-      } catch (error) {
-        const errMsg = (error as Error).message || String(error);
-        logger.error('STORAGE_AUDIT', `列出存储桶 ${config.bucketName} 文件失败`, { bucketId: config.id }, error);
-        return {
-          bucketId: config.id,
-          bucketName: config.bucketName,
-          provider: config.provider,
-          result: { objects: [], isTruncated: false, objectCount: 0, totalSizeBytes: 0 },
-          error: errMsg,
-        };
-      }
-    })
-  );
-  return results;
-}
-
 // ── Bucket resolver helper ────────────────────────────────────────────────
 /**
  * Given a DB row from storage_buckets, return a ready-to-use S3BucketConfig
@@ -1157,26 +1089,6 @@ export async function makeBucketConfigAsync(
     region: row.region,
     accessKeyId,
     secretAccessKey,
-    pathStyle: row.pathStyle,
-  };
-}
-
-/**
- * Legacy sync version for backward compatibility.
- * @deprecated Use makeBucketConfigAsync instead for proper AES-GCM decryption.
- */
-export function makeBucketConfig(
-  row: typeof import('../db/schema').storageBuckets.$inferSelect,
-  encKey: string
-): S3BucketConfig {
-  return {
-    id: row.id,
-    provider: row.provider,
-    bucketName: row.bucketName,
-    endpoint: row.endpoint,
-    region: row.region,
-    accessKeyId: deobfuscate(row.accessKeyId, encKey),
-    secretAccessKey: deobfuscate(row.secretAccessKey, encKey),
     pathStyle: row.pathStyle,
   };
 }

@@ -9,7 +9,7 @@
  * - 清理过期邀请
  */
 
-import { eq, and, lt, desc, sql, inArray } from 'drizzle-orm';
+import { eq, and, desc, inArray } from 'drizzle-orm';
 import { getDb, teamInvitations, teams, teamMembers, users } from '../db';
 import type { DrizzleDb } from '../db';
 import type { Env } from '../types/env';
@@ -388,22 +388,6 @@ export async function listPendingInvites(db: DrizzleDb, teamId: string): Promise
     expiresAt: inv.expiresAt,
     createdAt: inv.createdAt,
   }));
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 清理过期邀请
-// ─────────────────────────────────────────────────────────────────────────────
-
-export async function cleanupExpiredInvites(db: DrizzleDb): Promise<number> {
-  const now = new Date().toISOString();
-  const result = await db
-    .update(teamInvitations)
-    .set({ status: 'expired' })
-    .where(and(eq(teamInvitations.status, 'pending'), lt(teamInvitations.expiresAt, now)));
-  if (result.meta.changes > 0) {
-    logger.info('InviteService', '清理过期邀请', { count: result.meta.changes });
-  }
-  return result.meta.changes;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

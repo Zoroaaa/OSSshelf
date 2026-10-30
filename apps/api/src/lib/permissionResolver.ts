@@ -10,7 +10,7 @@
  */
 
 import { eq, and, sql, inArray, isNull } from 'drizzle-orm';
-import { files, filePermissions, groupMembers, userGroups, teams, teamMembers } from '../db';
+import { files, filePermissions, groupMembers, teams, teamMembers } from '../db';
 import type { DrizzleDb } from '../db';
 import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';
@@ -478,19 +478,6 @@ function checkPermissionLevel(actual: PermissionLevel, required: PermissionLevel
   return PERMISSION_LEVELS[actual] >= PERMISSION_LEVELS[required];
 }
 
-export async function getGroupInfo(db: DrizzleDb, groupId: string): Promise<{ id: string; name: string } | null> {
-  const group = await db.select().from(userGroups).where(eq(userGroups.id, groupId)).get();
-
-  if (!group) {
-    return null;
-  }
-
-  return {
-    id: group.id,
-    name: group.name,
-  };
-}
-
 /**
  * 获取团队信息
  */
@@ -505,53 +492,4 @@ export async function getTeamInfo(db: DrizzleDb, teamId: string): Promise<{ id: 
     id: team.id,
     name: team.name,
   };
-}
-
-/**
- * 基于团队成员角色解析团队资源的默认访问权限（不依赖显式授权，仅凭成员身份）
- * - owner/admin → write
- * - member → read
- * - guest → 无默认权限
- */
-export async function resolveTeamDefaultPermission(
-  db: DrizzleDb,
-  userId: string,
-  teamId: string
-): Promise<PermissionLevel | null> {
-  const teamRoles = await getTeamMemberRoles(db, userId);
-  const role = teamRoles.get(teamId);
-
-  if (!role) {
-    return null;
-  }
-
-  switch (role) {
-    case 'owner':
-    case 'admin':
-      return 'write';
-    case 'member':
-      return 'read';
-    case 'guest':
-    default:
-      return null;
-  }
-}
-
-export async function batchResolvePermissions(
-  db: DrizzleDb,
-  env: Env,
-  fileIds: string[],
-  userId: string,
-  requiredLevel: PermissionLevel
-): Promise<Map<string, PermissionResolution>> {
-  const results = new Map<string, PermissionResolution>();
-
-  await Promise.all(
-    fileIds.map(async (fileId) => {
-      const resolution = await checkPermissionWithCache(db, env, fileId, userId, requiredLevel);
-      results.set(fileId, resolution);
-    })
-  );
-
-  return results;
 }

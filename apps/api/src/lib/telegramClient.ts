@@ -36,18 +36,8 @@ export interface TgFileInfo {
   fileSize: number;
 }
 
-// Telegram Bot API 单次上传上限（50MB）
-// 超过此大小需改用 telegramChunked.ts 的分片上传机制（分成 ≤49MB 的块）
-export const TG_MAX_FILE_SIZE = 50 * 1024 * 1024;
-
-// 触发分片上传的阈值（与 TG_CHUNK_SIZE 一致）
-export const TG_CHUNKED_THRESHOLD = 49 * 1024 * 1024;
-
-// Worker 支持的分片上传最大总大小（500MB ≈ 10 块，约 30s 内完成）
-export const TG_MAX_CHUNKED_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB，Telegram Bot API 真实上限
-
-// 较大文件警告阈值（20MB）- 仍可上传但提示速度较慢
-export const TG_WARN_FILE_SIZE = 20 * 1024 * 1024;
+// Worker 支持的分片上传最大总大小（Telegram Bot API 真实上限 2GB）
+export const TG_MAX_CHUNKED_FILE_SIZE = 2 * 1024 * 1024 * 1024;
 
 function getApiBase(config: TelegramBotConfig): string {
   return (config.apiBase || 'https://api.telegram.org').replace(/\/$/, '');
@@ -177,136 +167,6 @@ export async function tgUploadFile(
   };
 }
 
-/**
- * 流式上传文件到 Telegram（零复制转发）
- * 与 tgUploadFile 区别：接受 ReadableStream 而非 ArrayBuffer，
- * 避免在 Worker 内存中缓冲完整文件，防止 OOM。
- * 用于 /telegram-part 端点将前端分片直接 pipe 到 TG Bot API。
- */
-export async function tgUploadStream(
-  config: TelegramBotConfig,
-  stream: ReadableStream<Uint8Array>,
-  fileName: string,
-  fileSize: number,
-  mimeType: string | null | undefined,
-  caption?: string
-): Promise<TgUploadResult> {
-  const method = selectSendMethod(mimeType);
-  const url = botUrl(config, method);
-  const fieldName = method === 'sendAudio' ? 'audio' : 'document';
-
-  // 构造 multipart boundary
-  const boundary = `----WKBoundary${crypto.randomUUID().replace(/-/g, '')}`;
-  const encoder = new TextEncoder();
-
-  // 前置 part headers
-  const preamble = [
-    `--${boundary}\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n${config.chatId}`,
-    `\r\n--${boundary}\r\nContent-Disposition: form-data; name="disable_notification"\r\n\r\ntrue`,
-    ...(caption
-      ? [`\r\n--${boundary}\r\nContent-Disposition: form-data; name="caption"\r\n\r\n${caption.slice(0, 1024)}`]
-      : []),
-    `\r\n--${boundary}\r\nContent-Disposition: form-data; name="${fieldName}"; filename="${encodeURIComponent(fileName)}"\r\nContent-Type: ${mimeType || 'application/octet-stream'}\r\n\r\n`,
-  ].join('');
-
-  const epilogue = `\r\n--${boundary}--\r\n`;
-  const preambleBytes = encoder.encode(preamble);
-  const epilogueBytes = encoder.encode(epilogue);
-  const totalLength = preambleBytes.byteLength + fileSize + epilogueBytes.byteLength;
-
-  // 将 preamble + stream + epilogue 合并为单一 ReadableStream
-  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
-  const writer = writable.getWriter();
-
-  // 异步写入，不阻塞主流程
-  (async () => {
-    try {
-      await writer.write(preambleBytes);
-      const reader = stream.getReader();
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        await writer.write(value);
-      }
-      await writer.write(epilogueBytes);
-      await writer.close();
-    } catch (e) {
-      await writer.abort(e);
-    }
-  })();
-
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': `multipart/form-data; boundary=${boundary}`,
-      'Content-Length': String(totalLength),
-    },
-    body: readable,
-    // @ts-expect-error — Cloudflare Workers 支持 duplex fetch
-    duplex: 'half',
-  });
-
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`Telegram API HTTP ${resp.status}: ${text}`);
-  }
-
-  const json = (await resp.json()) as any;
-  if (!json.ok) {
-    throw new Error(`Telegram API error: ${json.description || JSON.stringify(json)}`);
-  }
-
-  const msg = json.result;
-  let tgFileId: string | null = null;
-  let tgFileSize = 0;
-
-  if (msg.document) {
-    tgFileId = msg.document.file_id;
-    tgFileSize = msg.document.file_size || fileSize;
-  } else if (msg.audio) {
-    tgFileId = msg.audio.file_id;
-    tgFileSize = msg.audio.file_size || fileSize;
-  } else if (msg.video) {
-    tgFileId = msg.video.file_id;
-    tgFileSize = msg.video.file_size || fileSize;
-  } else if (msg.animation) {
-    tgFileId = msg.animation.file_id;
-    tgFileSize = msg.animation.file_size || fileSize;
-  } else if (msg.sticker) {
-    tgFileId = msg.sticker.file_id;
-    tgFileSize = msg.sticker.file_size || fileSize;
-  } else if (msg.video_note) {
-    tgFileId = msg.video_note.file_id;
-    tgFileSize = msg.video_note.file_size || fileSize;
-  } else if (msg.voice) {
-    tgFileId = msg.voice.file_id;
-    tgFileSize = msg.voice.file_size || fileSize;
-  } else if (msg.paid_media) {
-    const paidMedia = msg.paid_media.paid_media?.[0];
-    if (paidMedia?.type === 'photo' && paidMedia.photo) {
-      const photos = paidMedia.photo as any[];
-      const largest = photos.sort((a: any, b: any) => (b.file_size || 0) - (a.file_size || 0))[0];
-      tgFileId = largest.file_id;
-      tgFileSize = largest.file_size || fileSize;
-    } else if (paidMedia?.type === 'video' && paidMedia.video) {
-      tgFileId = paidMedia.video.file_id;
-      tgFileSize = paidMedia.video.file_size || fileSize;
-    }
-  } else if (msg.photo) {
-    const largest = (msg.photo as any[]).sort((a: any, b: any) => (b.file_size || 0) - (a.file_size || 0))[0];
-    tgFileId = largest.file_id;
-    tgFileSize = largest.file_size || fileSize;
-  }
-
-  if (!tgFileId) {
-    logger.error('TELEGRAM', '流响应缺少file_id', { response: JSON.stringify(msg).slice(0, 500) });
-    throw new Error('Telegram 响应中未找到 file_id');
-  }
-
-  return { fileId: tgFileId, messageId: msg.message_id, fileSize: tgFileSize, mimeType: mimeType || undefined };
-}
-
 export async function tgGetFileInfo(config: TelegramBotConfig, tgFileId: string): Promise<TgFileInfo> {
   const url = botUrl(config, 'getFile');
   const resp = await fetch(url, {
@@ -351,29 +211,6 @@ export async function tgDownloadFile(config: TelegramBotConfig, tgFileId: string
     throw new Error(`Telegram 文件下载失败: HTTP ${resp.status}`);
   }
   return resp;
-}
-
-/**
- * 删除消息（等同于"删除"文件引用，但 Telegram 服务器上文件仍可能存在一段时间）
- * Telegram Bot 只能删除自己发送的或有管理员权限的消息
- * 如果删除失败（权限不足），静默忽略
- */
-export async function tgDeleteMessage(config: TelegramBotConfig, messageId: number): Promise<void> {
-  try {
-    const url = botUrl(config, 'deleteMessage');
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: config.chatId, message_id: messageId }),
-    });
-    if (!resp.ok) return; // 静默失败
-    const json = (await resp.json()) as any;
-    if (!json.ok) {
-      logger.warn('TELEGRAM', '删除消息失败', { description: json.description });
-    }
-  } catch (error) {
-    logger.warn('TELEGRAM', '删除消息异常', {}, error);
-  }
 }
 
 /**

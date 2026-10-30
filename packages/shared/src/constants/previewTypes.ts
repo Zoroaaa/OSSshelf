@@ -78,22 +78,6 @@ export const ALL_OFFICE_MIME_TYPES = [
   ...OFFICE_MIME_TYPES.excel,
   ...OFFICE_MIME_TYPES.powerpoint,
 ] as const;
-
-/** 所有可预览的 MIME 类型 */
-export const PREVIEWABLE_MIME_TYPES = [
-  IMAGE_MIME_PREFIX,
-  VIDEO_MIME_PREFIX,
-  AUDIO_MIME_PREFIX,
-  PDF_MIME_TYPE,
-  TEXT_MIME_PREFIX,
-  JSON_MIME_TYPE,
-  XML_MIME_TYPE,
-  ...ALL_OFFICE_MIME_TYPES,
-  ...EPUB_MIME_TYPES,
-  ...FONT_MIME_TYPES,
-  ...ARCHIVE_PREVIEW_MIME_TYPES,
-] as const;
-
 /** 预览类型枚举 */
 export type PreviewType =
   | 'image'
@@ -205,16 +189,3 @@ export function getPreviewType(mimeType: string | null | undefined, fileName: st
 
   return 'unknown';
 }
-
-/** 预览器依赖信息 - 用于提醒开发者安装依赖 */
-export const PREVIEW_DEPENDENCIES = {
-  docx: 'docx-preview',
-  xlsx: 'xlsx',
-  markdown: 'react-markdown, remark-gfm, rehype-highlight, remark-math, rehype-katex',
-  code: 'highlight.js',
-  csv: 'papaparse',
-  archive: 'jszip',
-  epub: 'jszip',
-  font: '浏览器原生 FontFace API',
-  powerpoint: 'jszip',
-} as const;

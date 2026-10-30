@@ -506,33 +506,6 @@ export interface TeamResource {
   mountedBy: string;
   mountedAt: string;
 }
-
-/** 角色模板 */
-export interface RoleTemplate {
-  id: string;
-  name: string;
-  slug: string;
-  permissions: string[];
-  isBuiltin: boolean;
-  description: string | null;
-}
-
-/** 权限申请 */
-export interface PermissionRequest {
-  id: string;
-  fileId: string;
-  fileName?: string;
-  requesterId: string;
-  targetTeamId: string | null;
-  requestedPermission: string;
-  reason: string | null;
-  status: 'pending' | 'approved' | 'rejected';
-  reviewedBy: string | null;
-  reviewedAt: string | null;
-  reviewComment: string | null;
-  createdAt: string;
-}
-
 /** 工作区文件条目 */
 export interface WorkspaceFile {
   fileId: string;
@@ -666,40 +639,4 @@ export const teamsApi = {
 
   /** 获取团队存储统计 */
   getStorageStats: (teamId: string) => api.get<ApiResponse<TeamStorageStats>>(`/api/teams/${teamId}/storage`),
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Roles — 角色模板管理
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const rolesApi = {
-  getTemplates: () => api.get<ApiResponse<RoleTemplate[]>>('/api/permissions/roles/templates'),
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Permission Requests — 权限申请管理
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const permissionRequestsApi = {
-  create: (data: {
-    fileId: string;
-    requestedPermission: 'read' | 'write' | 'admin';
-    reason?: string;
-    targetTeamId?: string;
-  }) => api.post<ApiResponse<Record<string, unknown>>>('/api/permissions/requests', data),
-
-  listMy: (params?: { page?: number; limit?: number }) =>
-    api.get<ApiResponse<{ items: PermissionRequest[]; total: number; page: number; totalPages: number }>>(
-      '/api/permissions/requests/my',
-      { params }
-    ),
-
-  listPending: (params?: { page?: number; limit?: number }) =>
-    api.get<ApiResponse<{ items: PermissionRequest[]; total: number; page: number; totalPages: number }>>(
-      '/api/permissions/requests/pending',
-      { params }
-    ),
-
-  review: (requestId: string, data: { action: 'approve' | 'reject'; comment?: string }) =>
-    api.put<ApiResponse<Record<string, unknown>>>(`/api/permissions/requests/${requestId}/review`, data),
 };

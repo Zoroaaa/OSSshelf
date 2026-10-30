@@ -33,11 +33,7 @@ const LOG_LEVELS: Record<LogLevel, number> = {
   error: 3,
 };
 
-let currentLogLevel: LogLevel = 'info';
-
-export function setLogLevel(level: LogLevel): void {
-  currentLogLevel = level;
-}
+const currentLogLevel: LogLevel = 'info';
 
 function formatTimestamp(): string {
   return new Date().toISOString();
@@ -120,22 +116,6 @@ export const logger = {
     outputLog(createLogEntry('error', context, message, data, error));
   },
 };
-
-export function logCatch(context: string, data: LogContext, error: unknown): void {
-  logger.error(context, '操作失败', data, error);
-}
-
-export function logS3Error(operation: string, key: string, error: unknown): void {
-  logger.error('S3', `${operation} 失败`, { key }, error);
-}
-
-export function logDbError(operation: string, table: string, error: unknown): void {
-  logger.error('DB', `${operation} 失败`, { table }, error);
-}
-
-export function logAuthError(operation: string, userId: string | undefined, error: unknown): void {
-  logger.error('AUTH', `${operation} 失败`, { userId }, error);
-}
 
 export function logAiError(operation: string, fileId: string, error: unknown): void {
   logger.error('AI', `${operation} 失败`, { fileId }, error);
