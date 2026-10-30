@@ -148,42 +148,6 @@ async function handleApiKeyAuth(c: AppContext, next: () => Promise<void>, apiKey
     );
   }
 }
-
-export function requireScope(scopes: string | string[]): MiddlewareHandler<AppEnv> {
-  const requiredScopes = Array.isArray(scopes) ? scopes : [scopes];
-
-  return async (c, next) => {
-    const authType = c.get('authType');
-
-    if (authType === 'jwt') {
-      await next();
-      return;
-    }
-
-    const apiKeyScopes = c.get('apiKeyScopes') as string[] | undefined;
-
-    if (!apiKeyScopes) {
-      return c.json({ success: false, error: { code: ERROR_CODES.PERMISSION_DENIED.code, message: '权限不足' } }, 403);
-    }
-
-    const hasScope = requiredScopes.some((scope) => apiKeyScopes.includes(scope));
-    if (!hasScope) {
-      return c.json(
-        {
-          success: false,
-          error: {
-            code: ERROR_CODES.PERMISSION_DENIED.code,
-            message: `需要以下权限之一: ${requiredScopes.join(', ')}`,
-          },
-        },
-        403
-      );
-    }
-
-    await next();
-  };
-}
-
 export function requireEmailVerification(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const userId = c.get('userId');

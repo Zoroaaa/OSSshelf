@@ -9,7 +9,7 @@
  * - 邮件通知集成
  */
 
-import { getDb, users, files } from '../db';
+import { getDb, users } from '../db';
 import { eq } from 'drizzle-orm';
 import { notifications } from '../db';
 import type { Env } from '../types/env';
@@ -94,16 +94,6 @@ export async function createNotification(env: Env, params: CreateNotificationPar
   return id;
 }
 
-export async function createNotificationForUsers(
-  env: Env,
-  userIds: string[],
-  params: Omit<CreateNotificationParams, 'userId'>
-): Promise<void> {
-  for (const userId of userIds) {
-    await createNotification(env, { ...params, userId });
-  }
-}
-
 export function sendNotification(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   c: Context<any>,
@@ -122,17 +112,4 @@ export async function getUserInfo(env: Env, userId: string): Promise<{ name: str
   const db = getDb(env.DB);
   const user = await db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, userId)).get();
   return user || null;
-}
-
-export async function getFileInfo(
-  env: Env,
-  fileId: string
-): Promise<{ id: string; name: string; isFolder: boolean } | null> {
-  const db = getDb(env.DB);
-  const file = await db
-    .select({ id: files.id, name: files.name, isFolder: files.isFolder })
-    .from(files)
-    .where(eq(files.id, fileId))
-    .get();
-  return file || null;
 }

@@ -71,13 +71,6 @@ export type Variables = {
 };
 
 export type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
-
-export const DEFAULT_ENV_VALUES = {
-  AUDIT_RETENTION_DAYS: '90',
-  MAX_FILE_SIZE: String(5 * 1024 * 1024 * 1024),
-  MAX_STORAGE_QUOTA: String(10 * 1024 * 1024 * 1024),
-} as const;
-
 export function getEnvNumber(env: Env, key: keyof Env, defaultValue: number): number {
   const value = env[key];
   if (typeof value === 'string') {
@@ -86,35 +79,9 @@ export function getEnvNumber(env: Env, key: keyof Env, defaultValue: number): nu
   }
   return defaultValue;
 }
-
-export function getEnvBoolean(env: Env, key: keyof Env, defaultValue: boolean): boolean {
-  const value = env[key];
-  if (typeof value === 'string') {
-    return value === 'true' || value === '1';
-  }
-  return defaultValue;
-}
-
 export function getAuditRetentionDays(env: Env): number {
   return getEnvNumber(env, 'AUDIT_RETENTION_DAYS', 90);
 }
-
-export function getMaxFileSize(env: Env): number {
-  return getEnvNumber(env, 'MAX_FILE_SIZE', 5 * 1024 * 1024 * 1024);
-}
-
-export function getMaxStorageQuota(env: Env): number {
-  return getEnvNumber(env, 'MAX_STORAGE_QUOTA', 10 * 1024 * 1024 * 1024);
-}
-
-export function isRegistrationDisabled(env: Env): boolean {
-  return getEnvBoolean(env, 'DISABLE_REGISTRATION', false);
-}
-
 export function hasTelegramAlert(env: Env): boolean {
   return !!(env.ALERT_TG_BOT_TOKEN && env.ALERT_TG_CHAT_ID);
-}
-
-export function hasEmailConfig(env: Env): boolean {
-  return !!(env.RESEND_API_KEY || (env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS));
 }

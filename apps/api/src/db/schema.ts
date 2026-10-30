@@ -707,7 +707,6 @@ export const aiChatMessages = sqliteTable(
 
 export type AiModel = typeof aiModels.$inferSelect;
 export type AiChatSession = typeof aiChatSessions.$inferSelect;
-export type AiChatMessage = typeof aiChatMessages.$inferSelect;
 
 export const aiTasks = sqliteTable(
   'ai_tasks',
@@ -730,7 +729,6 @@ export const aiTasks = sqliteTable(
   })
 );
 
-export type AiTask = typeof aiTasks.$inferSelect;
 
 export const aiConfig = sqliteTable(
   'ai_config',
@@ -780,7 +778,6 @@ export const aiMemories = sqliteTable(
   })
 );
 
-export type AiMemory = typeof aiMemories.$inferSelect;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // AI 运行时（Agents SDK）相关表
@@ -812,7 +809,6 @@ export const aiUsageEvents = sqliteTable(
   })
 );
 
-export type AiUsageEvent = typeof aiUsageEvents.$inferSelect;
 
 export const fileChunks = sqliteTable(
   'file_chunks',
@@ -832,7 +828,6 @@ export const fileChunks = sqliteTable(
   })
 );
 
-export type FileChunk = typeof fileChunks.$inferSelect;
 
 export const aiTaskItems = sqliteTable(
   'ai_task_items',
@@ -851,7 +846,6 @@ export const aiTaskItems = sqliteTable(
   })
 );
 
-export type AiTaskItem = typeof aiTaskItems.$inferSelect;
 
 export const aiFeatureConfig = sqliteTable(
   'ai_feature_config',
@@ -869,7 +863,6 @@ export const aiFeatureConfig = sqliteTable(
   })
 );
 
-export type AiFeatureConfig = typeof aiFeatureConfig.$inferSelect;
 
 // 说明：files_fts 为 FTS5 虚拟表，Drizzle 不建模，见 migrations/110_ai_agents.sql
 

@@ -97,14 +97,6 @@ export interface Share {
   createdAt: string;
 }
 
-export interface WebDAVSession {
-  id: string;
-  userId: string;
-  token: string;
-  expiresAt: string;
-  createdAt: string;
-}
-
 export interface AuditLog {
   id: string;
   userId: string | null;
@@ -164,15 +156,6 @@ export type AuditAction =
   | 'admin.storage_audit_force'
   | 'admin.storage_cleanup_orphans'
   | 'admin.storage_mark_missing_deleted';
-
-export interface LoginAttempt {
-  id: string;
-  email: string;
-  ipAddress: string;
-  success: boolean;
-  userAgent: string | null;
-  createdAt: string;
-}
 
 export interface UserDevice {
   id: string;
@@ -243,20 +226,6 @@ export interface ApiError {
 export interface PaginationParams {
   page: number;
   limit: number;
-}
-
-export interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
-
-export interface FileUploadParams {
-  file: File;
-  parentId: string | null;
-  onProgress?: (progress: number) => void;
 }
 
 export interface FileListParams extends PaginationParams {

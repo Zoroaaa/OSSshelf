@@ -1172,12 +1172,12 @@ Resend 免费版限制：
 }
 ```
 
-**限制说明**（定义于 `apps/api/src/lib/telegramClient.ts`）：
+**限制说明**（定义于 `apps/api/src/lib/telegramClient.ts` 与 `telegramChunked.ts`）：
 
 | 限制项         | 值                       |
 | -------------- | ------------------------ |
 | 单文件最大     | 2 GB                     |
-| 小文件直传阈值 | 49 MB                    |
+| 小文件直传阈值 | 50 MB                    |
 | 分片大小       | 30 MB                    |
 | 文件删除       | 仅删除引用，无法真正删除 |
 

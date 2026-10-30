@@ -116,7 +116,3 @@ export const errorHandler: MiddlewareHandler<AppEnv> = async (c, next) => {
 export function throwAppError(code: ErrorCode, message?: string): never {
   throw new AppError(code, { message });
 }
-
-export function throwWithDetails(code: ErrorCode, details: unknown, message?: string): never {
-  throw new AppError(code, { details, message });
-}

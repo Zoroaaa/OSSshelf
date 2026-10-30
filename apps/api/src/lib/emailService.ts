@@ -40,10 +40,6 @@ export async function getResendConfig(kv: KVNamespace): Promise<ResendConfig | n
   }
 }
 
-export async function saveResendConfig(kv: KVNamespace, config: ResendConfig): Promise<void> {
-  await kv.put(KV_CONFIG_KEY, JSON.stringify(config));
-}
-
 export async function sendEmail(
   env: Env,
   to: string,
@@ -402,11 +398,6 @@ export const emailTemplates = {
 </html>
 `,
 };
-
-export function maskApiKey(apiKey: string): string {
-  if (apiKey.length < 12) return '***';
-  return `${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 4)}`;
-}
 
 export function parseEmailPreferences(preferencesStr: string): EmailPreferences {
   try {
