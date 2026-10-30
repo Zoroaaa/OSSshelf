@@ -7,7 +7,7 @@
  * - 核心：状态检查 / 语义搜索 / 摘要生成 / 图片标签 / 重命名建议 / 向量化索引
  * - 批量处理：批量摘要 / 批量标签 / 选中文件处理
  * - 索引诊断：统计 / 向量列表 / 诊断 / 样本详情
- * - config：模型 CRUD / 提供商管理 / 连接测试 / 特征配置 / 系统配置
+ * - config：模型 CRUD / 提供商管理 / 连接测试 / 特征配置 / 系统配置 / Workers AI 目录
  * - chatSession：会话 CRUD / SSE 流式聊天（含自动重试） / 操作确认
  * - memories：长期记忆列表 / 删除
  */
@@ -28,18 +28,6 @@ export interface AIStatus {
     imageTags: boolean;
     renameSuggest: boolean;
   };
-}
-
-/** 单个文件的 AI 处理状态 */
-export interface AIFileStatus {
-  hasSummary: boolean;
-  summary: string | null;
-  summaryAt: string | null;
-  hasTags: boolean;
-  tags: string[];
-  tagsAt: string | null;
-  vectorIndexed: boolean;
-  vectorIndexedAt: string | null;
 }
 
 /** AI 摘要结果 */
@@ -103,18 +91,6 @@ export interface AIIndexStats {
   editable: { total: number; noSummary: number; notIndexed: number };
   image: { total: number; noTags: number; notIndexed: number };
   other: { total: number; notIndexed: number };
-}
-
-/** 索引诊断信息 */
-export interface AIIndexDiagnose {
-  vectorize: {
-    configured: boolean;
-    totalCount: number;
-    userCount: number;
-    sampleVectors: Array<{ id: string; score: number; metadata: Record<string, unknown> }>;
-  };
-  database: { totalFiles: number; indexedFiles: number; filesWithSummary: number; mismatchedFiles: string[] };
-  testSearch: { success: boolean; resultCount: number; sampleQuery: string; error: string };
 }
 
 /** 索引样本详情 */
@@ -260,13 +236,32 @@ export interface AiWorkersAiModel {
   description: string;
 }
 
-/** OpenAI 兼容模型 */
-export interface AiOpenAiModel {
+/** Workers AI 目录中的模型参数（如 context_window / price） */
+export interface AiWorkersAiModelProperty {
+  key: string;
+  value: string;
+}
+
+/** Workers AI 实时目录模型 */
+export interface AiWorkersAiCatalogModel {
   id: string;
   name: string;
-  provider: string;
-  capabilities: string[];
   description: string;
+  task: string;
+  capabilities: string[];
+  properties: AiWorkersAiModelProperty[];
+  pricing: string | null;
+  beta: boolean;
+  deprecated: boolean;
+}
+
+/** Workers AI 目录（live = 官方 API 实时同步；fallback = 内置兜底清单） */
+export interface AiWorkersAiCatalog {
+  source: 'live' | 'fallback';
+  configured: boolean;
+  fetchedAt: string | null;
+  error?: string;
+  models: AiWorkersAiCatalogModel[];
 }
 
 /** AI 配置总览状态 */
@@ -295,40 +290,12 @@ export interface AiChatSession {
   totalTokensUsed?: number;
 }
 
-/** AI 聊天消息 */
-export interface AiChatMessage {
-  id: string;
-  sessionId: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  sources?: Array<{ id: string; name: string; mimeType: string | null; score: number }>;
-  toolCalls?: Array<{
-    id: string;
-    toolName: string;
-    args: Record<string, unknown>;
-    result?: unknown;
-    status: 'running' | 'done' | 'error';
-  }>;
-  reasoning?: string;
-  modelUsed?: string;
-  latencyMs?: number;
-  aborted?: boolean;
-  mentionedFiles?: Array<{ id: string; name: string }>;
-  createdAt: string;
-}
-
-/** AI 聊天会话详情（含消息列表） */
-export interface AiChatSessionDetail extends AiChatSession {
-  messages: AiChatMessage[];
-}
-
 // ══════════════════════════════════════════════════════════════════════════════
 // AI — 核心 API
 // ══════════════════════════════════════════════════════════════════════════════
 
 export const aiApi = {
   getStatus: () => api.get<ApiResponse<AIStatus>>('/api/ai/status'),
-  getFileStatus: (fileId: string) => api.get<ApiResponse<AIFileStatus>>(`/api/ai/file/${fileId}`),
 
   // ── AI 功能调用 ──
   search: (query: string, options?: { limit?: number; threshold?: number; mimeType?: string }) =>
@@ -340,14 +307,25 @@ export const aiApi = {
     api.post<ApiResponse<AIRenameSuggestion>>('/api/ai/name-suggest', params),
 
   // ── 向量化索引 ──
-  indexFile: (fileId: string) => api.post<ApiResponse<{ message: string }>>(`/api/ai/index/${fileId}`),
-  indexBatch: (fileIds: string[]) =>
-    api.post<ApiResponse<Array<{ fileId: string; status: string; error?: string }>>>('/api/ai/index/batch', {
-      fileIds,
-    }),
   indexAll: () => api.post<ApiResponse<{ message: string; task: AIIndexTask }>>('/api/ai/index/all'),
   getIndexStatus: () => api.get<ApiResponse<AIIndexTask>>('/api/ai/index/status'),
   cancelIndexTask: () => api.delete<ApiResponse<{ message: string; task: AIIndexTask }>>('/api/ai/index/task'),
+  /** 任务失败明细（按文件给出错误原因，便于排查） */
+  getFailedTaskItems: (taskId: string, limit = 50) =>
+    api.get<
+      ApiResponse<{
+        taskId: string;
+        taskError: string | null;
+        taskStatus: string;
+        items: Array<{
+          fileId: string;
+          fileName: string;
+          error: string;
+          attempts: number;
+          updatedAt: string;
+        }>;
+      }>
+    >('/api/ai/tasks/failed-items', { params: { taskId, limit } }),
   deleteIndex: (fileId: string) => api.delete<ApiResponse<{ message: string }>>(`/api/ai/index/${fileId}`),
 
   // ── 批量处理 ──
@@ -395,9 +373,14 @@ export const aiApi = {
     activateModel: (modelId: string) =>
       api.post<ApiResponse<{ message: string; activeModelId: string }>>(`/api/ai-config/models/${modelId}/activate`),
     getProviders: () =>
-      api.get<
-        ApiResponse<{ providers: AiProvider[]; workersAiModels: AiWorkersAiModel[]; openAiModels: AiOpenAiModel[] }>
-      >('/api/ai-config/providers'),
+      api.get<ApiResponse<{ providers: AiProvider[]; workersAiModels: AiWorkersAiModel[] }>>(
+        '/api/ai-config/providers'
+      ),
+    /** Workers AI 实时模型目录（含参数/价格，未配置凭据时回退内置清单） */
+    getWorkersAiModels: (refresh = false) =>
+      api.get<ApiResponse<AiWorkersAiCatalog>>('/api/ai-config/workers-ai/models', {
+        params: refresh ? { refresh: '1' } : {},
+      }),
     getStatus: () => api.get<ApiResponse<AiConfigStatus>>('/api/ai-config/status'),
     testModel: (data: { modelId?: string; provider?: string; apiEndpoint?: string; apiKey?: string }) =>
       api.post<ApiResponse<{ valid: boolean; response?: string; model?: string; latencyMs?: number; error?: string }>>(
@@ -471,22 +454,6 @@ export const aiApi = {
           minuteLimit: number;
         }>
       >('/api/ai/usage/quota'),
-    getEvents: (limit = 50) =>
-      api.get<
-        ApiResponse<
-          Array<{
-            id: string;
-            modelId: string;
-            provider: string;
-            inputTokens: number;
-            outputTokens: number;
-            latencyMs: number;
-            toolCalls: number;
-            status: string;
-            createdAt: string;
-          }>
-        >
-      >(`/api/ai/usage/events?limit=${limit}`),
   },
 
   // ═══════════════════════════════════════════════════════════════════════════

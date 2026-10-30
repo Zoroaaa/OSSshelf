@@ -270,15 +270,15 @@ git push origin main
 **新功能 - AI 系统全面升级**
 
 1. **多模型架构**
-   - 支持 Workers AI（9个模型）+ OpenAI 兼容 API
+   - 支持 Workers AI（实时模型目录）+ OpenAI 兼容 API
    - Model Gateway Pattern 设计
    - 适配器模式可扩展
 
 2. **AI 对话系统**
    - 全新 AI 对话页面 `/ai-chat`
-   - SSE 流式响应
-   - 会话管理
-   - RAG 文件问答
+   - Agents SDK WebSocket 流式响应
+   - 会话管理与长期记忆
+   - 向量 + FTS5 混合检索
 
 3. **AI 配置中心**
    - 独立 AI 设置页面 `/ai-settings`
@@ -1580,8 +1580,8 @@ pnpm deploy:api
 
 | 功能        | 说明                                        |
 | ----------- | ------------------------------------------- |
-| 多模型架构  | 支持 Workers AI（9个模型）+ OpenAI 兼容 API |
-| AI 对话系统 | SSE 流式响应、会话管理、RAG 文件问答        |
+| 多模型架构  | Workers AI 实时模型目录（可回退内置清单）+ OpenAI 兼容 API |
+| AI 对话系统 | Agents SDK WebSocket 流式响应、会话管理与长期记忆        |
 | AI 配置中心 | 模型管理、功能级配置、一键启用、连接测试    |
 | 文件摘要    | 自动为文本文件生成摘要                      |
 | 图片描述    | 自动识别图片内容并描述                      |

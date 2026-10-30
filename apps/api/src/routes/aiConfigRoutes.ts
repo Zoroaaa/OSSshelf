@@ -16,11 +16,12 @@ import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
-import { ModelGateway, WorkersAiAdapter, OpenAiCompatibleAdapter } from '../lib/ai';
+import { ModelGateway, WorkersAiAdapter } from '../lib/ai';
+import { getWorkersAiCatalog } from '../lib/ai/workersAiCatalog';
 import { getFeatureModelConfig, saveFeatureModelConfig } from '../lib/ai/featureConfigService';
 import type { ModelConfig, ModelCapability } from '../lib/ai/types';
 import { logger } from '@osshelf/shared';
-import { encryptCredential, decryptCredential, getEncryptionKey, isAesGcmFormat } from '../lib/crypto';
+import { encryptCredential, getEncryptionKey } from '../lib/crypto';
 import { initializeAiConfig, getAllAiConfigs, updateAiConfig, resetAiConfigToDefault } from '../lib/ai/aiConfigService';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -186,32 +187,6 @@ app.post('/ai-providers', async (c) => {
   }
 });
 
-app.get('/ai-providers/:providerId', async (c) => {
-  const userId = c.get('userId')!;
-  const providerId = c.req.param('providerId');
-  const db = getDb(c.env.DB);
-
-  try {
-    const provider = await db
-      .select()
-      .from(aiProviders)
-      .where(and(eq(aiProviders.id, providerId), eq(aiProviders.userId, userId)))
-      .get();
-
-    if (!provider) {
-      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '提供商不存在' } }, 404);
-    }
-
-    return c.json({
-      success: true,
-      data: provider,
-    });
-  } catch (error) {
-    logger.error('AI Config', 'Failed to get provider', { userId, providerId }, error);
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '获取提供商失败' } }, 500);
-  }
-});
-
 app.put('/ai-providers/:providerId', async (c) => {
   const userId = c.get('userId')!;
   const providerId = c.req.param('providerId');
@@ -370,27 +345,6 @@ app.get('/models', async (c) => {
   return c.json({
     success: true,
     data: modelsWithDecryptedKey,
-  });
-});
-
-app.get('/models/:modelId', async (c) => {
-  const userId = c.get('userId')!;
-  const modelId = c.req.param('modelId');
-  const gateway = new ModelGateway(c.env);
-
-  const model = await gateway.getModelById(modelId, userId);
-
-  if (!model) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '模型不存在' } }, 404);
-  }
-
-  return c.json({
-    success: true,
-    data: {
-      ...model,
-      apiKeyEncrypted: model.apiKeyEncrypted ? '***' : undefined,
-      hasApiKey: !!model.apiKeyEncrypted,
-    },
   });
 });
 
@@ -608,15 +562,28 @@ app.post('/models/:modelId/activate', async (c) => {
   }
 });
 
-app.get('/providers', (c) => {
+app.get('/providers', async (c) => {
+  const catalog = await getWorkersAiCatalog(c.env);
+
   return c.json({
     success: true,
     data: {
       providers: ModelGateway.getAvailableProviders(),
-      workersAiModels: WorkersAiAdapter.getAvailableModels(),
-      openAiModels: OpenAiCompatibleAdapter.getPopularModels(),
+      workersAiModels: catalog.models.map((model) => ({
+        id: model.id,
+        name: model.name,
+        capabilities: model.capabilities,
+        description: model.description,
+      })),
     },
   });
+});
+
+/** Workers AI 实时模型目录：含参数与价格字段，未配置凭据时回退内置清单 */
+app.get('/workers-ai/models', async (c) => {
+  const refresh = c.req.query('refresh') === '1';
+  const catalog = await getWorkersAiCatalog(c.env, { refresh });
+  return c.json({ success: true, data: catalog });
 });
 
 app.get('/status', async (c) => {
@@ -941,37 +908,6 @@ app.post('/test', async (c) => {
 async function encryptApiKey(apiKey: string, env: Env): Promise<string> {
   const secret = getEncryptionKey(env);
   return encryptCredential(apiKey, secret);
-}
-
-async function decryptApiKey(encrypted: string, env: Env): Promise<string> {
-  const secret = getEncryptionKey(env);
-  return decryptCredential(encrypted, secret);
-}
-
-export function decryptModelApiKey(model: ModelConfig, _env: Env): ModelConfig {
-  if (model.apiKeyEncrypted && isAesGcmFormat(model.apiKeyEncrypted)) {
-    return {
-      ...model,
-      apiKeyEncrypted: undefined,
-      apiKeyDecrypted: model.apiKeyEncrypted,
-    } as ModelConfig & { apiKeyDecrypted?: string };
-  }
-  return model;
-}
-
-export async function decryptModelApiKeyAsync(
-  model: ModelConfig,
-  env: Env
-): Promise<ModelConfig & { apiKeyDecrypted?: string }> {
-  if (model.apiKeyEncrypted && isAesGcmFormat(model.apiKeyEncrypted)) {
-    const decrypted = await decryptApiKey(model.apiKeyEncrypted, env);
-    return {
-      ...model,
-      apiKeyEncrypted: undefined,
-      apiKeyDecrypted: decrypted,
-    };
-  }
-  return model as ModelConfig & { apiKeyDecrypted?: string };
 }
 
 // AI功能配置表相关接口

@@ -452,11 +452,6 @@ export async function getAllAiConfigs(env: Env): Promise<AiConfigItem[]> {
   return Array.from(configs.values());
 }
 
-export async function getAiConfigsByCategory(env: Env, category: string): Promise<AiConfigItem[]> {
-  const allConfigs = await getAllAiConfigs(env);
-  return allConfigs.filter((c) => c.category === category);
-}
-
 export async function updateAiConfig(env: Env, key: string, value: AiConfigValue): Promise<boolean> {
   const db = getDb(env.DB);
 

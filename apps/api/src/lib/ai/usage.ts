@@ -142,21 +142,6 @@ export async function getUsageSummary(env: Env, userId: string, days = 7): Promi
   };
 }
 
-export async function listUsageEvents(
-  env: Env,
-  userId: string,
-  limit = 50
-): Promise<Array<typeof aiUsageEvents.$inferSelect>> {
-  const db = getDb(env.DB);
-  return db
-    .select()
-    .from(aiUsageEvents)
-    .where(eq(aiUsageEvents.userId, userId))
-    .orderBy(desc(aiUsageEvents.createdAt))
-    .limit(Math.min(Math.max(1, limit), 200))
-    .all();
-}
-
 export interface QuotaDecision {
   allowed: boolean;
   reason?: 'token_quota' | 'request_quota' | 'rate_limit';

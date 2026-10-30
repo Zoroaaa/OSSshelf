@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, CheckCircle2, MessageSquare, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { Check, CheckCircle2, MessageSquare, PanelLeftClose, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 
 export interface SessionItem {
   id: string;
@@ -25,6 +25,8 @@ interface ChatSidebarProps {
   onSelectSession: (id: string) => void;
   onDeleteSession: (event: React.MouseEvent, id: string) => void;
   onClearAllSessions: () => void;
+  /** 桌面端折叠侧栏（折叠后在页面左边缘显示还原入口） */
+  onToggleSidebar: () => void;
   onStartRename: (session: SessionItem) => void;
   onConfirmRename: (id: string) => void;
   onCancelRename: () => void;
@@ -65,6 +67,7 @@ export function ChatSidebar({
   onSelectSession,
   onDeleteSession,
   onClearAllSessions,
+  onToggleSidebar,
   onStartRename,
   onConfirmRename,
   onCancelRename,
@@ -127,6 +130,15 @@ export function ChatSidebar({
               aria-label="清空全部对话"
             >
               <Trash2 className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onToggleSidebar}
+              className="hidden h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground lg:flex"
+              title="隐藏对话历史"
+              aria-label="隐藏对话历史"
+            >
+              <PanelLeftClose className="h-4 w-4" />
             </button>
             <button
               type="button"

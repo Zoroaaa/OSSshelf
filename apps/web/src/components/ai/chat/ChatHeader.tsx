@@ -9,17 +9,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  ArrowLeft,
-  Download,
-  Info,
-  Loader2,
-  MoreHorizontal,
-  PanelLeft,
-  PanelLeftClose,
-  Settings,
-  Sparkles,
-} from 'lucide-react';
+import { ArrowLeft, Download, Info, Loader2, MoreHorizontal, Settings, Sparkles } from 'lucide-react';
 import { cn } from '@/utils';
 
 export interface HeaderModelOption {
@@ -31,8 +21,6 @@ interface ChatHeaderProps {
   title?: string;
   toolCount: number;
   onShowToolInfo: () => void;
-  showSidebar: boolean;
-  onToggleSidebar: () => void;
   models?: HeaderModelOption[];
   modelId?: string;
   onModelChange?: (modelId: string) => void;
@@ -45,8 +33,6 @@ export function ChatHeader({
   title,
   toolCount,
   onShowToolInfo,
-  showSidebar,
-  onToggleSidebar,
   models = [],
   modelId,
   onModelChange,
@@ -86,18 +72,6 @@ export function ChatHeader({
         >
           <ArrowLeft className="h-4 w-4" />
           <span className="hidden text-xs md:inline">文件</span>
-        </button>
-        <button
-          type="button"
-          onClick={onToggleSidebar}
-          className={cn(
-            'flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
-            showSidebar ? 'text-muted-foreground hover:bg-accent hover:text-foreground' : 'bg-primary/10 text-primary'
-          )}
-          title={showSidebar ? '隐藏对话历史' : '显示对话历史'}
-          aria-label={showSidebar ? '隐藏对话历史' : '显示对话历史'}
-        >
-          {showSidebar ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
         </button>
 
         <div className="ml-1 flex min-w-0 items-center gap-2">

@@ -6,6 +6,12 @@ compatibility_flags = ["nodejs_compat"]
 [ai]
 binding = "AI"
 
+# ── Workers AI 模型目录（可选）────────────────────────────────────────────
+# 配置后可实时拉取 Cloudflare 官方模型目录（含参数/价格字段），
+# API Token 需要账户级权限：Workers AI Read
+# CF_ACCOUNT_ID = "your-cloudflare-account-id"
+# CF_API_TOKEN = "your-cloudflare-api-token"
+
 [[vectorize]]
 binding = "VECTORIZE"
 index_name = "ossshelf-files"

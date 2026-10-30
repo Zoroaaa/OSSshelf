@@ -35,6 +35,10 @@ export interface Env {
   VECTORIZE?: VectorizeIndex;
   OSSShelfAgent: DurableObjectNamespace;
   AI_TASKS_QUEUE?: Queue<AiTaskMessage>;
+  /** Cloudflare 账户 ID：用于实时拉取 Workers AI 模型目录 */
+  CF_ACCOUNT_ID?: string;
+  /** Cloudflare API Token（权限：Workers AI Read）：用于实时拉取 Workers AI 模型目录 */
+  CF_API_TOKEN?: string;
   ENVIRONMENT: string;
   JWT_SECRET: string;
   PUBLIC_URL?: string;

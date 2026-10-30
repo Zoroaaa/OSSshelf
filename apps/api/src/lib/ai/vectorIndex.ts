@@ -18,7 +18,7 @@ import { VECTOR_LOG_MODULE } from './constants';
 import { resolveEmbeddingProvider } from './modelResolver';
 import { getAiConfigBoolean } from './aiConfigService';
 import { estimateTokens } from './utils';
-import { searchFileIdsByKeyword, syncFileFts } from './retrieval/fts';
+import { searchFileIdsByKeyword } from './retrieval/fts';
 
 const MAX_TEXT_LENGTH = 4096;
 
@@ -35,12 +35,6 @@ export interface VectorSearchResult {
   score: number;
   chunkIndex?: number;
   metadata?: Record<string, unknown>;
-}
-
-export interface IndexResult {
-  success: boolean;
-  fileId: string;
-  error?: string;
 }
 
 export interface ChunkSearchResult {
@@ -453,27 +447,6 @@ export async function buildFileTextForVector(env: Env, fileId: string): Promise<
   }
 
   return [...metaParts, ...bodyParts, ...notes.map((note) => note.content)].filter(Boolean).join('\n');
-}
-
-export async function batchIndexFiles(env: Env, fileIds: string[]): Promise<IndexResult[]> {
-  const results: IndexResult[] = [];
-
-  for (const fileId of fileIds) {
-    try {
-      const text = await buildFileTextForVector(env, fileId);
-      await indexFileVector(env, fileId, text);
-      await syncFileFts(env, fileId);
-      results.push({ success: true, fileId });
-    } catch (error) {
-      results.push({
-        success: false,
-        fileId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  return results;
 }
 
 function reciprocalRankFusion(

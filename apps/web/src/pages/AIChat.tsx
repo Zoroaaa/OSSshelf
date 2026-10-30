@@ -10,7 +10,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, Copy, Loader2, Reply } from 'lucide-react';
+import { ArrowDown, Copy, Loader2, PanelLeft, Reply } from 'lucide-react';
 import { aiApi, filesApi } from '@/services/api';
 import { FilePreview } from '@/components/files/FilePreview';
 import { useAuthStore } from '@/stores/auth';
@@ -525,6 +525,18 @@ export function AIChat() {
 
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-background">
+      {!showSidebar && (
+        <button
+          type="button"
+          onClick={() => setShowSidebar(true)}
+          className="fixed left-0 top-1/2 z-20 hidden h-12 w-6 -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground lg:flex"
+          title="显示对话历史"
+          aria-label="显示对话历史"
+        >
+          <PanelLeft className="h-3.5 w-3.5" />
+        </button>
+      )}
+
       <ChatSidebar
         showSidebar={showSidebar}
         sessions={sessions}
@@ -535,6 +547,7 @@ export function AIChat() {
         onSelectSession={handleSelectSession}
         onDeleteSession={handleDeleteSession}
         onClearAllSessions={handleClearAllSessions}
+        onToggleSidebar={() => setShowSidebar(false)}
         onStartRename={(session) => {
           setRenamingId(session.id);
           setRenameValue(session.title);
@@ -550,8 +563,6 @@ export function AIChat() {
           title={currentSession?.title}
           toolCount={Object.keys(TOOL_META).length}
           onShowToolInfo={() => setShowToolInfo(true)}
-          showSidebar={showSidebar}
-          onToggleSidebar={() => setShowSidebar((value) => !value)}
           models={modelOptions}
           modelId={effectiveModelId}
           onModelChange={handleModelChange}

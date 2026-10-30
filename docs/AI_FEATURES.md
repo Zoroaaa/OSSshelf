@@ -138,7 +138,7 @@ interface MemoryFact {
        ↓
 LLM 提取 3-5 条结构化事实
        ↓
-写入 D1 ai_memories 表 + Vectorize memory:{userId}
+写入 D1 ai_memories 表 + Vectorize mem_{memoryId} 向量
        ↓
 下次对话开始时 → recallMemories() 召回 top-3
        ↓
@@ -147,8 +147,10 @@ LLM 提取 3-5 条结构化事实
 
 **API 端点**：
 
-- `GET /api/ai/memories?type=operation&limit=20&offset=0`
-- `DELETE /api/ai/memories/:memoryId`
+- `GET /api/ai-chat/memories?type=operation&limit=20&offset=0`
+- `POST /api/ai-chat/memories/batch-delete`
+- `DELETE /api/ai-chat/memories`
+- `DELETE /api/ai-chat/memories/:memoryId`
 
 **前端管理界面**：AISettings 页面新增「记忆管理」Tab
 
@@ -194,7 +196,7 @@ interface ToolDefinition {
   "message": "批量移动任务已提交到队列（共 50 个文件），预计 3 分钟完成",
   "totalFiles": 50,
   "estimatedMinutes": 3,
-  "_next_actions": ["可通过 GET /api/ai/index/task 查看进度"]
+  "_next_actions": ["可通过 GET /api/ai/index/status 查看进度"]
 }
 ```
 
@@ -968,58 +970,27 @@ v4.3.0 提供了 **100+ 个智能工具**，分为 13 个功能模块：
 
 ## 多模型支持
 
-### Workers AI 内置模型
+### Workers AI 模型目录（实时同步）
 
-系统内置多个 Cloudflare Workers AI 模型，可直接使用：
+「AI 配置 → 可用模型」标签页不再维护写死的模型清单，改为读取 Cloudflare 官方接口：
 
-#### 聊天模型 (Chat)
+```http
+GET /api/ai-config/workers-ai/models?refresh=1
+```
 
-| 模型 ID                                     | 名称            | 参数量 | 特点       | 推荐场景             |
-| ------------------------------------------- | --------------- | ------ | ---------- | -------------------- |
-| `@cf/deepseek/deepseek-r1-distill-qwen-32b` | DeepSeek R1 32B | 32B    | 推理能力强 | 数学、代码、复杂推理 |
-| `@cf/meta/llama-3.3-70b-instruct-fp8-fast`  | Llama 3.3 70B   | 70B    | Meta 最新  | 复杂任务首选         |
-| `@cf/qwen/qwen1.5-14b-chat-awq`             | Qwen 1.5 14B    | 14B    | 中文优秀   | 中文对话             |
-| `@cf/meta/llama-3.1-8b-instruct`            | Llama 3.1 8B    | 8B     | 通用型     | 默认模型，日常使用   |
-| `@cf/mistral/mistral-7b-instruct-v0.2`      | Mistral 7B      | 7B     | 速度快     | 实时对话             |
-| `@cf/google/gemma-2b-it-lora`               | Gemma 2B        | 2B     | 轻量       | 简单任务             |
-
-#### 视觉模型 (Vision)
-
-| 模型 ID                        | 名称         | 用途           |
-| ------------------------------ | ------------ | -------------- |
-| `@cf/llava-hf/llava-1.5-7b-hf` | LLaVA 1.5 7B | 图片理解和描述 |
-
-#### 嵌入模型 (Embedding)
-
-| 模型 ID           | 名称   | 用途                 |
-| ----------------- | ------ | -------------------- |
-| `@cf/baai/bge-m3` | BGE-M3 | 文本向量化、语义搜索 |
-
-#### 自定义模型
-
-支持输入任意 Workers AI 模型 ID：
-
-- 支持所有 `@cf/` 开头的模型 ID
-- 例如：`@cf/deepseek/deepseek-r1`、`@cf/black-forest-labs/flux-2-klein-4b`
-- 可在 [Workers AI 模型目录](https://developers.cloudflare.com/workers-ai/models/) 查看所有可用模型
+- 配置 `CF_ACCOUNT_ID` + `CF_API_TOKEN`（权限 Workers AI Read）后为 `source=live`，缓存 6 小时，可手动强制刷新。
+- 未配置或同步失败时回退到内置兜底清单（`source=fallback`），页面会显示原因与配置指引。
+- 卡片展示模型参数（`properties`，如 context_window / max_output_tokens）与官方返回的价格字段；未返回价格时按 Workers AI 统一计费说明展示。
+- 支持按名称 / ID / 描述搜索，并可一键启用；启用时按模型类型写入能力（chat / vision / embedding）。
 
 ### OpenAI 兼容 API
 
-支持接入任何 OpenAI API 格式的服务：
+系统不再内置 OpenAI 兼容模型清单（原静态列表已移除）。需要接入第三方模型时，在「模型」页点击「添加模型」，手动填写：
 
-**支持的服务商**：
-
-- OpenAI（GPT-4o、GPT-4 Turbo 等）
-- Anthropic（Claude 3.5 Sonnet 等）
-- Google（Gemini Pro 等）
-- Ollama（本地部署）
-- 其他兼容服务
-
-**配置要求**：
-
+- 提供商（系统内置提供商或自定义提供商）
 - API Endpoint URL
 - API Key
-- 选择模型 ID
+- 模型 ID
 
 ### 模型能力
 
@@ -1235,25 +1206,28 @@ DELETE /api/ai/index/task # 取消任务
 
 ### 功能列表
 
-- **查看已索引文件**：分页显示所有已建立向量索引的文件
+- **查看已索引文件**：分页显示所有已建立向量索引的文件（含真实分块数与文本长度）
 - **文件信息展示**：文件名、类型、大小、索引时间、摘要状态
 - **搜索过滤**：按文件名搜索
-- **删除索引**：单个删除文件的向量索引
+- **删除索引**：单条删除
+- **批量删除**：勾选多个文件后批量删除
+- **清空向量库**：一键清空全部索引（不删除源文件）
 
 ### 使用方式
 
 1. 进入 AI 设置 → 向量库
 2. 查看已索引文件列表
-3. 可使用搜索框过滤文件
+3. 可搜索过滤、勾选多个文件批量删除，或清空整个向量库
 4. 点击删除按钮移除单个索引
 
 ### API 接口
 
 ```http
-GET    /api/ai/index/vectors         # 获取向量索引列表
-DELETE /api/ai/index/vectors/:fileId # 删除单个向量索引
-GET    /api/ai/index/diagnose        # 向量索引诊断
-GET    /api/ai/index/sample/:fileId  # 获取文件索引样本
+GET    /api/ai/index/vectors              # 获取向量索引列表
+POST   /api/ai/index/vectors/batch-delete # 批量删除（最多 200）
+DELETE /api/ai/index/vectors/all          # 清空全部
+DELETE /api/ai/index/:fileId              # 删除单个文件索引
+GET    /api/ai/index/sample/:fileId       # 获取文件索引样本
 ```
 
 ---
@@ -1294,67 +1268,60 @@ GET    /api/ai/index/sample/:fileId  # 获取文件索引样本
 
 ```
 apps/api/src/lib/ai/
-├── index.ts                    # 模块导出
+├── index.ts                    # 模块导出（仅保留实际使用入口）
 ├── types.ts                    # 类型定义
-├── modelGateway.ts             # 模型网关（核心）
-├── modelResolver.ts            # AI SDK 模型解析 (v5.2.0 新增)
-├── completion.ts               # 非流式生成兼容层 (v5.2.0 新增)
-├── toolAdapter.ts              # 工具 → AI SDK tools (v5.2.0 新增)
-├── agentMemory.ts              # 跨会话记忆管理 (v4.7.0 新增)
-├── circuitBreaker.ts           # 模型调用熔断器 (v4.7.0 新增)
-├── aiConfigService.ts          # AI 配置服务
-├── features.ts                 # 文件处理功能
-├── utils.ts                    # 工具函数
-├── vendorConfig.ts             # 供应商配置
-└── adapters/
-    ├── workersAiAdapter.ts     # Workers AI 适配器
-    └── openAiCompatibleAdapter.ts # OpenAI 兼容适配器
+├── modelGateway.ts             # 模型网关 + 统一用量记账
+├── modelResolver.ts            # AI SDK 模型解析
+├── completion.ts               # 非流式生成（RAG 问答工具使用）
+├── toolAdapter.ts              # 工具 → AI SDK tools
+├── agentMemory.ts              # 跨会话记忆管理
+├── aiConfigService.ts          # AI 配置服务（含历史配置清理）
+├── featureConfigService.ts     # 功能级模型配置
+├── aiTaskQueue.ts              # 批量任务队列与进度重算
+├── aiErrors.ts                 # 错误分类
+├── constants.ts                # 日志模块名
+├── usage.ts                    # 用量记账与配额
+├── vectorIndex.ts              # 分块、嵌入、Vectorize 读写、混合检索
+├── workersAiCatalog.ts         # Workers AI 实时模型目录（含兜底）
+├── features.ts                 # 文件摘要 / 图片标签 / 智能重命名
+├── utils.ts                    # 通用工具函数
+├── adapters/
+│   ├── workersAiAdapter.ts     # Workers AI 适配器
+│   └── openAiCompatibleAdapter.ts # OpenAI 兼容适配器
+├── prompts/agentSystem.ts      # Agent 系统提示词
+└── retrieval/fts.ts            # FTS5 关键词检索
 
-apps/api/src/lib/ai/agentTools/   # 工具模块 (v4.3.0 新增, v4.7.0 扩展)
-├── index.ts                    # 工具统一入口
-├── types.ts                    # 工具类型定义 (含 examples 字段)
+apps/api/src/lib/ai/agentTools/   # 工具模块
+├── index.ts                    # 工具统一入口 + AgentToolExecutor
+├── types.ts                    # 工具类型定义
 ├── agentToolUtils.ts           # 工具通用函数
-├── search.ts                   # 搜索工具 (6个)
-├── content.ts                  # 内容理解工具 (7个)
-├── navigation.ts               # 导航工具 (4个)
-├── stats.ts                    # 统计工具 (5个)
-├── fileops.ts                  # 文件操作工具 (17个, 含 batch_move/batch_delete)
-├── tags.ts                     # 标签管理工具 (6个)
-├── share.ts                    # 分享链接工具 (10个)
-├── version.ts                  # 版本管理工具 (4个)
-├── notes.ts                    # 笔记备注工具 (5个)
-├── permission.ts               # 权限管理工具 (6个)
-├── storage.ts                  # 存储管理工具 (8个)
-├── system.ts                   # 系统管理工具 (11个)
-└── ai-enhance.ts               # AI 增强工具 (5个)
+├── search.ts                   # 搜索工具
+├── content.ts                  # 内容理解工具
+├── navigation.ts               # 导航工具
+├── stats.ts                    # 统计工具
+├── fileops.ts                  # 文件操作工具
+├── tags.ts                     # 标签管理工具
+├── share.ts                    # 分享链接工具
+├── version.ts                  # 版本管理工具
+├── notes.ts                    # 笔记备注工具
+├── permission.ts               # 权限管理工具
+├── storage.ts                  # 存储管理工具
+├── system.ts                   # 系统管理工具
+└── ai-enhance.ts               # AI 增强工具
 
 apps/web/src/
 ├── pages/
-│   ├── AIChat.tsx              # AI 对话页面 (v4.7.0 增强: 拖拽/@mention/引用)
-│   └── AISettings.tsx          # AI 设置页面 (v4.7.0 增强: 记忆管理 Tab)
+│   ├── AIChat.tsx              # AI 对话页面
+│   └── AISettings.tsx          # AI 配置中心
 └── components/ai/
     ├── AIChatWidget.tsx        # 全局悬浮聊天组件
-    ├── chat/
-    │   ├── AssistantContent.tsx
-    │   ├── ChatHeader.tsx
-    │   ├── ChatSidebar.tsx
-    │   ├── ReasoningSection.tsx  # 推理展示 (v4.7.0 优化)
-    │   ├── ToolCallCard.tsx    # 工具调用卡片 (v4.3.0 增强)
-    │   ├── ToolInfoModal.tsx
-    │   ├── DraftPreview.tsx    # 草稿预览 (v4.6.0 新增)
-    │   ├── PlanProgressBar.tsx # 计划进度条 (v4.7.0 新增)
-    │   └── WelcomeScreen.tsx
-    └── settings/
-        ├── AdvancedConfigPanel.tsx
-        ├── IndexProcessingTab.tsx
-        ├── ModelCard.tsx
-        ├── ModelFormModal.tsx
-        ├── ProvidersSection.tsx
-        ├── StatsCard.tsx
-        ├── TaskProgress.tsx
-        ├── TasksCenter.tsx
-        ├── VectorsTable.tsx
-        └── MemoryManagementTab.tsx  # 记忆管理 (v4.7.0 新增)
+    ├── AISummaryCard.tsx       # 文件摘要卡片
+    ├── ImageTagsDisplay.tsx    # 图片标签展示
+    ├── SmartRenameDialog.tsx   # 智能重命名弹窗
+    ├── chat/                   # ChatHeader / ChatSidebar / Composer / MessageBubble /
+    │                           # ToolCallCard / PlanProgressBar / StatusStrip 等
+    └── settings/               # AdvancedConfigPanel / IndexProcessingTab / VectorsTable /
+                                # UsageTab / ProvidersSection / ModelFormModal / ProviderManageModal
 ```
 
 ### 核心类/函数
