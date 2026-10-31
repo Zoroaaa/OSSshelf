@@ -389,19 +389,23 @@ async function ensureTaskItems(env: Env, taskId: string, fileIds: string[]): Pro
   const now = new Date().toISOString();
   const db = getDb(env.DB);
 
-  await db
-    .insert(aiTaskItems)
-    .values(
-      fileIds.map((fileId) => ({
-        id: crypto.randomUUID(),
-        taskId,
-        fileId,
-        status: 'pending',
-        attempts: 0,
-        updatedAt: now,
-      }))
-    )
-    .onConflictDoNothing();
+  const rows = fileIds.map((fileId) => ({
+    id: crypto.randomUUID(),
+    taskId,
+    fileId,
+    status: 'pending',
+    attempts: 0,
+    updatedAt: now,
+  }));
+
+  // D1 单条 SQL 绑定参数上限 100：ai_task_items 每行 6 个参数，必须分批插入
+  const maxRowsPerInsert = Math.floor(100 / Object.keys(rows[0]).length);
+  for (let i = 0; i < rows.length; i += maxRowsPerInsert) {
+    await db
+      .insert(aiTaskItems)
+      .values(rows.slice(i, i + maxRowsPerInsert))
+      .onConflictDoNothing();
+  }
 }
 
 async function markTaskItemRunning(env: Env, taskId: string, fileId: string): Promise<void> {
