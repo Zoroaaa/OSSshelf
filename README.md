@@ -353,26 +353,26 @@
 
 ### 文件限制
 
-| 常量                       | 值     | 说明                  | 定义位置                |
-| -------------------------- | ------ | --------------------- | ----------------------- |
-| `MAX_FILE_SIZE`            | 5 GB   | S3 兼容存储单文件最大 | shared/constants        |
-| `DEFAULT_STORAGE_QUOTA_BYTES` | 10 GB | 默认存储配额 | api/routes/auth.ts |
-| `UPLOAD_CHUNK_SIZE`        | 10 MB  | S3 分片大小           | shared/constants        |
-| `MULTIPART_THRESHOLD`      | 100 MB | S3 分片上传阈值       | shared/constants        |
-| `MAX_CONCURRENT_PARTS`     | 3      | 最大并发分片数        | shared/constants        |
-| `TG_CHUNK_THRESHOLD`       | 50 MB  | Telegram 分片阈值     | api/lib/telegramChunked |
-| `TG_CHUNK_SIZE`            | 30 MB  | Telegram 分片大小     | api/lib/telegramChunked |
-| `TG_MAX_CHUNKED_FILE_SIZE` | 2 GB   | Telegram 最大文件     | api/lib/telegramClient  |
+| 常量                          | 值     | 说明                  | 定义位置                |
+| ----------------------------- | ------ | --------------------- | ----------------------- |
+| `MAX_FILE_SIZE`               | 5 GB   | S3 兼容存储单文件最大 | shared/constants        |
+| `DEFAULT_STORAGE_QUOTA_BYTES` | 10 GB  | 默认存储配额          | api/routes/auth.ts      |
+| `UPLOAD_CHUNK_SIZE`           | 10 MB  | S3 分片大小           | shared/constants        |
+| `MULTIPART_THRESHOLD`         | 100 MB | S3 分片上传阈值       | shared/constants        |
+| `MAX_CONCURRENT_PARTS`        | 3      | 最大并发分片数        | shared/constants        |
+| `TG_CHUNK_THRESHOLD`          | 50 MB  | Telegram 分片阈值     | api/lib/telegramChunked |
+| `TG_CHUNK_SIZE`               | 30 MB  | Telegram 分片大小     | api/lib/telegramChunked |
+| `TG_MAX_CHUNKED_FILE_SIZE`    | 2 GB   | Telegram 最大文件     | api/lib/telegramClient  |
 
 ### 时间限制
 
-| 常量                    | 值      | 说明              |
-| ----------------------- | ------- | ----------------- |
-| `JWT_EXPIRY`            | 7 天    | JWT 有效期        |
-| `SHARE_DEFAULT_EXPIRY`  | 7 天    | 分享默认有效期    |
-| `TRASH_RETENTION_DAYS`  | 30 天   | 回收站保留天数    |
-| `DEVICE_SESSION_EXPIRY` | 30 天   | 设备会话有效期    |
-| `UPLOAD_TASK_EXPIRY`    | 24 小时 | 上传任务有效期    |
+| 常量                    | 值      | 说明           |
+| ----------------------- | ------- | -------------- |
+| `JWT_EXPIRY`            | 7 天    | JWT 有效期     |
+| `SHARE_DEFAULT_EXPIRY`  | 7 天    | 分享默认有效期 |
+| `TRASH_RETENTION_DAYS`  | 30 天   | 回收站保留天数 |
+| `DEVICE_SESSION_EXPIRY` | 30 天   | 设备会话有效期 |
+| `UPLOAD_TASK_EXPIRY`    | 24 小时 | 上传任务有效期 |
 
 ### 安全限制
 

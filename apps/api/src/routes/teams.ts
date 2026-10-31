@@ -31,13 +31,7 @@ import {
   getTeamFiles,
   getTeamStorageStats,
 } from '../lib/teamService';
-import {
-  createInvite,
-  listPendingInvites,
-  listAllInvites,
-  revokeInvite,
-  type InviteInfo,
-} from '../lib/inviteService';
+import { createInvite, listPendingInvites, listAllInvites, revokeInvite, type InviteInfo } from '../lib/inviteService';
 import { listTeamActivities } from '../lib/teamActivityService';
 import { recordActivityWithEnv } from '../lib/teamActivityService';
 
@@ -619,10 +613,7 @@ app.get('/:id/invites/all', async (c) => {
 
   // 验证状态参数合法性
   if (status && !['pending', 'accepted', 'expired', 'revoked'].includes(status)) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无效的状态值' } },
-      400
-    );
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无效的状态值' } }, 400);
   }
 
   const invites = await listAllInvites(db, teamId, status);

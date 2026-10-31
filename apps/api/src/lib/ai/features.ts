@@ -933,4 +933,3 @@ async function autoProcessFileDirect(env: Env, file: typeof files.$inferSelect, 
     }
   }
 }
-

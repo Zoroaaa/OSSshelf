@@ -16,7 +16,21 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/useToast';
 import { cn } from '@/utils';
-import { Shield, X, Trash2, Crown, Eye, Edit, UserPlus, Loader2, User, Users, Building2, Check, FolderTree } from 'lucide-react';
+import {
+  Shield,
+  X,
+  Trash2,
+  Crown,
+  Eye,
+  Edit,
+  UserPlus,
+  Loader2,
+  User,
+  Users,
+  Building2,
+  Check,
+  FolderTree,
+} from 'lucide-react';
 
 interface FilePermissionsDialogProps {
   fileId: string;
@@ -311,10 +325,10 @@ export function FilePermissionsDialog({ fileId, fileName, isFolder, onClose, fil
                               <div className="flex items-center gap-2">
                                 <p className="text-sm font-medium truncate">
                                   {perm.subjectType === 'team'
-                                    ? (perm.teamName || '未知团队')
+                                    ? perm.teamName || '未知团队'
                                     : perm.subjectType === 'group'
-                                      ? (perm.groupName || '未知组')
-                                      : (perm.userName || perm.userEmail || '未知')}
+                                      ? perm.groupName || '未知组'
+                                      : perm.userName || perm.userEmail || '未知'}
                                 </p>
                                 {renderSourceLabel(perm)}
                               </div>

@@ -19,7 +19,9 @@ export interface CompletionResult {
 
 type CompatMessage = { role: 'system' | 'user' | 'assistant'; content: string | ChatContentPart[] };
 
-function toContentParts(content: ChatContentPart[]): Array<{ type: 'text'; text: string } | { type: 'image'; image: URL }> {
+function toContentParts(
+  content: ChatContentPart[]
+): Array<{ type: 'text'; text: string } | { type: 'image'; image: URL }> {
   return content.map((part) => {
     if (part.type === 'image_url' && part.image_url?.url) {
       return { type: 'image' as const, image: new URL(part.image_url.url) };
@@ -43,9 +45,7 @@ export async function chatCompletion(
   for (const message of request.messages as CompatMessage[]) {
     if (message.role === 'system') {
       const text =
-        typeof message.content === 'string'
-          ? message.content
-          : message.content.map((part) => part.text ?? '').join('');
+        typeof message.content === 'string' ? message.content : message.content.map((part) => part.text ?? '').join('');
       system = system ? `${system}\n${text}` : text;
       continue;
     }
