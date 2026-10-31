@@ -335,7 +335,7 @@ export async function listAllInvites(
     createdAt: inv.createdAt,
     acceptedBy: inv.acceptedBy,
     acceptedAt: inv.acceptedAt,
-    acceptedUserName: inv.acceptedBy ? acceptorMap.get(inv.acceptedBy)?.name ?? null : null,
+    acceptedUserName: inv.acceptedBy ? (acceptorMap.get(inv.acceptedBy)?.name ?? null) : null,
   }));
 }
 

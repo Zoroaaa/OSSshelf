@@ -73,14 +73,14 @@ All notable changes to this project will be documented in this file.
 
 - **邀请 API（9 个端点）**：
 
-| 方法   | 路径                                  | 功能               |
-| ------ | ------------------------------------- | ------------------ |
-| GET    | `/api/invite/:token`                  | 查询邀请详情       |
-| GET    | `/api/invite/code/:code`              | 通过短码查询       |
-| POST   | `/api/invite/:token/accept`           | 接受邀请（需登录） |
-| POST   | `/api/teams/:id/invites`              | 创建邀请链接       |
-| GET    | `/api/teams/:id/invites`              | 列出待定邀请       |
-| DELETE | `/api/teams/:id/invites/:inviteId`    | 撤销邀请           |
+| 方法   | 路径                                   | 功能               |
+| ------ | -------------------------------------- | ------------------ |
+| GET    | `/api/invite/:token`                   | 查询邀请详情       |
+| GET    | `/api/invite/code/:code`               | 通过短码查询       |
+| POST   | `/api/invite/:token/accept`            | 接受邀请（需登录） |
+| POST   | `/api/teams/:id/invites`               | 创建邀请链接       |
+| GET    | `/api/teams/:id/invites`               | 列出待定邀请       |
+| DELETE | `/api/teams/:id/invites/:inviteId`     | 撤销邀请           |
 | POST   | `/api/teams/:id/invites/:token/accept` | API内接受邀请      |
 
 #### 核心新功能（二）：团队工作区文件系统
@@ -97,11 +97,11 @@ All notable changes to this project will be documented in this file.
 
 - **工作区文件浏览 API**：
 
-| 方法 | 路径                            | 功能                     |
-| ---- | ------------------------------- | ------------------------ |
-| GET  | `/api/teams/:id/workspace/files`     | 获取挂载资源文件列表     |
-| GET  | `/api/teams/:id/workspace/all-files` | 获取全部文件（挂载+自有）|
-| POST | `/api/teams/:id/workspace/folder`    | 在工作区新建文件夹       |
+| 方法 | 路径                                 | 功能                      |
+| ---- | ------------------------------------ | ------------------------- |
+| GET  | `/api/teams/:id/workspace/files`     | 获取挂载资源文件列表      |
+| GET  | `/api/teams/:id/workspace/all-files` | 获取全部文件（挂载+自有） |
+| POST | `/api/teams/:id/workspace/folder`    | 在工作区新建文件夹        |
 
 #### 核心新功能（三）：团队活动流
 
@@ -110,8 +110,8 @@ All notable changes to this project will be documented in this file.
   - 自动记录：团队创建/设置变更、成员加入/离开/角色变更、文件挂载/卸载/上传
   - 活动时间线 API：支持分页、按团队/用户/动作类型筛选
 
-| 方法 | 路径                      | 功能             |
-| ---- | ------------------------- | ---------------- |
+| 方法 | 路径                        | 功能               |
+| ---- | --------------------------- | ------------------ |
 | GET  | `/api/teams/:id/activities` | 获取团队活动时间线 |
 
 #### 核心新功能（四）：团队存储配额
@@ -122,8 +122,8 @@ All notable changes to this project will be documented in this file.
   - 支持 `default_member_role` 配置新成员默认角色
   - 存储统计 API：聚合团队自有文件 + 挂载资源大小
 
-| 方法 | 路径                   | 功能           |
-| ---- | ---------------------- | -------------- |
+| 方法 | 路径                     | 功能             |
+| ---- | ------------------------ | ---------------- |
 | GET  | `/api/teams/:id/storage` | 获取团队存储统计 |
 
 #### 核心新功能（五）：前端工作区完整 UI
@@ -141,10 +141,10 @@ All notable changes to this project will be documented in this file.
   - Tab 切换：「文件」|「活动」
 
 - **TeamInviteDialog**：邀请创建对话框（角色/邮箱/有效期/消息配置）
- - **TeamInviteRecords**：邀请记录管理组件（状态筛选/详情展示/撤销操作）
- - **TeamActivityFeed**：活动流时间线展示组件
- - **TeamStorageBar**：团队存储空间使用量可视化条
- - **AcceptInvite 页面**：独立的邀请接受落地页（支持路由懒加载）
+- **TeamInviteRecords**：邀请记录管理组件（状态筛选/详情展示/撤销操作）
+- **TeamActivityFeed**：活动流时间线展示组件
+- **TeamStorageBar**：团队存储空间使用量可视化条
+- **AcceptInvite 页面**：独立的邀请接受落地页（支持路由懒加载）
 
 ### Improved - 权限系统增强 🔐
 
@@ -219,24 +219,24 @@ All notable changes to this project will be documented in this file.
 
 **新增迁移文件（5 个）：**
 
-| 迁移文件                              | 用途                                       |
-| ------------------------------------- | ------------------------------------------ |
-| `101_team_v2.sql`                    | teams表扩展(配额/角色) + team_invitations + team_activities |
-| `102_team_files.sql`                 | files表新增 team_id                        |
-| `103_upload_tasks_team_id.sql`        | upload_tasks表新增 team_id                 |
-| `104_team_resources_target_folder.sql` | team_resources新增 target_folder_id        |
-| `105_access_level.sql`                | files表新增 access_level                   |
+| 迁移文件                               | 用途                                                        |
+| -------------------------------------- | ----------------------------------------------------------- |
+| `101_team_v2.sql`                      | teams表扩展(配额/角色) + team_invitations + team_activities |
+| `102_team_files.sql`                   | files表新增 team_id                                         |
+| `103_upload_tasks_team_id.sql`         | upload_tasks表新增 team_id                                  |
+| `104_team_resources_target_folder.sql` | team_resources新增 target_folder_id                         |
+| `105_access_level.sql`                 | files表新增 access_level                                    |
 
 **Schema 变更汇总：**
 
-| 表名                | 变更类型 | 字段/说明                                    |
-| ------------------- | -------- | ------------------------------------------- |
-| `teams`             | ALTER    | +storage_quota, +storage_used, +default_member_role |
-| `files`             | ALTER    | +team_id, +access_level                     |
-| `upload_tasks`      | ALTER    | +team_id                                    |
-| `team_resources`    | ALTER    | +target_folder_id                           |
-| `team_invitations`  | CREATE   | 邀请链接表（token/code/email/role/status等） |
-| `team_activities`   | CREATE   | 活动流表（action/resource_type/details）     |
+| 表名               | 变更类型 | 字段/说明                                           |
+| ------------------ | -------- | --------------------------------------------------- |
+| `teams`            | ALTER    | +storage_quota, +storage_used, +default_member_role |
+| `files`            | ALTER    | +team_id, +access_level                             |
+| `upload_tasks`     | ALTER    | +team_id                                            |
+| `team_resources`   | ALTER    | +target_folder_id                                   |
+| `team_invitations` | CREATE   | 邀请链接表（token/code/email/role/status等）        |
+| `team_activities`  | CREATE   | 活动流表（action/resource_type/details）            |
 
 ---
 
@@ -276,63 +276,63 @@ apps/web/src/
 
 **后端（7 个文件大幅修改）：**
 
-| 文件                                | 改动量    | 说明                                              |
-| ----------------------------------- | --------- | ------------------------------------------------- |
-| `src/lib/teamService.ts`            | +500 行   | 工作区文件/存储统计/活动记录/权限同步/列表增强     |
-| `src/routes/teams.ts`              | +350 行   | 8个新端点（工作区/邀请/活动/存储/文件夹/全文件）   |
-| `src/lib/permissionService.ts`      | ±200 行   | 安全加固/缓存优化/bug修复                         |
-| `src/lib/permissionResolver.ts`     | +30 行    | 缓存key维度升级/KV分页清理                         |
-| `src/db/schema.ts`                  | +24 行    | 新增表定义+字段                                   |
-| `src/index.ts`                     | +3 行     | 注册邀请路由                                      |
-| `src/routes/files.ts`              | +15 行    | 团队维度文件查询支持                               |
+| 文件                            | 改动量  | 说明                                             |
+| ------------------------------- | ------- | ------------------------------------------------ |
+| `src/lib/teamService.ts`        | +500 行 | 工作区文件/存储统计/活动记录/权限同步/列表增强   |
+| `src/routes/teams.ts`           | +350 行 | 8个新端点（工作区/邀请/活动/存储/文件夹/全文件） |
+| `src/lib/permissionService.ts`  | ±200 行 | 安全加固/缓存优化/bug修复                        |
+| `src/lib/permissionResolver.ts` | +30 行  | 缓存key维度升级/KV分页清理                       |
+| `src/db/schema.ts`              | +24 行  | 新增表定义+字段                                  |
+| `src/index.ts`                  | +3 行   | 注册邀请路由                                     |
+| `src/routes/files.ts`           | +15 行  | 团队维度文件查询支持                             |
 
 **前端（10 个文件大幅修改）：**
 
-| 文件                                                  | 改动量          | 说明                                          |
-| ----------------------------------------------------- | --------------- | --------------------------------------------- |
-| `components/teams/TeamWorkspace.tsx`                   | +900 行         | 完整工作区UI重构                               |
-| `components/teams/TeamDetail.tsx`                     | +100 行         | 详情页增强                                     |
-| `components/teams/TeamList.tsx`                       | +150 行         | 列表页增强                                     |
-| `components/teams/TeamResourceMountDialog.tsx`         | +240 行         | 支持选择目标文件夹                             |
-| `components/teams/TeamMemberDialog.tsx`               | +50 行          | 成员信息增强(name+email)                       |
-| `pages/Teams.tsx`                                    | +170 行         | 团队页增强                                     |
-| `pages/Trash.tsx`                                    | +70 行          | 分页+确认对话框                                 |
-| `pages/Tags.tsx`                                     | +150 行         | 格式化改进                                     |
-| `services/collab.ts`                                 | +80 行          | 团队API扩展                                    |
-| `App.tsx` / `LazyComponents.tsx`                     | +30 行          | 路由注册(AcceptInvite)                          |
+| 文件                                           | 改动量  | 说明                     |
+| ---------------------------------------------- | ------- | ------------------------ |
+| `components/teams/TeamWorkspace.tsx`           | +900 行 | 完整工作区UI重构         |
+| `components/teams/TeamDetail.tsx`              | +100 行 | 详情页增强               |
+| `components/teams/TeamList.tsx`                | +150 行 | 列表页增强               |
+| `components/teams/TeamResourceMountDialog.tsx` | +240 行 | 支持选择目标文件夹       |
+| `components/teams/TeamMemberDialog.tsx`        | +50 行  | 成员信息增强(name+email) |
+| `pages/Teams.tsx`                              | +170 行 | 团队页增强               |
+| `pages/Trash.tsx`                              | +70 行  | 分页+确认对话框          |
+| `pages/Tags.tsx`                               | +150 行 | 格式化改进               |
+| `services/collab.ts`                           | +80 行  | 团队API扩展              |
+| `App.tsx` / `LazyComponents.tsx`               | +30 行  | 路由注册(AcceptInvite)   |
 
 ### API Endpoints Summary
 
 **团队工作区 API（9 个新端点）：**
 
-| 方法   | 路径                                | 功能                     |
-| ------ | ----------------------------------- | ------------------------ |
-| GET    | `/api/teams/:id/workspace/files`     | 工作区文件列表（挂载）   |
-| GET    | `/api/teams/:id/workspace/all-files` | 全部文件（挂载+自有）    |
-| POST   | `/api/teams/:id/workspace/folder`    | 新建文件夹               |
-| GET    | `/api/teams/:id/activities`          | 活动时间线               |
-| GET    | `/api/teams/:id/storage`             | 存储统计                 |
-| POST   | `/api/teams/:id/invites`             | 创建邀请链接             |
-| GET    | `/api/teams/:id/invites`             | 待定邀请列表（管理员）   |
-| GET    | `/api/teams/:id/invites/all`         | 全部邀请记录（可状态筛选）|
-| DELETE | `/api/teams/:id/invites/:inviteId`   | 撤销邀请                 |
+| 方法   | 路径                                 | 功能                       |
+| ------ | ------------------------------------ | -------------------------- |
+| GET    | `/api/teams/:id/workspace/files`     | 工作区文件列表（挂载）     |
+| GET    | `/api/teams/:id/workspace/all-files` | 全部文件（挂载+自有）      |
+| POST   | `/api/teams/:id/workspace/folder`    | 新建文件夹                 |
+| GET    | `/api/teams/:id/activities`          | 活动时间线                 |
+| GET    | `/api/teams/:id/storage`             | 存储统计                   |
+| POST   | `/api/teams/:id/invites`             | 创建邀请链接               |
+| GET    | `/api/teams/:id/invites`             | 待定邀请列表（管理员）     |
+| GET    | `/api/teams/:id/invites/all`         | 全部邀请记录（可状态筛选） |
+| DELETE | `/api/teams/:id/invites/:inviteId`   | 撤销邀请                   |
 
 **邀请公开 API（3 个端点）：**
 
-| 方法 | 路径                          | 功能         |
-| ---- | ----------------------------- | ------------ |
-| GET  | `/api/invite/:token`           | 查询邀请详情 |
-| GET  | `/api/invite/code/:code`       | 短码查询     |
-| POST | `/api/invite/:token/accept`    | 接受邀请     |
+| 方法 | 路径                        | 功能         |
+| ---- | --------------------------- | ------------ |
+| GET  | `/api/invite/:token`        | 查询邀请详情 |
+| GET  | `/api/invite/code/:code`    | 短码查询     |
+| POST | `/api/invite/:token/accept` | 接受邀请     |
 
 **现有 API 扩展：**
 
-| 端点                     | 扩展内容                                        |
-| ------------------------ | ----------------------------------------------- |
-| POST `/api/teams`        | +storageQuota, +defaultMemberRole 参数          |
-| PUT `/api/teams/:id`     | 支持更新 storageQuota / defaultMemberRole       |
-| GET `/api/teams/:id/members` | 返回 name + email（原仅 userEmail）            |
-| POST `/api/teams/:id/resources` | +targetFolderId 参数（挂载到子目录）          |
+| 端点                            | 扩展内容                                  |
+| ------------------------------- | ----------------------------------------- |
+| POST `/api/teams`               | +storageQuota, +defaultMemberRole 参数    |
+| PUT `/api/teams/:id`            | 支持更新 storageQuota / defaultMemberRole |
+| GET `/api/teams/:id/members`    | 返回 name + email（原仅 userEmail）       |
+| POST `/api/teams/:id/resources` | +targetFolderId 参数（挂载到子目录）      |
 
 ---
 

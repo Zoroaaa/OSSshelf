@@ -233,7 +233,16 @@ app.post('/grant', async (c) => {
     );
   }
 
-  const { fileId, userId: targetUserId, groupId, teamId, permission, subjectType, expiresAt, inheritToChildren } = result.data;
+  const {
+    fileId,
+    userId: targetUserId,
+    groupId,
+    teamId,
+    permission,
+    subjectType,
+    expiresAt,
+    inheritToChildren,
+  } = result.data;
 
   if (subjectType === 'user' && !targetUserId) {
     return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '用户ID不能为空' } }, 400);
@@ -987,16 +996,15 @@ app.delete('/:permissionId', async (c) => {
       .select()
       .from(teamResources)
       .where(
-        and(
-          eq(teamResources.teamId, existingPermission.teamId),
-          eq(teamResources.fileId, existingPermission.fileId)
-        )
+        and(eq(teamResources.teamId, existingPermission.teamId), eq(teamResources.fileId, existingPermission.fileId))
       )
       .get();
     if (mountRecord) {
       await db
         .delete(teamResources)
-        .where(and(eq(teamResources.teamId, existingPermission.teamId), eq(teamResources.fileId, existingPermission.fileId)));
+        .where(
+          and(eq(teamResources.teamId, existingPermission.teamId), eq(teamResources.fileId, existingPermission.fileId))
+        );
     }
   }
 

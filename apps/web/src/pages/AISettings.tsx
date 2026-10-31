@@ -482,8 +482,7 @@ export function AISettings() {
           provider: 'workers_ai',
           modelId: workersAiModel.id,
           isActive: true,
-          capabilities:
-            workersAiModel.capabilities.length > 0 ? workersAiModel.capabilities : ['chat'],
+          capabilities: workersAiModel.capabilities.length > 0 ? workersAiModel.capabilities : ['chat'],
         });
         return { action: 'created', modelId: createResult.data.data?.id };
       }

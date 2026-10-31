@@ -121,4 +121,3 @@ export async function computeSha256Hex(buffer: ArrayBuffer): Promise<string> {
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 }
-

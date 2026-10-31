@@ -459,7 +459,12 @@ export class AiEnhanceTools {
       const answer = completion.content.trim() || '无法生成答案';
 
       const sources = Array.from(
-        new Map(chunks.map((chunk) => [chunk.fileId, { id: chunk.fileId, name: chunk.name, mimeType: chunk.mimeType, score: chunk.score }])).values()
+        new Map(
+          chunks.map((chunk) => [
+            chunk.fileId,
+            { id: chunk.fileId, name: chunk.name, mimeType: chunk.mimeType, score: chunk.score },
+          ])
+        ).values()
       );
 
       logger.info('AgentTool', 'RAG question answered', {

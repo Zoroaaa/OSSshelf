@@ -953,22 +953,23 @@ async function getTeamRootContent(
   const mountedFileIds = mounts.map((m) => m.fileId);
   const mountedAtMap = new Map(mounts.map((m) => [m.fileId, m.mountedAt]));
 
-  const mountedFiles = mountedFileIds.length > 0
-    ? await db
-        .select({
-          id: files.id,
-          name: files.name,
-          path: files.path,
-          type: files.type,
-          mimeType: files.mimeType,
-          size: files.size,
-          isFolder: files.isFolder,
-          userId: files.userId,
-        })
-        .from(files)
-        .where(and(inArray(files.id, mountedFileIds), isNull(files.deletedAt)))
-        .all()
-    : [];
+  const mountedFiles =
+    mountedFileIds.length > 0
+      ? await db
+          .select({
+            id: files.id,
+            name: files.name,
+            path: files.path,
+            type: files.type,
+            mimeType: files.mimeType,
+            size: files.size,
+            isFolder: files.isFolder,
+            userId: files.userId,
+          })
+          .from(files)
+          .where(and(inArray(files.id, mountedFileIds), isNull(files.deletedAt)))
+          .all()
+      : [];
 
   // 合并并检查权限（ownFiles=owned, mountedFiles=mounted）
   const allItems = [...ownFiles, ...mountedFiles];
@@ -1014,22 +1015,23 @@ async function getTeamOwnFolderContent(
   const mountedFileIds = mounts.map((m) => m.fileId);
   const mountedAtMap = new Map(mounts.map((m) => [m.fileId, m.mountedAt]));
 
-  const mountedFiles = mountedFileIds.length > 0
-    ? await db
-        .select({
-          id: files.id,
-          name: files.name,
-          path: files.path,
-          type: files.type,
-          mimeType: files.mimeType,
-          size: files.size,
-          isFolder: files.isFolder,
-          userId: files.userId,
-        })
-        .from(files)
-        .where(and(inArray(files.id, mountedFileIds), isNull(files.deletedAt)))
-        .all()
-    : [];
+  const mountedFiles =
+    mountedFileIds.length > 0
+      ? await db
+          .select({
+            id: files.id,
+            name: files.name,
+            path: files.path,
+            type: files.type,
+            mimeType: files.mimeType,
+            size: files.size,
+            isFolder: files.isFolder,
+            userId: files.userId,
+          })
+          .from(files)
+          .where(and(inArray(files.id, mountedFileIds), isNull(files.deletedAt)))
+          .all()
+      : [];
 
   const allItems = [...ownChildren, ...mountedFiles];
   const result = await filterByPermission(db, allItems, teamId, viewerUserId, mountedAtMap, folderId, false, 'owned');
@@ -1069,13 +1071,7 @@ async function getMountedFolderContent(
       userId: files.userId,
     })
     .from(files)
-    .where(
-      and(
-        eq(files.userId, folderInfo.userId),
-        isNull(files.deletedAt),
-        like(files.path, `${folderPath}/%`)
-      )
-    )
+    .where(and(eq(files.userId, folderInfo.userId), isNull(files.deletedAt), like(files.path, `${folderPath}/%`)))
     .all();
 
   // 只保留直接子级（排除更深层的嵌套，但保留直接子文件夹）

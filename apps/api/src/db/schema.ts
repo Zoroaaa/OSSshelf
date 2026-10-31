@@ -729,7 +729,6 @@ export const aiTasks = sqliteTable(
   })
 );
 
-
 export const aiConfig = sqliteTable(
   'ai_config',
   {
@@ -778,7 +777,6 @@ export const aiMemories = sqliteTable(
   })
 );
 
-
 // ═══════════════════════════════════════════════════════════════════════════
 // AI 运行时（Agents SDK）相关表
 // ═══════════════════════════════════════════════════════════════════════════
@@ -809,7 +807,6 @@ export const aiUsageEvents = sqliteTable(
   })
 );
 
-
 export const fileChunks = sqliteTable(
   'file_chunks',
   {
@@ -828,7 +825,6 @@ export const fileChunks = sqliteTable(
   })
 );
 
-
 export const aiTaskItems = sqliteTable(
   'ai_task_items',
   {
@@ -846,7 +842,6 @@ export const aiTaskItems = sqliteTable(
   })
 );
 
-
 export const aiFeatureConfig = sqliteTable(
   'ai_feature_config',
   {
@@ -862,7 +857,6 @@ export const aiFeatureConfig = sqliteTable(
     userFeatureUnique: uniqueIndex('idx_ai_feature_config_user_feature').on(table.userId, table.feature),
   })
 );
-
 
 // 说明：files_fts 为 FTS5 虚拟表，Drizzle 不建模，见 migrations/110_ai_agents.sql
 

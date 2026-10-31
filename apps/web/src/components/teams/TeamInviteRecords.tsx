@@ -13,19 +13,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/useToast';
 import api from '@/services/api-client';
-import {
-  Loader2,
-  X,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  Ban,
-  Filter,
-  Mail,
-  User,
-  Calendar,
-  Shield,
-} from 'lucide-react';
+import { Loader2, X, Clock, CheckCircle2, XCircle, Ban, Filter, Mail, User, Calendar, Shield } from 'lucide-react';
 import { cn, formatDate } from '@/utils';
 
 interface TeamInviteRecordsProps {
@@ -54,42 +42,35 @@ interface InviteRecord {
   acceptedUserName: string | null;
 }
 
-const STATUS_CONFIG: Record<
-  InviteStatus,
-  { label: string; icon: React.ElementType; color: string; bgColor: string }
-> = {
-  pending: {
-    label: '待接受',
-    icon: Clock,
-    color: 'text-amber-600',
-    bgColor: 'bg-amber-500/10 border-amber-500/20',
-  },
-  accepted: {
-    label: '已接受',
-    icon: CheckCircle2,
-    color: 'text-green-600',
-    bgColor: 'bg-green-500/10 border-green-500/20',
-  },
-  expired: {
-    label: '已过期',
-    icon: XCircle,
-    color: 'text-gray-500',
-    bgColor: 'bg-gray-500/10 border-gray-500/20',
-  },
-  revoked: {
-    label: '已撤销',
-    icon: Ban,
-    color: 'text-red-600',
-    bgColor: 'bg-red-500/10 border-red-500/20',
-  },
-};
+const STATUS_CONFIG: Record<InviteStatus, { label: string; icon: React.ElementType; color: string; bgColor: string }> =
+  {
+    pending: {
+      label: '待接受',
+      icon: Clock,
+      color: 'text-amber-600',
+      bgColor: 'bg-amber-500/10 border-amber-500/20',
+    },
+    accepted: {
+      label: '已接受',
+      icon: CheckCircle2,
+      color: 'text-green-600',
+      bgColor: 'bg-green-500/10 border-green-500/20',
+    },
+    expired: {
+      label: '已过期',
+      icon: XCircle,
+      color: 'text-gray-500',
+      bgColor: 'bg-gray-500/10 border-gray-500/20',
+    },
+    revoked: {
+      label: '已撤销',
+      icon: Ban,
+      color: 'text-red-600',
+      bgColor: 'bg-red-500/10 border-red-500/20',
+    },
+  };
 
-const TeamInviteRecords: React.FC<TeamInviteRecordsProps> = ({
-  teamId,
-  teamName,
-  userRole,
-  onClose,
-}) => {
+const TeamInviteRecords: React.FC<TeamInviteRecordsProps> = ({ teamId, teamName, userRole, onClose }) => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<InviteStatus | 'all'>('all');
@@ -113,8 +94,7 @@ const TeamInviteRecords: React.FC<TeamInviteRecordsProps> = ({
 
   // 撤销邀请
   const revokeMutation = useMutation({
-    mutationFn: (inviteId: string) =>
-      api.delete(`/api/teams/${teamId}/invites/${inviteId}`).then((r) => r.data),
+    mutationFn: (inviteId: string) => api.delete(`/api/teams/${teamId}/invites/${inviteId}`).then((r) => r.data),
     onSuccess: () => {
       toast({ title: '邀请已撤销' });
       queryClient.invalidateQueries({ queryKey: ['team-invite-records', teamId] });
@@ -213,9 +193,7 @@ const TeamInviteRecords: React.FC<TeamInviteRecordsProps> = ({
                             >
                               {config.label}
                             </span>
-                            {invite.email && (
-                              <span className="text-sm font-medium truncate">{invite.email}</span>
-                            )}
+                            {invite.email && <span className="text-sm font-medium truncate">{invite.email}</span>}
                             {!invite.email && <span className="text-sm text-muted-foreground">通用邀请链接</span>}
                             {invite.inviteCode && (
                               <span className="text-xs font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
@@ -267,9 +245,7 @@ const TeamInviteRecords: React.FC<TeamInviteRecordsProps> = ({
                         <span
                           className={cn(
                             'flex items-center gap-1',
-                            invite.status === 'pending' &&
-                              new Date(invite.expiresAt) < new Date() &&
-                              'text-red-500'
+                            invite.status === 'pending' && new Date(invite.expiresAt) < new Date() && 'text-red-500'
                           )}
                         >
                           <Clock className="h-3 w-3" />
@@ -282,8 +258,7 @@ const TeamInviteRecords: React.FC<TeamInviteRecordsProps> = ({
                         <span className="flex items-center gap-1 text-green-600">
                           <CheckCircle2 className="h-3 w-3" />
                           接受人: {invite.acceptedUserName}
-                          {invite.acceptedAt &&
-                            ` · ${new Date(invite.acceptedAt).toLocaleDateString('zh-CN')}`}
+                          {invite.acceptedAt && ` · ${new Date(invite.acceptedAt).toLocaleDateString('zh-CN')}`}
                         </span>
                       )}
                     </div>
@@ -308,8 +283,7 @@ const TeamInviteRecords: React.FC<TeamInviteRecordsProps> = ({
               <span>
                 共 {invites.length} 条记录
                 {' · '}
-                待处理:{' '}
-                {invites.filter((i) => i.status === 'pending').length} | 已接受:{' '}
+                待处理: {invites.filter((i) => i.status === 'pending').length} | 已接受:{' '}
                 {invites.filter((i) => i.status === 'accepted').length}
               </span>
             )}
