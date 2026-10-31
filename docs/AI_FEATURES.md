@@ -979,7 +979,7 @@ GET /api/ai-config/workers-ai/models?refresh=1
 ```
 
 - 配置 `CF_ACCOUNT_ID` + `CF_API_TOKEN`（Worker 运行时变量，权限 Workers AI Read）后为 `source=live`，缓存 6 小时，可手动强制刷新。
-- GitHub Actions 部署时需在仓库 Secrets 中提供同名变量，工作流会注入 Worker；直接使用 `wrangler deploy` 时请通过 `wrangler secret put` 配置（`wrangler deploy` 默认会清理配置里不存在的 Dashboard 普通变量）。
+- GitHub Actions 部署时工作流会把 `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` 注入为 Worker 的 `CF_ACCOUNT_ID` / `CF_API_TOKEN`；如配置了仅含 `Workers AI:Read` 的 `CF_API_TOKEN` Secret，则优先使用它。直接使用 `wrangler deploy` 时请通过 `wrangler secret put` 配置（默认会清理配置里不存在的 Dashboard 普通变量）。
 - 未配置或同步失败时回退到内置兜底清单（`source=fallback`），页面会显示原因、缺失变量名与配置指引。
 - 卡片展示模型参数（`properties`，如 context_window / max_output_tokens）与官方返回的价格字段；未返回价格时按 Workers AI 统一计费说明展示。
 - 支持按名称 / ID / 描述搜索，并可一键启用；启用时按模型类型写入能力（chat / vision / embedding）。
