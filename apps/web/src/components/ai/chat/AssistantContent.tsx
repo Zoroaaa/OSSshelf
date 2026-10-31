@@ -19,10 +19,14 @@ interface AssistantContentProps {
   onFileClick: (id: string, isFolder: boolean) => void;
 }
 
-const FILE_REF_REGEX = /\[(FILE|FOLDER):([^:\]]+)(?::([^\]]*))?\]/g;
+const FILE_REF_REGEX = /\[(FILE|FOLDER)[:：]([^:：\]]+)(?:[:：]([^\]]*))?\]/g;
 
 const REF_PLACEHOLDER = '\u200B\u200CFREF_';
 const REF_PLACEHOLDER_SUFFIX = '\u200C\u200B';
+
+function createRefTokenPattern(): RegExp {
+  return new RegExp(`${REF_PLACEHOLDER}(\\d+)${REF_PLACEHOLDER_SUFFIX.replace(/[\\^$.*+?()|[\]{}]/g, '\\$&')}`, 'g');
+}
 
 interface FileRefInfo {
   type: 'FILE' | 'FOLDER';
@@ -219,9 +223,14 @@ function getMarkdownComponents(
     ),
     code: (props: { className?: string; children?: React.ReactNode }) => {
       if (!props.className) {
+        const text = extractText(props.children);
+        // 模型有时会把引用包在反引号里，此时按引用卡片渲染，避免不可点击
+        if (text.includes(REF_PLACEHOLDER) && text.replace(createRefTokenPattern(), '').trim() === '') {
+          return <>{resolveRefs(props.children)}</>;
+        }
         return (
           <code className="mx-0.5 rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[13px] text-foreground">
-            {props.children}
+            {resolveRefs(props.children)}
           </code>
         );
       }
@@ -265,7 +274,7 @@ function getMarkdownComponents(
         rel="noopener noreferrer"
         className="font-medium text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary"
       >
-        {props.children}
+        {resolveRefs(props.children)}
       </a>
     ),
     strong: (props: { children?: React.ReactNode }) => (
@@ -291,10 +300,7 @@ function replacePlaceholders(
   refMap: Map<number, FileRefInfo>,
   onFileClick: (id: string, isFolder: boolean) => void
 ): React.ReactNode[] {
-  const pattern = new RegExp(
-    `${REF_PLACEHOLDER}(\\d+)${REF_PLACEHOLDER_SUFFIX.replace(/[\\^$.*+?()|[\]{}]/g, '\\$&')}`,
-    'g'
-  );
+  const pattern = createRefTokenPattern();
   const result: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -333,13 +339,23 @@ export function AssistantContent({ content, onFileClick }: AssistantContentProps
   let offset = 0;
   let refIndex = 0;
 
+  // 代码块内的引用保持原样，避免占位符泄漏
+  const codeFenceRanges = Array.from(cleanedContent.matchAll(/```[\s\S]*?```/g), (match) => {
+    const start = match.index ?? 0;
+    return [start, start + match[0].length] as const;
+  });
+
   FILE_REF_REGEX.lastIndex = 0;
   let match: RegExpExecArray | null;
 
   while ((match = FILE_REF_REGEX.exec(cleanedContent)) !== null) {
+    const matchIndex = match.index;
+    const inCodeFence = codeFenceRanges.some(([start, end]) => matchIndex >= start && matchIndex < end);
+    if (inCodeFence) continue;
+
     const type = match[1] as 'FILE' | 'FOLDER';
-    const id = match[2] ?? '';
-    const name = match[3] ?? '';
+    const id = (match[2] ?? '').trim();
+    const name = (match[3] ?? '').trim();
     const standalone = isStandaloneLine(cleanedContent, match.index, match[0].length);
 
     const placeholder = `${REF_PLACEHOLDER}${refIndex}${REF_PLACEHOLDER_SUFFIX}`;

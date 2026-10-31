@@ -20,6 +20,7 @@ import { AiError } from './aiErrors';
 import { getAiConfigString } from './aiConfigService';
 import { decryptCredential, getEncryptionKey, isAesGcmFormat } from '../crypto';
 import { logger } from '@osshelf/shared';
+import { MODEL_ID_FORMAT_HINT, pickSupportedModelId } from './modelId';
 
 export const DEFAULT_EMBEDDING_MODEL = '@cf/baai/bge-m3';
 
@@ -126,15 +127,33 @@ async function resolveApiKey(env: Env, config: ModelConfig): Promise<string | un
 
 export async function resolveLanguageModel(env: Env, userId: string, modelId?: string): Promise<ResolvedLanguageModel> {
   const config = await loadModelConfig(env, userId, modelId);
-  const modelKey = `${config.provider}:${config.modelId}`;
 
   switch (config.provider) {
     case 'workers_ai': {
       if (!env.AI) {
         throw new AiError('AI_CONFIG_INVALID', 'Workers AI 绑定未配置');
       }
+      // 兼容历史脏数据：modelId 是 UUID 时尝试用 name 修回合法 ID
+      const resolvedModelId = pickSupportedModelId(config.modelId, config.name);
+      if (!resolvedModelId) {
+        throw new AiError(
+          'AI_CONFIG_INVALID',
+          `模型「${config.name}」的 modelId「${config.modelId}」不是 Cloudflare 可识别的模型 ID，请改为 ${MODEL_ID_FORMAT_HINT}`
+        );
+      }
+      if (resolvedModelId !== config.modelId) {
+        logger.warn('AI', 'Model config modelId repaired at runtime', {
+          modelRecordId: config.id,
+          storedModelId: config.modelId,
+          resolvedModelId,
+        });
+      }
       const ai = createAI({ binding: env.AI });
-      return { model: ai(config.modelId as CloudflareLanguageModelId), config, modelKey };
+      return {
+        model: ai(resolvedModelId as CloudflareLanguageModelId),
+        config: { ...config, modelId: resolvedModelId },
+        modelKey: `${config.provider}:${resolvedModelId}`,
+      };
     }
     case 'openai_compatible': {
       if (!config.apiEndpoint) {
@@ -149,7 +168,11 @@ export async function resolveLanguageModel(env: Env, userId: string, modelId?: s
         baseURL: config.apiEndpoint,
         apiKey,
       });
-      return { model: provider.languageModel(config.modelId), config, modelKey };
+      return {
+        model: provider.languageModel(config.modelId),
+        config,
+        modelKey: `${config.provider}:${config.modelId}`,
+      };
     }
     case 'anthropic': {
       const apiKey = await resolveApiKey(env, config);
@@ -160,7 +183,11 @@ export async function resolveLanguageModel(env: Env, userId: string, modelId?: s
         apiKey,
         baseURL: config.apiEndpoint || undefined,
       });
-      return { model: provider.languageModel(config.modelId), config, modelKey };
+      return {
+        model: provider.languageModel(config.modelId),
+        config,
+        modelKey: `${config.provider}:${config.modelId}`,
+      };
     }
     default:
       throw new AiError('AI_CONFIG_INVALID', `不支持的模型供应商: ${config.provider}`);

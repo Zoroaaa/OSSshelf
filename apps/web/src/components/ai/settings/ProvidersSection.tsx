@@ -118,7 +118,8 @@ export function ProvidersSection({ models, status, quickActivateMutation }: Prov
         </div>
 
         <p className="text-sm text-muted-foreground mt-2">
-          模型目录来自 Cloudflare 官方 API，卡片展示模型参数（上下文/最大输出等）与官方返回的价格字段。
+          模型目录来自 Cloudflare 官方 API（完整分页），仅列出对话 / 视觉 / 向量模型，生图、语音、转写等已过滤，
+          不可调用的 UUID 模型 ID 也会被过滤。卡片展示模型参数（上下文/最大输出等）与官方返回的价格字段；
           未返回价格字段时按 Workers AI 统一计费：$0.011 / 1,000 Neurons，每日 10,000 Neurons 免费额度。
         </p>
 
