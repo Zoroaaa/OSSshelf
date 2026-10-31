@@ -97,6 +97,47 @@ function legacyVectorIds(fileId: string): string[] {
   return ids;
 }
 
+const VECTORIZE_RETRY = {
+  maxAttempts: 6,
+  baseDelayMs: 2000,
+  maxDelayMs: 30_000,
+} as const;
+
+function isVectorizeRateLimit(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('40041') || message.includes('Too Many Requests');
+}
+
+/**
+ * Vectorize 写入是异步 mutation，账号级/索引级存在未公开的写入频率限制，
+ * 突发批量索引会返回 40041 Too Many Requests。这里只对限流做退避重试，
+ * 不重跑嵌入与文件读取。
+ */
+async function withVectorizeRateLimitRetry<T>(operation: () => Promise<T>, action: string): Promise<T> {
+  let attempt = 1;
+
+  while (true) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isVectorizeRateLimit(error) || attempt >= VECTORIZE_RETRY.maxAttempts) {
+        throw error;
+      }
+
+      const delay = Math.min(VECTORIZE_RETRY.baseDelayMs * 2 ** (attempt - 1), VECTORIZE_RETRY.maxDelayMs);
+      // 50% 随机抖动，避免同一批文件在退避后同时重试再次撞上限流窗口
+      const jitter = Math.floor(Math.random() * delay * 0.5);
+      logger.warn(VECTOR_LOG_MODULE, 'Vectorize 限流，退避后重试', {
+        action,
+        attempt,
+        delayMs: delay + jitter,
+      });
+      await new Promise((resolve) => setTimeout(resolve, delay + jitter));
+      attempt++;
+    }
+  }
+}
+
 async function deleteVectorsForFile(env: Env, fileId: string): Promise<void> {
   if (!env.VECTORIZE) return;
 
@@ -111,7 +152,8 @@ async function deleteVectorsForFile(env: Env, fileId: string): Promise<void> {
     const ids = new Set<string>(legacyVectorIds(fileId));
     for (const chunk of existing) ids.add(buildChunkVectorId(fileId, chunk.chunkIndex));
 
-    await env.VECTORIZE.deleteByIds(Array.from(ids));
+    const vectorize = env.VECTORIZE;
+    await withVectorizeRateLimitRetry(() => vectorize.deleteByIds(Array.from(ids)), 'deleteByIds');
   } catch (error) {
     logger.warn(VECTOR_LOG_MODULE, '清理旧向量失败', { fileId }, error);
   }
@@ -165,21 +207,26 @@ export async function indexFileVector(env: Env, fileId: string, text: string): P
       await db.insert(fileChunks).values(chunkRows.slice(i, i + maxRowsPerInsert));
     }
 
-    await env.VECTORIZE.upsert(
-      chunks.map((_, index) => ({
-        id: buildChunkVectorId(fileId, index),
-        values: embeddings[index],
-        metadata: {
-          userId: file.userId,
-          name: file.name,
-          mimeType: file.mimeType || '',
-          chunkIndex: index,
-          chunkCount: chunks.length,
-          sourceFileId: fileId,
-          folderId: file.parentId || '',
-          updatedAt: file.updatedAt,
-        },
-      }))
+    const vectorize = env.VECTORIZE;
+    await withVectorizeRateLimitRetry(
+      () =>
+        vectorize.upsert(
+          chunks.map((_, index) => ({
+            id: buildChunkVectorId(fileId, index),
+            values: embeddings[index],
+            metadata: {
+              userId: file.userId,
+              name: file.name,
+              mimeType: file.mimeType || '',
+              chunkIndex: index,
+              chunkCount: chunks.length,
+              sourceFileId: fileId,
+              folderId: file.parentId || '',
+              updatedAt: file.updatedAt,
+            },
+          }))
+        ),
+      'upsert'
     );
 
     await db.update(files).set({ vectorIndexedAt: now }).where(eq(files.id, fileId));

@@ -60,7 +60,8 @@ binding = "AI_TASKS_QUEUE"
 queue = "ossshelf-ai-tasks"
 max_batch_size = 1
 max_batch_timeout = 5
-max_retries = 3
+# Vectorize 写入存在限流窗口，重试次数需覆盖数分钟的窗口
+max_retries = 6
 retry_delay = 60
 max_concurrency = 10
 
