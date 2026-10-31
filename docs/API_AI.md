@@ -180,6 +180,9 @@ Workers AI 模型目录。
 ```
 
 - 配置 `CF_ACCOUNT_ID` + `CF_API_TOKEN`（Worker 运行时变量）时为 `live`，缓存 6 小时，`refresh=1` 强制刷新。
+- 分页按 `result_info` 读取，`per_page=50`、最多 20 页，并按模型 ID 去重，避免服务端裁剪 `per_page` 导致截断。
+- 只保留对话 / 视觉 / 向量三类模型（task 匹配 Text Generation、Text Embeddings、Image-to-Text）；生图、语音、转写、重排等不列出。Cloudflare 默认不返回已弃用模型（`include_deprecated=false`），实验/Beta 模型会保留。
+- 只接受 `@cf/<author>/<model>`、`<author>/<model>`、`dynamic/<route>` 三种可调用 ID；UUID 等内部 ID 会被过滤，避免启用后运行时报错。
 - 未配置或同步失败时为 `fallback`（内置兜底清单）；`configured/error/missing` 用于前端提示，`missing` 明确列出未注入的变量名。
 
 ## GET /status

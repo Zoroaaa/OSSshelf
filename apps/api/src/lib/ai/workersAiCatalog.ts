@@ -14,6 +14,7 @@
 import type { Env } from '../../types/env';
 import { logger } from '@osshelf/shared';
 import { WorkersAiAdapter } from './adapters/workersAiAdapter';
+import { pickSupportedModelId } from './modelId';
 
 export interface WorkersAiCatalogProperty {
   key: string;
@@ -43,8 +44,9 @@ export interface WorkersAiCatalog {
 }
 
 const CACHE_TTL_MS = 6 * 60 * 60_000;
-const MAX_PAGES = 6;
-const PER_PAGE = 100;
+// Cloudflare 分页接口的 per_page 上限通常为 50，按 result_info 翻页可兼容服务端裁剪
+const MAX_PAGES = 20;
+const PER_PAGE = 50;
 
 const cache = new Map<string, { data: WorkersAiCatalog; timestamp: number }>();
 
@@ -81,7 +83,12 @@ function normalizeProperty(raw: unknown): WorkersAiCatalogProperty | null {
 function mapLiveModel(raw: unknown): WorkersAiCatalogModel | null {
   if (!raw || typeof raw !== 'object') return null;
   const record = raw as Record<string, unknown>;
-  const id = String(record.id ?? record.name ?? '').trim();
+  // 只接受 createAI 能识别的 ID；UUID/内部 ID 会导致运行时报错
+  const nameAsId =
+    typeof record.name === 'string' && (record.name.startsWith('@cf/') || record.name.startsWith('dynamic/'))
+      ? record.name
+      : undefined;
+  const id = pickSupportedModelId(record.id, record.model_id, record.catalog_id, record.route, record.slug, nameAsId);
   if (!id) return null;
 
   const taskRecord = record.task as { name?: unknown; id?: unknown } | string | undefined;
@@ -158,7 +165,8 @@ export async function getWorkersAiCatalog(env: Env, options: { refresh?: boolean
   }
 
   try {
-    const models: WorkersAiCatalogModel[] = [];
+    const modelsById = new Map<string, WorkersAiCatalogModel>();
+    let scanned = 0;
 
     for (let page = 1; page <= MAX_PAGES; page++) {
       const url =
@@ -177,6 +185,7 @@ export async function getWorkersAiCatalog(env: Env, options: { refresh?: boolean
         success?: boolean;
         result?: unknown[];
         errors?: unknown;
+        result_info?: { per_page?: number; total_pages?: number; total_count?: number };
       };
 
       if (payload.success === false) {
@@ -184,15 +193,25 @@ export async function getWorkersAiCatalog(env: Env, options: { refresh?: boolean
       }
 
       const result = Array.isArray(payload.result) ? payload.result : [];
+      scanned += result.length;
       for (const raw of result) {
         const mapped = mapLiveModel(raw);
-        if (mapped) models.push(mapped);
+        if (mapped) modelsById.set(mapped.id, mapped);
       }
 
-      if (result.length < PER_PAGE) break;
+      if (result.length === 0) break;
+
+      const totalPages = Number(payload.result_info?.total_pages) || 0;
+      if (totalPages > 0) {
+        if (page >= totalPages) break;
+        continue;
+      }
+
+      const effectivePerPage = Number(payload.result_info?.per_page) || PER_PAGE;
+      if (result.length < effectivePerPage) break;
     }
 
-    models.sort((a, b) => a.id.localeCompare(b.id));
+    const models = Array.from(modelsById.values()).sort((a, b) => a.id.localeCompare(b.id));
 
     const data: WorkersAiCatalog = {
       source: 'live',
@@ -202,7 +221,11 @@ export async function getWorkersAiCatalog(env: Env, options: { refresh?: boolean
       models,
     };
     cache.set(cacheKey, { data, timestamp: Date.now() });
-    logger.info('AI', 'Workers AI 模型目录同步完成', { count: models.length });
+    logger.info('AI', 'Workers AI 模型目录同步完成', {
+      count: models.length,
+      scanned,
+      filtered: scanned - models.length,
+    });
     return data;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

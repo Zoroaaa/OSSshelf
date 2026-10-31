@@ -18,6 +18,7 @@ import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { ModelGateway, WorkersAiAdapter } from '../lib/ai';
 import { getWorkersAiCatalog } from '../lib/ai/workersAiCatalog';
+import { MODEL_ID_FORMAT_HINT, pickSupportedModelId } from '../lib/ai/modelId';
 import { getFeatureModelConfig, saveFeatureModelConfig } from '../lib/ai/featureConfigService';
 import type { ModelConfig, ModelCapability } from '../lib/ai/types';
 import { logger } from '@osshelf/shared';
@@ -370,6 +371,23 @@ app.post('/models', async (c) => {
 
   const data = result.data;
 
+  if (data.provider === 'workers_ai') {
+    const resolvedModelId = pickSupportedModelId(data.modelId, data.name);
+    if (!resolvedModelId) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: ERROR_CODES.VALIDATION_ERROR,
+            message: `模型 ID「${data.modelId}」不是 Cloudflare 可识别的格式，请填写 ${MODEL_ID_FORMAT_HINT}`,
+          },
+        },
+        400
+      );
+    }
+    data.modelId = resolvedModelId;
+  }
+
   try {
     const db = getDb(c.env.DB);
 
@@ -459,6 +477,30 @@ app.put('/models/:modelId', async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '模型不存在' } }, 404);
   }
 
+  const nextProvider = data.provider ?? existingModel.provider;
+  let repairedModelId: string | undefined;
+  if (nextProvider === 'workers_ai') {
+    const resolvedModelId = pickSupportedModelId(data.modelId ?? existingModel.modelId, data.name, existingModel.name);
+    if (!resolvedModelId) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: ERROR_CODES.VALIDATION_ERROR,
+            message: `模型 ID「${data.modelId ?? existingModel.modelId}」不是 Cloudflare 可识别的格式，请填写 ${MODEL_ID_FORMAT_HINT}`,
+          },
+        },
+        400
+      );
+    }
+    if (data.modelId !== undefined && resolvedModelId !== data.modelId) {
+      data.modelId = resolvedModelId;
+    }
+    if (data.modelId === undefined && resolvedModelId !== existingModel.modelId) {
+      repairedModelId = resolvedModelId;
+    }
+  }
+
   try {
     if (data.isActive) {
       await db.update(aiModels).set({ isActive: false }).where(eq(aiModels.userId, userId));
@@ -477,6 +519,7 @@ app.put('/models/:modelId', async (c) => {
     if (data.provider !== undefined) updateData.provider = data.provider;
     if (data.providerId !== undefined) updateData.providerId = data.providerId || null;
     if (data.modelId !== undefined) updateData.modelId = data.modelId;
+    else if (repairedModelId) updateData.modelId = repairedModelId;
     if (data.apiEndpoint !== undefined) updateData.apiEndpoint = data.apiEndpoint || null;
     if (data.apiKey !== undefined) updateData.apiKeyEncrypted = apiKeyEncrypted;
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
@@ -546,7 +589,38 @@ app.post('/models/:modelId/activate', async (c) => {
     return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '模型不存在' } }, 404);
   }
 
+  let repairedModelId: string | undefined;
+  if (modelToActivate.provider === 'workers_ai') {
+    const resolvedModelId = pickSupportedModelId(modelToActivate.modelId, modelToActivate.name);
+    if (!resolvedModelId) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: ERROR_CODES.VALIDATION_ERROR,
+            message: `模型「${modelToActivate.name}」的 modelId「${modelToActivate.modelId}」不是 Cloudflare 可识别的模型 ID，请先编辑为 ${MODEL_ID_FORMAT_HINT}`,
+          },
+        },
+        400
+      );
+    }
+    if (resolvedModelId !== modelToActivate.modelId) repairedModelId = resolvedModelId;
+  }
+
   try {
+    if (repairedModelId) {
+      await db
+        .update(aiModels)
+        .set({ modelId: repairedModelId, updatedAt: new Date().toISOString() })
+        .where(eq(aiModels.id, modelId));
+      logger.warn('AI', 'Model modelId repaired on activation', {
+        userId,
+        modelId,
+        storedModelId: modelToActivate.modelId,
+        resolvedModelId: repairedModelId,
+      });
+    }
+
     await db.update(aiModels).set({ isActive: false }).where(eq(aiModels.userId, userId));
     await db
       .update(aiModels)
@@ -861,6 +935,23 @@ app.post('/test', async (c) => {
         { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请提供 modelId 或 provider' } },
         400
       );
+    }
+
+    if (testConfig.provider === 'workers_ai') {
+      const resolvedModelId = pickSupportedModelId(testConfig.modelId, testConfig.name);
+      if (!resolvedModelId) {
+        return c.json(
+          {
+            success: false,
+            error: {
+              code: ERROR_CODES.VALIDATION_ERROR,
+              message: `模型 ID「${testConfig.modelId}」不是 Cloudflare 可识别的格式，请填写 ${MODEL_ID_FORMAT_HINT}`,
+            },
+          },
+          400
+        );
+      }
+      testConfig.modelId = resolvedModelId;
     }
 
     // 执行测试请求

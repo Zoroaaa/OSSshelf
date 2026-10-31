@@ -32,6 +32,9 @@ const SOURCE_TOOL_NAMES = new Set([
   'get_recent_files',
   'list_folder',
   'get_starred_files',
+  'navigate_path',
+  'get_folder_tree',
+  'get_parent_chain',
 ]);
 
 /** 无 metadata 的历史消息：首次映射时间固定下来，避免每帧都变成"现在" */
@@ -85,17 +88,33 @@ function collectSources(calls: ToolCallEvent[]): Message['sources'] {
     });
   };
 
+  const pushTree = (nodes: unknown[]) => {
+    for (const node of nodes) {
+      if (isFileLike(node)) push(node);
+      const children = (node as { children?: unknown }).children;
+      if (Array.isArray(children)) pushTree(children);
+    }
+  };
+
   for (const call of calls) {
     if (call.status !== 'done' || !call.result || typeof call.result !== 'object') continue;
-    const result = call.result as Record<string, unknown>;
-    if (Array.isArray(result.files)) {
-      for (const file of result.files) if (isFileLike(file)) push(file);
-    } else if (isFileLike(result)) {
-      push(result);
-    } else {
-      if (isFileLike(result.fileA)) push(result.fileA);
-      if (isFileLike(result.fileB)) push(result.fileB);
+    const data = call.result as Record<string, unknown>;
+
+    if (isFileLike(data.file)) push(data.file);
+    if (isFileLike(data.folder)) push(data.folder);
+
+    const self: unknown = data;
+    if (isFileLike(self)) push(self);
+
+    for (const list of [data.files, data.children, data.chain]) {
+      if (Array.isArray(list)) {
+        for (const file of list) if (isFileLike(file)) push(file);
+      }
     }
+    if (Array.isArray(data.tree)) pushTree(data.tree);
+
+    if (isFileLike(data.fileA)) push(data.fileA);
+    if (isFileLike(data.fileB)) push(data.fileB);
   }
 
   return sources.length > 0 ? sources : undefined;
