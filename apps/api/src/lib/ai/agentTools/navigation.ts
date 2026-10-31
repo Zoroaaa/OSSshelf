@@ -13,11 +13,12 @@
  * - 记住上下文，减少重复查询
  */
 
-import { eq, and, isNull, desc, asc, like, sql, count } from 'drizzle-orm';
+import { eq, and, isNull, desc, asc, sql, count } from 'drizzle-orm';
 import { getDb, files } from '../../../db';
 import type { Env } from '../../../types/env';
 import type { ToolDefinition, AgentFile } from './types';
 import { formatBytes, getMimeTypeCategory } from '../utils';
+import { resolveFolderPath } from '../../../lib/fileService';
 
 export const definitions: ToolDefinition[] = [
   // 1. navigate_path — 智能路径导航
@@ -41,12 +42,14 @@ export const definitions: ToolDefinition[] = [
         properties: {
           path: { type: 'string', description: '目标路径（如"/工作/项目文档"、空串表示根目录、".."表示上级）' },
           folderId: { type: 'string', description: '目标文件夹ID（优先使用此参数）' },
+          currentFolderId: { type: 'string', description: '当前所在文件夹ID（相对路径与返回上级时使用）' },
+          action: { type: 'string', enum: ['list', 'info', 'parent'], description: '操作类型，默认 list' },
         },
       },
       examples: [
         { user_query: '打开工作文件夹', tool_call: { path: '/工作' } },
         { user_query: '进入项目文档目录', tool_call: { folderId: '<project_folder_id>' } },
-        { user_query: '回到上一级', tool_call: { path: '..' } },
+        { user_query: '回到上一级', tool_call: { path: '..', currentFolderId: '<current_folder_id>' } },
       ],
     },
   },
@@ -62,17 +65,17 @@ export const definitions: ToolDefinition[] = [
 • "列出XX目录下的文件"
 • "看看最近修改的文件"
 
-⚠️ 必须先通过 navigate_path 获取到 folderId 后再调用`,
+💡 优先传 folderId；只有文件夹名称时传 folderPath。`,
       parameters: {
         type: 'object',
         properties: {
-          folderId: { type: 'string', description: '要浏览的文件夹ID' },
+          folderId: { type: 'string', description: '要浏览的文件夹ID（优先使用）' },
+          folderPath: { type: 'string', description: '文件夹名称路径（如 "项目文档/2024"），不知道 id 时使用' },
           sortBy: { type: 'string', enum: ['name', 'size', 'updated_at', 'created_at'], description: '排序方式' },
           sortOrder: { type: 'string', enum: ['asc', 'desc'], description: '排序方向（默认降序）' },
           mimeTypePrefix: { type: 'string', description: '按类型过滤（如 "image/" 只看图片）' },
           limit: { type: 'number', description: '最多返回数量（默认50）' },
         },
-        required: ['folderId'],
       },
       examples: [
         { user_query: '这个文件夹里有什么', tool_call: { folderId: '<folder_id>' } },
@@ -217,6 +220,7 @@ export class NavigationTools {
   static async executeListFolder(env: Env, userId: string, args: Record<string, unknown>) {
     const db = getDb(env.DB);
     let parentId: string | null = null;
+    let folderInfo: { id: string; name: string; isFolder: boolean; _ref: string } | null = null;
 
     if (args.folderId) {
       const folder = await db
@@ -227,13 +231,28 @@ export class NavigationTools {
       if (!folder) return { error: `文件夹不存在: ${args.folderId}` };
       if (!folder.isFolder) return { error: `${args.folderId} 不是文件夹` };
       parentId = folder.id;
+      folderInfo = {
+        id: folder.id,
+        name: folder.name,
+        isFolder: true,
+        _ref: `[FOLDER:${folder.id}:${folder.name}]`,
+      };
     } else if (args.folderPath) {
+      parentId = await resolveFolderPath(env, userId, args.folderPath as string);
+      if (!parentId) return { error: `文件夹不存在: ${args.folderPath}` };
       const folder = await db
-        .select()
+        .select({ id: files.id, name: files.name })
         .from(files)
-        .where(and(eq(files.userId, userId), eq(files.path, args.folderPath as string), isNull(files.deletedAt)))
+        .where(and(eq(files.id, parentId), eq(files.userId, userId)))
         .get();
-      if (folder) parentId = folder.id;
+      if (folder) {
+        folderInfo = {
+          id: folder.id,
+          name: folder.name,
+          isFolder: true,
+          _ref: `[FOLDER:${folder.id}:${folder.name}]`,
+        };
+      }
     }
 
     const sortBy = (args.sortBy as string) || 'name_asc';
@@ -266,7 +285,9 @@ export class NavigationTools {
     const fileCount = children.length - folderCount;
 
     return {
+      folder: folderInfo,
       folderId: parentId,
+      folderName: folderInfo?.name ?? null,
       children,
       total: children.length,
       folderCount,
@@ -276,8 +297,8 @@ export class NavigationTools {
   }
 
   static async executeGetFolderTree(env: Env, userId: string, args: Record<string, unknown>) {
-    const rootFolderId = args.rootFolderId as string | undefined;
-    const maxDepth = Math.min((args.maxDepth as number) || 3, 5);
+    const rootFolderId = (args.rootFolderId ?? args.folderId) as string | undefined;
+    const maxDepth = Math.min((args.maxDepth ?? args.depth ?? 3) as number, 5);
     const includeFiles = args.includeFiles !== false;
 
     async function buildTree(parentId: string | null, depth: number): Promise<any[]> {
@@ -304,6 +325,7 @@ export class NavigationTools {
             id: item.id,
             name: item.name,
             isFolder: item.isFolder,
+            _ref: item.isFolder ? `[FOLDER:${item.id}:${item.name}]` : `[FILE:${item.id}:${item.name}]`,
             size: formatBytes(item.size),
           };
 
@@ -350,47 +372,32 @@ export class NavigationTools {
   }
 
   static async executeNavigatePath(env: Env, userId: string, args: Record<string, unknown>) {
-    const path = args.path as string;
+    const path = typeof args.path === 'string' ? args.path : '';
+    const folderId = args.folderId as string | undefined;
     const currentFolderId = args.currentFolderId as string | undefined;
     const action = (args.action as string) || 'list';
     const db = getDb(env.DB);
 
     let targetId: string | null = null;
 
-    if (path === '..' || path === '../' || path === 'parent') {
+    if (folderId) {
+      const folder = await db
+        .select({ id: files.id, isFolder: files.isFolder })
+        .from(files)
+        .where(and(eq(files.id, folderId), eq(files.userId, userId), isNull(files.deletedAt)))
+        .get();
+      if (!folder) return { error: `文件夹不存在: ${folderId}` };
+      if (!folder.isFolder) return { error: `${folderId} 不是文件夹` };
+      targetId = folder.id;
+    } else if (path === '..' || path === '../' || path === 'parent') {
       if (!currentFolderId) {
         return { error: '需要提供 currentFolderId 才能返回父级' };
       }
-      const current = await db
-        .select()
-        .from(files)
-        .where(and(eq(files.id, currentFolderId), eq(files.userId, userId)))
-        .get();
-      targetId = current?.parentId || null;
-    } else if (path.startsWith('/') || path.startsWith('\\')) {
-      const folder = await db
-        .select()
-        .from(files)
-        .where(and(eq(files.userId, userId), eq(files.path, path), isNull(files.deletedAt)))
-        .get();
-      targetId = folder?.id || null;
+      targetId = await resolveFolderPath(env, userId, '..', { startParentId: currentFolderId });
+    } else if (path.trim() === '' || path.trim() === '/' || path.trim() === '\\') {
+      targetId = null;
     } else {
-      const current = currentFolderId
-        ? await db
-            .select()
-            .from(files)
-            .where(and(eq(files.id, currentFolderId), eq(files.userId, userId)))
-            .get()
-        : null;
-
-      const searchPath = current?.path ? `${current.path}/${path}` : `/${path}`;
-
-      const folder = await db
-        .select()
-        .from(files)
-        .where(and(eq(files.userId, userId), like(files.path, `%${searchPath}%`), isNull(files.deletedAt)))
-        .get();
-      targetId = folder?.id || null;
+      targetId = await resolveFolderPath(env, userId, path.trim(), { startParentId: currentFolderId ?? null });
     }
 
     switch (action) {
@@ -565,9 +572,11 @@ export class NavigationTools {
     }
 
     return {
-      fileId,
-      fileName: file.name,
-      path: file.path,
+      id: file.id,
+      name: file.name,
+      isFolder: file.isFolder,
+      _ref: file.isFolder ? `[FOLDER:${file.id}:${file.name}]` : `[FILE:${file.id}:${file.name}]`,
+      displayPath: [...chain.map((item) => item.name), file.name].join('/'),
       chain,
       depth: chain.length,
     };
@@ -575,10 +584,11 @@ export class NavigationTools {
 }
 
 function toAgentFile(f: any): AgentFile {
+  const _ref = f.isFolder ? `[FOLDER:${f.id}:${f.name}]` : `[FILE:${f.id}:${f.name}]`;
   return {
     id: f.id,
     name: f.name,
-    path: f.path,
+    _ref,
     isFolder: f.isFolder,
     mimeType: f.mimeType,
     size: f.size,

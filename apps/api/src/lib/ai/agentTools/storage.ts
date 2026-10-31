@@ -274,7 +274,6 @@ export class StorageTools {
       .select({
         folderId: files.id,
         folderName: files.name,
-        folderPath: files.path,
         totalSize: sql<number>`COALESCE((SELECT SUM(f2.size) FROM files f2 WHERE f2.parent_id = files.id AND f2.deleted_at IS NULL), 0)`,
         fileCount: sql<number>`(SELECT COUNT(*) FROM files f2 WHERE f2.parent_id = files.id AND f2.deleted_at IS NULL AND f2.is_folder = FALSE)`,
       })
@@ -293,7 +292,8 @@ export class StorageTools {
       folders: rows.map((r) => ({
         id: r.folderId,
         name: r.folderName,
-        path: r.folderPath,
+        isFolder: true,
+        _ref: `[FOLDER:${r.folderId}:${r.folderName}]`,
         totalSize: formatBytes(r.totalSize || 0),
         totalSizeBytes: r.totalSize || 0,
         fileCount: Number(r.fileCount) || 0,

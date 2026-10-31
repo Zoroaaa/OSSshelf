@@ -7,18 +7,19 @@
  * - 独立成行的引用升级为卡片，行内引用保持内联
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { Check, Copy, ExternalLink, FileText, FolderOpen } from 'lucide-react';
+import { filesApi } from '@/services/api';
 
 interface AssistantContentProps {
   content: string;
   onFileClick: (id: string, isFolder: boolean) => void;
 }
 
-const FILE_REF_REGEX = /\[(FILE|FOLDER):([^:\]]+):([^\]]+)\]/g;
+const FILE_REF_REGEX = /\[(FILE|FOLDER):([^:\]]+)(?::([^\]]*))?\]/g;
 
 const REF_PLACEHOLDER = '\u200B\u200CFREF_';
 const REF_PLACEHOLDER_SUFFIX = '\u200C\u200B';
@@ -28,6 +29,36 @@ interface FileRefInfo {
   id: string;
   name: string;
   isStandalone: boolean;
+}
+
+/** 引用缺少 name 时按 id 回查，避免直接暴露 uuid */
+function useResolvedFileRef(id: string, type: 'FILE' | 'FOLDER', name: string) {
+  const [resolvedName, setResolvedName] = useState(name);
+  const [isFolder, setIsFolder] = useState(type === 'FOLDER');
+
+  useEffect(() => {
+    setResolvedName(name);
+    setIsFolder(type === 'FOLDER');
+    if (name) return;
+
+    let cancelled = false;
+    filesApi
+      .get(id)
+      .then((res) => {
+        const data = res.data?.data;
+        if (!cancelled && data) {
+          setResolvedName(data.name);
+          setIsFolder(data.isFolder);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id, name, type]);
+
+  return { name: resolvedName || (isFolder ? '文件夹' : '文件'), isFolder };
 }
 
 function isStandaloneLine(content: string, matchIndex: number, matchLength: number): boolean {
@@ -61,19 +92,19 @@ function FileRefCard({
   name: string;
   onClick: (id: string, isFolder: boolean) => void;
 }) {
-  const isFolder = type === 'FOLDER';
+  const resolved = useResolvedFileRef(id, type, name);
   return (
     <button
       type="button"
-      onClick={() => onClick(id, isFolder)}
+      onClick={() => onClick(id, resolved.isFolder)}
       className="mx-0.5 inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-muted/60 px-2 py-0.5 text-[12px] font-medium text-foreground align-middle transition-colors hover:border-primary/50 hover:bg-accent"
     >
-      {isFolder ? (
+      {resolved.isFolder ? (
         <FolderOpen className="h-3 w-3 flex-shrink-0 text-amber-500" />
       ) : (
         <FileText className="h-3 w-3 flex-shrink-0 text-primary" />
       )}
-      <span className="max-w-[220px] truncate">{name}</span>
+      <span className="max-w-[220px] truncate">{resolved.name}</span>
       <ExternalLink className="h-2.5 w-2.5 flex-shrink-0 opacity-40" />
     </button>
   );
@@ -90,18 +121,22 @@ function StandaloneFileRefCard({
   name: string;
   onClick: (id: string, isFolder: boolean) => void;
 }) {
-  const isFolder = type === 'FOLDER';
+  const resolved = useResolvedFileRef(id, type, name);
   return (
     <div className="my-1.5">
       <button
         type="button"
-        onClick={() => onClick(id, isFolder)}
+        onClick={() => onClick(id, resolved.isFolder)}
         className="inline-flex max-w-full items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-[12px] font-medium text-foreground shadow-sm transition-colors hover:border-primary/50 hover:bg-accent"
       >
         <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-muted">
-          {isFolder ? <FolderOpen className="h-3 w-3 text-amber-500" /> : <FileText className="h-3 w-3 text-primary" />}
+          {resolved.isFolder ? (
+            <FolderOpen className="h-3 w-3 text-amber-500" />
+          ) : (
+            <FileText className="h-3 w-3 text-primary" />
+          )}
         </span>
-        <span className="max-w-[260px] truncate">{name}</span>
+        <span className="max-w-[260px] truncate">{resolved.name}</span>
         <ExternalLink className="h-3 w-3 flex-shrink-0 opacity-40" />
       </button>
     </div>
@@ -204,7 +239,7 @@ function getMarkdownComponents(
     ),
     blockquote: (props: { children?: React.ReactNode }) => (
       <blockquote className="my-3 rounded-r-lg border-l-4 border-primary/40 bg-muted/40 py-2 pl-4 italic text-muted-foreground">
-        {props.children}
+        {resolveRefs(props.children)}
       </blockquote>
     ),
     table: (props: { children?: React.ReactNode }) => (
@@ -236,7 +271,9 @@ function getMarkdownComponents(
     strong: (props: { children?: React.ReactNode }) => (
       <strong className="font-bold text-foreground">{resolveRefs(props.children)}</strong>
     ),
-    em: (props: { children?: React.ReactNode }) => <em className="italic text-foreground">{props.children}</em>,
+    em: (props: { children?: React.ReactNode }) => (
+      <em className="italic text-foreground">{resolveRefs(props.children)}</em>
+    ),
     hr: () => <hr className="my-6 border-t border-border" />,
     img: (props: { src?: string; alt?: string }) => (
       <img

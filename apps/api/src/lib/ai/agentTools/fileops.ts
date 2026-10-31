@@ -30,6 +30,7 @@ import {
   createFolder,
   restoreFile as serviceRestoreFile,
   findOrCreateFolder as serviceFindOrCreateFolder,
+  resolveFolderPath as serviceResolveFolderPath,
 } from '../../../lib/fileService';
 import { readFileContent } from '../../../lib/fileContentHelper';
 import { enqueueAgentBatchOperation } from '../aiTaskQueue';
@@ -161,7 +162,8 @@ export const definitions: ToolDefinition[] = [
         properties: {
           content: { type: 'string', description: '文件内容' },
           fileName: { type: 'string', description: '文件名（含扩展名，如 "notes.md"）' },
-          folderPath: { type: 'string', description: '目标文件夹路径（如 "备忘录"），不传则根目录' },
+          parentId: { type: 'string', description: '目标文件夹 ID（优先使用搜索/列表结果中的真实 id）' },
+          folderPath: { type: 'string', description: '目标文件夹路径（如 "备忘录"），仅在不知道文件夹 id 时作为兜底' },
           encoding: { type: 'string', enum: ['utf-8', 'gbk'], description: '编码，默认 utf-8' },
           _confirmed: { type: 'boolean', description: '用户确认' },
         },
@@ -170,8 +172,8 @@ export const definitions: ToolDefinition[] = [
       examples: [
         { user_query: '帮我创建一个笔记', tool_call: { content: '今日工作内容：...', fileName: 'notes.md' } },
         {
-          user_query: '新建README文件',
-          tool_call: { content: '# 项目名称\n\n## 简介', fileName: 'README.md', folderPath: '项目文档' },
+          user_query: '新建README文件到项目文档',
+          tool_call: { content: '# 项目名称\n\n## 简介', fileName: 'README.md', parentId: '<docs_folder_id>' },
         },
         { user_query: '保存这段文本', tool_call: { content: '用户提供的文本内容', fileName: 'document.txt' } },
       ],
@@ -193,7 +195,8 @@ export const definitions: ToolDefinition[] = [
         properties: {
           code: { type: 'string', description: '代码内容' },
           fileName: { type: 'string', description: '文件名（含扩展名，如 "helper.ts"）' },
-          targetFolder: { type: 'string', description: '目标文件夹路径' },
+          parentId: { type: 'string', description: '目标文件夹 ID（优先使用）' },
+          targetFolder: { type: 'string', description: '目标文件夹路径（兜底）' },
           language: { type: 'string', description: '编程语言（用于日志记录，可选）' },
           _confirmed: { type: 'boolean', description: '用户确认' },
         },
@@ -205,8 +208,8 @@ export const definitions: ToolDefinition[] = [
           tool_call: { code: 'def hello():\n    print("Hello")', fileName: 'hello.py', language: 'python' },
         },
         {
-          user_query: '创建TypeScript工具文件',
-          tool_call: { code: 'export function helper() {}', fileName: 'utils.ts', targetFolder: 'src/utils' },
+          user_query: '创建TypeScript工具文件到src/utils',
+          tool_call: { code: 'export function helper() {}', fileName: 'utils.ts', parentId: '<utils_folder_id>' },
         },
       ],
     },
@@ -235,7 +238,8 @@ export const definitions: ToolDefinition[] = [
             type: 'object',
             description: '模板变量（如 projectName, author, version 等）',
           },
-          targetFolder: { type: 'string', description: '目标文件夹路径' },
+          parentId: { type: 'string', description: '目标文件夹 ID（优先使用）' },
+          targetFolder: { type: 'string', description: '目标文件夹路径（兜底）' },
           _confirmed: { type: 'boolean', description: '用户确认' },
         },
         required: ['templateName'],
@@ -245,7 +249,7 @@ export const definitions: ToolDefinition[] = [
           user_query: '创建README模板',
           tool_call: { templateName: 'readme', variables: { projectName: 'MyApp', author: 'User' } },
         },
-        { user_query: '新建gitignore文件', tool_call: { templateName: 'gitignore', targetFolder: '项目代码' } },
+        { user_query: '新建gitignore文件', tool_call: { templateName: 'gitignore', parentId: '<code_folder_id>' } },
       ],
     },
   },
@@ -416,7 +420,7 @@ export const definitions: ToolDefinition[] = [
           targetFolderPath: { type: 'string', description: '目标文件夹路径（备选）' },
           _confirmed: { type: 'boolean', description: '用户确认' },
         },
-        required: ['fileId', 'targetFolderId'],
+        required: ['fileId'],
       },
       examples: [
         {
@@ -558,7 +562,7 @@ export const definitions: ToolDefinition[] = [
           targetFolderPath: { type: 'string', description: '目标文件夹路径（备选）' },
           _confirmed: { type: 'boolean', description: '用户确认' },
         },
-        required: ['fileIds', 'targetFolderId'],
+        required: ['fileIds'],
       },
       examples: [
         {
@@ -710,6 +714,7 @@ export class FileOpsTools {
   static async executeCreateTextFile(env: Env, userId: string, args: Record<string, unknown>) {
     const content = args.content as string;
     const fileName = args.fileName as string;
+    const parentId = args.parentId as string | undefined;
     const folderPath = args.folderPath as string | undefined;
 
     if (!content || !fileName) {
@@ -724,11 +729,25 @@ export class FileOpsTools {
     }
 
     let folderId: string | null = null;
-    if (folderPath) {
+    let folderLabel: string | undefined;
+    if (parentId) {
+      const db = getDb(env.DB);
+      const folder = await db
+        .select({ id: files.id, name: files.name })
+        .from(files)
+        .where(and(eq(files.id, parentId), eq(files.userId, userId), eq(files.isFolder, true), isNull(files.deletedAt)))
+        .get();
+      if (!folder) {
+        return { error: `目标文件夹不存在或不是文件夹: ${parentId}` };
+      }
+      folderId = folder.id;
+      folderLabel = folder.name;
+    } else if (folderPath) {
       folderId = await FileOpsTools.findOrCreateFolder(env, userId, folderPath);
       if (!folderId) {
         return { error: `无法找到或创建文件夹: ${folderPath}` };
       }
+      folderLabel = folderPath;
     }
 
     // 调用公共 service 层（复用 files.ts POST /create 的核心逻辑）
@@ -745,10 +764,13 @@ export class FileOpsTools {
 
     return {
       success: true,
-      message: `文件 "${fileName}" 已创建${folderPath ? ` 到 ${folderPath}` : ''}`,
+      message: `文件 "${fileName}" 已创建${folderLabel ? ` 到 ${folderLabel}` : ''}`,
+      id: result.fileId,
+      name: fileName,
+      isFolder: false,
+      _ref: `[FILE:${result.fileId}:${fileName}]`,
       fileId: result.fileId,
       fileName,
-      path: result.file.path as string,
       size: formatBytes(result.file.size as number),
       mimeType: result.file.mimeType as string,
       _next_actions: [
@@ -894,6 +916,7 @@ services:
     return FileOpsTools.executeCreateTextFile(env, userId, {
       content,
       fileName: template.defaultName,
+      parentId: args.parentId as string | undefined,
       folderPath: targetFolder,
     });
   }
@@ -973,6 +996,10 @@ services:
     return {
       success: true,
       message: `文件 "${file.name}" 已编辑`,
+      id: fileId,
+      name: file.name,
+      isFolder: false,
+      _ref: `[FILE:${fileId}:${file.name}]`,
       fileId,
       fileName: file.name,
       changesApplied: appliedEdits.filter((e) => e.success).length,
@@ -1063,6 +1090,10 @@ services:
     return {
       success: true,
       message: `已完成查找替换`,
+      id: fileId,
+      name: file.name,
+      isFolder: false,
+      _ref: `[FILE:${fileId}:${file.name}]`,
       fileId,
       fileName: file.name,
       find: findStr,
@@ -1080,28 +1111,94 @@ services:
     const result = await renameFile(env, userId, fileId, { name: newName });
     if (!result.success) return { error: result.error };
 
-    return { success: true, message: result.message, fileId, newName };
+    const db = getDb(env.DB);
+    const renamed = await db
+      .select({ id: files.id, name: files.name, isFolder: files.isFolder })
+      .from(files)
+      .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+      .get();
+
+    return {
+      success: true,
+      message: result.message,
+      id: renamed?.id ?? fileId,
+      name: renamed?.name ?? newName,
+      isFolder: renamed?.isFolder ?? false,
+      _ref: renamed
+        ? renamed.isFolder
+          ? `[FOLDER:${renamed.id}:${renamed.name}]`
+          : `[FILE:${renamed.id}:${renamed.name}]`
+        : undefined,
+      fileId,
+      newName,
+    };
   }
 
   static async executeMoveFile(env: Env, userId: string, args: Record<string, unknown>) {
     const fileId = args.fileId as string;
-    const targetFolderId = args.targetFolderId as string;
+    let targetFolderId = args.targetFolderId as string | undefined;
+    const targetFolderPath = args.targetFolderPath as string | undefined;
+
+    if (!targetFolderId && targetFolderPath) {
+      const resolved = await serviceResolveFolderPath(env, userId, targetFolderPath);
+      if (!resolved) return { error: `目标文件夹不存在: ${targetFolderPath}` };
+      targetFolderId = resolved;
+    }
+    if (!targetFolderId) return { error: '缺少目标文件夹: targetFolderId 或 targetFolderPath' };
 
     // 调用公共 service 层（复用 files.ts POST /:id/move 的核心逻辑：循环检测、同名冲突、子路径更新）
     const result = await moveFile(env, userId, fileId, { targetParentId: targetFolderId });
     if (!result.success) return { error: result.error };
 
-    return { success: true, message: result.message, fileId };
+    const db = getDb(env.DB);
+    const moved = await db
+      .select({ id: files.id, name: files.name, isFolder: files.isFolder })
+      .from(files)
+      .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+      .get();
+
+    return {
+      success: true,
+      message: result.message,
+      id: moved?.id ?? fileId,
+      name: moved?.name ?? '',
+      isFolder: moved?.isFolder ?? false,
+      _ref: moved
+        ? moved.isFolder
+          ? `[FOLDER:${moved.id}:${moved.name}]`
+          : `[FILE:${moved.id}:${moved.name}]`
+        : undefined,
+      fileId,
+    };
   }
 
   static async executeDeleteFile(env: Env, userId: string, args: Record<string, unknown>) {
     const fileId = args.fileId as string;
 
+    const db = getDb(env.DB);
+    const target = await db
+      .select({ id: files.id, name: files.name, isFolder: files.isFolder })
+      .from(files)
+      .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+      .get();
+
     // 调用公共 service 层（复用 files.ts DELETE /:id 的核心逻辑：文件夹递归删除、通知、webhook）
     const result = await softDeleteFile(env, userId, fileId);
     if (!result.success) return { error: result.error };
 
-    return { success: true, message: result.message, fileId };
+    return {
+      success: true,
+      message: result.message,
+      id: fileId,
+      name: target?.name ?? '',
+      isFolder: target?.isFolder ?? false,
+      _ref: target
+        ? target.isFolder
+          ? `[FOLDER:${target.id}:${target.name}]`
+          : `[FILE:${target.id}:${target.name}]`
+        : undefined,
+      fileId,
+    };
   }
 
   static async executeToggleStar(env: Env, userId: string, args: Record<string, unknown>) {
@@ -1121,9 +1218,24 @@ services:
     const result = await serviceRestoreFile(env, userId, fileId);
     if (!result.success) return { error: result.error };
 
+    const db = getDb(env.DB);
+    const restored = await db
+      .select({ id: files.id, name: files.name, isFolder: files.isFolder })
+      .from(files)
+      .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
+      .get();
+
     return {
       success: true,
       message: result.message,
+      id: restored?.id ?? fileId,
+      name: restored?.name ?? result.fileName,
+      isFolder: restored?.isFolder ?? false,
+      _ref: restored
+        ? restored.isFolder
+          ? `[FOLDER:${restored.id}:${restored.name}]`
+          : `[FILE:${restored.id}:${restored.name}]`
+        : undefined,
       fileId,
       fileName: result.fileName,
       restoredAt: new Date().toISOString(),
@@ -1132,7 +1244,14 @@ services:
 
   static async executeCreateFolder(env: Env, userId: string, args: Record<string, unknown>) {
     const folderName = args.folderName as string;
-    const parentId = args.parentId as string | undefined;
+    let parentId = args.parentId as string | undefined;
+    const parentPath = args.parentPath as string | undefined;
+
+    if (!parentId && parentPath) {
+      const resolved = await serviceResolveFolderPath(env, userId, parentPath);
+      if (!resolved) return { error: `父文件夹不存在: ${parentPath}` };
+      parentId = resolved;
+    }
 
     // 调用公共 service 层（复用 files.ts POST / 的核心逻辑：同名检查、权限继承、存储桶解析）
     const result = await createFolder(env, userId, folderName, parentId);
@@ -1141,9 +1260,13 @@ services:
     return {
       success: true,
       message: `文件夹 "${folderName}" 已创建`,
+      id: result.folderId,
+      name: folderName,
+      isFolder: true,
+      _ref: `[FOLDER:${result.folderId}:${folderName}]`,
       folderId: result.folderId,
       folderName,
-      _next_actions: ['✅ 文件夹创建成功', '如需上传文件到此文件夹，可使用 create_text_file 并指定 parentId'],
+      _next_actions: ['✅ 文件夹创建成功', '如需在此文件夹创建文件，请传 parentId'],
     };
   }
 
@@ -1246,11 +1369,18 @@ services:
 
   static async executeBatchMove(env: Env, userId: string, args: Record<string, unknown>) {
     const fileIds = args.fileIds as string[];
-    const targetFolderId = args.targetFolderId as string;
+    let targetFolderId = args.targetFolderId as string | undefined;
+    const targetFolderPath = args.targetFolderPath as string | undefined;
 
-    if (!Array.isArray(fileIds) || fileIds.length === 0 || !targetFolderId) {
-      return { error: '缺少必要参数: fileIds (数组) 和 targetFolderId' };
+    if (!Array.isArray(fileIds) || fileIds.length === 0) {
+      return { error: '缺少必要参数: fileIds (非空数组)' };
     }
+    if (!targetFolderId && targetFolderPath) {
+      const resolved = await serviceResolveFolderPath(env, userId, targetFolderPath);
+      if (!resolved) return { error: `目标文件夹不存在: ${targetFolderPath}` };
+      targetFolderId = resolved;
+    }
+    if (!targetFolderId) return { error: '缺少目标文件夹: targetFolderId 或 targetFolderPath' };
 
     if (fileIds.length > BATCH_THRESHOLD) {
       try {
@@ -1405,6 +1535,16 @@ services:
     const ext = getFileExtension(fileName);
     const folderId: string | null = targetFolderId || null;
 
+    if (folderId) {
+      const db = getDb(env.DB);
+      const folder = await db
+        .select({ id: files.id })
+        .from(files)
+        .where(and(eq(files.id, folderId), eq(files.userId, userId), eq(files.isFolder, true), isNull(files.deletedAt)))
+        .get();
+      if (!folder) return { error: `目标文件夹不存在或不是文件夹: ${folderId}` };
+    }
+
     const result = await createTextFile(env, userId, {
       name: fileName,
       content: draftContent,
@@ -1421,9 +1561,12 @@ services:
     return {
       success: true,
       message: `文件 "${fileName}" 已创建`,
+      id: result.fileId,
+      name: fileName,
+      isFolder: false,
+      _ref: `[FILE:${result.fileId}:${fileName}]`,
       fileId: result.fileId,
       fileName,
-      path: (result.file?.path as string) || '',
       size: formatBytes((result.file?.size as number) || 0),
       mimeType: (result.file?.mimeType as string) || 'text/plain',
       _next_actions: [

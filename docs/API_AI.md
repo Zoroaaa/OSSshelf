@@ -15,14 +15,14 @@
 
 ## 环境依赖
 
-| 绑定 / 变量 | 必需 | 说明 |
-| --- | --- | --- |
-| `AI` | 是 | Workers AI 推理与小规模 embedding |
-| `VECTORIZE` | 是 | 文件/记忆向量索引 |
-| `AI_TASKS_QUEUE` | 是（批量任务） | 一键索引/摘要/标签的队列 |
-| `OSSShelfAgent` | 是 | 对话 Durable Object |
-| `CF_ACCOUNT_ID` / `CF_API_TOKEN` | 可选 | 实时拉取 Workers AI 模型目录（权限 Workers AI Read） |
-| `ai_usage_events` / `file_chunks` / `ai_task_items` / `ai_feature_config` / `files_fts` | 是 | 由 `110_ai_agents.sql` 创建，需手动执行迁移 |
+| 绑定 / 变量                                                                             | 必需           | 说明                                                 |
+| --------------------------------------------------------------------------------------- | -------------- | ---------------------------------------------------- |
+| `AI`                                                                                    | 是             | Workers AI 推理与小规模 embedding                    |
+| `VECTORIZE`                                                                             | 是             | 文件/记忆向量索引                                    |
+| `AI_TASKS_QUEUE`                                                                        | 是（批量任务） | 一键索引/摘要/标签的队列                             |
+| `OSSShelfAgent`                                                                         | 是             | 对话 Durable Object                                  |
+| `CF_ACCOUNT_ID` / `CF_API_TOKEN`                                                        | 可选           | 实时拉取 Workers AI 模型目录（权限 Workers AI Read） |
+| `ai_usage_events` / `file_chunks` / `ai_task_items` / `ai_feature_config` / `files_fts` | 是             | 由 `110_ai_agents.sql` 创建，需手动执行迁移          |
 
 ---
 
@@ -162,6 +162,7 @@ Workers AI 模型目录。
   "configured": true,
   "fetchedAt": "ISO 时间",
   "error": "同步失败原因（可选）",
+  "missing": ["CF_ACCOUNT_ID", "CF_API_TOKEN"],
   "models": [
     {
       "id": "@cf/…",
@@ -178,8 +179,8 @@ Workers AI 模型目录。
 }
 ```
 
-- 配置 `CF_ACCOUNT_ID` + `CF_API_TOKEN` 时为 `live`，缓存 6 小时，`refresh=1` 强制刷新。
-- 未配置或同步失败时为 `fallback`（内置兜底清单），响应中的 `configured/error` 用于前端提示。
+- 配置 `CF_ACCOUNT_ID` + `CF_API_TOKEN`（Worker 运行时变量）时为 `live`，缓存 6 小时，`refresh=1` 强制刷新。
+- 未配置或同步失败时为 `fallback`（内置兜底清单）；`configured/error/missing` 用于前端提示，`missing` 明确列出未注入的变量名。
 
 ## GET /status
 
@@ -222,7 +223,11 @@ Workers AI 模型目录。
 ## GET /status
 
 ```json
-{ "configured": true, "queueConfigured": true, "features": { "semanticSearch": true, "summary": true, "imageTags": true, "renameSuggest": true } }
+{
+  "configured": true,
+  "queueConfigured": true,
+  "features": { "semanticSearch": true, "summary": true, "imageTags": true, "renameSuggest": true }
+}
 ```
 
 ## POST /index/all

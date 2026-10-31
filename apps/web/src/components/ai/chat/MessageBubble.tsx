@@ -4,7 +4,7 @@
  */
 
 import { useRef } from 'react';
-import { CheckCircle2, Copy, RefreshCw, Reply, Sparkles, StopCircle } from 'lucide-react';
+import { CheckCircle2, Copy, FolderOpen, RefreshCw, Reply, Sparkles, StopCircle } from 'lucide-react';
 import type { Message } from '../types';
 import { AssistantContent } from './AssistantContent';
 import { PlanProgressBar } from './PlanProgressBar';
@@ -107,7 +107,7 @@ export function MessageBubble({
               <ToolCallCard
                 key={toolCall.id}
                 tc={toolCall}
-                onFileClick={(id) => onFileClick(id, false)}
+                onFileClick={onFileClick}
                 onConfirmAction={onConfirmAction}
                 onCancelConfirm={onCancelConfirm}
               />
@@ -190,11 +190,12 @@ export function MessageBubble({
               <button
                 key={source.id}
                 type="button"
-                onClick={() => onFileClick(source.id, false)}
-                className="max-w-[180px] truncate rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-foreground transition-colors hover:border-primary/50 hover:bg-accent"
+                onClick={() => onFileClick(source.id, source.isFolder)}
+                className="inline-flex max-w-[180px] items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-foreground transition-colors hover:border-primary/50 hover:bg-accent"
                 title={source.name}
               >
-                {source.name}
+                {source.isFolder && <FolderOpen className="h-2.5 w-2.5 flex-shrink-0 text-amber-500" />}
+                <span className="truncate">{source.name}</span>
               </button>
             ))}
           </div>

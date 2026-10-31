@@ -1,0 +1,7 @@
+# 统一使用 LF，避免 Windows 检出时再次引入 CRLF
+* text=auto eol=lf
+
+# Windows 脚本保留 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

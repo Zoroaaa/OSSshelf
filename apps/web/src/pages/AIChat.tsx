@@ -258,17 +258,27 @@ export function AIChat() {
 
   // ═══ 文件预览 ═══
   const handleFileClick = useCallback(
-    async (fileId: string, isFolder: boolean) => {
-      if (isFolder) {
+    async (fileId: string, isFolderHint: boolean) => {
+      try {
+        const res = await filesApi.get(fileId);
+        const data = res.data?.data;
+        if (data) {
+          // 以接口返回的真实类型为准，避免引用标记错误时把文件夹当文件预览
+          if (data.isFolder) {
+            navigate(`/files/${fileId}`);
+          } else {
+            setPreviewFile(data);
+          }
+          return;
+        }
+      } catch {
+        // 元数据读取失败时退回引用标记
+      }
+      if (isFolderHint) {
         navigate(`/files/${fileId}`);
         return;
       }
-      try {
-        const res = await filesApi.get(fileId);
-        if (res.data?.data) setPreviewFile(res.data.data);
-      } catch {
-        navigate(`/files?preview=${fileId}`);
-      }
+      navigate(`/files?preview=${fileId}`);
     },
     [navigate]
   );

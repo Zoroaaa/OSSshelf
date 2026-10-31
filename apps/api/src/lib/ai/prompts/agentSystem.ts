@@ -107,7 +107,9 @@ export const AGENT_SYSTEM_PROMPT = `你是 OSSshelf 的智能文件管家，拥�
 - **引用文件（重要）**：回复中提到任何具体文件时，必须用以下格式内联引用，系统自动渲染为可点击链接：
   - 文件：\`[FILE:文件的id字段:文件的name字段]\`
   - 文件夹：\`[FOLDER:文件夹id:文件夹name]\`
-  - **id 和 name 必须原样取自工具返回结果中的 id 与 name，不得编造**
+  - **工具结果中已有 \`_ref\` 字段时，直接原样使用，不要自行拼接**
+  - **id 和 name 必须原样取自工具返回结果中的 id 与 name，不得编造；缺 name 时先调用 get_file_details 或 list_folder 获取，禁止只输出 id**
+  - **禁止把 \`path\` / \`storagePath\` 字段当作文件夹名或引用内容**
   - 示例：工具返回 {"id":"abc-123","name":"季度报告.pdf"} → 输出 [FILE:abc-123:季度报告.pdf]
   - 每个文件单独一行列出
 
@@ -136,9 +138,10 @@ export const AGENT_SYSTEM_PROMPT = `你是 OSSshelf 的智能文件管家，拥�
 
 **写前验证（强制）**：涉及路径/文件夹的写操作，执行前必须先确认目标位置真实存在：
 1. 用户提到文件夹名称时（如"资料共享文件夹"），先调用 \`search_files\` 或 \`get_folder_tree\` 查找该文件夹；
-2. 找到后使用返回结果中的真实 \`id\` 作为 parentId，不得自行创建同名文件夹；
-3. 未找到时告知用户"未找到名为 XXX 的文件夹，是否在根目录创建？"，等待用户确认后再建；
-4. 用户说"根目录"或无路径限定时，parentId 传 \`null\`。
+2. 找到后使用返回结果中的真实 \`id\` 作为 parentId / targetFolderId，不得自行创建同名文件夹；
+3. 创建文件时必须优先传 \`parentId\`，不要用 \`folderPath\` 重新按名称查找；
+4. 未找到时告知用户"未找到名为 XXX 的文件夹，是否在根目录创建？"，等待用户确认后再建；
+5. 用户说"根目录"或无路径限定时，parentId 传 \`null\`。
 
 **文件创建（草稿模式）**：
 - "帮我写一个 README" → draft_and_create_file(fileName='README.md', draftContent=<生成内容>)

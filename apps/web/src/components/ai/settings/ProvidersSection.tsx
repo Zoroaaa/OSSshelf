@@ -127,11 +127,15 @@ export function ProvidersSection({ models, status, quickActivateMutation }: Prov
             <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
             <div className="text-xs text-amber-700 dark:text-amber-300">
               <p className="font-medium">
-                {catalog.configured ? '实时目录同步失败，当前展示内置兜底清单' : '当前展示内置兜底清单，可能滞后'}
+                {catalog.missing.length > 0
+                  ? `未检测到 Worker 运行时变量：${catalog.missing.join('、')}`
+                  : catalog.configured
+                    ? '实时目录同步失败，当前展示内置兜底清单'
+                    : '当前展示内置兜底清单，可能滞后'}
               </p>
               {catalog.error && <p className="mt-0.5 break-all">原因：{catalog.error}</p>}
               <p className="mt-1">
-                在 Worker 环境变量中配置 <code className="font-mono">CF_ACCOUNT_ID</code> 与{' '}
+                需在 Worker 运行时注入 <code className="font-mono">CF_ACCOUNT_ID</code> 与{' '}
                 <code className="font-mono">CF_API_TOKEN</code>
                 （权限：Workers AI Read）后，可实时同步官方模型目录及价格字段。
               </p>

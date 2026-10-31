@@ -612,58 +612,108 @@ export async function restoreFile(
   return { success: true, message: `"${file.name}" 已从回收站恢复`, fileName: file.name };
 }
 
-export async function findOrCreateFolder(env: Env, userId: string, path: string): Promise<string | null> {
+export interface ResolveFolderPathOptions {
+  /** 相对路径的起始父目录；绝对路径始终从根目录解析 */
+  startParentId?: string | null;
+  /** 路径缺失时逐级创建（findOrCreateFolder 使用） */
+  createMissing?: boolean;
+}
+
+/**
+ * 按路径解析文件夹。
+ *
+ * 兼容两种历史表示：
+ * - 名称路径："A/B"
+ * - id 路径："/<folderId>/B"（files.path 的实际存储格式）
+ */
+export async function resolveFolderPath(
+  env: Env,
+  userId: string,
+  path: string,
+  options: ResolveFolderPathOptions = {}
+): Promise<string | null> {
   const db = getDb(env.DB);
+  const segments = path
+    .replace(/^\/+|\/+$/g, '')
+    .split('/')
+    .filter(Boolean);
+  let parentId: string | null = path.startsWith('/') ? null : (options.startParentId ?? null);
 
-  const existing = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.userId, userId), eq(files.path, path), eq(files.isFolder, true), isNull(files.deletedAt)))
-    .get();
+  for (const segment of segments) {
+    if (segment === '..') {
+      const current = parentId
+        ? await db
+            .select({ parentId: files.parentId })
+            .from(files)
+            .where(and(eq(files.id, parentId), eq(files.userId, userId)))
+            .get()
+        : null;
+      parentId = current?.parentId ?? null;
+      continue;
+    }
 
-  if (existing) return existing.id;
+    // 兼容 id 路径：路径段本身是文件夹 id
+    const byId = await db
+      .select({ id: files.id })
+      .from(files)
+      .where(and(eq(files.id, segment), eq(files.userId, userId), eq(files.isFolder, true), isNull(files.deletedAt)))
+      .get();
+    if (byId) {
+      parentId = byId.id;
+      continue;
+    }
 
-  const parts = path.replace(/^\/+/, '').split('/');
-  let parentId: string | null = null;
-  let currentPath = '';
-
-  for (const part of parts) {
-    currentPath = currentPath ? `${currentPath}/${part}` : part;
-
-    const folder = await db
-      .select()
+    // 按名称在当前父目录下查找
+    const byName = await db
+      .select({ id: files.id })
       .from(files)
       .where(
-        and(eq(files.userId, userId), eq(files.path, currentPath), eq(files.isFolder, true), isNull(files.deletedAt))
+        and(
+          eq(files.userId, userId),
+          eq(files.name, segment),
+          parentId ? eq(files.parentId, parentId) : isNull(files.parentId),
+          eq(files.isFolder, true),
+          isNull(files.deletedAt)
+        )
       )
       .get();
 
-    if (folder) {
-      parentId = folder.id;
-    } else {
-      const newFolderId = crypto.randomUUID();
-      const now = new Date().toISOString();
-
-      await db.insert(files).values({
-        id: newFolderId,
-        userId,
-        parentId,
-        name: part,
-        path: currentPath,
-        size: 0,
-        r2Key: '',
-        mimeType: null,
-        isFolder: true,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      await inheritParentPermissions(db, newFolderId, parentId);
-      parentId = newFolderId;
+    if (byName) {
+      parentId = byName.id;
+      continue;
     }
+
+    if (!options.createMissing) return null;
+
+    // 复用 createFolder：同名检查、type、bucket、权限继承保持一致
+    const created = await createFolder(env, userId, segment, parentId);
+    if (!created.success) {
+      // 并发场景下同名文件夹可能已被其他请求创建，回查一次
+      const raced = await db
+        .select({ id: files.id })
+        .from(files)
+        .where(
+          and(
+            eq(files.userId, userId),
+            eq(files.name, segment),
+            parentId ? eq(files.parentId, parentId) : isNull(files.parentId),
+            eq(files.isFolder, true),
+            isNull(files.deletedAt)
+          )
+        )
+        .get();
+      if (!raced) return null;
+      parentId = raced.id;
+      continue;
+    }
+    parentId = created.folderId;
   }
 
   return parentId;
+}
+
+export async function findOrCreateFolder(env: Env, userId: string, path: string): Promise<string | null> {
+  return resolveFolderPath(env, userId, path, { createMissing: true });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
