@@ -782,7 +782,6 @@ function toAgentFile(f: InferSelectModel<typeof files>): AgentFile {
     name: f.name,
     // 直接提供引用格式，AI复制即可，无需自行拼接
     _ref: f.isFolder ? `[FOLDER:${f.id}:${f.name}]` : `[FILE:${f.id}:${f.name}]`,
-    path: f.path,
     isFolder: f.isFolder,
     mimeType: f.mimeType,
     size: f.size,

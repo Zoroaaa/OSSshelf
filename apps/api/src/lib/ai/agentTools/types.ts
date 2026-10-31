@@ -41,7 +41,8 @@ export interface ToolCall {
 export interface AgentFile {
   id: string;
   name: string;
-  path: string;
+  /** 内部存储路径（id 路径），不返回给模型用于引用展示 */
+  path?: string;
   isFolder: boolean;
   mimeType: string | null;
   size: number;

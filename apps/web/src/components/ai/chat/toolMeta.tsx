@@ -105,7 +105,11 @@ export const TOOL_META: Record<string, ToolMetaEntry> = {
   },
 
   // ── 目录导航 ──
-  navigate_path: { label: '路径导航', category: '目录导航', summary: (a) => `导航到 ${str(a.path ?? a.folderId)}` },
+  navigate_path: {
+    label: '路径导航',
+    category: '目录导航',
+    summary: (a) => (a.path ? `导航到 ${str(a.path)}` : '打开文件夹'),
+  },
   list_folder: {
     label: '浏览文件夹',
     category: '目录导航',
@@ -158,7 +162,7 @@ export const TOOL_META: Record<string, ToolMetaEntry> = {
   move_file: {
     label: '移动文件',
     category: '文件操作',
-    summary: (a) => `移动到 ${str(a.targetFolderPath ?? a.targetFolderId)}`,
+    summary: (a) => (a.targetFolderPath ? `移动到 ${str(a.targetFolderPath)}` : '移动到目标文件夹'),
   },
   delete_file: { label: '删除文件', category: '文件操作' },
   restore_file: { label: '恢复文件', category: '文件操作' },

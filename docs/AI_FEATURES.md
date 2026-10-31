@@ -7,15 +7,15 @@
 
 ## v5.2.0 Agent 运行时升级（Cloudflare Agents SDK）
 
-| 变化 | 说明 |
-| --- | --- |
-| **Agent 运行时** | 会话消息改由 `@cloudflare/ai-chat` 的 `AIChatAgent`（Durable Object）承载，支持断线续传、多端同步、审批后同轮继续 |
-| **模型调用层** | 新增 `lib/ai/modelResolver.ts`，统一走 AI SDK provider（Workers AI / OpenAI 兼容 / Anthropic），不再逐请求新建网关 |
-| **真实用量** | 每次调用写入 `ai_usage_events`，新增日配额与分钟限流（`ai.quota.*`、`ai.rate.*`） |
-| **检索** | 分块正文落 `file_chunks`，新增 FTS5 关键词召回、可选 rerank、`search_content` 工具 |
-| **队列** | 移除 KV 并发锁，改由 Queue `max_concurrency`；`ai_task_items` 提供逐文件幂等与真续跑；`agent_batch` 走 fileService |
-| **配置** | 功能级模型配置从 KV 迁入 `ai_feature_config`（首次读取自动迁移） |
-| **前端** | `useOssShelfChat`（`useAgent` + `useAgentChat`）、`agentMessages` 映射、用量统计 Tab；旧 SSE 链路与 AgentEngine 已完全移除 |
+| 变化             | 说明                                                                                                                       |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Agent 运行时** | 会话消息改由 `@cloudflare/ai-chat` 的 `AIChatAgent`（Durable Object）承载，支持断线续传、多端同步、审批后同轮继续          |
+| **模型调用层**   | 新增 `lib/ai/modelResolver.ts`，统一走 AI SDK provider（Workers AI / OpenAI 兼容 / Anthropic），不再逐请求新建网关         |
+| **真实用量**     | 每次调用写入 `ai_usage_events`，新增日配额与分钟限流（`ai.quota.*`、`ai.rate.*`）                                          |
+| **检索**         | 分块正文落 `file_chunks`，新增 FTS5 关键词召回、可选 rerank、`search_content` 工具                                         |
+| **队列**         | 移除 KV 并发锁，改由 Queue `max_concurrency`；`ai_task_items` 提供逐文件幂等与真续跑；`agent_batch` 走 fileService         |
+| **配置**         | 功能级模型配置从 KV 迁入 `ai_feature_config`（首次读取自动迁移）                                                           |
+| **前端**         | `useOssShelfChat`（`useAgent` + `useAgentChat`）、`agentMessages` 映射、用量统计 Tab；旧 SSE 链路与 AgentEngine 已完全移除 |
 
 ### 数据表
 
@@ -978,8 +978,9 @@ v4.3.0 提供了 **100+ 个智能工具**，分为 13 个功能模块：
 GET /api/ai-config/workers-ai/models?refresh=1
 ```
 
-- 配置 `CF_ACCOUNT_ID` + `CF_API_TOKEN`（权限 Workers AI Read）后为 `source=live`，缓存 6 小时，可手动强制刷新。
-- 未配置或同步失败时回退到内置兜底清单（`source=fallback`），页面会显示原因与配置指引。
+- 配置 `CF_ACCOUNT_ID` + `CF_API_TOKEN`（Worker 运行时变量，权限 Workers AI Read）后为 `source=live`，缓存 6 小时，可手动强制刷新。
+- GitHub Actions 部署时需在仓库 Secrets 中提供同名变量，工作流会注入 Worker；直接使用 `wrangler deploy` 时请通过 `wrangler secret put` 配置（`wrangler deploy` 默认会清理配置里不存在的 Dashboard 普通变量）。
+- 未配置或同步失败时回退到内置兜底清单（`source=fallback`），页面会显示原因、缺失变量名与配置指引。
 - 卡片展示模型参数（`properties`，如 context_window / max_output_tokens）与官方返回的价格字段；未返回价格时按 Workers AI 统一计费说明展示。
 - 支持按名称 / ID / 描述搜索，并可一键启用；启用时按模型类型写入能力（chat / vision / embedding）。
 

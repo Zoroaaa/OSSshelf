@@ -39,7 +39,7 @@ const fallbackTimestamps = new Map<string, Date>();
 
 const MAX_SOURCES = 6;
 
-type FileLike = { id?: unknown; name?: unknown; mimeType?: unknown; score?: unknown };
+type FileLike = { id?: unknown; name?: unknown; isFolder?: unknown; mimeType?: unknown; score?: unknown };
 
 function getPartType(part: UIMessage['parts'][number]): string {
   return typeof (part as { type?: unknown }).type === 'string' ? ((part as { type: string }).type as string) : '';
@@ -79,6 +79,7 @@ function collectSources(calls: ToolCallEvent[]): Message['sources'] {
     sources.push({
       id: file.id,
       name: file.name,
+      isFolder: file.isFolder === true,
       mimeType: typeof file.mimeType === 'string' ? file.mimeType : null,
       score: typeof file.score === 'number' ? file.score : undefined,
     });

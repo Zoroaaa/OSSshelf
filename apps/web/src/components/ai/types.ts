@@ -6,7 +6,7 @@
 export interface AgentFile {
   id: string;
   name: string;
-  path: string;
+  path?: string;
   isFolder: boolean;
   mimeType: string | null;
   size: number;
@@ -41,7 +41,7 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   reasoning?: string;
-  sources?: Array<{ id: string; name: string; mimeType: string | null; score?: number }>;
+  sources?: Array<{ id: string; name: string; isFolder: boolean; mimeType: string | null; score?: number }>;
   toolCalls?: ToolCallEvent[];
   pendingConfirm?: PendingConfirm;
   /** 由 update_plan 工具调用派生 */

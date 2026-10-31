@@ -261,6 +261,8 @@ export interface AiWorkersAiCatalog {
   configured: boolean;
   fetchedAt: string | null;
   error?: string;
+  /** 未注入的 Worker 运行时变量 */
+  missing: string[];
   models: AiWorkersAiCatalogModel[];
 }
 
@@ -355,8 +357,7 @@ export const aiApi = {
     api.get<ApiResponse<VectorListResponse>>('/api/ai/index/vectors', { params }),
   deleteVectorsBatch: (fileIds: string[]) =>
     api.post<ApiResponse<{ deleted: number }>>('/api/ai/index/vectors/batch-delete', { fileIds }),
-  deleteAllVectors: () =>
-    api.delete<ApiResponse<{ deleted: number }>>('/api/ai/index/vectors/all'),
+  deleteAllVectors: () => api.delete<ApiResponse<{ deleted: number }>>('/api/ai/index/vectors/all'),
   getIndexSample: (fileId: string) => api.get<ApiResponse<AIIndexSample>>(`/api/ai/index/sample/${fileId}`),
 
   // ═══════════════════════════════════════════════════════════════════════════

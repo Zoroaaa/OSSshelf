@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronDown, File, Loader2, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronDown, File, FolderOpen, Loader2, X } from 'lucide-react';
 import type { ToolCallEvent } from '../types';
 import { getToolIcon, getToolMeta, summarizeToolCall } from './toolMeta';
 import { DiffPreview } from './DiffPreview';
@@ -18,7 +18,7 @@ import { useEditPreview } from './useEditPreview';
 
 interface ToolCallCardProps {
   tc: ToolCallEvent;
-  onFileClick: (id: string) => void;
+  onFileClick: (id: string, isFolder: boolean) => void;
   onConfirmAction?: (confirmId: string) => void;
   onCancelConfirm?: (confirmId?: string) => void;
 }
@@ -26,33 +26,48 @@ interface ToolCallCardProps {
 interface ResultFile {
   id: string;
   name: string;
+  isFolder: boolean;
 }
 
 const FILE_LIMIT = 8;
+
+function isResultFile(value: unknown): value is { id: string; name: string; isFolder?: unknown } {
+  return (
+    Boolean(value) &&
+    typeof value === 'object' &&
+    typeof (value as { id?: unknown }).id === 'string' &&
+    typeof (value as { name?: unknown }).name === 'string'
+  );
+}
+
+function collectTreeNodes(nodes: unknown[], output: unknown[]): void {
+  for (const node of nodes) {
+    output.push(node);
+    const children = (node as { children?: unknown }).children;
+    if (Array.isArray(children)) collectTreeNodes(children, output);
+  }
+}
 
 function extractResultFiles(result: unknown): ResultFile[] {
   if (!result || typeof result !== 'object') return [];
   const data = result as Record<string, unknown>;
 
-  const files = data.files as Array<{ id?: unknown; name?: unknown }> | undefined;
-  if (Array.isArray(files) && files.length > 0) {
-    return files
-      .filter((file) => typeof file.id === 'string' && typeof file.name === 'string')
-      .slice(0, FILE_LIMIT)
-      .map((file) => ({ id: String(file.id), name: String(file.name) }));
-  }
+  const candidates: unknown[] = [];
+  if (Array.isArray(data.files)) candidates.push(...data.files);
+  if (Array.isArray(data.children)) candidates.push(...data.children);
+  if (Array.isArray(data.chain)) candidates.push(...data.chain);
+  if (Array.isArray(data.tree)) collectTreeNodes(data.tree, candidates);
+  candidates.push(data.file, data.folder, data.id && data.name ? data : undefined, data.fileA, data.fileB);
 
-  if (typeof data.id === 'string' && typeof data.name === 'string') {
-    return [{ id: data.id, name: data.name }];
+  const seen = new Set<string>();
+  const files: ResultFile[] = [];
+  for (const candidate of candidates) {
+    if (!isResultFile(candidate) || seen.has(candidate.id)) continue;
+    seen.add(candidate.id);
+    files.push({ id: candidate.id, name: candidate.name, isFolder: candidate.isFolder === true });
+    if (files.length >= FILE_LIMIT) break;
   }
-
-  const pairs = [data.fileA, data.fileB].filter(
-    (file): file is { id: string; name: string } =>
-      Boolean(file) &&
-      typeof (file as { id?: unknown }).id === 'string' &&
-      typeof (file as { name?: unknown }).name === 'string'
-  );
-  return pairs.slice(0, FILE_LIMIT);
+  return files;
 }
 
 export function ToolCallCard({ tc, onFileClick, onConfirmAction, onCancelConfirm }: ToolCallCardProps) {
@@ -148,10 +163,14 @@ export function ToolCallCard({ tc, onFileClick, onConfirmAction, onCancelConfirm
                     <button
                       key={file.id}
                       type="button"
-                      onClick={() => onFileClick(file.id)}
+                      onClick={() => onFileClick(file.id, file.isFolder)}
                       className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 text-left transition-colors hover:border-primary/50 hover:bg-accent/40"
                     >
-                      <File className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                      {file.isFolder ? (
+                        <FolderOpen className="h-3.5 w-3.5 flex-shrink-0 text-amber-500" />
+                      ) : (
+                        <File className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+                      )}
                       <span className="truncate text-xs text-foreground">{file.name}</span>
                     </button>
                   ))}

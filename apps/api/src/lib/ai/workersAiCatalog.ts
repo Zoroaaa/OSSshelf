@@ -37,6 +37,8 @@ export interface WorkersAiCatalog {
   configured: boolean;
   fetchedAt: string | null;
   error?: string;
+  /** 未注入的 Worker 运行时变量，用于前端显式提示 */
+  missing: string[];
   models: WorkersAiCatalogModel[];
 }
 
@@ -44,7 +46,7 @@ const CACHE_TTL_MS = 6 * 60 * 60_000;
 const MAX_PAGES = 6;
 const PER_PAGE = 100;
 
-const cache = new Map<object, { data: WorkersAiCatalog; timestamp: number }>();
+const cache = new Map<string, { data: WorkersAiCatalog; timestamp: number }>();
 
 const CAPABILITY_RULES: Array<{ pattern: RegExp; capability: string }> = [
   { pattern: /text generation|text-to-text|chat|completion/i, capability: 'chat' },
@@ -128,12 +130,13 @@ function fallbackModels(): WorkersAiCatalogModel[] {
     }));
 }
 
-function fallbackCatalog(configured: boolean, error?: string): WorkersAiCatalog {
+function fallbackCatalog(configured: boolean, error?: string, missing: string[] = []): WorkersAiCatalog {
   return {
     source: 'fallback',
     configured,
     fetchedAt: null,
     error,
+    missing,
     models: fallbackModels(),
   };
 }
@@ -141,12 +144,15 @@ function fallbackCatalog(configured: boolean, error?: string): WorkersAiCatalog 
 export async function getWorkersAiCatalog(env: Env, options: { refresh?: boolean } = {}): Promise<WorkersAiCatalog> {
   const accountId = env.CF_ACCOUNT_ID;
   const token = env.CF_API_TOKEN;
+  const missing = [!accountId ? 'CF_ACCOUNT_ID' : '', !token ? 'CF_API_TOKEN' : ''].filter(Boolean);
 
   if (!accountId || !token) {
-    return fallbackCatalog(false);
+    return fallbackCatalog(false, undefined, missing);
   }
 
-  const cached = cache.get(env);
+  // env 在每个请求中是独立对象，不能作为缓存 key
+  const cacheKey = `${accountId}:${token.slice(-8)}`;
+  const cached = cache.get(cacheKey);
   if (!options.refresh && cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
     return cached.data;
   }
@@ -192,9 +198,10 @@ export async function getWorkersAiCatalog(env: Env, options: { refresh?: boolean
       source: 'live',
       configured: true,
       fetchedAt: new Date().toISOString(),
+      missing: [],
       models,
     };
-    cache.set(env, { data, timestamp: Date.now() });
+    cache.set(cacheKey, { data, timestamp: Date.now() });
     logger.info('AI', 'Workers AI 模型目录同步完成', { count: models.length });
     return data;
   } catch (error) {

@@ -556,6 +556,8 @@ wrangler r2 bucket create ossshelf-files
 | `JWT_SECRET`                 | JWT 签名密钥        | 生成 32+ 字符随机字符串                |
 | `CORS_ORIGINS`               | CORS 允许域名       | 前端域名，多个用逗号分隔               |
 | `TRASH_RETENTION_DAYS`       | 回收站保留天数      | 可选，默认 30                          |
+| `CF_ACCOUNT_ID`              | Workers AI 目录同步 | 可选，Cloudflare 账户 ID               |
+| `CF_API_TOKEN`               | Workers AI 目录同步 | 可选，需权限 `Workers AI:Read`         |
 
 #### 获取 Cloudflare API Token
 
@@ -566,7 +568,8 @@ wrangler r2 bucket create ossshelf-files
 5. 配置权限：
    - Account Resources: Include → Your Account
    - Zone Resources: Include → All zones（或指定域名）
-6. 创建并复制 Token
+   - 如需 Workers AI 实时模型目录：Account → Workers AI → Read
+6. 创建并复制 Token（可同时填入 `CF_API_TOKEN`）
 
 ### Step 4: 运行数据库迁移
 
@@ -663,6 +666,8 @@ curl https://your-api.workers.dev/api/auth/registration-config
 | `JWT_SECRET`                 | ✅   | JWT 签名密钥                                   |
 | `CORS_ORIGINS`               | ✅   | CORS 允许域名                                  |
 | `PUBLIC_URL`                 | ⚪   | 应用公网地址，用于生成文件直接访问链接（可选） |
+| `CF_ACCOUNT_ID`              | ⚪   | Workers AI 实时模型目录（可选）                |
+| `CF_API_TOKEN`               | ⚪   | Workers AI 实时模型目录，需 `Workers AI:Read`  |
 
 ### 可选 Secrets
 
@@ -1578,16 +1583,16 @@ pnpm deploy:api
 
 ### v4.1.0 功能
 
-| 功能        | 说明                                        |
-| ----------- | ------------------------------------------- |
+| 功能        | 说明                                                       |
+| ----------- | ---------------------------------------------------------- |
 | 多模型架构  | Workers AI 实时模型目录（可回退内置清单）+ OpenAI 兼容 API |
-| AI 对话系统 | Agents SDK WebSocket 流式响应、会话管理与长期记忆        |
-| AI 配置中心 | 模型管理、功能级配置、一键启用、连接测试    |
-| 文件摘要    | 自动为文本文件生成摘要                      |
-| 图片描述    | 自动识别图片内容并描述                      |
-| 图片标签    | 自动生成图片分类标签                        |
-| 智能重命名  | 根据内容推荐文件名                          |
-| 语义搜索    | 基于语义相似度搜索文件                      |
+| AI 对话系统 | Agents SDK WebSocket 流式响应、会话管理与长期记忆          |
+| AI 配置中心 | 模型管理、功能级配置、一键启用、连接测试                   |
+| 文件摘要    | 自动为文本文件生成摘要                                     |
+| 图片描述    | 自动识别图片内容并描述                                     |
+| 图片标签    | 自动生成图片分类标签                                       |
+| 智能重命名  | 根据内容推荐文件名                                         |
+| 语义搜索    | 基于语义相似度搜索文件                                     |
 
 ### Workers AI 可用模型
 
