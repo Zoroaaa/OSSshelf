@@ -698,8 +698,8 @@ app.post('/index/vectors/batch-delete', async (c) => {
   }
 
   const db = getDb(c.env.DB);
-  // D1 单条 SQL 绑定参数上限为 100
-  const DB_CHUNK = 100;
+  // D1 单条 SQL 绑定参数上限为 100，查询条件含 userId，故每批最多 99 个 id
+  const DB_CHUNK = 99;
   const ownedIds: string[] = [];
   for (let i = 0; i < fileIds.length; i += DB_CHUNK) {
     const rows = await db

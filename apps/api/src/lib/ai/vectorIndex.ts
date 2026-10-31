@@ -148,18 +148,22 @@ export async function indexFileVector(env: Env, fileId: string, text: string): P
     await db.delete(fileChunks).where(eq(fileChunks.fileId, fileId));
 
     const now = new Date().toISOString();
-    await db.insert(fileChunks).values(
-      chunks.map((chunk, index) => ({
-        id: buildChunkVectorId(fileId, index),
-        fileId,
-        chunkIndex: index,
-        content: chunk,
-        contentHash: hashText(chunk),
-        embeddingModel: provider.modelKey,
-        tokenCount: estimateTokens(chunk),
-        createdAt: now,
-      }))
-    );
+    const chunkRows = chunks.map((chunk, index) => ({
+      id: buildChunkVectorId(fileId, index),
+      fileId,
+      chunkIndex: index,
+      content: chunk,
+      contentHash: hashText(chunk),
+      embeddingModel: provider.modelKey,
+      tokenCount: estimateTokens(chunk),
+      createdAt: now,
+    }));
+
+    // D1 单条 SQL 绑定参数上限 100：file_chunks 每行 8 个参数，必须分批插入
+    const maxRowsPerInsert = Math.floor(100 / Object.keys(chunkRows[0]).length);
+    for (let i = 0; i < chunkRows.length; i += maxRowsPerInsert) {
+      await db.insert(fileChunks).values(chunkRows.slice(i, i + maxRowsPerInsert));
+    }
 
     await env.VECTORIZE.upsert(
       chunks.map((_, index) => ({
