@@ -556,8 +556,8 @@ wrangler r2 bucket create ossshelf-files
 | `JWT_SECRET`                 | JWT 签名密钥        | 生成 32+ 字符随机字符串                |
 | `CORS_ORIGINS`               | CORS 允许域名       | 前端域名，多个用逗号分隔               |
 | `TRASH_RETENTION_DAYS`       | 回收站保留天数      | 可选，默认 30                          |
-| `CF_ACCOUNT_ID`              | Workers AI 目录同步 | 可选，Cloudflare 账户 ID               |
-| `CF_API_TOKEN`               | Workers AI 目录同步 | 可选，需权限 `Workers AI:Read`         |
+
+> Workers AI 实时模型目录复用 `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN`，工作流会注入为 Worker 的 `CF_ACCOUNT_ID` / `CF_API_TOKEN`。`CLOUDFLARE_API_TOKEN` 需要额外勾选 `Workers AI:Read`。
 
 #### 获取 Cloudflare API Token
 
@@ -569,7 +569,8 @@ wrangler r2 bucket create ossshelf-files
    - Account Resources: Include → Your Account
    - Zone Resources: Include → All zones（或指定域名）
    - 如需 Workers AI 实时模型目录：Account → Workers AI → Read
-6. 创建并复制 Token（可同时填入 `CF_API_TOKEN`）
+6. 创建并复制 Token（填入 `CLOUDFLARE_API_TOKEN`；工作流会注入为 Worker 的 `CF_API_TOKEN`）
+7. 安全建议：模型目录可单独创建仅含 `Workers AI:Read` 的 Token，存入仓库 Secret `CF_API_TOKEN`；工作流会优先使用它，避免把部署 Token 暴露给 Worker
 
 ### Step 4: 运行数据库迁移
 
@@ -666,8 +667,8 @@ curl https://your-api.workers.dev/api/auth/registration-config
 | `JWT_SECRET`                 | ✅   | JWT 签名密钥                                   |
 | `CORS_ORIGINS`               | ✅   | CORS 允许域名                                  |
 | `PUBLIC_URL`                 | ⚪   | 应用公网地址，用于生成文件直接访问链接（可选） |
-| `CF_ACCOUNT_ID`              | ⚪   | Workers AI 实时模型目录（可选）                |
-| `CF_API_TOKEN`               | ⚪   | Workers AI 实时模型目录，需 `Workers AI:Read`  |
+
+> Workers AI 模型目录无需新增必需 Secret：默认复用 `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN`（需 `Workers AI:Read`）。也可额外配置 `CF_API_TOKEN`（仅 `Workers AI:Read`），工作流会优先使用它。
 
 ### 可选 Secrets
 
