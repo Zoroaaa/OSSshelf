@@ -126,11 +126,16 @@ function getSummaryPrompt(mimeType: string | null, fileName: string, customPromp
 // 默认模型 ID（当用户未配置时使用）- 现在从配置表读取
 async function getDefaultModels(env: Env): Promise<Record<string, string>> {
   try {
+    const [chatModel, visionModel] = await Promise.all([
+      getAiConfigString(env, 'ai.default_model.chat', '@cf/meta/llama-3.1-8b-instruct'),
+      getAiConfigString(env, 'ai.default_model.vision', '@cf/llava-hf/llava-1.5-7b-hf'),
+    ]);
+
     return {
-      summary: await getAiConfigString(env, 'ai.default_model.summary', '@cf/meta/llama-3.1-8b-instruct'),
-      imageCaption: await getAiConfigString(env, 'ai.default_model.image_caption', '@cf/llava-hf/llava-1.5-7b-hf'),
-      imageTag: await getAiConfigString(env, 'ai.default_model.image_tag', '@cf/llava-hf/llava-1.5-7b-hf'),
-      rename: await getAiConfigString(env, 'ai.default_model.rename', '@cf/meta/llama-3.1-8b-instruct'),
+      summary: chatModel,
+      imageCaption: visionModel,
+      imageTag: visionModel,
+      rename: chatModel,
     };
   } catch (error) {
     logger.warn('AI', 'Failed to load default models from config, using hardcoded fallback');

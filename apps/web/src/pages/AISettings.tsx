@@ -38,20 +38,22 @@ import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/useToast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import {
+  CatalogSnapshotCard,
   ModelCard,
   ModelFormModal,
-  ProvidersSection,
+  ProviderCatalogPanel,
+  ProviderConnectionModal,
+  ProviderWorkersAiSection,
   IndexProcessingTab,
   VectorsTable,
-  AdvancedConfigPanel,
-  ProviderManageModal,
+  SystemConfigPanel,
 } from '@/components/ai/settings';
 import { UsageTab } from '@/components/ai/settings/UsageTab';
 import {
   aiApi,
   type AiModel,
-  type AiProviderItem,
-  type AiSystemConfigItem,
+  type AiProviderConnection,
+  type AiProviderPreset,
   type AiWorkersAiCatalogModel,
 } from '@/services/api';
 import type { AIIndexTask, AISummarizeTask, AITagsTask, AIIndexStats } from '@/services/api';
@@ -70,9 +72,14 @@ export function AISettings() {
 
   const handleTabChange = (tabId: TabType) => {
     setActiveTab(tabId);
+    if (tabId !== 'providers') setShowWorkersAiCatalog(false);
     navigate(`/ai-settings/${tabId}`, { replace: true });
   };
-  const [showProviderModal, setShowProviderModal] = useState(false);
+  const [providerModal, setProviderModal] = useState<{
+    preset?: AiProviderPreset;
+    connection?: AiProviderConnection;
+  } | null>(null);
+  const [showWorkersAiCatalog, setShowWorkersAiCatalog] = useState(false);
   const [editingModel, setEditingModel] = useState<AiModel | null>(null);
   const [expandedModelId, setExpandedModelId] = useState<string | null>(null);
 
@@ -98,9 +105,6 @@ export function AISettings() {
   const [selectedVectorIds, setSelectedVectorIds] = useState<Set<string>>(new Set());
   const [isVectorBatchDeleting, setIsVectorBatchDeleting] = useState(false);
 
-  const [editingConfigKey, setEditingConfigKey] = useState<string | null>(null);
-  const [configEditValue, setConfigEditValue] = useState('');
-
   const [memoryTypeFilter, setMemoryTypeFilter] = useState<string>('');
   const [memoryPage, setMemoryPage] = useState(1);
   const [deletingMemoryId, setDeletingMemoryId] = useState<string | null>(null);
@@ -119,13 +123,10 @@ export function AISettings() {
     staleTime: 30000,
   });
 
-  const modelCapabilityMap: Record<string, 'chat' | 'vision'> = {
+  const modelCapabilityMap: Record<string, 'chat' | 'vision' | 'embedding'> = {
     'ai.default_model.chat': 'chat',
     'ai.default_model.vision': 'vision',
-    'ai.default_model.summary': 'chat',
-    'ai.default_model.image_caption': 'vision',
-    'ai.default_model.image_tag': 'vision',
-    'ai.default_model.rename': 'chat',
+    'ai.default_model.embedding': 'embedding',
   };
 
   const { data: status } = useQuery({
@@ -134,17 +135,21 @@ export function AISettings() {
     staleTime: 30000,
   });
 
-  const { data: providersData } = useQuery({
-    queryKey: ['ai-providers'],
+  const { data: providerCatalog } = useQuery({
+    queryKey: ['ai-provider-catalog'],
     queryFn: () => aiApi.config.getProviders().then((r) => r.data.data),
-    staleTime: 300000,
+    staleTime: 60_000,
   });
+  const providerPresets = providerCatalog?.presets ?? [];
+  const providerConnections = providerCatalog?.connections ?? [];
 
-  const { data: allProviders = [] } = useQuery<AiProviderItem[]>({
-    queryKey: ['ai-all-providers'],
-    queryFn: () => aiApi.config.getAiProviders().then((r) => r.data.data ?? []),
-    staleTime: 300000,
+  const { data: workersCatalog } = useQuery({
+    queryKey: ['workers-ai-catalog'],
+    queryFn: () => aiApi.config.getWorkersAiModels().then((r) => r.data.data),
+    staleTime: 5 * 60_000,
   });
+  const workersAiModels = workersCatalog?.models ?? [];
+  const providersData = { workersAiModels };
 
   const {
     data: systemConfigs = [],
@@ -161,6 +166,7 @@ export function AISettings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ai-models'] });
       queryClient.invalidateQueries({ queryKey: ['ai-config-status'] });
+      queryClient.invalidateQueries({ queryKey: ['ai-provider-catalog'] });
       setShowAddModal(false);
     },
   });
@@ -171,6 +177,7 @@ export function AISettings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ai-models'] });
       queryClient.invalidateQueries({ queryKey: ['ai-config-status'] });
+      queryClient.invalidateQueries({ queryKey: ['ai-provider-catalog'] });
       setEditingModel(null);
     },
   });
@@ -180,8 +187,32 @@ export function AISettings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ai-models'] });
       queryClient.invalidateQueries({ queryKey: ['ai-config-status'] });
+      queryClient.invalidateQueries({ queryKey: ['ai-provider-catalog'] });
     },
   });
+
+  const deleteProviderMutation = useMutation({
+    mutationFn: ({ providerId, cascade }: { providerId: string; cascade: boolean }) =>
+      aiApi.config.deleteProvider(providerId, cascade),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ai-provider-catalog'] });
+      queryClient.invalidateQueries({ queryKey: ['ai-models'] });
+      queryClient.invalidateQueries({ queryKey: ['ai-config-status'] });
+    },
+    onError: (error) => {
+      toast({
+        title: '删除供应商失败',
+        description: error instanceof Error ? error.message : '请稍后重试',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const invalidateProviderData = () => {
+    queryClient.invalidateQueries({ queryKey: ['ai-provider-catalog'] });
+    queryClient.invalidateQueries({ queryKey: ['ai-models'] });
+    queryClient.invalidateQueries({ queryKey: ['ai-config-status'] });
+  };
 
   const {
     data: vectorsData,
@@ -361,7 +392,7 @@ export function AISettings() {
   } | null>(null);
 
   const testModelMutation = useMutation({
-    mutationFn: async (data: { modelId?: string; provider?: string; apiEndpoint?: string; apiKey?: string }) => {
+    mutationFn: async (data: { modelId?: string; providerId?: string }) => {
       const result = await aiApi.config.testModel(data);
       const dataResult = result.data.data;
       return {
@@ -401,7 +432,6 @@ export function AISettings() {
     mutationFn: ({ key, value }: { key: string; value: unknown }) => aiApi.config.updateSystemConfig(key, value),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ai-system-config'] });
-      setEditingConfigKey(null);
     },
   });
 
@@ -588,23 +618,31 @@ export function AISettings() {
     rebuildIndexMutation.mutate();
   };
 
-  const handleSaveConfig = (config: AiSystemConfigItem) => {
-    let value: string | number | boolean = configEditValue;
-    if (config.valueType === 'number') value = Number(configEditValue);
-    else if (config.valueType === 'boolean') value = configEditValue === 'true';
-    updateSystemConfigMutation.mutate({ key: config.key, value });
+  const handleDeleteProvider = (connection: AiProviderConnection) => {
+    if (!confirm(`确定删除供应商「${connection.name}」？`)) return;
+
+    let cascade = false;
+    if (connection.modelCount > 0) {
+      if (!confirm(`该供应商下还有 ${connection.modelCount} 个模型，是否同时删除这些模型？`)) {
+        toast({ title: '未删除', description: '请先迁移或删除供应商下的模型', variant: 'destructive' });
+        return;
+      }
+      cascade = true;
+    }
+
+    deleteProviderMutation.mutate({ providerId: connection.id, cascade });
   };
 
   const isAIAvailable = status?.configured;
 
   const tabs: { id: TabType; label: string; icon: typeof Cpu; badge?: number }[] = [
+    { id: 'providers', label: '供应商', icon: Zap },
     { id: 'models', label: '模型', icon: Cpu, badge: models.length },
-    { id: 'providers', label: '可用模型', icon: Zap },
     { id: 'index', label: '索引与处理', icon: Database },
     { id: 'vectors', label: '向量库', icon: Layers },
     { id: 'memory', label: '记忆管理', icon: MessageSquare },
     { id: 'usage', label: '用量统计', icon: BarChart3 },
-    { id: 'advanced', label: '高级配置', icon: Sliders },
+    { id: 'advanced', label: '系统配置', icon: Sliders },
   ];
 
   return (
@@ -619,7 +657,7 @@ export function AISettings() {
               <div>
                 <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold">AI 配置中心</h1>
                 <p className="text-xs sm:text-sm text-muted-foreground hidden sm:block">
-                  模型管理 · 索引配置 · 向量搜索 · 高级配置
+                  供应商 · 模型管理 · 索引配置 · 系统配置
                 </p>
               </div>
             </div>
@@ -714,11 +752,11 @@ export function AISettings() {
               <div className="flex gap-2">
                 <Button
                   variant="outline"
-                  onClick={() => setShowProviderModal(true)}
+                  onClick={() => handleTabChange('providers')}
                   className="gap-2 flex-1 sm:flex-initial"
                 >
                   <Sliders className="h-4 w-4" />
-                  管理提供商
+                  供应商连接
                 </Button>
                 <Button onClick={() => setShowAddModal(true)} className="gap-2 flex-1 sm:flex-initial">
                   <Plus className="h-4 w-4" />
@@ -736,12 +774,18 @@ export function AISettings() {
                 <Cpu className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                 <h3 className="text-base sm:text-lg font-medium mb-2">暂无配置的模型</h3>
                 <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
-                  点击上方按钮添加您的第一个 AI 模型，或使用 Cloudflare Workers AI 免费模型
+                  先到「供应商」页连接一个供应商并拉取模型，或直接使用 Cloudflare Workers AI。
                 </p>
-                <Button onClick={() => setShowAddModal(true)} className="w-full sm:w-auto max-w-xs">
-                  <Plus className="h-4 w-4 mr-2" />
-                  添加模型
-                </Button>
+                <div className="flex flex-col sm:flex-row gap-2 justify-center">
+                  <Button onClick={() => handleTabChange('providers')} className="w-full sm:w-auto">
+                    <Zap className="h-4 w-4 mr-2" />
+                    连接供应商
+                  </Button>
+                  <Button variant="outline" onClick={() => setShowAddModal(true)} className="w-full sm:w-auto">
+                    <Plus className="h-4 w-4 mr-2" />
+                    添加 Workers AI 模型
+                  </Button>
+                </div>
               </div>
             ) : (
               <div className="space-y-8">
@@ -767,14 +811,14 @@ export function AISettings() {
                     if (key === 'openai_compatible_ungrouped')
                       return { name: '其他 OpenAI 兼容 API', description: '手动配置端点' };
                     const providerId = key.replace('provider_', '');
-                    const found = allProviders.find((p) => p.id === providerId);
+                    const found = providerConnections.find((p) => p.id === providerId);
                     return found
                       ? {
                           name: found.name,
-                          description: found.description || found.apiEndpoint,
-                          isSystem: found.isSystem,
+                          description: found.description || found.apiEndpoint || undefined,
+                          isSystem: false,
                         }
-                      : { name: '未知提供商' };
+                      : { name: '未知供应商' };
                   };
 
                   const sortedKeys = Object.keys(groups).sort((a, b) => {
@@ -848,7 +892,31 @@ export function AISettings() {
         )}
 
         {activeTab === 'providers' && (
-          <ProvidersSection models={models} status={status ?? null} quickActivateMutation={quickActivateMutation} />
+          <div className="space-y-4">
+            <CatalogSnapshotCard />
+            {showWorkersAiCatalog ? (
+              <div className="space-y-4">
+                <Button variant="outline" size="sm" onClick={() => setShowWorkersAiCatalog(false)}>
+                  返回供应商
+                </Button>
+                <ProviderWorkersAiSection
+                  models={models}
+                  status={status ?? null}
+                  quickActivateMutation={quickActivateMutation}
+                />
+              </div>
+            ) : (
+              <ProviderCatalogPanel
+                presets={providerPresets}
+                connections={providerConnections}
+                workersAiModelCount={workersAiModels.length}
+                onConnect={(preset) => setProviderModal({ preset })}
+                onManage={(connection) => setProviderModal({ connection })}
+                onDelete={handleDeleteProvider}
+                onOpenWorkersAi={() => setShowWorkersAiCatalog(true)}
+              />
+            )}
+          </div>
         )}
 
         {activeTab === 'index' && (
@@ -1089,20 +1157,15 @@ export function AISettings() {
         )}
 
         {activeTab === 'advanced' && (
-          <AdvancedConfigPanel
+          <SystemConfigPanel
             systemConfigs={systemConfigs}
             configLoading={configLoading}
             models={models}
             visionModels={visionModels}
             modelCapabilityMap={modelCapabilityMap}
-            editingConfigKey={editingConfigKey}
-            configEditValue={configEditValue}
             onRefetch={() => refetchSystemConfig()}
-            onSave={handleSaveConfig}
-            onSetEditingKey={setEditingConfigKey}
-            onSetConfigEditValue={setConfigEditValue}
-            onUpdateMutation={(params) => updateSystemConfigMutation.mutate(params)}
-            onResetMutation={(key) => resetSystemConfigMutation.mutate(key)}
+            onUpdate={(params) => updateSystemConfigMutation.mutate(params)}
+            onReset={(key) => resetSystemConfigMutation.mutate(key)}
             isUpdatePending={updateSystemConfigMutation.isPending}
             isResetPending={resetSystemConfigMutation.isPending}
           />
@@ -1112,7 +1175,8 @@ export function AISettings() {
       {(showAddModal || editingModel) && (
         <ModelFormModal
           model={editingModel}
-          providersData={providersData}
+          connections={providerConnections}
+          workersAiModels={workersAiModels}
           onClose={() => {
             setShowAddModal(false);
             setEditingModel(null);
@@ -1121,7 +1185,7 @@ export function AISettings() {
             if (editingModel) {
               updateMutation.mutate({ modelId: editingModel.id, data });
             } else {
-              createMutation.mutate(data as any);
+              createMutation.mutate(data);
             }
           }}
           isLoading={createMutation.isPending || updateMutation.isPending}
@@ -1164,13 +1228,12 @@ export function AISettings() {
         </div>
       )}
 
-      {showProviderModal && (
-        <ProviderManageModal
-          onClose={() => setShowProviderModal(false)}
-          onProviderChange={() => {
-            queryClient.invalidateQueries({ queryKey: ['ai-models'] });
-            queryClient.invalidateQueries({ queryKey: ['ai-providers'] });
-          }}
+      {providerModal && (
+        <ProviderConnectionModal
+          preset={providerModal.preset ?? null}
+          connection={providerModal.connection ?? null}
+          onClose={() => setProviderModal(null)}
+          onSaved={invalidateProviderData}
         />
       )}
 

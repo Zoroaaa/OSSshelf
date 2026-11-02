@@ -78,6 +78,13 @@ const CAPABILITY_CONFIG: Record<string, { label: string; icon: React.ReactNode; 
   },
 };
 
+function formatContext(value?: number): string | null {
+  if (!value) return null;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1000) return `${Math.round(value / 1000)}K`;
+  return String(value);
+}
+
 function DetailItem({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
     <div className="flex items-center gap-2">
@@ -152,7 +159,10 @@ export function ModelCard({
                 </span>
               )}
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5 truncate font-mono">{model.modelId}</p>
+            <p className="text-xs text-muted-foreground mt-0.5 truncate font-mono">
+              {model.providerName ? `${model.providerName} · ` : ''}
+              {model.modelId}
+            </p>
           </div>
 
           <div className="relative flex-shrink-0">
@@ -216,6 +226,26 @@ export function ModelCard({
             );
           })}
         </div>
+
+        {(model.contextWindow || model.maxOutputTokens || model.pricing?.input !== undefined) && (
+          <div className="flex flex-wrap items-center gap-1.5 mt-2">
+            {model.contextWindow && (
+              <span className="px-1.5 py-0.5 bg-muted rounded text-[10px]">
+                上下文 {formatContext(model.contextWindow)}
+              </span>
+            )}
+            {model.maxOutputTokens && (
+              <span className="px-1.5 py-0.5 bg-muted rounded text-[10px]">
+                输出 {formatContext(model.maxOutputTokens)}
+              </span>
+            )}
+            {model.pricing?.input !== undefined && (
+              <span className="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded text-[10px]">
+                ${model.pricing.input.toFixed(2)}/M
+              </span>
+            )}
+          </div>
+        )}
 
         {currentTestResult && (
           <div
@@ -298,8 +328,8 @@ export function ModelCard({
               />
               <DetailItem
                 icon={<Key className="h-3.5 w-3.5" />}
-                label="API Key"
-                value={model.hasApiKey ? '已配置 ✓' : '未配置'}
+                label="供应商"
+                value={model.providerName || (model.provider === 'workers_ai' ? 'Workers AI' : '未绑定')}
               />
               <DetailItem
                 icon={<SortAsc className="h-3.5 w-3.5" />}

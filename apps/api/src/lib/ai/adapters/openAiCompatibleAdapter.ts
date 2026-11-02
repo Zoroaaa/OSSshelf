@@ -24,6 +24,7 @@ import { logger } from '@osshelf/shared';
 import { decryptCredential, getEncryptionKey, isAesGcmFormat } from '../../crypto';
 import { AI_LOG_MODULE } from '../constants';
 import { extractThinkingContent, hasThinkingTags } from '../utils';
+import { joinUrl } from '../url';
 
 export class OpenAiCompatibleAdapter implements IModelAdapter {
   readonly provider = 'openai_compatible' as const;
@@ -56,7 +57,7 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
         Object.assign(body, request.extraBody);
       }
 
-      const response = await fetch(`${this.config.apiEndpoint}/chat/completions`, {
+      const response = await fetch(joinUrl(this.getEndpoint(), 'chat/completions'), {
         method: 'POST',
         headers: await this.getHeadersAsync(),
         body: JSON.stringify(body),
@@ -172,7 +173,7 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
       const streamHeaders = await this.getHeadersAsync();
       streamHeaders['Accept'] = 'text/event-stream';
 
-      const response = await fetch(`${this.config.apiEndpoint}/chat/completions`, {
+      const response = await fetch(joinUrl(this.getEndpoint(), 'chat/completions'), {
         method: 'POST',
         headers: streamHeaders,
         body: JSON.stringify(streamBody),
@@ -413,7 +414,7 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
     this.validateConnection();
 
     try {
-      const response = await fetch(`${this.config.apiEndpoint}/embeddings`, {
+      const response = await fetch(joinUrl(this.getEndpoint(), 'embeddings'), {
         method: 'POST',
         headers: await this.getHeadersAsync(),
         body: JSON.stringify({
@@ -444,7 +445,7 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
 
   validateConfig(config: ModelConfig): { valid: boolean; error?: string } {
     if (!config.apiEndpoint) {
-      return { valid: false, error: 'API endpoint is required' };
+      return { valid: false, error: '请先在供应商页配置 Base URL' };
     }
 
     try {
@@ -462,6 +463,7 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
 
   private async getHeadersAsync(): Promise<Record<string, string>> {
     const headers: Record<string, string> = {
+      ...(this.config.headers ?? {}),
       'Content-Type': 'application/json',
     };
 
@@ -489,10 +491,15 @@ export class OpenAiCompatibleAdapter implements IModelAdapter {
     return null;
   }
 
-  private validateConnection(): void {
+  private getEndpoint(): string {
     if (!this.config.apiEndpoint) {
       throw new Error('API endpoint not configured');
     }
+    return this.config.apiEndpoint;
+  }
+
+  private validateConnection(): void {
+    this.getEndpoint();
   }
 
   private formatMessageContent(

@@ -1,6 +1,6 @@
 /**
- * ProvidersSection.tsx
- * 可用模型列表组件
+ * ProviderWorkersAiSection.tsx
+ * Cloudflare Workers AI 实时模型目录
  *
  * 数据来源:
  * - Cloudflare Workers AI 官方模型目录（配置 CF_ACCOUNT_ID / CF_API_TOKEN 后实时同步，
@@ -40,7 +40,7 @@ function propertyLabel(key: string): string {
   return PROPERTY_LABELS[key] ?? key;
 }
 
-interface ProvidersSectionProps {
+interface ProviderWorkersAiSectionProps {
   models: AiModel[];
   status?: AiConfigStatus | null;
   quickActivateMutation: {
@@ -49,7 +49,7 @@ interface ProvidersSectionProps {
   };
 }
 
-export function ProvidersSection({ models, status, quickActivateMutation }: ProvidersSectionProps) {
+export function ProviderWorkersAiSection({ models, status, quickActivateMutation }: ProviderWorkersAiSectionProps) {
   const queryClient = useQueryClient();
   const [query, setQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
@@ -274,8 +274,8 @@ export function ProvidersSection({ models, status, quickActivateMutation }: Prov
         )}
 
         <p className="mt-4 text-xs text-muted-foreground">
-          💡 需要接入 OpenAI / Claude / Gemini / 通义千问等第三方模型时，请在「模型」页点击「添加模型」，
-          选择对应提供商并填写 API 端点与密钥。
+          需要接入 OpenAI / Claude / Gemini / 通义千问等第三方模型时，请回到「供应商」页选择预设并连接， 填一次 Key
+          后即可拉取并复用该供应商下的所有模型。
         </p>
       </section>
     </div>

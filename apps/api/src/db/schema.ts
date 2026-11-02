@@ -605,7 +605,15 @@ export const aiProviders = sqliteTable(
     id: text('id').primaryKey(),
     userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    protocol: text('protocol').notNull().default('openai_compatible'),
     apiEndpoint: text('api_endpoint'),
+    apiKeyEncrypted: text('api_key_encrypted'),
+    presetId: text('preset_id'),
+    logoUrl: text('logo_url'),
+    headersJson: text('headers_json'),
+    discoveredModelsJson: text('discovered_models_json'),
+    modelsSyncedAt: text('models_synced_at'),
+    defaultInput: text('default_input').notNull().default('["text"]'),
     description: text('description'),
     thinkingConfig: text('thinking_config'),
     isSystem: integer('is_system', { mode: 'boolean' }).notNull().default(false),
@@ -618,6 +626,7 @@ export const aiProviders = sqliteTable(
   (table) => ({
     userActiveIdx: index('idx_ai_providers_user_active').on(table.userId, table.isActive),
     userDefaultIdx: index('idx_ai_providers_user_default').on(table.userId, table.isDefault),
+    userPresetIdx: index('idx_ai_providers_user_preset').on(table.userId, table.presetId),
     systemIdx: index('idx_ai_providers_system').on(table.isSystem),
   })
 );
@@ -633,8 +642,11 @@ export const aiModels = sqliteTable(
     name: text('name').notNull(),
     provider: text('provider').notNull().default('workers_ai'),
     modelId: text('model_id').notNull(),
-    apiEndpoint: text('api_endpoint'),
-    apiKeyEncrypted: text('api_key_encrypted'),
+    contextWindow: integer('context_window'),
+    maxOutputTokens: integer('max_output_tokens'),
+    inputModalities: text('input_modalities').default('["text"]'),
+    pricingJson: text('pricing_json'),
+    metadataSource: text('metadata_source'),
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
     capabilities: text('capabilities').notNull().default('["chat","completion"]'),
     temperature: real('temperature').default(0.7),
@@ -658,6 +670,7 @@ export const aiModels = sqliteTable(
     userActiveIdx: index('idx_ai_models_user_active').on(table.userId, table.isActive),
     userProviderIdx: index('idx_ai_models_user_provider').on(table.userId, table.provider),
     providerIdx: index('idx_ai_models_provider').on(table.providerId),
+    providerModelIdx: index('idx_ai_models_user_provider_model').on(table.userId, table.providerId, table.modelId),
   })
 );
 
@@ -754,6 +767,20 @@ export const aiConfig = sqliteTable(
     keyIdx: index('idx_ai_config_key').on(table.key),
   })
 );
+
+/**
+ * models.dev 运行时快照：单行 JSON，优先于代码内置快照。
+ * 由前端「拉取 models.dev 快照」触发，写入 D1；表缺失时自动回退内置快照。
+ */
+export const aiCatalogSnapshot = sqliteTable('ai_catalog_snapshot', {
+  id: text('id').primaryKey(),
+  payload: text('payload').notNull(),
+  generatedAt: text('generated_at'),
+  fetchedAt: text('fetched_at').notNull(),
+  providerCount: integer('provider_count').notNull().default(0),
+  modelCount: integer('model_count').notNull().default(0),
+  source: text('source').notNull().default('models.dev'),
+});
 
 export type AiConfig = typeof aiConfig.$inferSelect;
 export type File = typeof files.$inferSelect;

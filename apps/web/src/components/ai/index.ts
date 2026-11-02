@@ -21,14 +21,17 @@ export {
 
 // 设置页面可复用组件
 export {
+  CatalogSnapshotCard,
   ModelCard,
   TaskProgress,
   StatsCard,
   ModelFormModal,
-  ProvidersSection,
+  ProviderCatalogPanel,
+  ProviderConnectionModal,
+  ProviderWorkersAiSection,
   IndexProcessingTab,
   VectorsTable,
-  AdvancedConfigPanel,
+  SystemConfigPanel,
 } from './settings';
 
 // 类型导出

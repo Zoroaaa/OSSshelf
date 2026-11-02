@@ -114,27 +114,29 @@
 
 ## GET /models
 
-查询参数：`capability`（`chat` / `vision` / `embedding` / `function_calling` / `completion`）。
+查询参数：`capability`（`chat` / `vision` / `embedding` / `function_calling` / `completion`）、`providerId`。
+
+返回模型元数据（上下文、最大输出、价格、输入模态、能力）和 `hasApiKey`；不返回任何密钥。
 
 ## POST /models
 
 ```json
 {
-  "name": "显示名",
-  "provider": "workers_ai | openai_compatible",
-  "providerId": "可选，自定义提供商ID",
+  "name": "显示名（可选，默认取供应商元数据）",
+  "provider": "workers_ai（内置模型）",
+  "providerId": "供应商连接 ID（外部模型必填）",
   "modelId": "模型 ID",
-  "apiEndpoint": "https://…（openai_compatible 必填）",
-  "apiKey": "可选，服务端加密存储",
   "capabilities": ["chat", "vision"],
   "temperature": 0.7,
   "isActive": true
 }
 ```
 
+外部模型必须提供 `providerId`；Endpoint / API Key 由供应商连接维护，不再写在模型上。能力、上下文、价格和输入模态会从 models.dev 快照自动带出，可用请求字段覆盖。
+
 ## PUT /models/:modelId
 
-字段同创建接口，全部可选；`apiKey` 留空表示不修改。
+字段同创建接口，全部可选。修改 `providerId` 或 `modelId` 时会重新解析供应商协议和元数据。
 
 ## DELETE /models/:modelId
 
@@ -142,15 +144,31 @@
 
 将该模型设为当前激活模型（同一用户仅一个激活模型）。
 
-## GET /ai-providers / POST /ai-providers / PUT /ai-providers/:id / DELETE /ai-providers/:id
+## 供应商（/api/ai-config/providers）
 
-自定义 OpenAI 兼容提供商 CRUD。删除前会检查是否仍被模型引用。
+| 方法   | 路径                         | 说明                                                                                   |
+| ------ | ---------------------------- | -------------------------------------------------------------------------------------- |
+| GET    | `/providers`                 | 返回 `{ presets, connections }`：预设目录 + 用户连接（不含密钥，只含 `hasApiKey`）     |
+| POST   | `/providers`                 | 创建连接：`{ presetId?, name?, protocol, apiEndpoint, apiKey?, headers?, isDefault? }` |
+| PUT    | `/providers/:id`             | 更新名称/BaseURL/Key/请求头/启停；`apiKey` 留空不变，`clearApiKey=true` 清除           |
+| DELETE | `/providers/:id`             | 有模型引用时返回 409；`?cascade=1` 同时删除模型                                        |
+| POST   | `/providers/:id/set-default` | 设为默认供应商                                                                         |
+| POST   | `/providers/:id/test`        | 拉 `/models` 验证 Key，返回 `{ valid, latencyMs, modelCount, error? }`                 |
+| POST   | `/providers/:id/discover`    | 拉取供应商模型并合并 models.dev 元数据，写入缓存                                       |
+| GET    | `/providers/:id/models`      | 返回缓存模型 + `added` 标记；缓存为空时自动 discover                                   |
+| POST   | `/providers/:id/models`      | `{ modelIds: string[] }` 批量导入，已存在自动跳过                                      |
 
-## POST /ai-providers/:id/set-default
+`GET /ai-providers` 保留为仅返回用户连接的兼容别名。
 
-## GET /providers
+## models.dev 运行时快照
 
-返回 `ModelGateway.getAvailableProviders()` 与 Workers AI 模型清单（与实时目录一致）。
+| 方法   | 路径                | 说明                                                                                      |
+| ------ | ------------------- | ----------------------------------------------------------------------------------------- |
+| GET    | `/catalog-status`   | 返回当前使用运行时快照还是内置快照，以及供应商/模型数量、拉取时间                         |
+| POST   | `/catalog-sync`     | 拉取 `https://models.dev/api.json`，存 D1 `ai_catalog_snapshot`，后续模型元数据优先使用它 |
+| DELETE | `/catalog-snapshot` | 删除运行时快照，回退到代码内置快照                                                        |
+
+运行时快照只影响之后「获取模型列表」或新建模型时的元数据；已有模型不会自动改写。表不存在（迁移 113 未执行）时自动回退内置快照。
 
 ## GET /workers-ai/models?refresh=1
 

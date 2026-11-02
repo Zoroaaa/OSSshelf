@@ -14,6 +14,17 @@ import type { Env } from '../../types/env';
 import { logger } from '@osshelf/shared';
 import { AI_CONFIG_LOG_MODULE } from './constants';
 
+export interface AiConfigUiMeta {
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  multiline?: boolean;
+  rows?: number;
+  options?: Array<{ label: string; value: string }>;
+  advanced?: boolean;
+}
+
 export interface AiConfigItem {
   id: string;
   key: string;
@@ -31,9 +42,66 @@ export interface AiConfigItem {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  ui?: AiConfigUiMeta;
 }
 
 export type AiConfigValue = string | number | boolean | object | null;
+
+/**
+ * 系统配置 UI 元数据（校验范围 / 单位 / 多行 / 只读折叠）
+ * 只影响展示与校验，不落库。
+ */
+export const SYSTEM_CONFIG_UI_META: Record<string, AiConfigUiMeta> = {
+  'ai.model.temperature': { min: 0, max: 2, step: 0.1 },
+  'ai.agent.max_steps': { min: 1, max: 100, step: 1, unit: '步' },
+  'ai.agent.max_context_tokens': { min: 10_000, max: 400_000, step: 1_000, unit: 'tokens' },
+  'ai.tool.max_image_size_bytes': { min: 0, max: 52_428_800, step: 1_024, unit: 'bytes' },
+  'ai.tool.text_chunk_size': { min: 100, max: 10_000, step: 100, unit: '字符' },
+  'ai.tool.max_result_bytes': { min: 1_024, max: 1_048_576, step: 1_024, unit: 'bytes' },
+  'ai.rag.rerank_enabled': { advanced: false },
+  'ai.request.max_retries': { min: 0, max: 10, step: 1, unit: '次', advanced: true },
+  'ai.request.retry_base_delay_ms': { min: 100, max: 10_000, step: 100, unit: 'ms', advanced: true },
+  'ai.request.timeout_ms': { min: 5_000, max: 120_000, step: 1_000, unit: 'ms' },
+  'ai.quota.daily_tokens': { min: 0, max: 100_000_000, step: 1_000, unit: 'tokens' },
+  'ai.quota.daily_requests': { min: 0, max: 100_000, step: 1, unit: '次' },
+  'ai.rate.requests_per_minute': { min: 0, max: 10_000, step: 1, unit: '次/分' },
+  'ai.summary.prompt.default': { multiline: true, rows: 6 },
+  'ai.summary.prompt.code': { multiline: true, rows: 6 },
+  'ai.summary.prompt.markdown': { multiline: true, rows: 6 },
+  'ai.summary.prompt.data': { multiline: true, rows: 6 },
+};
+
+export function validateAiConfigValue(config: AiConfigItem, value: unknown): { valid: boolean; error?: string } {
+  const ui = SYSTEM_CONFIG_UI_META[config.key];
+
+  switch (config.valueType) {
+    case 'number': {
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return { valid: false, error: '请输入有效数字' };
+      }
+      if (ui?.min !== undefined && value < ui.min) {
+        return { valid: false, error: `不能小于 ${ui.min}` };
+      }
+      if (ui?.max !== undefined && value > ui.max) {
+        return { valid: false, error: `不能大于 ${ui.max}` };
+      }
+      return { valid: true };
+    }
+    case 'boolean':
+      return typeof value === 'boolean' ? { valid: true } : { valid: false, error: '值必须是布尔类型' };
+    case 'string': {
+      if (typeof value !== 'string') return { valid: false, error: '值必须是字符串' };
+      if (value.length > 10_000) return { valid: false, error: '文本不能超过 10000 字符' };
+      return { valid: true };
+    }
+    case 'json':
+      return typeof value === 'object' && value !== null
+        ? { valid: true }
+        : { valid: false, error: '值必须是 JSON 对象' };
+    default:
+      return { valid: true };
+  }
+}
 
 const CONFIG_CACHE_TTL_MS = 60_000;
 
@@ -92,46 +160,6 @@ export async function initializeAiConfig(env: Env): Promise<void> {
       defaultValue: '@cf/llava-hf/llava-1.5-7b-hf',
       isEditable: true,
       sortOrder: 2,
-    },
-    {
-      key: 'ai.default_model.summary',
-      category: 'model',
-      label: '文件摘要模型',
-      description: '专门用于生成文件内容摘要的模型ID',
-      valueType: 'string',
-      defaultValue: '@cf/meta/llama-3.1-8b-instruct',
-      isEditable: true,
-      sortOrder: 3,
-    },
-    {
-      key: 'ai.default_model.image_caption',
-      category: 'model',
-      label: '图片描述模型',
-      description: '用于生成图片文字描述的模型ID',
-      valueType: 'string',
-      defaultValue: '@cf/llava-hf/llava-1.5-7b-hf',
-      isEditable: true,
-      sortOrder: 4,
-    },
-    {
-      key: 'ai.default_model.image_tag',
-      category: 'model',
-      label: '图片标签模型',
-      description: '用于识别图片内容并生成标签的模型ID',
-      valueType: 'string',
-      defaultValue: '@cf/llava-hf/llava-1.5-7b-hf',
-      isEditable: true,
-      sortOrder: 5,
-    },
-    {
-      key: 'ai.default_model.rename',
-      category: 'model',
-      label: '智能重命名模型',
-      description: '用于智能文件命名建议的模型ID',
-      valueType: 'string',
-      defaultValue: '@cf/meta/llama-3.1-8b-instruct',
-      isEditable: true,
-      sortOrder: 6,
     },
     {
       key: 'ai.default_model.embedding',
@@ -449,7 +477,10 @@ export async function getAiConfigBoolean(env: Env, key: string, fallback?: boole
 
 export async function getAllAiConfigs(env: Env): Promise<AiConfigItem[]> {
   const configs = await loadAllConfigs(env);
-  return Array.from(configs.values());
+  return Array.from(configs.values()).map((config) => ({
+    ...config,
+    ui: SYSTEM_CONFIG_UI_META[config.key],
+  }));
 }
 
 export async function updateAiConfig(env: Env, key: string, value: AiConfigValue): Promise<boolean> {
