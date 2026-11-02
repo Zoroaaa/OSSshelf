@@ -64,7 +64,7 @@ v4.7.0 版本对 AI 模块进行了全面升级，核心变化如下：
 | **100+ 个智能工具**        | 覆盖文件操作、权限管理、分享链接等 13+ 个模块       | v4.3.0 新增, v4.7.0 扩展 |
 | **模型库大幅扩展**         | 16 个厂商 80+ 个模型，覆盖 2025 年最新推理/视觉模型 | v4.5.0 新增              |
 | **Agent 引擎增强**         | Token 预算管理、降级机制改进、统计增强              | v4.5.0 增强              |
-| **AI 提供商管理**          | 16 个系统内置提供商，支持自定义提供商               | v4.4.0 新增              |
+| **AI 供应商管理**          | 18 个预设 + 自定义连接，供应商级 Key、模型自动发现  | v4.4.0 新增, v5.0.0 重构 |
 | **Agent 引擎重构**         | ReAct 架构，多轮推理，链式调用                      | v4.3.0 重构              |
 | **智能意图识别**           | 自动识别搜索、视觉、内容理解等意图                  | v4.3.0 新增              |
 | **写操作确认**             | 敏感操作需用户确认后执行                            | v4.3.0 新增              |
@@ -441,43 +441,43 @@ AI: 调用 list_expired_permissions() → 逐个 revoke_permission()
 
 ## AI 提供商管理
 
-v4.4.0 新增提供商管理功能，支持 16 个系统内置提供商和用户自定义提供商。
+采用「供应商连接 + 模型」两层结构：
 
-### 系统内置提供商
+- **供应商连接**（`ai_providers`）：协议、Base URL、加密 API Key、自定义请求头、启停；
+- **模型**（`ai_models`）：模型 ID、能力、上下文、价格、思考参数；
+- 一个连接可挂多个模型，共用同一份 Key。
 
-#### 国内厂商（9 个）
+### 预设目录（18 个）
 
-| 提供商          | API 端点                      | Thinking Config            |
-| --------------- | ----------------------------- | -------------------------- |
-| 百度文心一言    | aip.baidubce.com              | 布尔类型 (enable_thinking) |
-| 腾讯混元        | api.hunyuan.cloud.tencent.com | 对象类型 (thinking.type)   |
-| 阿里通义千问    | dashscope.aliyuncs.com        | 布尔类型 (enable_thinking) |
-| 字节火山引擎    | ark.cn-beijing.volces.com     | 对象类型 (thinking.type)   |
-| 智谱AI          | open.bigmodel.cn              | 对象类型 (thinking.type)   |
-| MiniMax         | api.minimax.chat              | -                          |
-| 月之暗面 (Kimi) | api.moonshot.cn               | 对象类型 (thinking.type)   |
-| 硅基流动        | api.siliconflow.cn            | 布尔类型 (enable_thinking) |
-| DeepSeek        | api.deepseek.com              | 对象类型 (thinking.type)   |
+| 地区 | 预设                  | 协议        | 默认 Base URL                                             |
+| ---- | --------------------- | ----------- | --------------------------------------------------------- |
+| 国内 | DeepSeek              | OpenAI 兼容 | `https://api.deepseek.com`                                |
+| 国内 | 硅基流动              | OpenAI 兼容 | `https://api.siliconflow.cn/v1`                           |
+| 国内 | 月之暗面 Kimi         | OpenAI 兼容 | `https://api.moonshot.cn/v1`                              |
+| 国内 | 智谱 AI               | OpenAI 兼容 | `https://open.bigmodel.cn/api/paas/v4`                    |
+| 国内 | 阿里通义千问          | OpenAI 兼容 | `https://dashscope.aliyuncs.com/compatible-mode/v1`       |
+| 国内 | 火山引擎豆包          | OpenAI 兼容 | `https://ark.cn-beijing.volces.com/api/v3`                |
+| 国内 | 百度千帆              | OpenAI 兼容 | `https://qianfan.baidubce.com/v2`                         |
+| 国内 | 腾讯混元              | OpenAI 兼容 | `https://api.hunyuan.cloud.tencent.com/v1`                |
+| 国内 | MiniMax               | Anthropic   | `https://api.minimax.io/anthropic/v1`                     |
+| 国际 | OpenAI                | OpenAI 兼容 | `https://api.openai.com/v1`                               |
+| 国际 | Anthropic Claude      | Anthropic   | `https://api.anthropic.com/v1`                            |
+| 国际 | Google Gemini         | OpenAI 兼容 | `https://generativelanguage.googleapis.com/v1beta/openai` |
+| 国际 | xAI Grok              | OpenAI 兼容 | `https://api.x.ai/v1`                                     |
+| 国际 | Mistral AI            | OpenAI 兼容 | `https://api.mistral.ai/v1`                               |
+| 国际 | Groq                  | OpenAI 兼容 | `https://api.groq.com/openai/v1`                          |
+| 国际 | OpenRouter            | OpenAI 兼容 | `https://openrouter.ai/api/v1`                            |
+| 国际 | Perplexity            | OpenAI 兼容 | `https://api.perplexity.ai`                               |
+| 内置 | Cloudflare Workers AI | Workers AI  | 无需配置，走 Binding                                      |
 
-#### 国际厂商（7 个）
+另有「自定义连接」，支持本地 Ollama / LM Studio 或公司网关，允许不填 API Key。
 
-| 提供商           | API 端点                          | Thinking Config               |
-| ---------------- | --------------------------------- | ----------------------------- |
-| OpenAI           | api.openai.com                    | 字符串类型 (reasoning_effort) |
-| Anthropic Claude | api.anthropic.com                 | 对象类型 (thinking.type)      |
-| Google Gemini    | generativelanguage.googleapis.com | 字符串类型 (thinking_level)   |
-| Mistral AI       | api.mistral.ai                    | -                             |
-| xAI Grok         | api.x.ai                          | 对象类型 (thinking.type)      |
-| Groq             | api.groq.com                      | -                             |
-| Perplexity       | api.perplexity.ai                 | -                             |
-| OpenRouter       | openrouter.ai                     | -                             |
+### Thinking Config
 
-### Thinking Config 配置
-
-不同提供商的推理模式配置格式：
+预设会带出默认思考参数，模型级可覆盖：
 
 ```typescript
-// 布尔类型 (百度、阿里、硅基流动)
+// 布尔类型（阿里、硅基流动、百度）
 {
   "paramFormat": "boolean",
   "paramName": "enable_thinking",
@@ -485,7 +485,7 @@ v4.4.0 新增提供商管理功能，支持 16 个系统内置提供商和用户
   "disabledValue": false
 }
 
-// 对象类型 (腾讯、字节、智谱、月之暗面、DeepSeek、Anthropic、xAI)
+// 对象类型（腾讯、字节、智谱、月之暗面、DeepSeek、Anthropic、MiniMax、xAI）
 {
   "paramFormat": "object",
   "paramName": "thinking",
@@ -494,22 +494,23 @@ v4.4.0 新增提供商管理功能，支持 16 个系统内置提供商和用户
   "disabledValue": "disabled"
 }
 
-// 字符串类型 (OpenAI、Google)
+// 字符串类型（OpenAI o 系列）
 {
   "paramFormat": "string",
-  "paramName": "reasoning_effort",  // 或 "thinking_level"
+  "paramName": "reasoning_effort",
   "enabledValue": "medium",
   "disabledValue": "low"
 }
 ```
 
-### 提供商管理功能
+### 供应商管理功能
 
-- **查看提供商列表**：显示所有系统内置和自定义提供商
-- **添加自定义提供商**：支持用户添加自己的 OpenAI 兼容 API
-- **编辑提供商**：修改名称、端点、描述等
-- **删除提供商**：仅支持删除自定义提供商
-- **设置默认提供商**：快速切换默认提供商
+- **连接预设**：填 Key → 测试连接 → 获取模型列表 → 勾选导入
+- **自定义连接**：Base URL + 协议 + 可选 Key + 可选请求头
+- **刷新目录**：重新拉取供应商 `/models`
+- **删除连接**：有模型时需二次确认并选择同时删除模型
+- **默认连接**：新建模型时优先预选
+- 密钥只存加密密文，接口只返回 `hasApiKey` / `hasHeaders`
 
 ---
 
@@ -986,14 +987,17 @@ GET /api/ai-config/workers-ai/models?refresh=1
 - 卡片展示模型参数（`properties`，如 context_window / max_output_tokens）与官方返回的价格字段；未返回价格时按 Workers AI 统一计费说明展示。
 - 支持按名称 / ID / 描述搜索，并可一键启用；启用时按模型类型写入能力（chat / vision / embedding）。
 
-### OpenAI 兼容 API
+### 第三方供应商（供应商优先）
 
-系统不再内置 OpenAI 兼容模型清单（原静态列表已移除）。需要接入第三方模型时，在「模型」页点击「添加模型」，手动填写：
+供应商连接与模型分开管理：
 
-- 提供商（系统内置提供商或自定义提供商）
-- API Endpoint URL
-- API Key
-- 模型 ID
+- `ai_providers` 存连接：协议（OpenAI 兼容 / Anthropic）、Base URL、加密 API Key、自定义请求头；
+- 一个供应商连接可挂多个模型，共用同一份 Key；
+- 「供应商」页选择预设（DeepSeek / OpenAI / Anthropic / Google / 硅基流动 / Kimi / 智谱 / 通义 / 火山 / MiniMax 等），填 Key 后点「获取模型列表」，勾选导入；
+- 模型元数据（上下文、最大输出、价格、视觉/工具/思考）来自随代码发布的 models.dev 精简快照，可用 `pnpm --filter api models:sync` 更新；
+- Anthropic 走原生 Messages 协议，MiniMax 走其 Anthropic 兼容端点；其余预设走 OpenAI 兼容协议。
+
+删除供应商时，如果其下仍有模型会返回 409；选择「同时删除模型」才会级联删除。
 
 ### 模型能力
 
@@ -1014,22 +1018,22 @@ GET /api/ai-config/workers-ai/models?refresh=1
 
 ### 标签页功能
 
+#### 🔌 供应商（Providers 标签）
+
+- 预设卡片：显示已连接状态、模型数量、协议、文档入口
+- 连接弹窗：Base URL + API Key + 测试连接 + 获取模型列表
+- 模型列表支持搜索、仅看未添加、全选、批量导入
+- 顶部「模型元数据目录」卡片可拉取 models.dev 运行时快照，或恢复代码内置快照；拉取后只影响之后导入/新建模型
+- Workers AI 作为内置供应商单独展示，保留实时目录、搜索和一键启用
+
 #### 📋 模型管理（Models 标签）
 
-- **添加模型**：选择 Workers AI 或自定义 API
-- **编辑模型**：修改名称、参数、提示词等
+- **添加模型**：选供应商 + 模型 ID，Endpoint/Key 不再重复填写
+- **编辑模型**：修改名称、能力、温度、提示词、思考参数
 - **删除模型**：移除不需要的模型
 - **激活模型**：设置当前使用的默认模型
 - **测试连接**：发送测试消息验证可用性
-
-#### ⚡ 可用模型（Providers 标签）
-
-Workers AI 模型列表，每个模型显示：
-
-- 模型名称和 ID
-- 能力标签（chat/vision/embedding）
-- 一键快速启用按钮
-- 当前使用状态
+- 卡片展示上下文、最大输出、价格和元数据来源
 
 #### 🎯 索引与处理（Index 标签）
 
@@ -1060,9 +1064,13 @@ Workers AI 模型列表，每个模型显示：
 - 标签生成任务状态
 - 文件处理总览统计
 
-#### ⚙️ 高级配置（Advanced 标签）
+#### ⚙️ 系统配置（Advanced 标签）
 
-AI 系统配置管理，详见 [AI 系统配置](#ai-系统配置)。
+- 左侧分组导航 + 搜索，行式表单项
+- 数值项带 min/max/step/单位并做校验；提示词使用多行文本
+- 修改项显示「已修改」标记并可单项重置
+- 只读参数折叠在底部
+- 配置对全部用户生效；功能级模型仍在「索引与处理」中设置
 
 ---
 
@@ -1104,40 +1112,41 @@ v4.3.0 AI 系统配置功能，支持细粒度的 AI 参数调整。
 
 ### 配置分类
 
-| 分类          | 说明             | 配置项示例                     |
-| ------------- | ---------------- | ------------------------------ |
-| 🤖 默认模型   | 各功能的默认模型 | 默认聊天模型、默认视觉模型     |
-| ⚙️ 模型参数   | 模型调用参数     | 默认温度、最大 Token           |
-| 📏 内容限制   | 内容生成限制     | 摘要最大长度、标签最大数量     |
-| 🔄 重试策略   | 错误重试配置     | 最大重试次数、重试间隔         |
-| 💬 提示词模板 | 自定义提示词     | 摘要提示词、标签提示词         |
-| ✨ 功能开关   | 功能启用控制     | 启用推理内容显示               |
-| 🤖 Agent 配置 | Agent 行为配置   | 最大工具调用次数、最大空转轮数 |
+| 分类         | 说明                      | 配置项                                                                     |
+| ------------ | ------------------------- | -------------------------------------------------------------------------- |
+| 全局回退模型 | 未指定功能模型时使用      | `ai.default_model.chat` / `.vision` / `.embedding`                         |
+| 模型参数     | 模型调用默认值            | `ai.model.temperature`                                                     |
+| Agent 配置   | 单轮推理预算              | `ai.agent.max_steps` / `ai.agent.max_context_tokens`                       |
+| 工具配置     | 内容读取限制              | `ai.tool.max_image_size_bytes` / `text_chunk_size` / `max_result_bytes`    |
+| 功能开关     | 上传后自动处理、向量索引  | `ai.feature.auto_process_enabled` / `vector_index_enabled`                 |
+| RAG 配置     | 检索重排                  | `ai.rag.rerank_enabled`                                                    |
+| 重试与超时   | 重试次数、退避、超时      | `ai.request.max_retries` / `retry_base_delay_ms` / `timeout_ms`            |
+| 配额与限流   | 日 Token/请求、每分钟请求 | `ai.quota.daily_tokens` / `daily_requests` / `ai.rate.requests_per_minute` |
+| 提示词模板   | 摘要提示词                | `ai.summary.prompt.default` / `.code` / `.markdown` / `.data`              |
 
 ### 配置项示例
 
-| 配置 Key                      | 说明             | 默认值                           |
-| ----------------------------- | ---------------- | -------------------------------- |
-| `ai.default_model.chat`       | 默认聊天模型     | `@cf/meta/llama-3.1-8b-instruct` |
-| `ai.default_model.vision`     | 默认视觉模型     | `@cf/llava-hf/llava-1.5-7b-hf`   |
-| `ai.default_model.summary`    | 默认摘要模型     | `@cf/meta/llama-3.1-8b-instruct` |
-| `ai.parameter.temperature`    | 默认温度         | `0.7`                            |
-| `ai.parameter.max_tokens`     | 默认最大 Token   | `4096`                           |
-| `ai.limit.summary_max_length` | 摘要最大长度     | `500`                            |
-| `ai.limit.tags_max_count`     | 标签最大数量     | `10`                             |
-| `ai.retry.max_attempts`       | 最大重试次数     | `3`                              |
-| `ai.retry.delay_ms`           | 重试间隔（毫秒） | `1000`                           |
-| `ai.agent.max_tool_calls`     | 最大工具调用次数 | `20`                             |
-| `ai.agent.max_idle_rounds`    | 最大空转轮数     | `3`                              |
-| `ai.agent.temperature`        | Agent 温度       | `0.3`                            |
-| `ai.agent.image_timeout_ms`   | 图片分析超时     | `25000`                          |
+| 配置 Key                      | 默认值                           |
+| ----------------------------- | -------------------------------- |
+| `ai.default_model.chat`       | `@cf/meta/llama-3.1-8b-instruct` |
+| `ai.default_model.vision`     | `@cf/llava-hf/llava-1.5-7b-hf`   |
+| `ai.default_model.embedding`  | `@cf/baai/bge-m3`                |
+| `ai.model.temperature`        | `0.7`                            |
+| `ai.agent.max_steps`          | `20`                             |
+| `ai.agent.max_context_tokens` | `100000`                         |
+| `ai.quota.daily_tokens`       | `200000`                         |
+| `ai.quota.daily_requests`     | `200`                            |
+| `ai.rate.requests_per_minute` | `20`                             |
 
 ### 配置方法
 
-1. 进入 AI 设置 → 高级配置
-2. 找到需要修改的配置项
-3. 点击「编辑」按钮修改值
-4. 可点击「重置」按钮恢复默认值
+1. 进入 AI 设置 →「系统配置」
+2. 用左侧分组或顶部搜索定位配置项
+3. 数值项失焦或按 Enter 保存，开关即时保存，提示词支持多行
+4. 修改项会显示「已修改」，可单项重置为默认值
+5. 只读参数折叠在底部；配置对全部用户生效
+
+功能级模型（摘要 / 图片描述 / 图片标签 / 重命名）在「索引与处理」页设置，不再出现在系统配置里。
 
 ---
 

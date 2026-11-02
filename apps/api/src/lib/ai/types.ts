@@ -8,7 +8,7 @@
  * - 流式响应类型
  */
 
-export type ModelProvider = 'workers_ai' | 'openai_compatible' | 'anthropic' | 'custom';
+export type ModelProvider = 'workers_ai' | 'openai_compatible' | 'anthropic';
 
 export type ModelCapability = 'chat' | 'completion' | 'embedding' | 'vision' | 'function_calling';
 
@@ -59,13 +59,31 @@ export interface ModelConfig {
   userId: string;
   name: string;
   provider: ModelProvider;
+  /** 供应商连接上的实际协议（读取时覆盖 provider） */
+  protocol?: ModelProvider;
   providerId?: string;
+  providerName?: string;
+  providerUpdatedAt?: string;
+  /** 该供应商连接是否必须提供 API Key（自定义本地端点可为 false） */
+  requiresApiKey?: boolean;
   modelId: string;
+  /** 运行时字段：由供应商连接解析得出，不落 ai_models */
   apiEndpoint?: string;
   apiKeyEncrypted?: string;
   apiKeyDecrypted?: string;
+  headers?: Record<string, string>;
   isActive: boolean;
   capabilities: ModelCapability[];
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  inputModalities?: string[];
+  pricing?: {
+    input?: number;
+    output?: number;
+    reasoning?: number;
+    cacheRead?: number;
+  };
+  metadataSource?: string;
   temperature: number;
   systemPrompt?: string;
   configJson: Record<string, unknown>;

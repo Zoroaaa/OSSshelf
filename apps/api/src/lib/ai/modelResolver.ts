@@ -13,7 +13,7 @@ import { embedMany, type LanguageModel } from 'ai';
 import { createAI, type CloudflareLanguageModelId } from 'agents/models/ai-sdk';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createAnthropic } from '@ai-sdk/anthropic';
-import { getDb, aiModels } from '../../db';
+import { getDb, aiModels, aiProviders } from '../../db';
 import type { Env } from '../../types/env';
 import type { ModelConfig } from './types';
 import { AiError } from './aiErrors';
@@ -21,6 +21,7 @@ import { getAiConfigString } from './aiConfigService';
 import { decryptCredential, getEncryptionKey, isAesGcmFormat } from '../crypto';
 import { logger } from '@osshelf/shared';
 import { MODEL_ID_FORMAT_HINT, pickSupportedModelId } from './modelId';
+import { mapModelConfig } from './modelConfigMapper';
 
 export const DEFAULT_EMBEDDING_MODEL = '@cf/baai/bge-m3';
 
@@ -37,33 +38,20 @@ export interface EmbeddingProvider {
 
 const FALLBACK_CHAT_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 
-function parseRow(raw: Record<string, unknown>): ModelConfig {
-  return {
-    id: raw.id as string,
-    userId: raw.userId as string,
-    name: raw.name as string,
-    provider: raw.provider as ModelConfig['provider'],
-    providerId: raw.providerId as string | undefined,
-    modelId: raw.modelId as string,
-    apiEndpoint: raw.apiEndpoint as string | undefined,
-    apiKeyEncrypted: raw.apiKeyEncrypted as string | undefined,
-    isActive: Boolean(raw.isActive),
-    capabilities: JSON.parse((raw.capabilities as string) || '[]'),
-    temperature: (raw.temperature as number) || 0.7,
-    systemPrompt: raw.systemPrompt as string | undefined,
-    configJson: JSON.parse((raw.configJson as string) || '{}'),
-    createdAt: raw.createdAt as string,
-    updatedAt: raw.updatedAt as string,
-    supportsThinking: Boolean(raw.supportsThinking),
-    thinkingParamFormat: raw.thinkingParamFormat as ModelConfig['thinkingParamFormat'],
-    thinkingParamName: raw.thinkingParamName as string | undefined,
-    thinkingEnabledValue: raw.thinkingEnabledValue as string | undefined,
-    thinkingDisabledValue: raw.thinkingDisabledValue as string | undefined,
-    thinkingNestedKey: raw.thinkingNestedKey as string | undefined,
-    disableThinkingForFeatures: raw.disableThinkingForFeatures as string | undefined,
-    isReadonly: Boolean(raw.isReadonly),
-    sortOrder: (raw.sortOrder as number) ?? 0,
-  };
+async function loadProviderRow(env: Env, userId: string, providerId: string | null | undefined) {
+  if (!providerId) return null;
+  const db = getDb(env.DB);
+  const provider = await db
+    .select()
+    .from(aiProviders)
+    .where(and(eq(aiProviders.id, providerId), eq(aiProviders.userId, userId)))
+    .get();
+  return provider ?? null;
+}
+
+async function toModelConfig(env: Env, userId: string, raw: Record<string, unknown>): Promise<ModelConfig> {
+  const provider = await loadProviderRow(env, userId, raw.providerId as string | undefined);
+  return mapModelConfig(raw, provider);
 }
 
 export async function loadModelConfig(env: Env, userId: string, modelId?: string): Promise<ModelConfig> {
@@ -75,14 +63,14 @@ export async function loadModelConfig(env: Env, userId: string, modelId?: string
       .from(aiModels)
       .where(and(eq(aiModels.id, modelId), eq(aiModels.userId, userId)))
       .get();
-    if (byId) return parseRow(byId);
+    if (byId) return toModelConfig(env, userId, byId);
 
     const byModelId = await db
       .select()
       .from(aiModels)
       .where(and(eq(aiModels.modelId, modelId), eq(aiModels.userId, userId)))
       .get();
-    if (byModelId) return parseRow(byModelId);
+    if (byModelId) return toModelConfig(env, userId, byModelId);
   }
 
   const active = await db
@@ -91,7 +79,7 @@ export async function loadModelConfig(env: Env, userId: string, modelId?: string
     .where(and(eq(aiModels.userId, userId), eq(aiModels.isActive, true)))
     .get();
 
-  if (active) return parseRow(active);
+  if (active) return toModelConfig(env, userId, active);
 
   const defaultModelId = await getAiConfigString(env, 'ai.default_model.chat', FALLBACK_CHAT_MODEL);
   const now = new Date().toISOString();
@@ -160,13 +148,13 @@ export async function resolveLanguageModel(env: Env, userId: string, modelId?: s
         throw new AiError('AI_CONFIG_INVALID', 'OpenAI 兼容模型缺少 API Endpoint');
       }
       const apiKey = await resolveApiKey(env, config);
-      if (!apiKey) {
+      if (!apiKey && config.requiresApiKey !== false) {
         throw new AiError('AI_CONFIG_INVALID', 'OpenAI 兼容模型缺少 API Key');
       }
       const provider = createOpenAICompatible({
         name: config.name || 'openai-compatible',
         baseURL: config.apiEndpoint,
-        apiKey,
+        apiKey: apiKey ?? 'not-needed',
       });
       return {
         model: provider.languageModel(config.modelId),
@@ -176,11 +164,11 @@ export async function resolveLanguageModel(env: Env, userId: string, modelId?: s
     }
     case 'anthropic': {
       const apiKey = await resolveApiKey(env, config);
-      if (!apiKey) {
+      if (!apiKey && config.requiresApiKey !== false) {
         throw new AiError('AI_CONFIG_INVALID', 'Anthropic 模型缺少 API Key');
       }
       const provider = createAnthropic({
-        apiKey,
+        apiKey: apiKey ?? 'not-needed',
         baseURL: config.apiEndpoint || undefined,
       });
       return {

@@ -203,10 +203,12 @@ const routeMetadata: Record<string, RouteMeta> = {
   'post /ai': { summary: 'AI 文件处理（摘要/标签/索引）', tags: ['AI'] },
 
   // ── AI Config ──────────────────────────────────────
-  'get  /ai-config/models': { summary: '获取可用模型列表', tags: ['AI'] },
-  'get  /ai-config/settings': { summary: '获取 AI 设置', tags: ['AI'] },
-  'put  /ai-config/settings': { summary: '更新 AI 设置', tags: ['AI'] },
-  'post /ai-config/provider/default': { summary: '设置默认提供商', tags: ['AI'] },
+  'get  /ai-config/models': { summary: '获取模型列表', tags: ['AI'] },
+  'post /ai-config/models': { summary: '创建模型', tags: ['AI'] },
+  'get  /ai-config/providers': { summary: '供应商预设与用户连接', tags: ['AI'] },
+  'post /ai-config/providers': { summary: '创建供应商连接', tags: ['AI'] },
+  'post /ai-config/providers/:providerId/discover': { summary: '拉取供应商模型列表', tags: ['AI'] },
+  'get  /ai-config/system-config': { summary: '获取系统配置', tags: ['AI'] },
 
   // ── AI Chat ────────────────────────────────────────
   'post /ai-chat/chat': { summary: '发送 AI 对话消息', tags: ['AI'] },

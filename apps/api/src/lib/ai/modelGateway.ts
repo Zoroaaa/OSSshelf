@@ -13,19 +13,20 @@ import type { Env } from '../../types/env';
 import type {
   IModelAdapter,
   ModelConfig,
-  ModelProvider,
   ChatCompletionRequest,
   ChatCompletionResponse,
   StreamChunk,
   EmbeddingRequest,
   EmbeddingResponse,
-  ThinkingParamFormat,
 } from './types';
 import { WorkersAiAdapter } from './adapters/workersAiAdapter';
 import { OpenAiCompatibleAdapter } from './adapters/openAiCompatibleAdapter';
+import { AnthropicAdapter } from './adapters/anthropicAdapter';
 import { logger } from '@osshelf/shared';
-import { getDb, aiModels } from '../../db';
+import { getDb, aiModels, aiProviders } from '../../db';
 import { eq, and } from 'drizzle-orm';
+import { mapModelConfig } from './modelConfigMapper';
+import type { AiProviderRow } from './providers/providerService';
 import { getAiConfigString, getAiConfigNumber } from './aiConfigService';
 import { AI_LOG_MODULE } from './constants';
 import { buildThinkingConfig, estimateTokens } from './utils';
@@ -63,6 +64,12 @@ export class ModelGateway {
     }
   }
 
+  private async loadProviderMap(userId: string): Promise<Map<string, AiProviderRow>> {
+    const db = getDb(this.env.DB);
+    const providers = await db.select().from(aiProviders).where(eq(aiProviders.userId, userId)).all();
+    return new Map(providers.map((provider) => [provider.id, provider]));
+  }
+
   async getActiveModel(userId: string): Promise<ModelConfig | null> {
     try {
       const db = getDb(this.env.DB);
@@ -73,7 +80,8 @@ export class ModelGateway {
         .get();
 
       if (!model) return null;
-      return this.parseModelConfigWithValidation(model);
+      const providers = await this.loadProviderMap(userId);
+      return mapModelConfig(model, model.providerId ? providers.get(model.providerId) : null);
     } catch (error) {
       logger.error(AI_LOG_MODULE, 'Failed to get active model', { userId }, error);
       return null;
@@ -98,7 +106,8 @@ export class ModelGateway {
       }
 
       if (!model) return null;
-      return this.parseModelConfigWithValidation(model);
+      const providers = await this.loadProviderMap(userId);
+      return mapModelConfig(model, model.providerId ? providers.get(model.providerId) : null);
     } catch (error) {
       logger.error(AI_LOG_MODULE, 'Failed to get model by ID', { modelId, userId }, error);
       return null;
@@ -108,8 +117,11 @@ export class ModelGateway {
   async getAllModels(userId: string): Promise<ModelConfig[]> {
     try {
       const db = getDb(this.env.DB);
-      const models = await db.select().from(aiModels).where(eq(aiModels.userId, userId)).all();
-      return models.map((m) => this.parseModelConfigWithValidation(m));
+      const [models, providers] = await Promise.all([
+        db.select().from(aiModels).where(eq(aiModels.userId, userId)).all(),
+        this.loadProviderMap(userId),
+      ]);
+      return models.map((model) => mapModelConfig(model, model.providerId ? providers.get(model.providerId) : null));
     } catch (error) {
       logger.error(AI_LOG_MODULE, 'Failed to get all models', { userId }, error);
       return [];
@@ -130,6 +142,9 @@ export class ModelGateway {
         break;
       case 'openai_compatible':
         adapter = new OpenAiCompatibleAdapter(this.env, modelConfig);
+        break;
+      case 'anthropic':
+        adapter = new AnthropicAdapter(this.env, modelConfig);
         break;
       default:
         throw new Error(`Unsupported model provider: ${modelConfig.provider}`);
@@ -431,6 +446,7 @@ export class ModelGateway {
       config.apiKeyEncrypted?.slice(0, 8),
       config.isActive ? '1' : '0',
       config.updatedAt,
+      config.providerUpdatedAt ?? '',
     ].join('|');
 
     let hash = 0;
@@ -460,66 +476,6 @@ export class ModelGateway {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-  }
-
-  static getAvailableProviders(): Array<{
-    id: ModelProvider;
-    name: string;
-    description: string;
-    requiresApiKey: boolean;
-    requiresEndpoint: boolean;
-  }> {
-    return [
-      {
-        id: 'workers_ai',
-        name: 'Cloudflare Workers AI',
-        description:
-          'Cloudflare内置的AI服务，无需配置API密钥，直接使用。支持自定义模型ID。注意：不支持 Native Function Calling，工具调用走 Prompt-Based Fallback',
-        requiresApiKey: false,
-        requiresEndpoint: false,
-      },
-      {
-        id: 'openai_compatible',
-        name: 'OpenAI 兼容 API',
-        description: '支持所有OpenAI兼容的API（OpenAI、Azure、Ollama、本地模型等），支持 Native Function Calling',
-        requiresApiKey: true,
-        requiresEndpoint: true,
-      },
-    ];
-  }
-
-  private parseModelConfig(raw: Record<string, unknown>): ModelConfig {
-    return {
-      id: raw.id as string,
-      userId: raw.userId as string,
-      name: raw.name as string,
-      provider: raw.provider as ModelProvider,
-      providerId: raw.providerId as string | undefined,
-      modelId: raw.modelId as string,
-      apiEndpoint: raw.apiEndpoint as string | undefined,
-      apiKeyEncrypted: raw.apiKeyEncrypted as string | undefined,
-      isActive: Boolean(raw.isActive),
-      capabilities: JSON.parse((raw.capabilities as string) || '[]'),
-      temperature: (raw.temperature as number) || 0.7,
-      systemPrompt: raw.systemPrompt as string | undefined,
-      configJson: JSON.parse((raw.configJson as string) || '{}'),
-      createdAt: raw.createdAt as string,
-      updatedAt: raw.updatedAt as string,
-      supportsThinking: Boolean(raw.supportsThinking),
-      thinkingParamFormat: raw.thinkingParamFormat as ThinkingParamFormat | undefined,
-      thinkingParamName: raw.thinkingParamName as string | undefined,
-      thinkingEnabledValue: raw.thinkingEnabledValue as string | undefined,
-      thinkingDisabledValue: raw.thinkingDisabledValue as string | undefined,
-      thinkingNestedKey: raw.thinkingNestedKey as string | undefined,
-      disableThinkingForFeatures: raw.disableThinkingForFeatures as string | undefined,
-      isReadonly: Boolean(raw.isReadonly),
-      sortOrder: (raw.sortOrder as number) ?? 0,
-    };
-  }
-
-  private parseModelConfigWithValidation(raw: Record<string, unknown>): ModelConfig {
-    const config = this.parseModelConfig(raw);
-    return config;
   }
 
   /**

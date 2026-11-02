@@ -124,6 +124,18 @@ export interface VectorListResponse {
 // 类型定义 — AI 配置相关（模型/提供商/系统配置）
 // ══════════════════════════════════════════════════════════════════════════════
 
+/** 系统配置 UI 元数据 */
+export interface AiConfigUiMeta {
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  multiline?: boolean;
+  rows?: number;
+  options?: Array<{ label: string; value: string }>;
+  advanced?: boolean;
+}
+
 /** AI 系统配置项 */
 export interface AiSystemConfigItem {
   id: string;
@@ -142,6 +154,87 @@ export interface AiSystemConfigItem {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  ui?: AiConfigUiMeta;
+}
+
+export type AiProviderProtocol = 'openai_compatible' | 'anthropic';
+export type AiProviderKind = AiProviderProtocol | 'workers_ai';
+
+/** 供应商预设（代码目录，不是用户连接） */
+export interface AiProviderPreset {
+  id: string;
+  name: string;
+  kind: AiProviderKind;
+  protocol: AiProviderProtocol | null;
+  baseUrl: string;
+  docsUrl: string;
+  logoUrl?: string;
+  requiresApiKey: boolean;
+  metadataProviderId?: string;
+  defaultInput: string[];
+  description: string;
+  thinkingConfig?: Record<string, unknown>;
+}
+
+/** 用户级供应商连接 */
+export interface AiProviderConnection {
+  id: string;
+  userId: string | null;
+  name: string;
+  protocol: AiProviderProtocol;
+  apiEndpoint: string | null;
+  presetId: string | null;
+  logoUrl: string | null;
+  description: string | null;
+  thinkingConfig: string | null;
+  hasApiKey: boolean;
+  hasHeaders: boolean;
+  defaultInput: string;
+  isDefault: boolean;
+  isActive: boolean;
+  sortOrder: number;
+  modelsSyncedAt: string | null;
+  modelCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** 创建/更新供应商参数 */
+export interface CreateAiProviderParams {
+  presetId?: string;
+  name?: string;
+  protocol?: AiProviderProtocol;
+  apiEndpoint?: string;
+  apiKey?: string;
+  headers?: Record<string, string>;
+  thinkingConfig?: string;
+  description?: string;
+  isDefault?: boolean;
+  isActive?: boolean;
+  sortOrder?: number;
+  clearApiKey?: boolean;
+  clearHeaders?: boolean;
+}
+
+/** 供应商 /models 发现结果 */
+export interface AiDiscoveredModel {
+  id: string;
+  name: string;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  inputModalities: string[];
+  capabilities: string[];
+  pricing?: { input?: number; output?: number; reasoning?: number; cacheRead?: number };
+  supportsThinking: boolean;
+  status?: 'alpha' | 'beta' | 'deprecated';
+  source: 'models.dev' | 'provider' | 'manual';
+  added?: boolean;
+}
+
+export interface AiDiscoveryResult {
+  models: AiDiscoveredModel[];
+  source: 'live' | 'cache';
+  fetchedAt: string;
 }
 
 /** AI 模型 */
@@ -149,14 +242,20 @@ export interface AiModel {
   id: string;
   userId: string;
   name: string;
-  provider: 'workers_ai' | 'openai_compatible';
+  provider: 'workers_ai' | 'openai_compatible' | 'anthropic';
+  protocol?: 'workers_ai' | 'openai_compatible' | 'anthropic';
   providerId?: string;
+  providerName?: string;
   modelId: string;
   apiEndpoint?: string;
-  apiKeyEncrypted?: string;
   hasApiKey?: boolean;
   isActive: boolean;
   capabilities: string[];
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  inputModalities?: string[];
+  pricing?: { input?: number; output?: number; reasoning?: number; cacheRead?: number };
+  metadataSource?: string;
   temperature: number;
   systemPrompt?: string;
   createdAt: string;
@@ -174,12 +273,10 @@ export interface AiModel {
 
 /** 创建 AI 模型参数 */
 export interface CreateAiModelParams {
-  name: string;
-  provider: 'workers_ai' | 'openai_compatible';
-  providerId?: string;
+  name?: string;
+  provider?: 'workers_ai' | 'openai_compatible' | 'anthropic';
+  providerId?: string | null;
   modelId: string;
-  apiEndpoint?: string;
-  apiKey?: string;
   capabilities?: string[];
   temperature?: number;
   systemPrompt?: string;
@@ -192,40 +289,9 @@ export interface CreateAiModelParams {
   thinkingNestedKey?: string;
   disableThinkingForFeatures?: string;
   sortOrder?: number;
-}
-
-/** AI 提供商元数据 */
-export interface AiProvider {
-  id: string;
-  name: string;
-  description: string;
-  requiresApiKey: boolean;
-  requiresEndpoint: boolean;
-}
-
-/** AI 提供商实例 */
-export interface AiProviderItem {
-  id: string;
-  userId?: string;
-  name: string;
-  apiEndpoint?: string;
-  description?: string;
-  thinkingConfig?: string;
-  isSystem?: boolean;
-  isDefault: boolean;
-  isActive: boolean;
-  sortOrder: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/** 创建 AI 提供商参数 */
-export interface CreateAiProviderParams {
-  name: string;
-  apiEndpoint?: string;
-  description?: string;
-  thinkingConfig?: string;
-  isDefault?: boolean;
+  contextWindow?: number;
+  maxOutputTokens?: number;
+  inputModalities?: string[];
 }
 
 /** Workers AI 内置模型 */
@@ -264,6 +330,16 @@ export interface AiWorkersAiCatalog {
   /** 未注入的 Worker 运行时变量 */
   missing: string[];
   models: AiWorkersAiCatalogModel[];
+}
+
+/** models.dev 运行时快照状态 */
+export interface AiCatalogStatus {
+  source: 'runtime' | 'bundled';
+  installed: boolean;
+  fetchedAt: string | null;
+  generatedAt: string | null;
+  providerCount: number;
+  modelCount: number;
 }
 
 /** AI 配置总览状态 */
@@ -374,32 +450,51 @@ export const aiApi = {
     activateModel: (modelId: string) =>
       api.post<ApiResponse<{ message: string; activeModelId: string }>>(`/api/ai-config/models/${modelId}/activate`),
     getProviders: () =>
-      api.get<ApiResponse<{ providers: AiProvider[]; workersAiModels: AiWorkersAiModel[] }>>(
+      api.get<ApiResponse<{ presets: AiProviderPreset[]; connections: AiProviderConnection[] }>>(
         '/api/ai-config/providers'
       ),
+    getProviderConnections: () => api.get<ApiResponse<AiProviderConnection[]>>('/api/ai-config/ai-providers'),
+    createProvider: (data: CreateAiProviderParams) =>
+      api.post<ApiResponse<AiProviderConnection>>('/api/ai-config/providers', data),
+    updateProvider: (providerId: string, data: Partial<CreateAiProviderParams>) =>
+      api.put<ApiResponse<AiProviderConnection>>(`/api/ai-config/providers/${providerId}`, data),
+    deleteProvider: (providerId: string, cascade = false) =>
+      api.delete<ApiResponse<{ message: string; deletedModels: number }>>(
+        `/api/ai-config/providers/${providerId}${cascade ? '?cascade=1' : ''}`
+      ),
+    setDefaultProvider: (providerId: string) =>
+      api.post<ApiResponse<{ message: string; providerId: string }>>(
+        `/api/ai-config/providers/${providerId}/set-default`
+      ),
+    testProvider: (providerId: string) =>
+      api.post<ApiResponse<{ valid: boolean; latencyMs: number; modelCount: number; error?: string }>>(
+        `/api/ai-config/providers/${providerId}/test`
+      ),
+    discoverProviderModels: (providerId: string, refresh = false) =>
+      api.post<ApiResponse<AiDiscoveryResult>>(
+        `/api/ai-config/providers/${providerId}/discover${refresh ? '?refresh=1' : ''}`
+      ),
+    getProviderModels: (providerId: string, refresh = false) =>
+      api.get<ApiResponse<AiDiscoveryResult>>(
+        `/api/ai-config/providers/${providerId}/models${refresh ? '?refresh=1' : ''}`
+      ),
+    importProviderModels: (providerId: string, modelIds: string[]) =>
+      api.post<ApiResponse<{ created: number; skipped: number }>>(`/api/ai-config/providers/${providerId}/models`, {
+        modelIds,
+      }),
     /** Workers AI 实时模型目录（含参数/价格，未配置凭据时回退内置清单） */
     getWorkersAiModels: (refresh = false) =>
       api.get<ApiResponse<AiWorkersAiCatalog>>('/api/ai-config/workers-ai/models', {
         params: refresh ? { refresh: '1' } : {},
       }),
     getStatus: () => api.get<ApiResponse<AiConfigStatus>>('/api/ai-config/status'),
-    testModel: (data: { modelId?: string; provider?: string; apiEndpoint?: string; apiKey?: string }) =>
+    getCatalogStatus: () => api.get<ApiResponse<AiCatalogStatus>>('/api/ai-config/catalog-status'),
+    syncCatalog: () => api.post<ApiResponse<AiCatalogStatus>>('/api/ai-config/catalog-sync'),
+    resetCatalog: () => api.delete<ApiResponse<AiCatalogStatus>>('/api/ai-config/catalog-snapshot'),
+    testModel: (data: { modelId?: string; providerId?: string }) =>
       api.post<ApiResponse<{ valid: boolean; response?: string; model?: string; latencyMs?: number; error?: string }>>(
         '/api/ai-config/test',
         data
-      ),
-
-    // ── AI 提供商管理 ──
-    getAiProviders: () => api.get<ApiResponse<AiProviderItem[]>>('/api/ai-config/ai-providers'),
-    createAiProvider: (data: CreateAiProviderParams) =>
-      api.post<ApiResponse<AiProviderItem>>('/api/ai-config/ai-providers', data),
-    updateAiProvider: (providerId: string, data: Partial<CreateAiProviderParams>) =>
-      api.put<ApiResponse<AiProviderItem>>(`/api/ai-config/ai-providers/${providerId}`, data),
-    deleteAiProvider: (providerId: string) =>
-      api.delete<ApiResponse<{ message: string }>>(`/api/ai-config/ai-providers/${providerId}`),
-    setDefaultProvider: (providerId: string) =>
-      api.post<ApiResponse<{ message: string; providerId: string }>>(
-        `/api/ai-config/ai-providers/${providerId}/set-default`
       ),
 
     // ── 特征配置（摘要/图片说明/标签/重命名提示词）──
