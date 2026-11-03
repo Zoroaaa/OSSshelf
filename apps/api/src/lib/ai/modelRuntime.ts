@@ -159,8 +159,7 @@ async function createLanguageModel(env: Env, config: ModelConfig): Promise<Langu
 
 /** 解析并创建可调用的模型实例（Agent 主链路使用） */
 export async function resolveModelRuntime(env: Env, userId: string, modelId?: string): Promise<ResolvedModelRuntime> {
-  const resolved = await resolveModelConfig(env, userId, modelId);
-  const config = resolved.provider === 'workers_ai' ? normalizeWorkersAiConfig(resolved) : resolved;
+  const config = await resolveNormalizedConfig(env, userId, modelId);
   const model = await createLanguageModel(env, config);
   return { model, config };
 }
@@ -239,9 +238,8 @@ function parseDataUrl(value: string): { mediaType: string; data: string } | null
 
 function toUserContent(
   parts: ChatContentPart[]
-): Array<{ type: 'text'; text: string } | { type: 'image'; image: string | URL; mediaType?: string }> {
-  const content: Array<{ type: 'text'; text: string } | { type: 'image'; image: string | URL; mediaType?: string }> =
-    [];
+): Array<{ type: 'text'; text: string } | { type: 'file'; data: string | URL; mediaType: string }> {
+  const content: Array<{ type: 'text'; text: string } | { type: 'file'; data: string | URL; mediaType: string }> = [];
 
   for (const part of parts) {
     if (part.type === 'text') {
@@ -252,9 +250,10 @@ function toUserContent(
     if (part.type === 'image_url' && part.image_url?.url) {
       const dataUrl = parseDataUrl(part.image_url.url);
       if (dataUrl) {
-        content.push({ type: 'image', image: dataUrl.data, mediaType: dataUrl.mediaType });
+        // AI SDK v7 起 image part 已废弃，统一用 file part + mediaType
+        content.push({ type: 'file', data: dataUrl.data, mediaType: dataUrl.mediaType });
       } else {
-        content.push({ type: 'image', image: new URL(part.image_url.url) });
+        content.push({ type: 'file', data: new URL(part.image_url.url), mediaType: 'image' });
       }
     }
   }
@@ -303,6 +302,45 @@ function injectSystemPrompt(messages: ChatMessage[], systemPrompt?: string): Cha
 
 function collectPromptText(messages: ChatMessage[]): string {
   return messages.map((message) => flattenText(message.content)).join('\n');
+}
+
+function hasImageContent(messages: ChatMessage[]): boolean {
+  return messages.some(
+    (message) =>
+      Array.isArray(message.content) &&
+      message.content.some((part) => part.type === 'image_url' && !!part.image_url?.url)
+  );
+}
+
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function extractWorkersAiVisionInput(messages: ChatMessage[]): { prompt: string; image: Uint8Array } | null {
+  for (const message of messages) {
+    if (!Array.isArray(message.content)) continue;
+
+    const imagePart = message.content.find((part) => part.type === 'image_url' && !!part.image_url?.url);
+    if (!imagePart?.image_url?.url) continue;
+
+    const dataUrl = parseDataUrl(imagePart.image_url.url);
+    if (!dataUrl) continue;
+
+    const prompt = message.content
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text ?? '')
+      .join('\n')
+      .trim();
+
+    return { prompt, image: base64ToBytes(dataUrl.data) };
+  }
+
+  return null;
 }
 
 function toTokenUsage(
@@ -358,6 +396,84 @@ async function getRuntimeSettings(env: Env): Promise<{ maxRetries: number; timeo
     return { maxRetries, timeoutMs };
   } catch {
     return { maxRetries: DEFAULT_MAX_RETRIES, timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS };
+  }
+}
+
+async function resolveNormalizedConfig(env: Env, userId: string, modelId?: string): Promise<ModelConfig> {
+  const resolved = await resolveModelConfig(env, userId, modelId);
+  return resolved.provider === 'workers_ai' ? normalizeWorkersAiConfig(resolved) : resolved;
+}
+
+/**
+ * Workers AI 视觉模型的原生输入是 { image, prompt }，不走 chat-completions。
+ * 单独保留这一分支，避免 LLaVA 等模型因 messages 格式不兼容而返回空。
+ */
+async function runWorkersAiVision(
+  env: Env,
+  config: ModelConfig,
+  request: CompleteRequest,
+  options: { userId: string; record: boolean }
+): Promise<CompleteResult> {
+  if (!env.AI) {
+    throw new AiError('AI_CONFIG_INVALID', 'Workers AI 绑定未配置，无法进行视觉分析');
+  }
+
+  const input = extractWorkersAiVisionInput(request.messages);
+  if (!input) {
+    throw new AiError('AI_CONFIG_INVALID', '视觉调用缺少图片内容');
+  }
+
+  const featureType = request.featureType ?? 'chat';
+  const startedAt = Date.now();
+
+  try {
+    const raw = await (env.AI as any).run(config.modelId, {
+      image: Array.from(input.image),
+      prompt: input.prompt,
+    });
+
+    const content = String(
+      (raw as { description?: unknown; response?: unknown })?.description ??
+        (raw as { response?: unknown })?.response ??
+        ''
+    ).trim();
+    const usage: TokenUsage = {
+      inputTokens: estimateTokens(input.prompt),
+      outputTokens: estimateTokens(content),
+    };
+
+    if (options.record) {
+      void recordUsage(env, {
+        userId: options.userId,
+        feature: featureType,
+        provider: config.provider,
+        modelId: config.modelId,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        latencyMs: Date.now() - startedAt,
+        status: 'completed',
+      });
+    }
+
+    return { content, modelId: config.modelId, usage };
+  } catch (error) {
+    const mapped = mapAiError(error);
+
+    if (options.record) {
+      void recordUsage(env, {
+        userId: options.userId,
+        feature: featureType,
+        provider: config.provider,
+        modelId: config.modelId,
+        inputTokens: estimateTokens(input.prompt),
+        outputTokens: 0,
+        latencyMs: Date.now() - startedAt,
+        status: 'error',
+        errorCode: mapped.code,
+      });
+    }
+
+    throw mapped;
   }
 }
 
@@ -445,7 +561,13 @@ export async function completeText(
   request: CompleteRequest,
   options: { modelId?: string; signal?: AbortSignal } = {}
 ): Promise<CompleteResult> {
-  const { model, config } = await resolveModelRuntime(env, userId, options.modelId);
+  const config = await resolveNormalizedConfig(env, userId, options.modelId);
+
+  if (config.provider === 'workers_ai' && hasImageContent(request.messages)) {
+    return runWorkersAiVision(env, config, request, { userId, record: true });
+  }
+
+  const model = await createLanguageModel(env, config);
   return runCompletion(env, model, config, request, {
     userId,
     signal: options.signal,
@@ -463,6 +585,11 @@ export async function completeTextWithConfig(
   options: { signal?: AbortSignal } = {}
 ): Promise<CompleteResult> {
   const normalized = config.provider === 'workers_ai' ? normalizeWorkersAiConfig(config) : config;
+
+  if (normalized.provider === 'workers_ai' && hasImageContent(request.messages)) {
+    return runWorkersAiVision(env, normalized, request, { userId: normalized.userId, record: false });
+  }
+
   const model = await createLanguageModel(env, normalized);
   return runCompletion(env, model, normalized, request, {
     userId: normalized.userId,
