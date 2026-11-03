@@ -531,6 +531,7 @@ v5.0 AI 模块基于 Cloudflare Agents SDK：对话由 `OSSShelfAgent`（Durable
 │  │  职责：                                                              │    │
 │  │  - 配置解析（modelService.ts：D1 ai_models / ai_providers）          │    │
 │  │  - 思考参数 → AI SDK providerOptions                                 │    │
+│  │  - 视觉：Workers AI 走原生 { image, prompt }，其余走 AI SDK          │    │
 │  │  - 重试 / 超时 / 错误映射                                            │    │
 │  │  - 用量记账（ai_usage_events）                                       │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
