@@ -53,7 +53,7 @@ export type AiConfigValue = string | number | boolean | object | null;
  */
 export const AI_REQUEST_DEFAULTS = {
   maxRetries: 3,
-  timeoutMs: 30_000,
+  timeoutMs: 90_000,
 } as const;
 
 /**
