@@ -373,17 +373,29 @@ export interface AiChatSession {
 // AI — 核心 API
 // ══════════════════════════════════════════════════════════════════════════════
 
+/** 摘要/视觉等模型调用可能超过默认 60s，客户端需比服务端超时（最高 120s）留出余量 */
+const AI_LONG_REQUEST_TIMEOUT_MS = 150_000;
+
 export const aiApi = {
   getStatus: () => api.get<ApiResponse<AIStatus>>('/api/ai/status'),
 
   // ── AI 功能调用 ──
   search: (query: string, options?: { limit?: number; threshold?: number; mimeType?: string }) =>
     api.post<ApiResponse<FileItem[]>>('/api/ai/search', { query, ...options }),
-  summarize: (fileId: string) => api.post<ApiResponse<AISummaryResult>>(`/api/ai/summarize/${fileId}`),
-  generateTags: (fileId: string) => api.post<ApiResponse<AIImageTagResult>>(`/api/ai/tags/${fileId}`),
-  suggestRename: (fileId: string) => api.post<ApiResponse<AIRenameSuggestion>>(`/api/ai/rename-suggest/${fileId}`),
+  summarize: (fileId: string) =>
+    api.post<ApiResponse<AISummaryResult>>(`/api/ai/summarize/${fileId}`, {}, { timeout: AI_LONG_REQUEST_TIMEOUT_MS }),
+  generateTags: (fileId: string) =>
+    api.post<ApiResponse<AIImageTagResult>>(`/api/ai/tags/${fileId}`, {}, { timeout: AI_LONG_REQUEST_TIMEOUT_MS }),
+  suggestRename: (fileId: string) =>
+    api.post<ApiResponse<AIRenameSuggestion>>(
+      `/api/ai/rename-suggest/${fileId}`,
+      {},
+      { timeout: AI_LONG_REQUEST_TIMEOUT_MS }
+    ),
   suggestFileName: (params: { content: string; mimeType?: string | null; extension?: string }) =>
-    api.post<ApiResponse<AIRenameSuggestion>>('/api/ai/name-suggest', params),
+    api.post<ApiResponse<AIRenameSuggestion>>('/api/ai/name-suggest', params, {
+      timeout: AI_LONG_REQUEST_TIMEOUT_MS,
+    }),
 
   // ── 向量化索引 ──
   indexAll: () => api.post<ApiResponse<{ message: string; task: AIIndexTask }>>('/api/ai/index/all'),
@@ -495,7 +507,8 @@ export const aiApi = {
     testModel: (data: { modelId?: string; providerId?: string }) =>
       api.post<ApiResponse<{ valid: boolean; response?: string; model?: string; latencyMs?: number; error?: string }>>(
         '/api/ai-config/test',
-        data
+        data,
+        { timeout: AI_LONG_REQUEST_TIMEOUT_MS }
       ),
 
     // ── 特征配置（摘要/图片说明/标签/重命名提示词）──
@@ -569,7 +582,11 @@ export const aiApi = {
 
     /** 首轮对话后生成标题（失败时后端返回原标题） */
     generateTitle: (sessionId: string) =>
-      api.post<ApiResponse<{ id: string; title: string }>>(`/api/ai-chat/sessions/${sessionId}/title`, {}),
+      api.post<ApiResponse<{ id: string; title: string }>>(
+        `/api/ai-chat/sessions/${sessionId}/title`,
+        {},
+        { timeout: AI_LONG_REQUEST_TIMEOUT_MS }
+      ),
 
     /** 导出会话为 Markdown 文件 */
     exportMarkdown: (sessionId: string) =>
