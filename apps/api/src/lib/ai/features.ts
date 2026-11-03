@@ -9,7 +9,7 @@
  * - 自动文件处理流程
  *
  * 改进:
- * - 统一使用 ModelGateway 调用模型
+ * - 统一使用 modelRuntime 调用模型
  * - 支持功能级模型配置
  * - 完善默认回退机制
  */
@@ -22,8 +22,8 @@ import { isEditableFile, logger, logAiError } from '@osshelf/shared';
 import { indexFileVector, buildFileTextForVector } from './vectorIndex';
 import { createTaskRecord } from './aiTaskQueue';
 import { syncFileFts } from './retrieval/fts';
-import { ModelGateway } from './modelGateway';
-import type { ChatCompletionRequest } from './types';
+import { completeText, type CompleteRequest } from './modelRuntime';
+import { getModelById } from './modelService';
 import { decryptSecret } from '../s3client';
 import { getAiConfigString, getAiConfigBoolean } from './aiConfigService';
 import { uint8ArrayToBase64, fetchFileBuffer, buildVisionMessageContent } from './utils';
@@ -236,50 +236,26 @@ export function isAIConfigured(env: Env): boolean {
 }
 
 /**
- * 通过 ModelGateway 调用聊天模型（统一入口）
- * 智能识别模型类型，支持自定义模型和 Workers AI
+ * 通过统一模型运行时调用聊天模型
+ * 自定义模型与 Workers AI 均走 AI SDK，记账在 modelRuntime 内完成
  */
 async function callChatModel(
   env: Env,
   userId: string,
   featureType: AiFeatureType,
-  request: ChatCompletionRequest,
+  request: CompleteRequest,
   signal?: AbortSignal
 ): Promise<string> {
-  const gateway = new ModelGateway(env);
   const defaultModels = await getDefaultModels(env);
   const featureConfig = await getFeatureModelConfig(env, userId);
   const configKey = mapFeatureTypeToConfigKey(featureType);
   const customModelId = featureConfig[configKey];
   const effectiveModelId = customModelId || defaultModels[configKey] || defaultModels.summary;
 
-  const resolved = await gateway.resolveModelForCall(userId, effectiveModelId);
-
   try {
-    if (resolved.type === 'custom') {
-      const response = await gateway.chatCompletion(userId, { ...request, featureType }, effectiveModelId, signal);
-      return response.content;
-    }
-
-    if (env.AI) {
-      const fallbackResponse = await (env.AI as any).run(effectiveModelId, {
-        messages: request.messages,
-        stream: false,
-      });
-
-      if (signal?.aborted) {
-        throw new DOMException('The operation was aborted', 'AbortError');
-      }
-
-      return (fallbackResponse as { response?: string }).response?.trim() || '';
-    }
-
-    throw new Error('AI service not available');
+    const result = await completeText(env, userId, { ...request, featureType }, { modelId: effectiveModelId, signal });
+    return result.content;
   } catch (error) {
-    if ((error as Error).name === 'AbortError') {
-      throw error;
-    }
-
     if (signal?.aborted) {
       throw new DOMException('The operation was aborted', 'AbortError');
     }
@@ -290,10 +266,29 @@ async function callChatModel(
 }
 
 /**
- * 调用图片理解模型（支持 vision 能力）
- * 智能识别模型类型：
- * - 如果模型ID在用户的 ai_models 表中 → 通过 ModelGateway 调用
- * - 否则 → 假设是 Workers AI 模型，用 env.AI.run() 调用
+ * 解析视觉模型：自定义 OpenAI 兼容模型声明不支持 vision 时，回退到默认 Workers AI 视觉模型
+ */
+async function resolveVisionModelId(
+  env: Env,
+  userId: string,
+  configuredModelId: string,
+  fallbackModelId: string,
+  feature: string
+): Promise<string> {
+  const customModel = await getModelById(env, userId, configuredModelId);
+  if (customModel?.provider === 'openai_compatible' && !customModel.capabilities.includes('vision')) {
+    logger.warn('AI', 'Custom model does not support vision, falling back to Workers AI', {
+      modelId: configuredModelId,
+      capabilities: customModel.capabilities,
+      feature,
+    });
+    return fallbackModelId;
+  }
+  return configuredModelId;
+}
+
+/**
+ * 调用图片理解模型（统一走 AI SDK）
  */
 async function callVisionModel(
   env: Env,
@@ -303,68 +298,30 @@ async function callVisionModel(
   prompt: string,
   mimeType: string = 'image/jpeg'
 ): Promise<string> {
-  const gateway = new ModelGateway(env);
   const featureConfig = await getFeatureModelConfig(env, userId);
   const effectiveModelId = featureConfig.imageCaption || defaultModelId;
-
-  const resolved = await gateway.resolveModelForCall(userId, effectiveModelId);
+  const visionModelId = await resolveVisionModelId(env, userId, effectiveModelId, defaultModelId, 'image_caption');
 
   try {
-    if (resolved.type === 'custom') {
-      const customModel = resolved.config;
-      if (customModel.provider === 'openai_compatible') {
-        if (!customModel.capabilities.includes('vision')) {
-          logger.warn('AI', 'Custom model does not support vision, falling back to Workers AI', {
-            modelId: effectiveModelId,
-            capabilities: customModel.capabilities,
-          });
-          return await callWorkersAiVision(env, defaultModelId, imageData, prompt);
-        }
-        const base64Image = uint8ArrayToBase64(imageData);
-        const response = await gateway.chatCompletion(
-          userId,
+    const result = await completeText(
+      env,
+      userId,
+      {
+        messages: [
           {
-            messages: [
-              {
-                role: 'user',
-                content: buildVisionMessageContent(base64Image, mimeType, prompt),
-              },
-            ],
-            featureType: 'image_caption',
+            role: 'user',
+            content: buildVisionMessageContent(uint8ArrayToBase64(imageData), mimeType, prompt),
           },
-          effectiveModelId
-        );
-        return response.content.trim() || '';
-      } else if (env.AI) {
-        const uint8Array = new Uint8Array(imageData);
-        const response = await (env.AI as any).run(effectiveModelId, {
-          image: uint8Array,
-          prompt,
-        });
-        return (
-          (response as { description?: string; response?: string }).description?.trim() ||
-          (response as { response?: string }).response?.trim() ||
-          ''
-        );
-      }
-    }
-
-    return await callWorkersAiVision(env, effectiveModelId, imageData, prompt);
+        ],
+        featureType: 'image_caption',
+      },
+      { modelId: visionModelId }
+    );
+    return result.content.trim() || '';
   } catch (error) {
-    logger.error('AI', 'Vision model call failed', { modelId: effectiveModelId }, error);
+    logger.error('AI', 'Vision model call failed', { modelId: visionModelId }, error);
     throw error;
   }
-}
-
-async function callWorkersAiVision(env: Env, modelId: string, imageData: number[], prompt: string): Promise<string> {
-  if (!env.AI) {
-    throw new Error('AI service not available');
-  }
-  const response = await (env.AI as any).run(modelId, {
-    image: imageData,
-    prompt,
-  });
-  return (response as { description?: string }).description?.trim() || '';
 }
 
 const IMAGE_TAG_PROMPT = `请分析这张图片，生成5-8个描述性标签。
@@ -376,8 +333,7 @@ const IMAGE_TAG_PROMPT = `请分析这张图片，生成5-8个描述性标签。
 4. 示例格式：风景,山脉,日落,自然,户外,宁静`;
 
 /**
- * 调用视觉模型生成图片标签
- * 智能识别模型类型，支持自定义模型和 Workers AI
+ * 调用视觉模型生成图片标签（统一走 AI SDK）
  */
 async function callVisionModelForTags(
   env: Env,
@@ -386,68 +342,30 @@ async function callVisionModelForTags(
   imageData: number[],
   mimeType: string = 'image/jpeg'
 ): Promise<string[]> {
-  const gateway = new ModelGateway(env);
   const featureConfig = await getFeatureModelConfig(env, userId);
   const effectiveModelId = featureConfig.imageTag || defaultModelId;
-  const resolved = await gateway.resolveModelForCall(userId, effectiveModelId);
+  const visionModelId = await resolveVisionModelId(env, userId, effectiveModelId, defaultModelId, 'image_tag');
 
   try {
-    if (resolved.type === 'custom') {
-      const customModel = resolved.config;
-      if (customModel.provider === 'openai_compatible') {
-        if (!customModel.capabilities.includes('vision')) {
-          logger.warn('AI', 'Custom model does not support vision for tags, falling back to Workers AI', {
-            modelId: effectiveModelId,
-            capabilities: customModel.capabilities,
-          });
-          return await callWorkersAiVisionForTags(env, defaultModelId, imageData);
-        }
-        const base64Image = uint8ArrayToBase64(imageData);
-        const response = await gateway.chatCompletion(
-          userId,
+    const result = await completeText(
+      env,
+      userId,
+      {
+        messages: [
           {
-            messages: [
-              {
-                role: 'user',
-                content: buildVisionMessageContent(base64Image, mimeType, IMAGE_TAG_PROMPT),
-              },
-            ],
-            featureType: 'image_tag',
+            role: 'user',
+            content: buildVisionMessageContent(uint8ArrayToBase64(imageData), mimeType, IMAGE_TAG_PROMPT),
           },
-          effectiveModelId
-        );
-        return parseTagsFromText(response.content);
-      } else if (env.AI) {
-        const uint8Array = new Uint8Array(imageData);
-        const response = await (env.AI as any).run(effectiveModelId, {
-          image: uint8Array,
-          prompt: IMAGE_TAG_PROMPT,
-        });
-        const text =
-          (response as { description?: string; response?: string }).description?.trim() ||
-          (response as { response?: string }).response?.trim() ||
-          '';
-        return parseTagsFromText(text);
-      }
-    }
-
-    return await callWorkersAiVisionForTags(env, effectiveModelId, imageData);
+        ],
+        featureType: 'image_tag',
+      },
+      { modelId: visionModelId }
+    );
+    return parseTagsFromText(result.content);
   } catch (error) {
-    logger.error('AI', 'Vision model for tags call failed', { modelId: effectiveModelId }, error);
+    logger.error('AI', 'Vision model for tags call failed', { modelId: visionModelId }, error);
     throw error;
   }
-}
-
-async function callWorkersAiVisionForTags(env: Env, modelId: string, imageData: number[]): Promise<string[]> {
-  if (!env.AI) {
-    throw new Error('AI service not available');
-  }
-  const response = await (env.AI as any).run(modelId, {
-    image: imageData,
-    prompt: IMAGE_TAG_PROMPT,
-  });
-  const text = (response as { description?: string }).description?.trim() || '';
-  return parseTagsFromText(text);
 }
 
 /**

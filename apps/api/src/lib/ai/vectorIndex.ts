@@ -15,7 +15,7 @@ import { eq, and, inArray, isNull } from 'drizzle-orm';
 import { logger } from '@osshelf/shared';
 import { readFileContent } from '../fileContentHelper';
 import { VECTOR_LOG_MODULE } from './constants';
-import { resolveEmbeddingProvider } from './modelResolver';
+import { resolveEmbeddingProvider } from './modelRuntime';
 import { getAiConfigBoolean } from './aiConfigService';
 import { estimateTokens } from './utils';
 import { searchFileIdsByKeyword } from './retrieval/fts';

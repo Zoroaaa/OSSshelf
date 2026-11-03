@@ -19,69 +19,6 @@ import { getFileContent } from '../utils';
 import { resolveTgConfig } from './features';
 import { tgDownloadFile } from '../telegramClient';
 import { tgDownloadChunked, isChunkedFileId } from '../telegramChunked';
-import type { AiFeatureType, ModelConfig } from './types';
-
-/**
- * 构建Thinking模式配置
- *
- * 完全由数据库模型配置驱动，不做任何模型名硬编码判断。
- *
- * @param featureType - 功能类型，默认为 'chat'
- * @param config - 数据库中的模型配置
- * @returns Thinking参数对象，如果不支持则返回undefined
- */
-export function buildThinkingConfig(
-  featureType: AiFeatureType = 'chat',
-  config?: Pick<
-    ModelConfig,
-    | 'supportsThinking'
-    | 'thinkingParamFormat'
-    | 'thinkingParamName'
-    | 'thinkingEnabledValue'
-    | 'thinkingDisabledValue'
-    | 'thinkingNestedKey'
-    | 'disableThinkingForFeatures'
-  >
-): Record<string, unknown> | undefined {
-  if (!config?.supportsThinking) {
-    return undefined;
-  }
-
-  const { thinkingParamFormat, thinkingParamName, thinkingEnabledValue, thinkingDisabledValue, thinkingNestedKey } =
-    config;
-
-  if (!thinkingParamFormat || !thinkingParamName) {
-    return undefined;
-  }
-
-  let disableThinkingFeatures: string[] = ['image_caption', 'image_tag', 'image_analysis', 'file_summary'];
-  if (config.disableThinkingForFeatures) {
-    try {
-      disableThinkingFeatures = JSON.parse(config.disableThinkingForFeatures);
-    } catch {
-      // 使用默认值
-    }
-  }
-
-  const enableThinking = !disableThinkingFeatures.includes(featureType);
-  const enabledVal = thinkingEnabledValue ?? 'enabled';
-  const disabledVal = thinkingDisabledValue ?? 'disabled';
-  const value = enableThinking ? enabledVal : disabledVal;
-
-  switch (thinkingParamFormat) {
-    case 'boolean':
-      return { [thinkingParamName]: value === 'true' || value === '1' };
-    case 'string':
-      return { [thinkingParamName]: value };
-    case 'object':
-      if (thinkingNestedKey) {
-        return { [thinkingParamName]: { [thinkingNestedKey]: value } };
-      }
-      return { [thinkingParamName]: value };
-    default:
-      return undefined;
-  }
-}
 
 /**
  * 将字节数组转换为 Base64 字符串（分块处理避免栈溢出）

@@ -8,7 +8,7 @@
  * - 批量处理：批量摘要 / 批量标签 / 选中文件处理
  * - 索引诊断：统计 / 向量列表 / 诊断 / 样本详情
  * - config：模型 CRUD / 提供商管理 / 连接测试 / 特征配置 / 系统配置 / Workers AI 目录
- * - chatSession：会话 CRUD / SSE 流式聊天（含自动重试） / 操作确认
+ * - chatSession：会话 CRUD / Agent WebSocket 连接票据 / 标题生成 / 记忆管理
  * - memories：长期记忆列表 / 删除
  */
 
@@ -22,6 +22,7 @@ import type { ApiResponse, FileItem } from '@osshelf/shared';
 /** AI 功能总开关状态 */
 export interface AIStatus {
   configured: boolean;
+  queueConfigured?: boolean;
   features: {
     semanticSearch: boolean;
     summary: boolean;

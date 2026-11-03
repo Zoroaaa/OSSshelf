@@ -1,11 +1,8 @@
 /**
  * types.ts
- * AI模型网关类型定义
+ * AI 模块内部类型定义
  *
- * 功能:
- * - 定义统一的模型接口
- * - 消息类型定义
- * - 流式响应类型
+ * 只保留配置与消息模型；调用参数与结果类型定义在 modelRuntime.ts。
  */
 
 export type ModelProvider = 'workers_ai' | 'openai_compatible' | 'anthropic';
@@ -14,20 +11,9 @@ export type ModelCapability = 'chat' | 'completion' | 'embedding' | 'vision' | '
 
 export type ThinkingParamFormat = 'object' | 'boolean' | 'string' | '';
 
-export interface ToolCall {
-  id: string;
-  type: 'function';
-  function: {
-    name: string;
-    arguments: string;
-  };
-}
-
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string | ChatContentPart[] | null;
-  toolCalls?: ToolCall[];
-  toolCallId?: string;
 }
 
 export interface ChatContentPart {
@@ -45,10 +31,8 @@ export interface ChatContentPart {
  * 字段说明：
  * - capabilities: 核心能力标识数组，用于功能路由（决定模型可用于哪些业务场景）
  *   例如：['chat', 'vision', 'function_calling'] 表示模型可用于对话、图片理解和工具调用
- *   注意：vision 和 function_calling 能力已包含在 capabilities 中，无需额外的 supportsVision/supportsFunctionCalling 字段
  *
  * - supportsThinking: 思考模式特性开关，控制是否启用深度推理参数（如 thinking.type = enabled）
- * - supportsStreaming: 流式输出特性开关，控制是否支持流式响应
  *
  * 设计原则：
  * - capabilities 描述模型"能做什么"（固有属性）
@@ -70,7 +54,6 @@ export interface ModelConfig {
   /** 运行时字段：由供应商连接解析得出，不落 ai_models */
   apiEndpoint?: string;
   apiKeyEncrypted?: string;
-  apiKeyDecrypted?: string;
   headers?: Record<string, string>;
   isActive: boolean;
   capabilities: ModelCapability[];
@@ -109,88 +92,8 @@ export type AiFeatureType =
   | 'summary'
   | 'rename';
 
-export interface ChatCompletionRequest {
-  messages: ChatMessage[];
-  temperature?: number;
-  stream?: boolean;
-  stop?: string[];
-  signal?: AbortSignal;
-  tools?: ToolDefinition[];
-  toolChoice?: 'auto' | 'none' | 'required' | { type: 'tool'; toolName: string };
-  extraBody?: Record<string, unknown>;
-  featureType?: AiFeatureType;
-}
-
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
   cachedTokens?: number;
-}
-
-export interface ChatCompletionResponse {
-  id: string;
-  content: string;
-  role: 'assistant';
-  model: string;
-  finishReason?: 'stop' | 'length' | 'content_filter' | 'tool_calls';
-  reasoningContent?: string;
-  usage?: TokenUsage;
-  toolCalls?: Array<{
-    id: string;
-    name: string;
-    arguments: string;
-  }>;
-}
-
-export interface StreamChunk {
-  id: string;
-  content: string;
-  role: 'assistant';
-  model: string;
-  done: boolean;
-  reasoningContent?: string;
-  usage?: TokenUsage;
-  toolCalls?: Array<{
-    id: string;
-    name?: string;
-    arguments?: string;
-    index: number;
-  }>;
-}
-
-export interface ToolDefinition {
-  type: 'function';
-  function: {
-    name: string;
-    description: string;
-    parameters: {
-      type: 'object';
-      properties: Record<string, unknown>;
-      required?: string[];
-    };
-  };
-}
-
-export interface EmbeddingRequest {
-  input: string | string[];
-}
-
-export interface EmbeddingResponse {
-  embeddings: number[][];
-  model: string;
-}
-
-export interface IModelAdapter {
-  readonly provider: ModelProvider;
-  readonly modelName: string;
-
-  chatCompletion(request: ChatCompletionRequest, signal?: AbortSignal): Promise<ChatCompletionResponse>;
-  chatCompletionStream(
-    request: ChatCompletionRequest,
-    onChunk: (chunk: StreamChunk) => void,
-    signal?: AbortSignal
-  ): Promise<void>;
-  embedding?(request: EmbeddingRequest): Promise<EmbeddingResponse>;
-
-  validateConfig(config: ModelConfig): { valid: boolean; error?: string };
 }

@@ -7,15 +7,15 @@
 
 ## v5.2.0 Agent 运行时升级（Cloudflare Agents SDK）
 
-| 变化             | 说明                                                                                                                       |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| **Agent 运行时** | 会话消息改由 `@cloudflare/ai-chat` 的 `AIChatAgent`（Durable Object）承载，支持断线续传、多端同步、审批后同轮继续          |
-| **模型调用层**   | 新增 `lib/ai/modelResolver.ts`，统一走 AI SDK provider（Workers AI / OpenAI 兼容 / Anthropic），不再逐请求新建网关         |
-| **真实用量**     | 每次调用写入 `ai_usage_events`，新增日配额与分钟限流（`ai.quota.*`、`ai.rate.*`）                                          |
-| **检索**         | 分块正文落 `file_chunks`，新增 FTS5 关键词召回、可选 rerank、`search_content` 工具                                         |
-| **队列**         | 移除 KV 并发锁，改由 Queue `max_concurrency`；`ai_task_items` 提供逐文件幂等与真续跑；`agent_batch` 走 fileService         |
-| **配置**         | 功能级模型配置从 KV 迁入 `ai_feature_config`（首次读取自动迁移）                                                           |
-| **前端**         | `useOssShelfChat`（`useAgent` + `useAgentChat`）、`agentMessages` 映射、用量统计 Tab；旧 SSE 链路与 AgentEngine 已完全移除 |
+| 变化             | 说明                                                                                                                                  |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Agent 运行时** | 会话消息改由 `@cloudflare/ai-chat` 的 `AIChatAgent`（Durable Object）承载，支持断线续传、多端同步、审批后同轮继续                     |
+| **模型调用层**   | 新增 `lib/ai/modelRuntime.ts`，统一走 AI SDK provider（Workers AI / OpenAI 兼容 / Anthropic），Agent 与后台功能共用同一解析与调用入口 |
+| **真实用量**     | 每次调用写入 `ai_usage_events`，新增日配额与分钟限流（`ai.quota.*`、`ai.rate.*`）                                                     |
+| **检索**         | 分块正文落 `file_chunks`，新增 FTS5 关键词召回、可选 rerank、`search_content` 工具                                                    |
+| **队列**         | 移除 KV 并发锁，改由 Queue `max_concurrency`；`ai_task_items` 提供逐文件幂等与真续跑；`agent_batch` 走 fileService                    |
+| **配置**         | 功能级模型配置从 KV 迁入 `ai_feature_config`（首次读取自动迁移）                                                                      |
+| **前端**         | `useOssShelfChat`（`useAgent` + `useAgentChat`）、`agentMessages` 映射、用量统计 Tab；旧 SSE 链路与 AgentEngine 已完全移除            |
 
 ### 数据表
 
@@ -1120,7 +1120,7 @@ v4.3.0 AI 系统配置功能，支持细粒度的 AI 参数调整。
 | 工具配置     | 内容读取限制              | `ai.tool.max_image_size_bytes` / `text_chunk_size` / `max_result_bytes`    |
 | 功能开关     | 上传后自动处理、向量索引  | `ai.feature.auto_process_enabled` / `vector_index_enabled`                 |
 | RAG 配置     | 检索重排                  | `ai.rag.rerank_enabled`                                                    |
-| 重试与超时   | 重试次数、退避、超时      | `ai.request.max_retries` / `retry_base_delay_ms` / `timeout_ms`            |
+| 重试与超时   | 重试次数、超时            | `ai.request.max_retries` / `timeout_ms`                                    |
 | 配额与限流   | 日 Token/请求、每分钟请求 | `ai.quota.daily_tokens` / `daily_requests` / `ai.rate.requests_per_minute` |
 | 提示词模板   | 摘要提示词                | `ai.summary.prompt.default` / `.code` / `.markdown` / `.data`              |
 
@@ -1280,11 +1280,9 @@ GET    /api/ai/index/sample/:fileId       # 获取文件索引样本
 
 ```
 apps/api/src/lib/ai/
-├── index.ts                    # 模块导出（仅保留实际使用入口）
 ├── types.ts                    # 类型定义
-├── modelGateway.ts             # 模型网关 + 统一用量记账
-├── modelResolver.ts            # AI SDK 模型解析
-├── completion.ts               # 非流式生成（RAG 问答工具使用）
+├── modelService.ts             # 模型配置读取（D1）
+├── modelRuntime.ts             # 统一模型运行时（解析 / 调用 / 记账）
 ├── toolAdapter.ts              # 工具 → AI SDK tools
 ├── agentMemory.ts              # 跨会话记忆管理
 ├── aiConfigService.ts          # AI 配置服务（含历史配置清理）
@@ -1294,12 +1292,10 @@ apps/api/src/lib/ai/
 ├── constants.ts                # 日志模块名
 ├── usage.ts                    # 用量记账与配额
 ├── vectorIndex.ts              # 分块、嵌入、Vectorize 读写、混合检索
+├── workersAiModels.ts          # Workers AI 内置兜底清单
 ├── workersAiCatalog.ts         # Workers AI 实时模型目录（含兜底）
 ├── features.ts                 # 文件摘要 / 图片标签 / 智能重命名
 ├── utils.ts                    # 通用工具函数
-├── adapters/
-│   ├── workersAiAdapter.ts     # Workers AI 适配器
-│   └── openAiCompatibleAdapter.ts # OpenAI 兼容适配器
 ├── prompts/agentSystem.ts      # Agent 系统提示词
 └── retrieval/fts.ts            # FTS5 关键词检索
 
@@ -1338,18 +1334,22 @@ apps/web/src/
 
 ### 核心类/函数
 
-#### ModelGateway（模型网关）
+#### modelService / modelRuntime（模型配置与运行时）
 
-统一管理所有模型调用：
+读取配置与调用模型分离，调用链路只有一条：
 
 ```typescript
-class ModelGateway {
-  getActiveModel(userId): Promise<ModelConfig>;
-  getModelById(modelId, userId): Promise<ModelConfig>;
-  chatCompletion(userId, request, modelId?): Promise<ChatCompletionResponse>;
-  chatCompletionStream(userId, request, onChunk, options?): Promise<void>;
-  getAdapter(config): IModelAdapter;
-}
+// modelService.ts — 只读 D1 配置
+getActiveModel(env, userId): Promise<ModelConfig | null>;
+getModelById(env, userId, modelId): Promise<ModelConfig | null>;
+getAllModels(env, userId): Promise<ModelConfig[]>;
+
+// modelRuntime.ts — 解析 / 调用 / 记账
+resolveModelRuntime(env, userId, modelId?): Promise<{ model, config }>;
+buildProviderOptions(featureType, config): ProviderOptions | undefined;
+completeText(env, userId, request, options?): Promise<CompleteResult>;
+completeTextWithConfig(env, config, request, options?): Promise<CompleteResult>;
+resolveEmbeddingProvider(env): Promise<EmbeddingProvider>;
 ```
 
 #### OSSShelfAgent（Agent 运行时）v5.2.0

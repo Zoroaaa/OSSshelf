@@ -2,7 +2,7 @@
  * modelConfigMapper.ts
  * ai_models 行 + ai_providers 行 → ModelConfig
  *
- * 单一映射入口，避免 modelResolver / modelGateway 各自维护一份 parse。
+ * 单一映射入口，避免 modelService / modelRuntime 各自维护一份 parse。
  */
 
 import type { ModelCapability, ModelConfig, ModelProvider, ThinkingParamFormat } from './types';

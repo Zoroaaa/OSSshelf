@@ -19,7 +19,8 @@ import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files } from '../../../db';
 import type { Env } from '../../../types/env';
 import { logger } from '@osshelf/shared';
-import { ModelGateway } from '../modelGateway';
+import { completeText } from '../modelRuntime';
+import { getModelById } from '../modelService';
 import type { ToolDefinition } from './types';
 import {
   uint8ArrayToBase64,
@@ -444,68 +445,49 @@ export class ContentTools {
     const visionModelId = await getAiConfigString(env, 'ai.default_model.vision', '@cf/llava-hf/llava-1.5-7b-hf');
 
     try {
-      const modelGateway = new ModelGateway(env);
-      const resolved = await modelGateway.resolveModelForCall(userId, visionModelId);
+      const configuredModel = await getModelById(env, userId, visionModelId);
 
-      let description: string;
-
-      if (resolved.type === 'custom') {
-        const customModel = resolved.config;
-        if (customModel.provider === 'openai_compatible') {
-          if (!customModel.capabilities.includes('vision')) {
-            return {
-              fileId,
-              fileName: file.name,
-              visualDescription: null,
-              error: '配置的模型不支持视觉分析',
-              existingMetadata: {
-                aiTags: file.aiTags || null,
-                aiSummary: file.aiSummary || null,
-              },
-            };
-          }
-          const gateway = new ModelGateway(env);
-          const base64Image = uint8ArrayToBase64(imageBytes);
-          const response = await gateway.chatCompletion(
-            userId,
-            {
-              messages: [{ role: 'user', content: buildVisionMessageContent(base64Image, actualMimeType, question) }],
-              featureType: 'image_analysis',
-            },
-            visionModelId
-          );
-          description = response.content.trim();
-        } else if (env.AI) {
-          const result = await (env.AI as any).run(visionModelId, {
-            image: Array.from(imageBytes),
-            prompt: question,
-          });
-          description = (result as any)?.description?.trim() || (result as any)?.response?.trim() || '';
-        } else {
-          throw new Error('No AI service available for this model type');
-        }
-      } else {
-        if (!env.AI) {
-          return {
-            fileId,
-            fileName: file.name,
-            existingMetadata: {
-              aiTags: file.aiTags || null,
-              aiSummary: file.aiSummary || null,
-              description: file.description || null,
-            },
-            note: 'Workers AI 未绑定，无法进行视觉分析。已返回已有元数据供参考。',
-          };
-        }
-        const result = await (env.AI as any).run(visionModelId, {
-          image: Array.from(imageBytes),
-          prompt: question,
-        });
-        description =
-          typeof result === 'string'
-            ? result
-            : ((result as any)?.description ?? (result as any)?.response ?? JSON.stringify(result));
+      if (configuredModel?.provider === 'openai_compatible' && !configuredModel.capabilities.includes('vision')) {
+        return {
+          fileId,
+          fileName: file.name,
+          visualDescription: null,
+          error: '配置的模型不支持视觉分析',
+          existingMetadata: {
+            aiTags: file.aiTags || null,
+            aiSummary: file.aiSummary || null,
+          },
+        };
       }
+
+      if (!configuredModel && !env.AI) {
+        return {
+          fileId,
+          fileName: file.name,
+          existingMetadata: {
+            aiTags: file.aiTags || null,
+            aiSummary: file.aiSummary || null,
+            description: file.description || null,
+          },
+          note: 'Workers AI 未绑定，无法进行视觉分析。已返回已有元数据供参考。',
+        };
+      }
+
+      const response = await completeText(
+        env,
+        userId,
+        {
+          messages: [
+            {
+              role: 'user',
+              content: buildVisionMessageContent(uint8ArrayToBase64(imageBytes), actualMimeType, question),
+            },
+          ],
+          featureType: 'image_analysis',
+        },
+        { modelId: visionModelId }
+      );
+      const description = response.content.trim();
 
       return {
         fileId,

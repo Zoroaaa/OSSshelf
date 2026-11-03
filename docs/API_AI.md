@@ -366,7 +366,7 @@ Workers AI 模型目录。
 }
 ```
 
-记账口径：Agent 对话由 `OSSShelfAgent` 写入；摘要/标签/重命名/标题/记忆提取由 `ModelGateway` 统一写入。`feature` 取值 `chat` / `summary` / `image_caption` / `image_tag` / `image_analysis` / `rename`。
+记账口径：Agent 对话由 `OSSShelfAgent` 写入；摘要/标签/重命名/标题/记忆提取由 `modelRuntime` 统一写入。`feature` 取值 `chat` / `summary` / `image_caption` / `image_tag` / `image_analysis` / `rename`。
 
 ## GET /quota
 
