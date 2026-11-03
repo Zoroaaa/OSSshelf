@@ -1132,8 +1132,6 @@ v4.3.0 AI 系统配置功能，支持细粒度的 AI 参数调整。
 | `ai.default_model.vision`     | `@cf/llava-hf/llava-1.5-7b-hf`   |
 | `ai.default_model.embedding`  | `@cf/baai/bge-m3`                |
 | `ai.model.temperature`        | `0.7`                            |
-| `ai.request.max_retries`      | `3`                              |
-| `ai.request.timeout_ms`       | `90000`                          |
 | `ai.agent.max_steps`          | `20`                             |
 | `ai.agent.max_context_tokens` | `100000`                         |
 | `ai.quota.daily_tokens`       | `200000`                         |
