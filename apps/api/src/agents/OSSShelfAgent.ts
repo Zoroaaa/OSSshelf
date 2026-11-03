@@ -22,12 +22,11 @@ import type { Connection, ConnectionContext } from 'agents';
 import type { Env } from '../types/env';
 import { getVerifiedIdentity } from './auth';
 import { getDb, aiChatMessages, aiChatSessions, files } from '../db';
-import { resolveLanguageModel } from '../lib/ai/modelResolver';
+import { resolveModelRuntime, buildProviderOptions } from '../lib/ai/modelRuntime';
 import { buildAgentTools } from '../lib/ai/toolAdapter';
-import { getAiConfigNumber } from '../lib/ai/aiConfigService';
+import { AI_REQUEST_DEFAULTS, getAiConfigNumber } from '../lib/ai/aiConfigService';
 import { AGENT_SYSTEM_PROMPT } from '../lib/ai/prompts/agentSystem';
 import { AgentMemory } from '../lib/ai/agentMemory';
-import { ModelGateway } from '../lib/ai/modelGateway';
 import { recordUsage } from '../lib/ai/usage';
 import { mapAiError } from '../lib/ai/aiErrors';
 import { estimateTokens } from '../lib/ai/utils';
@@ -266,7 +265,7 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
   private async buildMemorySection(query: string): Promise<string> {
     if (!query.trim()) return '';
     try {
-      const memory = new AgentMemory(new ModelGateway(this.env), this.env);
+      const memory = new AgentMemory(this.env);
       const recalled = await memory.recallMemories(this.state.userId, query);
       return recalled ? `## 跨会话记忆\n${recalled.replace(/^\s*\[历史记忆\]\s*/m, '')}` : '';
     } catch (error) {
@@ -298,13 +297,14 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
       const lastUserQuery = lastUserText ? getMessageText(lastUserText) : '';
 
       const [{ model, config }, tools] = await Promise.all([
-        resolveLanguageModel(this.env, userId, requestedModelId ?? this.state.modelId),
+        resolveModelRuntime(this.env, userId, requestedModelId ?? this.state.modelId),
         buildAgentTools(this.env, userId, { query: lastUserQuery }),
       ]);
 
-      const [maxSteps, maxContextTokens] = await Promise.all([
+      const [maxSteps, maxContextTokens, maxRetries] = await Promise.all([
         getAiConfigNumber(this.env, 'ai.agent.max_steps', DEFAULT_MAX_STEPS),
         getAiConfigNumber(this.env, 'ai.agent.max_context_tokens', DEFAULT_MAX_CONTEXT_TOKENS),
+        getAiConfigNumber(this.env, 'ai.request.max_retries', AI_REQUEST_DEFAULTS.maxRetries),
       ]);
 
       const [contextSection, memorySection] = await Promise.all([
@@ -357,6 +357,8 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
         messages,
         tools,
         temperature: config.temperature,
+        providerOptions: buildProviderOptions('chat', config),
+        maxRetries,
         stopWhen: stepCountIs(maxSteps),
         abortSignal: options?.abortSignal,
         onFinish: async (event) => {
@@ -517,7 +519,7 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
 
       if (!userText.trim()) return;
 
-      const memory = new AgentMemory(new ModelGateway(this.env), this.env);
+      const memory = new AgentMemory(this.env);
       await memory.extractAndSaveMemories(
         this.state.userId,
         this.state.sessionId,

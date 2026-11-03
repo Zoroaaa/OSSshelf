@@ -48,6 +48,15 @@ export interface AiConfigItem {
 export type AiConfigValue = string | number | boolean | object | null;
 
 /**
+ * 模型请求重试/超时的唯一默认值来源。
+ * 注册表、modelRuntime、Agent 都从这里读取，避免多处字面量漂移。
+ */
+export const AI_REQUEST_DEFAULTS = {
+  maxRetries: 3,
+  timeoutMs: 30_000,
+} as const;
+
+/**
  * 系统配置 UI 元数据（校验范围 / 单位 / 多行 / 只读折叠）
  * 只影响展示与校验，不落库。
  */
@@ -60,7 +69,6 @@ export const SYSTEM_CONFIG_UI_META: Record<string, AiConfigUiMeta> = {
   'ai.tool.max_result_bytes': { min: 1_024, max: 1_048_576, step: 1_024, unit: 'bytes' },
   'ai.rag.rerank_enabled': { advanced: false },
   'ai.request.max_retries': { min: 0, max: 10, step: 1, unit: '次', advanced: true },
-  'ai.request.retry_base_delay_ms': { min: 100, max: 10_000, step: 100, unit: 'ms', advanced: true },
   'ai.request.timeout_ms': { min: 5_000, max: 120_000, step: 1_000, unit: 'ms' },
   'ai.quota.daily_tokens': { min: 0, max: 100_000_000, step: 1_000, unit: 'tokens' },
   'ai.quota.daily_requests': { min: 0, max: 100_000, step: 1, unit: '次' },
@@ -245,29 +253,19 @@ export async function initializeAiConfig(env: Env): Promise<void> {
       key: 'ai.request.max_retries',
       category: 'retry',
       label: '最大重试次数',
-      description: 'API请求失败后的最大重试次数',
+      description: '模型请求失败后的重试次数（不含首次请求）',
       valueType: 'number',
-      defaultValue: '3',
+      defaultValue: String(AI_REQUEST_DEFAULTS.maxRetries),
       isEditable: false,
       sortOrder: 30,
-    },
-    {
-      key: 'ai.request.retry_base_delay_ms',
-      category: 'retry',
-      label: '重试基础延迟(ms)',
-      description: '指数退避重试的基础延迟时间（毫秒）',
-      valueType: 'number',
-      defaultValue: '500',
-      isEditable: false,
-      sortOrder: 31,
     },
     {
       key: 'ai.request.timeout_ms',
       category: 'retry',
       label: '请求超时时间(ms)',
-      description: '单个API请求的超时时间（毫秒）',
+      description: '单个非流式模型请求的超时时间（毫秒）',
       valueType: 'number',
-      defaultValue: '30000',
+      defaultValue: String(AI_REQUEST_DEFAULTS.timeoutMs),
       isEditable: true,
       sortOrder: 32,
     },
@@ -467,7 +465,8 @@ export async function getAiConfigString(env: Env, key: string, fallback?: string
 
 export async function getAiConfigNumber(env: Env, key: string, fallback?: number): Promise<number> {
   const value = await getAiConfig(env, key);
-  return (value as number) || fallback || 0;
+  // 0 是合法配置值（如不限流/禁用重试），不能用 || 吞掉
+  return typeof value === 'number' ? value : (fallback ?? 0);
 }
 
 export async function getAiConfigBoolean(env: Env, key: string, fallback?: boolean): Promise<boolean> {

@@ -14,7 +14,7 @@ import { authMiddleware } from '../middleware';
 import { aiRateLimit } from '../middleware/aiRateLimit';
 import { getDb, aiChatSessions, aiChatMessages, aiMemories, aiUsageEvents } from '../db';
 import { AgentMemory } from '../lib/ai/agentMemory';
-import { ModelGateway } from '../lib/ai/modelGateway';
+import { completeText } from '../lib/ai/modelRuntime';
 import { buildAgentInstanceName, issueWsTicket, WS_TICKET_TTL_MS } from '../agents/auth';
 import type { OSSShelfAgent } from '../agents/OSSShelfAgent';
 import type { Env, Variables } from '../types/env';
@@ -253,8 +253,7 @@ app.post('/sessions/:sessionId/title', async (c) => {
       return c.json({ success: true, data: { id: sessionId, title: session.title } });
     }
 
-    const gateway = new ModelGateway(c.env);
-    const response = await gateway.chatCompletion(userId, {
+    const response = await completeText(c.env, userId, {
       messages: [
         {
           role: 'system',
@@ -432,7 +431,7 @@ app.get('/memories', async (c) => {
   const offset = parseInt(c.req.query('offset') || '0', 10);
 
   try {
-    const memory = new AgentMemory(new ModelGateway(c.env), c.env);
+    const memory = new AgentMemory(c.env);
     const result = await memory.listMemories(userId, { type, limit, offset });
     return c.json({ success: true, data: result });
   } catch (error) {
@@ -452,7 +451,7 @@ app.post('/memories/batch-delete', async (c) => {
   }
 
   try {
-    const memory = new AgentMemory(new ModelGateway(c.env), c.env);
+    const memory = new AgentMemory(c.env);
     const deleted = await memory.deleteMemories(ids, userId);
     return c.json({ success: true, data: { deleted } });
   } catch (error) {
@@ -465,7 +464,7 @@ app.delete('/memories', async (c) => {
   const userId = c.get('userId')!;
 
   try {
-    const memory = new AgentMemory(new ModelGateway(c.env), c.env);
+    const memory = new AgentMemory(c.env);
     const deleted = await memory.deleteAllMemories(userId);
     return c.json({ success: true, data: { deleted } });
   } catch (error) {
@@ -479,7 +478,7 @@ app.delete('/memories/:id', async (c) => {
   const memoryId = c.req.param('id');
 
   try {
-    const memory = new AgentMemory(new ModelGateway(c.env), c.env);
+    const memory = new AgentMemory(c.env);
     const success = await memory.deleteMemory(memoryId, userId);
     if (!success) {
       return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '记忆不存在' } }, 404);

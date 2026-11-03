@@ -418,7 +418,7 @@ export class AiEnhanceTools {
 
     try {
       const { searchChunkContent } = await import('../vectorIndex');
-      const { chatCompletion } = await import('../completion');
+      const { completeText } = await import('../modelRuntime');
 
       const chunks = await searchChunkContent(env, question, userId, { limit: topK });
 
@@ -448,7 +448,7 @@ export class AiEnhanceTools {
         .map((chunk, index) => `[${index + 1}] ${chunk.name}（第 ${chunk.chunkIndex + 1} 段）\n${chunk.snippet}`)
         .join('\n\n');
 
-      const completion = await chatCompletion(env, userId, {
+      const completion = await completeText(env, userId, {
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: `文档片段：\n${contextText}\n\n问题：${question}` },

@@ -11,9 +11,8 @@
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { getDb, aiMemories } from '../../db';
 import { logger } from '@osshelf/shared';
-import { ModelGateway } from './modelGateway';
+import { completeText, resolveEmbeddingProvider } from './modelRuntime';
 import type { Env } from '../../types/env';
-import { resolveEmbeddingProvider } from './modelResolver';
 
 export interface MemoryFact {
   type: 'operation' | 'preference' | 'path' | 'file_ref';
@@ -49,11 +48,9 @@ const MEMORY_EXTRACTION_PROMPT = `你是一个对话记忆提取专家。从以�
 4. 如果没有值得记录的内容，返回空数组 []`;
 
 export class AgentMemory {
-  private gateway: ModelGateway;
   private env: Env;
 
-  constructor(gateway: ModelGateway, env: Env) {
-    this.gateway = gateway;
+  constructor(env: Env) {
     this.env = env;
   }
 
@@ -66,7 +63,7 @@ export class AgentMemory {
     try {
       const conversationContext = `用户消息与助手回复：\n${fullText.slice(-4000)}\n\n工具调用记录：\n${toolCallsStr.slice(-2000)}`;
 
-      const response = await this.gateway.chatCompletion(userId, {
+      const response = await completeText(this.env, userId, {
         messages: [
           { role: 'system', content: MEMORY_EXTRACTION_PROMPT },
           { role: 'user', content: `请从以下对话中提取记忆：\n\n${conversationContext}` },

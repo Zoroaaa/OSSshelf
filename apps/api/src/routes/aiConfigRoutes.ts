@@ -17,7 +17,9 @@ import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
-import { ModelGateway, WorkersAiAdapter } from '../lib/ai';
+import { getActiveModel, getAllModels, getModelById } from '../lib/ai/modelService';
+import { completeTextWithConfig, validateModelConfig } from '../lib/ai/modelRuntime';
+import { WORKERS_AI_FALLBACK_MODELS } from '../lib/ai/workersAiModels';
 import { getWorkersAiCatalog } from '../lib/ai/workersAiCatalog';
 import { MODEL_ID_FORMAT_HINT, pickSupportedModelId } from '../lib/ai/modelId';
 import { getFeatureModelConfig, saveFeatureModelConfig } from '../lib/ai/featureConfigService';
@@ -408,8 +410,7 @@ app.get('/models', async (c) => {
   const userId = c.get('userId')!;
   const capability = c.req.query('capability') as ModelCapability | undefined;
   const providerId = c.req.query('providerId');
-  const gateway = new ModelGateway(c.env);
-  const models = await gateway.getAllModels(userId);
+  const models = await getAllModels(c.env, userId);
 
   let filteredModels = models;
   if (capability) {
@@ -817,10 +818,7 @@ app.get('/workers-ai/models', async (c) => {
 
 app.get('/status', async (c) => {
   const userId = c.get('userId')!;
-  const gateway = new ModelGateway(c.env);
-
-  const activeModel = await gateway.getActiveModel(userId);
-  const allModels = await gateway.getAllModels(userId);
+  const [activeModel, allModels] = await Promise.all([getActiveModel(c.env, userId), getAllModels(c.env, userId)]);
   const isWorkersAiConfigured = !!(c.env.AI && c.env.VECTORIZE);
 
   return c.json({
@@ -880,7 +878,7 @@ function validateWorkersAiModel(
   modelId: string,
   requiredCapability: ModelCapability
 ): { valid: boolean; error?: string } {
-  const workersAiModels = WorkersAiAdapter.getAvailableModels();
+  const workersAiModels = WORKERS_AI_FALLBACK_MODELS;
   const model = workersAiModels.find((m) => m.id === modelId);
   if (!model) {
     return { valid: false, error: 'Workers AI 模型不存在' };
@@ -902,8 +900,6 @@ app.put('/feature-config', async (c) => {
     rename?: string | null;
   };
 
-  const gateway = new ModelGateway(c.env);
-
   if (summary) {
     if (summary.startsWith('@cf/')) {
       const result = validateWorkersAiModel(summary, 'chat');
@@ -911,7 +907,7 @@ app.put('/feature-config', async (c) => {
         return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error } }, 400);
       }
     } else {
-      const m = await gateway.getModelById(summary, userId);
+      const m = await getModelById(c.env, userId, summary);
       if (!m) {
         return c.json(
           { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '摘要模型不存在' } },
@@ -934,7 +930,7 @@ app.put('/feature-config', async (c) => {
         return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error } }, 400);
       }
     } else {
-      const m = await gateway.getModelById(imageCaption, userId);
+      const m = await getModelById(c.env, userId, imageCaption);
       if (!m) {
         return c.json(
           { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '图片描述模型不存在' } },
@@ -963,7 +959,7 @@ app.put('/feature-config', async (c) => {
         return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error } }, 400);
       }
     } else {
-      const m = await gateway.getModelById(imageTag, userId);
+      const m = await getModelById(c.env, userId, imageTag);
       if (!m) {
         return c.json(
           { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '图片标签模型不存在' } },
@@ -986,7 +982,7 @@ app.put('/feature-config', async (c) => {
         return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error } }, 400);
       }
     } else {
-      const m = await gateway.getModelById(rename, userId);
+      const m = await getModelById(c.env, userId, rename);
       if (!m) {
         return c.json(
           { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '重命名模型不存在' } },
@@ -1042,15 +1038,13 @@ app.post('/test', async (c) => {
 
     if (body.modelId && !body.providerId) {
       // 测试已保存的模型（modelId 是数据库记录 ID 或模型标识）
-      const gateway = new ModelGateway(c.env);
-      const config = await gateway.getModelById(body.modelId, userId);
+      const config = await getModelById(c.env, userId, body.modelId);
       if (!config) {
         return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '模型不存在' } }, 404);
       }
       testConfig = config;
 
-      const adapter = gateway.getAdapter(testConfig);
-      const validation = adapter.validateConfig(testConfig);
+      const validation = validateModelConfig(testConfig);
       if (!validation.valid) {
         return c.json(
           {
@@ -1130,11 +1124,8 @@ app.post('/test', async (c) => {
     }
 
     // 执行测试请求
-    const gateway = new ModelGateway(c.env);
-    const adapter = gateway.getAdapter(testConfig);
-
     const startTime = Date.now();
-    const response = await adapter.chatCompletion({
+    const response = await completeTextWithConfig(c.env, testConfig, {
       messages: [{ role: 'user', content: 'Hello, 请用一句话介绍你自己。' }],
     });
     const latencyMs = Date.now() - startTime;
@@ -1144,7 +1135,7 @@ app.post('/test', async (c) => {
       data: {
         valid: true,
         response: response.content,
-        model: response.model,
+        model: response.modelId,
         latencyMs,
         timestamp: new Date().toISOString(),
       },

@@ -5,7 +5,7 @@
  * 数据源:
  * - 配置 CF_ACCOUNT_ID / CF_API_TOKEN 后，调用 Cloudflare 官方
  *   GET /accounts/{account_id}/ai/models/search（权限：Workers AI Read）
- * - 未配置或同步失败时，回退到 WorkersAiAdapter 内置清单，并显式标记 source
+ * - 未配置或同步失败时，回退到 workersAiModels 内置清单，并显式标记 source
  *
  * 注意: Cloudflare 的模型目录不保证返回价格字段；返回的 properties 会原样透出，
  * 前端按 key 展示（含 context_window / price 等）。
@@ -13,7 +13,7 @@
 
 import type { Env } from '../../types/env';
 import { logger } from '@osshelf/shared';
-import { WorkersAiAdapter } from './adapters/workersAiAdapter';
+import { WORKERS_AI_FALLBACK_MODELS } from './workersAiModels';
 import { pickSupportedModelId } from './modelId';
 
 export interface WorkersAiCatalogProperty {
@@ -122,19 +122,17 @@ function mapLiveModel(raw: unknown): WorkersAiCatalogModel | null {
 }
 
 function fallbackModels(): WorkersAiCatalogModel[] {
-  return WorkersAiAdapter.getAvailableModels()
-    .filter((model) => model.id !== '__custom__')
-    .map((model) => ({
-      id: model.id,
-      name: model.name,
-      description: model.description,
-      task: '内置兜底清单',
-      capabilities: model.capabilities,
-      properties: [],
-      pricing: null,
-      beta: false,
-      deprecated: false,
-    }));
+  return WORKERS_AI_FALLBACK_MODELS.filter((model) => model.id !== '__custom__').map((model) => ({
+    id: model.id,
+    name: model.name,
+    description: model.description,
+    task: '内置兜底清单',
+    capabilities: model.capabilities,
+    properties: [],
+    pricing: null,
+    beta: false,
+    deprecated: false,
+  }));
 }
 
 function fallbackCatalog(configured: boolean, error?: string, missing: string[] = []): WorkersAiCatalog {
