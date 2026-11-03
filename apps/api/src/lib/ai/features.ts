@@ -23,6 +23,7 @@ import { indexFileVector, buildFileTextForVector } from './vectorIndex';
 import { createTaskRecord } from './aiTaskQueue';
 import { syncFileFts } from './retrieval/fts';
 import { completeText, type CompleteRequest } from './modelRuntime';
+import { getModelById } from './modelService';
 import { decryptSecret } from '../s3client';
 import { getAiConfigString, getAiConfigBoolean } from './aiConfigService';
 import { uint8ArrayToBase64, fetchFileBuffer, buildVisionMessageContent } from './utils';
@@ -265,7 +266,29 @@ async function callChatModel(
 }
 
 /**
- * 调用图片理解模型（统一走 AI SDK；Workers AI 视觉由 runtime 走原生输入）
+ * 解析视觉模型：自定义 OpenAI 兼容模型声明不支持 vision 时，回退到默认 Workers AI 视觉模型
+ */
+async function resolveVisionModelId(
+  env: Env,
+  userId: string,
+  configuredModelId: string,
+  fallbackModelId: string,
+  feature: string
+): Promise<string> {
+  const customModel = await getModelById(env, userId, configuredModelId);
+  if (customModel?.provider === 'openai_compatible' && !customModel.capabilities.includes('vision')) {
+    logger.warn('AI', 'Custom model does not support vision, falling back to Workers AI', {
+      modelId: configuredModelId,
+      capabilities: customModel.capabilities,
+      feature,
+    });
+    return fallbackModelId;
+  }
+  return configuredModelId;
+}
+
+/**
+ * 调用图片理解模型（统一走 AI SDK）
  */
 async function callVisionModel(
   env: Env,
@@ -276,7 +299,8 @@ async function callVisionModel(
   mimeType: string = 'image/jpeg'
 ): Promise<string> {
   const featureConfig = await getFeatureModelConfig(env, userId);
-  const visionModelId = featureConfig.imageCaption || defaultModelId;
+  const effectiveModelId = featureConfig.imageCaption || defaultModelId;
+  const visionModelId = await resolveVisionModelId(env, userId, effectiveModelId, defaultModelId, 'image_caption');
 
   try {
     const result = await completeText(
@@ -319,7 +343,8 @@ async function callVisionModelForTags(
   mimeType: string = 'image/jpeg'
 ): Promise<string[]> {
   const featureConfig = await getFeatureModelConfig(env, userId);
-  const visionModelId = featureConfig.imageTag || defaultModelId;
+  const effectiveModelId = featureConfig.imageTag || defaultModelId;
+  const visionModelId = await resolveVisionModelId(env, userId, effectiveModelId, defaultModelId, 'image_tag');
 
   try {
     const result = await completeText(
@@ -375,6 +400,10 @@ export async function generateFileSummary(
   userId?: string,
   signal?: AbortSignal
 ): Promise<SummaryResult> {
+  if (!env.AI) {
+    throw new Error('AI service not configured');
+  }
+
   const db = getDb(env.DB);
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
 
@@ -443,6 +472,10 @@ export async function generateImageTags(
   imageBuffer?: ArrayBuffer,
   userId?: string
 ): Promise<ImageTagResult> {
+  if (!env.AI) {
+    throw new Error('AI service not configured');
+  }
+
   const db = getDb(env.DB);
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
 
@@ -485,15 +518,11 @@ export async function generateImageTags(
     let caption = '';
     if (captionResult.status === 'fulfilled') {
       caption = captionResult.value;
-    } else {
-      logger.warn('AI', 'Image caption failed', { fileId }, captionResult.reason);
     }
 
     let tags: string[] = [];
     if (tagResult.status === 'fulfilled') {
       tags = tagResult.value;
-    } else {
-      logger.warn('AI', 'Image tags failed', { fileId }, tagResult.reason);
     }
 
     const now = new Date().toISOString();
@@ -521,6 +550,10 @@ export async function suggestFileName(
   content?: string,
   userId?: string
 ): Promise<RenameSuggestion> {
+  if (!env.AI) {
+    throw new Error('AI service not configured');
+  }
+
   const db = getDb(env.DB);
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
 
@@ -599,6 +632,10 @@ export async function suggestFileNameFromContent(
   extension: string,
   userId?: string
 ): Promise<RenameSuggestion> {
+  if (!env.AI) {
+    throw new Error('AI service not configured');
+  }
+
   if (!content || content.trim().length < 30) {
     throw new Error('文件内容太短（少于30字符），无法生成命名建议');
   }

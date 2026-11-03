@@ -20,6 +20,7 @@ import { getDb, files } from '../../../db';
 import type { Env } from '../../../types/env';
 import { logger } from '@osshelf/shared';
 import { completeText } from '../modelRuntime';
+import { getModelById } from '../modelService';
 import type { ToolDefinition } from './types';
 import {
   uint8ArrayToBase64,
@@ -444,7 +445,22 @@ export class ContentTools {
     const visionModelId = await getAiConfigString(env, 'ai.default_model.vision', '@cf/llava-hf/llava-1.5-7b-hf');
 
     try {
-      if (visionModelId.startsWith('@cf/') && !env.AI) {
+      const configuredModel = await getModelById(env, userId, visionModelId);
+
+      if (configuredModel?.provider === 'openai_compatible' && !configuredModel.capabilities.includes('vision')) {
+        return {
+          fileId,
+          fileName: file.name,
+          visualDescription: null,
+          error: '配置的模型不支持视觉分析',
+          existingMetadata: {
+            aiTags: file.aiTags || null,
+            aiSummary: file.aiSummary || null,
+          },
+        };
+      }
+
+      if (!configuredModel && !env.AI) {
         return {
           fileId,
           fileName: file.name,
