@@ -48,7 +48,7 @@ GET /api/health
 | Batch         | `/api/batch`                                                 | 批量操作 — 删除/移动/复制/重命名        |
 | Permissions   | `/api/permissions`                                           | 权限与标签管理                          |
 | Groups        | `/api/groups`                                                | 用户组管理                              |
-| Teams         | `/api/teams`                                                 | 团队协作 (v5.0)                         |
+| Teams         | `/api/teams`                                                 | 团队协作 (v3.0)                         |
 | Webhooks      | `/api/webhooks`                                              | 事件订阅与第三方集成                    |
 | Tasks         | `/api/tasks`                                                 | 上传任务管理（分片上传）                |
 | Downloads     | `/api/downloads`                                             | 离线下载任务                            |

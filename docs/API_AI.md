@@ -1,4 +1,4 @@
-# OSSshelf AI API 文档（v5.0，Cloudflare Agents SDK）
+# OSSshelf AI API 文档（v3.0，Cloudflare Agents SDK）
 
 > 运行时：`OSSShelfAgent`（Durable Object）+ AI SDK `streamText`。
 > HTTP 接口只负责会话/记忆管理、模型配置、索引任务与用量查询；对话本体走 `/agents/*` WebSocket。

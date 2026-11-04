@@ -110,13 +110,13 @@ const routeMetadata: Record<string, RouteMeta> = {
   'get  /permissions/resolve/:fileId': { summary: '解析有效权限', tags: ['Permissions'] },
   'patch /permissions/:permissionId': { summary: '更新权限', tags: ['Permissions'] },
   'delete /permissions/:permissionId': { summary: '删除权限', tags: ['Permissions'] },
-  'post /permissions/requests': { summary: '发起权限申请 (v5.0)', tags: ['Permissions'] },
-  'get  /permissions/requests/my': { summary: '我的权限申请 (v5.0)', tags: ['Permissions'] },
-  'get  /permissions/requests/pending': { summary: '待审批的申请 (v5.0)', tags: ['Permissions'] },
-  'put  /permissions/requests/:id/review': { summary: '审批权限申请 (v5.0)', tags: ['Permissions'] },
-  'post /permissions/batch-grant': { summary: '批量授权 (v5.0)', tags: ['Permissions'] },
-  'post /permissions/batch-revoke': { summary: '批量撤销 (v5.0)', tags: ['Permissions'] },
-  'get  /roles/templates': { summary: '获取角色模板列表 (v5.0)', tags: ['Permissions'] },
+  'post /permissions/requests': { summary: '发起权限申请 (v3.0)', tags: ['Permissions'] },
+  'get  /permissions/requests/my': { summary: '我的权限申请 (v3.0)', tags: ['Permissions'] },
+  'get  /permissions/requests/pending': { summary: '待审批的申请 (v3.0)', tags: ['Permissions'] },
+  'put  /permissions/requests/:id/review': { summary: '审批权限申请 (v3.0)', tags: ['Permissions'] },
+  'post /permissions/batch-grant': { summary: '批量授权 (v3.0)', tags: ['Permissions'] },
+  'post /permissions/batch-revoke': { summary: '批量撤销 (v3.0)', tags: ['Permissions'] },
+  'get  /roles/templates': { summary: '获取角色模板列表 (v3.0)', tags: ['Permissions'] },
 
   // ── Groups ──────────────────────────────────────────
   'get  /groups': { summary: '获取用户组列表', tags: ['Groups'] },
@@ -128,7 +128,7 @@ const routeMetadata: Record<string, RouteMeta> = {
   'post /groups/:groupId/members': { summary: '添加组成员', tags: ['Groups'] },
   'delete /groups/:groupId/members/:userId': { summary: '移除组成员', tags: ['Groups'] },
 
-  // ── Teams (v5.0) ───────────────────────────────────
+  // ── Teams (v3.0) ───────────────────────────────────
   'get  /teams': { summary: '获取团队列表', tags: ['Teams'] },
   'post /teams': { summary: '创建团队', tags: ['Teams'] },
   'get  /teams/:teamId': { summary: '获取团队详情', tags: ['Teams'] },
@@ -241,9 +241,9 @@ const tagDefinitions = [
   { name: 'Presign', description: '预签名上传 — 直传、分片上传、预签名下载 URL' },
   { name: 'Search', description: '搜索 — 关键词搜索、FTS5 全文搜索、语义搜索、高级条件组合' },
   { name: 'Batch', description: '批量操作 — 批量删除/移动/复制/重命名/恢复' },
-  { name: 'Permissions', description: '权限与标签 — 文件授权(用户/组/团队)、角色模板、权限申请/审批流(v5.0)' },
+  { name: 'Permissions', description: '权限与标签 — 文件授权(用户/组/团队)、角色模板、权限申请/审批流(v3.0)' },
   { name: 'Groups', description: '用户组 — 组管理与批量授权' },
-  { name: 'Teams', description: '团队协作 (v5.0) — 团队空间、成员管理、资源挂载、四级角色体系' },
+  { name: 'Teams', description: '团队协作 (v3.0) — 团队空间、成员管理、资源挂载、四级角色体系' },
   { name: 'Webhooks', description: 'Webhook — 事件订阅与第三方系统集成' },
   { name: 'Tasks', description: '上传任务 — 分片上传任务管理与进度追踪' },
   { name: 'Downloads', description: '离线下载 — URL 离线下载到云存储' },
@@ -311,7 +311,7 @@ OSSshelf 对象存储管理平台 RESTful API 文档
 | 方式 | 说明 |
 |------|------|
 | **Bearer Token (JWT)** | 大多数 API 使用此方式。登录后从响应中获取 |
-| **API Key** | 程序化访问推荐（v4.0+）。通过 Header \`X-API-Key\` 传递 |
+| **API Key** | 程序化访问推荐（v2.0+）。通过 Header \`X-API-Key\` 传递 |
 
 \\\`\\\
 Authorization: Bearer <jwt-token>

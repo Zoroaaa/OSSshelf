@@ -2,7 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v5.0.2] - 2026-10-30
+> **版本号说明**：早期版本号跨度较大，已于 2026-11-04 统一重整为连续版本：v1.x 基础文件管理、v2.x 账号安全与 AI 能力、v3.x 团队协作与 Agent 运行时。历史 tag 与 Release 已同步重编，旧版本号不再使用。
+
+## [v3.2.0] - 2026-11-04
+
+### Added - Cloudflare Agents SDK 运行时 🧠
+
+- **Agent 运行时迁移**：AI 会话改由 `@cloudflare/ai-chat` 的 `AIChatAgent`（Durable Object）承载，支持断线续传、多端同步与审批后同轮继续；旧 AgentEngine、RAG 引擎、SSE 链路、熔断器与工具选择器全部移除
+- **模型调用层统一**：新增 `lib/ai/modelRuntime.ts`，Agent 与后台功能统一走 AI SDK provider（Workers AI / OpenAI 兼容 / Anthropic）；Workers AI 视觉模型改走原生 `{ image, prompt }` 输入
+- **供应商连接重构**：接入 models.dev 运行时模型快照，供应商连接支持自定义视觉模型能力筛选
+- **真实用量与配额**：每次调用写入 `ai_usage_events`，新增日配额与分钟限流（`ai.quota.*`、`ai.rate.*`），会话头部支持模型切换
+- **检索增强**：分块正文落 `file_chunks`，新增 FTS5 关键词召回、可选 rerank 与 `search_content` 工具
+- **任务队列**：移除 KV 并发锁，改由 Queue `max_concurrency`；`ai_task_items` 提供逐文件幂等与真续跑；`agent_batch` 走 fileService
+- **配置迁移**：功能级模型配置从 KV 迁入 `ai_feature_config`（首次读取自动迁移）
+- **前端**：`useOssShelfChat`（`useAgent` + `useAgentChat`）、`agentMessages` 映射、用量统计 Tab
+
+#### Fixed（运行时相关）
+
+- **视觉模型返回空**：Workers AI 视觉调用改为原生 image/prompt，视觉调用直接使用已配置模型，能力字段仅用于 UI 筛选
+- **无效模型 ID 与目录截断**：修正 models.dev 快照解析，避免模型目录截断导致不可用
+- **Vectorize 限流**：写入增加退避重试，放宽队列重试
+- **D1 绑定参数上限**：任务项、文件分块与批量删除按批拆分，修复 `too many SQL variables`
+- **文件夹路径与会话文件引用**：修正文件夹路径解析，`@` 引用文件优先处理
+- **长请求超时**：客户端超时提升至 150 秒
+
+### Changed - 工程与部署
+
+- CI 部署改用 Node 22 匹配 Wrangler 4；移除自动 D1 迁移，生产 schema 变更改为人工执行
+- 修复迁移脚本 `060` 缺少 `category` 非空字段，以及 `d1 migrations apply` 不支持 `--yes` 的问题
+- WebSocket 使用 `VITE_API_URL` 域名，并开启 Agent 路由 CORS
+- 统一 LF 行尾并应用 Prettier；清理各模块未引用代码与死导出
+- 团队空间文件夹赋权与存储统计优化
 
 ### Fixed - AI 会话链路全面修复 🛠️
 
@@ -48,7 +78,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [v5.1.0] - 2026-06-09
+## [v3.1.0] - 2026-06-09
 
 ### Added - 团队共享工作空间 🖥️
 
@@ -171,7 +201,7 @@ All notable changes to this project will be documented in this file.
 ### Changed - AI 模块优化 🤖
 
 - **工具集精简**
-  - 移除 `copy_file` 工具（与 v4.6.0 移除复制功能保持一致）
+  - 移除 `copy_file` 工具（与 v2.6.0 移除复制功能保持一致）
   - 新增 `batch_move` / `batch_delete` 到 WRITE_TOOLS 集合
   - `grant_permission` 工具支持通过 `targetEmail` 参数查找用户授权
 
@@ -336,11 +366,11 @@ apps/web/src/
 
 ---
 
-## [v5.0.0] - 2026-06-08
+## [v3.0.0] - 2026-06-08
 
 ### Added - 团队协作能力全面升级 🏆
 
-本次版本为 **重大架构升级**，核心亮点是权限管理系统从「个人中心」模式升级为「团队协作」模式，同时整合了 v4.7.0 以来所有中间版本的优化更新。
+本次版本为 **重大架构升级**，核心亮点是权限管理系统从「个人中心」模式升级为「团队协作」模式，同时整合了 v2.7.0 以来所有中间版本的优化更新。
 
 ---
 
@@ -406,7 +436,7 @@ apps/web/src/
 
 ### Added - 标签统一管理系统 🏷️
 
-**v4.7.0 ~ v5.0.0 中间版本累积更新**
+**v2.7.0 ~ v3.0.0 中间版本累积更新**
 
 - **全局标签管理页面** (`/tags`)
   - 标签列表展示（名称、使用次数、关联文件数）
@@ -575,7 +605,7 @@ apps/web/src/
 
 ---
 
-## [v4.7.0] - 2026-04-17
+## [v2.7.0] - 2026-04-17
 
 ### Added - AI Agent 全面增强：Planning 层、跨会话记忆、交互体验升级 🧠
 
@@ -872,7 +902,7 @@ apps/web/src/
 
 ---
 
-## [v4.6.0] - 2026-04-13
+## [v2.6.0] - 2026-04-13
 
 ### Added - 用户体验全面优化与AI能力增强 🚀
 
@@ -1155,7 +1185,7 @@ apps/web/src/
 
 ---
 
-## [v4.5.0] - 2026-04-12
+## [v2.5.0] - 2026-04-12
 
 ### Added - AI 模型库大幅扩展与引擎优化 🚀
 
@@ -1265,7 +1295,7 @@ apps/web/src/
 
 **数据库变更**
 
-- 无需新的迁移文件（新字段已在 v4.4.0 迁移中预留）
+- 无需新的迁移文件（新字段已在 v2.4.0 迁移中预留）
 
 ### Changed
 
@@ -1273,9 +1303,9 @@ apps/web/src/
 - modelGateway.ts 解析逻辑增强，支持所有新字段
 - agentEngine.ts 上下文管理和降级机制优化
 - aiConfigRoutes.ts API 接口完善
-- AI_FEATURES.md 文档更新至 v4.5.0
-- API_AI.md 文档更新至 v4.5.0
-- README.md 版本号更新至 v4.5.0
+- AI_FEATURES.md 文档更新至 v2.5.0
+- API_AI.md 文档更新至 v2.5.0
+- README.md 版本号更新至 v2.5.0
 
 ### Improved
 
@@ -1285,7 +1315,7 @@ apps/web/src/
 
 ---
 
-## [v4.4.0] - 2026-04-08
+## [v2.4.0] - 2026-04-08
 
 ### Added - AI 模块全面优化 🚀
 
@@ -1398,9 +1428,9 @@ apps/web/src/
 
 ### Changed
 
-- AI_FEATURES.md 文档更新至 v4.4.0
-- API_AI.md 文档更新至 v4.4.0
-- README.md 版本号更新至 v4.4.0
+- AI_FEATURES.md 文档更新至 v2.4.0
+- API_AI.md 文档更新至 v2.4.0
+- README.md 版本号更新至 v2.4.0
 - architecture.md 架构文档更新，新增提供商管理架构
 
 ### Fixed
@@ -1411,7 +1441,7 @@ apps/web/src/
 
 ---
 
-## [v4.3.0] - 2026-04-08
+## [v2.3.0] - 2026-04-08
 
 ### Added - AI Agent 全面升级 🚀
 
@@ -1426,7 +1456,7 @@ apps/web/src/
   - 写操作确认机制（敏感操作需用户确认）
 
 - **工具数量大幅扩展（95 个工具）**
-  - 从 v4.2.0 的 4 个工具扩展到 95 个
+  - 从 v2.2.0 的 4 个工具扩展到 95 个
   - 分为 13 个功能模块：
     - 🔍 搜索与发现（7 个）：search_files, filter_files, search_by_tag, search_duplicates, smart_search, get_similar_files, get_file_details
     - 📄 内容理解与分析（7 个）：read_file_text, analyze_image, compare_files, extract_metadata, generate_summary, generate_tags, content_preview
@@ -1531,9 +1561,9 @@ apps/web/src/
 
 ### Changed
 
-- AI_FEATURES.md 文档更新至 v4.3.0
-- API_AI.md 文档更新至 v4.3.0
-- README.md 版本号更新至 v4.3.0
+- AI_FEATURES.md 文档更新至 v2.3.0
+- API_AI.md 文档更新至 v2.3.0
+- README.md 版本号更新至 v2.3.0
 - architecture.md 架构文档更新
 
 ### Fixed
@@ -1545,7 +1575,7 @@ apps/web/src/
 
 ---
 
-## [v4.2.0] - 2026-04-06
+## [v2.2.0] - 2026-04-06
 
 ### Added - AI Agent 引擎与系统配置 🚀
 
@@ -1682,9 +1712,9 @@ apps/web/src/
 
 ### Changed
 
-- AI_FEATURES.md 文档更新至 v4.2.0
-- API_AI.md 文档更新至 v4.2.0
-- README.md 版本号更新至 v4.2.0
+- AI_FEATURES.md 文档更新至 v2.2.0
+- API_AI.md 文档更新至 v2.2.0
+- README.md 版本号更新至 v2.2.0
 
 ### Fixed
 
@@ -1694,7 +1724,7 @@ apps/web/src/
 
 ---
 
-## [v4.1.0] - 2026-04-03
+## [v2.1.0] - 2026-04-03
 
 ### Added - AI 系统全面升级 🤖
 
@@ -1839,7 +1869,7 @@ app.route('/api/ai-chat', aiChatRoutes)     # AI 对话系统
 
 ---
 
-## [v4.0.0] - 2026-04-02
+## [v2.0.0] - 2026-04-02
 
 ### Added - 邮件通知系统
 
@@ -1994,7 +2024,7 @@ app.route('/api/ai-chat', aiChatRoutes)     # AI 对话系统
   - 错误处理完善
   - 代码注释清晰
 
-## [v3.8.0] - 2026-04-02
+## [v1.9.0] - 2026-04-02
 
 ### Added
 
@@ -2038,7 +2068,7 @@ app.route('/api/ai-chat', aiChatRoutes)     # AI 对话系统
 - 搜索性能提升：FTS5 全文搜索替代 LIKE 查询
 - 用户体验：通知铃铛位置优化（PC端侧边栏、移动端顶部栏）
 
-## [v3.7.0] - 2026-04-01
+## [v1.8.0] - 2026-04-01
 
 ### Added
 
@@ -2079,7 +2109,7 @@ app.route('/api/ai-chat', aiChatRoutes)     # AI 对话系统
 - 语义搜索支持中文和多语言
 - 移动端交互体验优化
 
-## [v3.6.0] - 2026-03-31
+## [v1.7.0] - 2026-03-31
 
 ### Added
 
@@ -2116,7 +2146,7 @@ app.route('/api/ai-chat', aiChatRoutes)     # AI 对话系统
 - 权限解析性能优化：使用递归 CTE 一次性查询整条祖先链
 - API 文档完善：所有 v1 API 端点有完整的请求/响应 schema
 
-## [v3.5.0] - 2026-03-30
+## [v1.6.0] - 2026-03-30
 
 ### Added
 
@@ -2145,7 +2175,7 @@ app.route('/api/ai-chat', aiChatRoutes)     # AI 对话系统
 - 版本历史 UI 优化：仅对可编辑文件显示版本历史按钮
 - 右键菜单优化：版本历史选项仅对可编辑文件显示
 
-## [v3.4.0] - 2026-03-27
+## [v1.5.0] - 2026-03-27
 
 ### Added
 
@@ -2165,7 +2195,7 @@ app.route('/api/ai-chat', aiChatRoutes)     # AI 对话系统
 - 统一预览类型配置（previewTypes.ts）
 - 预览组件性能优化
 
-## [v3.3.0] - 2026-03-24
+## [v1.4.0] - 2026-03-24
 
 ### Added
 
@@ -2174,7 +2204,7 @@ app.route('/api/ai-chat', aiChatRoutes)     # AI 对话系统
 - 新增 Excel 文件预览
 - 后端错误码统一管理
 
-## [v3.2.0] - 2026-03-23
+## [v1.3.0] - 2026-03-23
 
 ### Added
 
@@ -2187,7 +2217,7 @@ app.route('/api/ai-chat', aiChatRoutes)     # AI 对话系统
 - 优化移动端排版
 - 其他细节优化
 
-## [v3.1.0] - 2026-03-20
+## [v1.2.0] - 2026-03-20
 
 ### Added
 
@@ -2200,7 +2230,7 @@ app.route('/api/ai-chat', aiChatRoutes)     # AI 对话系统
 
 - 其他功能细节优化调整
 
-## [v2.1.0] - 2026-03-19
+## [v1.1.0] - 2026-03-19
 
 ### Added
 
@@ -2211,7 +2241,7 @@ app.route('/api/ai-chat', aiChatRoutes)     # AI 对话系统
 - 优化 WebDAV 在 Windows 资源管理器等场景的使用
 - 优化其他一系列功能
 
-## [v1.1.0] - 2026-03-17
+## [v1.0.0] - 2026-03-17
 
 ### Added
 

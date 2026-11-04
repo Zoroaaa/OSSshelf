@@ -1,11 +1,11 @@
 # OSSshelf AI 功能说明文档
 
-**版本**: v5.2.0
-**更新日期**: 2026-10-29
+**版本**: v3.2.0
+**更新日期**: 2026-11-04
 
 ---
 
-## v5.2.0 Agent 运行时升级（Cloudflare Agents SDK）
+## v3.2.0 Agent 运行时升级（Cloudflare Agents SDK）
 
 | 变化             | 说明                                                                                                                                                                                      |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -44,32 +44,32 @@
 
 ## 功能概述
 
-v4.7.0 版本对 AI 模块进行了全面升级，核心变化如下：
+v2.7.0 版本对 AI 模块进行了全面升级，核心变化如下：
 
 | 功能                       | 说明                                                | 版本                     |
 | -------------------------- | --------------------------------------------------- | ------------------------ |
-| **Planning 层**            | `update_plan` 工具、ExecutionPlan 接口、实时进度    | v4.7.0 新增              |
-| **跨会话语义记忆**         | D1+Vectorize 双存储、自动提取/召回、记忆管理 UI     | v4.7.0 新增              |
-| **工具 Few-shot Examples** | ToolDefinition examples 字段、弱模型准确率提升      | v4.7.0 新增              |
-| **批量操作队列打通**       | batch_move/batch_delete、BATCH_THRESHOLD=20         | v4.7.0 新增              |
-| **文件拖拽注入**           | 拖拽文件到对话框、自动填入 contextFileIds           | v4.7.0 新增              |
-| **@文件快捷引用**          | @mention 下拉框、键盘导航、Chip 展示                | v4.7.0 新增              |
-| **对话消息引用/追问**      | 右键引用消息、[引用] 前缀拼接                       | v4.7.0 新增              |
-| **模型熔断器**             | 三态状态机、连续失败3次熔断、10分钟恢复             | v4.7.0 新增              |
-| **Reasoning 展示优化**     | 默认折叠、streaming 自动展开、字数统计              | v4.7.0 增强              |
-| **对话式权限管理**         | 自然语言授权、expiresInDays参数、已过期权限查询     | v4.6.0 新增              |
-| **对话式文件创建**         | 草稿预览、多轮起草流程、DraftPreview组件            | v4.6.0 新增              |
-| **智能整理建议**           | 四维度分析（命名/标签/归类/结构）、可执行建议       | v4.6.0 新增              |
-| **文件集合分析**           | 多场景分析（对比/总结/时间脉络）、aiSummary代理     | v4.6.0 新增              |
-| **100+ 个智能工具**        | 覆盖文件操作、权限管理、分享链接等 13+ 个模块       | v4.3.0 新增, v4.7.0 扩展 |
-| **模型库大幅扩展**         | 16 个厂商 80+ 个模型，覆盖 2025 年最新推理/视觉模型 | v4.5.0 新增              |
-| **Agent 引擎增强**         | Token 预算管理、降级机制改进、统计增强              | v4.5.0 增强              |
-| **AI 供应商管理**          | 18 个预设 + 自定义连接，供应商级 Key、模型自动发现  | v4.4.0 新增, v5.0.0 重构 |
-| **Agent 引擎重构**         | ReAct 架构，多轮推理，链式调用                      | v4.3.0 重构              |
-| **智能意图识别**           | 自动识别搜索、视觉、内容理解等意图                  | v4.3.0 新增              |
-| **写操作确认**             | 敏感操作需用户确认后执行                            | v4.3.0 新增              |
+| **Planning 层**            | `update_plan` 工具、ExecutionPlan 接口、实时进度    | v2.7.0 新增              |
+| **跨会话语义记忆**         | D1+Vectorize 双存储、自动提取/召回、记忆管理 UI     | v2.7.0 新增              |
+| **工具 Few-shot Examples** | ToolDefinition examples 字段、弱模型准确率提升      | v2.7.0 新增              |
+| **批量操作队列打通**       | batch_move/batch_delete、BATCH_THRESHOLD=20         | v2.7.0 新增              |
+| **文件拖拽注入**           | 拖拽文件到对话框、自动填入 contextFileIds           | v2.7.0 新增              |
+| **@文件快捷引用**          | @mention 下拉框、键盘导航、Chip 展示                | v2.7.0 新增              |
+| **对话消息引用/追问**      | 右键引用消息、[引用] 前缀拼接                       | v2.7.0 新增              |
+| **模型熔断器**             | 三态状态机、连续失败3次熔断、10分钟恢复             | v2.7.0 新增              |
+| **Reasoning 展示优化**     | 默认折叠、streaming 自动展开、字数统计              | v2.7.0 增强              |
+| **对话式权限管理**         | 自然语言授权、expiresInDays参数、已过期权限查询     | v2.6.0 新增              |
+| **对话式文件创建**         | 草稿预览、多轮起草流程、DraftPreview组件            | v2.6.0 新增              |
+| **智能整理建议**           | 四维度分析（命名/标签/归类/结构）、可执行建议       | v2.6.0 新增              |
+| **文件集合分析**           | 多场景分析（对比/总结/时间脉络）、aiSummary代理     | v2.6.0 新增              |
+| **100+ 个智能工具**        | 覆盖文件操作、权限管理、分享链接等 13+ 个模块       | v2.3.0 新增, v2.7.0 扩展 |
+| **模型库大幅扩展**         | 16 个厂商 80+ 个模型，覆盖 2025 年最新推理/视觉模型 | v2.5.0 新增              |
+| **Agent 引擎增强**         | Token 预算管理、降级机制改进、统计增强              | v2.5.0 增强              |
+| **AI 供应商管理**          | 18 个预设 + 自定义连接，供应商级 Key、模型自动发现  | v2.4.0 新增, v3.0.0 重构 |
+| **Agent 引擎重构**         | ReAct 架构，多轮推理，链式调用                      | v2.3.0 重构              |
+| **智能意图识别**           | 自动识别搜索、视觉、内容理解等意图                  | v2.3.0 新增              |
+| **写操作确认**             | 敏感操作需用户确认后执行                            | v2.3.0 新增              |
 
-### v4.7.0 AI 新功能详解
+### v2.7.0 AI 新功能详解
 
 #### 1. Planning 层——结构化任务规划（1.1）
 
@@ -166,7 +166,7 @@ interface ToolDefinition {
     description: string;
     parameters: { type: 'object'; properties: Record<string, unknown>; required?: string[] };
     examples?: Array<{
-      // v4.7.0 新增
+      // v2.7.0 新增
       user_query: string; // 触发这个工具的典型用户问题
       tool_call: object; // 对应的参数示例
     }>;
@@ -261,9 +261,9 @@ closed（正常）──失败计数≥3──→ open（熔断）
 - `network_timeout`：不触发熔断（直接重试）
 - `unknown`：记录日志
 
-**集成位置**：`OSSShelfAgent` 的 `streamText` 调用链（v5.2.0）
+**集成位置**：`OSSShelfAgent` 的 `streamText` 调用链（v3.2.0）
 
-### v4.7.0 安全性与稳定性修复详解 🛡️
+### v2.7.0 安全性与稳定性修复详解 🛡️
 
 #### 9. AI 对话中断恢复（流式输出稳定性）
 
@@ -347,7 +347,7 @@ closed（正常）──失败计数≥3──→ open（熔断）
 | 🏷️ 标签全局管理   | 合并/重命名/批量删除             |
 | 📄 AI 对话导出    | Markdown 导出                    |
 
-### v4.6.0 AI 新功能详解
+### v2.6.0 AI 新功能详解
 
 #### 1. 对话式权限管理
 
@@ -572,7 +572,7 @@ AI: 调用 list_expired_permissions() → 逐个 revoke_permission()
 
 ### 架构概述
 
-v5.2.0 由 `OSSShelfAgent`（Cloudflare Agents SDK `AIChatAgent` + Durable Object）承载，`streamText` 驱动 ReAct 循环（Reason → Act → Observe → Reason...），实现多轮推理和链式工具调用：
+v3.2.0 由 `OSSShelfAgent`（Cloudflare Agents SDK `AIChatAgent` + Durable Object）承载，`streamText` 驱动 ReAct 循环（Reason → Act → Observe → Reason...），实现多轮推理和链式工具调用：
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -696,7 +696,7 @@ addToolApprovalResponse({ id, approved: true })
 
 ## 智能工具集
 
-v4.3.0 提供了 **100+ 个智能工具**，分为 13 个功能模块：
+v2.3.0 提供了 **100+ 个智能工具**，分为 13 个功能模块：
 
 ### 工具模块总览
 
@@ -1108,7 +1108,7 @@ GET /api/ai-config/workers-ai/models?refresh=1
 
 ## AI 系统配置
 
-v4.3.0 AI 系统配置功能，支持细粒度的 AI 参数调整。
+v2.3.0 AI 系统配置功能，支持细粒度的 AI 参数调整。
 
 ### 配置分类
 
@@ -1352,7 +1352,7 @@ completeTextWithConfig(env, config, request, options?): Promise<CompleteResult>;
 resolveEmbeddingProvider(env): Promise<EmbeddingProvider>;
 ```
 
-#### OSSShelfAgent（Agent 运行时）v5.2.0
+#### OSSShelfAgent（Agent 运行时）v3.2.0
 
 ```typescript
 class OSSShelfAgent extends AIChatAgent {
@@ -1365,7 +1365,7 @@ class OSSShelfAgent extends AIChatAgent {
 - 写操作通过 `needsApproval` 暂停，用户批准后在同一轮继续执行
 - `onFinish` 写入 `ai_usage_events`（真实 token）与 `ai_chat_messages`（审计镜像）
 
-#### AgentToolExecutor（工具执行器）v4.3.0
+#### AgentToolExecutor（工具执行器）v2.3.0
 
 ```typescript
 class AgentToolExecutor {
@@ -1446,7 +1446,7 @@ interface ToolDefinition {
 
 #### ai_confirm_requests（确认请求表）— 已移除
 
-v5.2.0 起工具审批由 AI SDK `needsApproval` 在 Durable Object 内管理，迁移 `111_remove_legacy_chat.sql` 已删除该表。
+v3.2.0 起工具审批由 AI SDK `needsApproval` 在 Durable Object 内管理，迁移 `111_remove_legacy_chat.sql` 已删除该表。
 
 ---
 
