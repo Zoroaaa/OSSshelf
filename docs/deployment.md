@@ -2,7 +2,7 @@
 
 本文档基于项目实际配置文件，提供完整的部署指南，确保您能够一次性成功部署 OSSshelf。
 
-**当前版本**: v5.1.0
+**当前版本**: v3.2.0
 
 ---
 
@@ -73,7 +73,7 @@
 
 详细的版本更新日志请参阅 [CHANGELOG.md](../CHANGELOG.md)。
 
-### v5.0.0 (2026-06-08)
+### v3.0.0 (2026-06-08)
 
 本次更新为**重大版本升级**，核心变化：权限管理系统重构为团队协作能力。
 
@@ -117,7 +117,7 @@ pnpm deploy:api
 wrangler pages deploy apps/web/dist --project-name=ossshelf-web
 ```
 
-### v4.6.0 (2026-04-13)
+### v2.6.0 (2026-04-13)
 
 本次更新包含用户体验全面优化和AI能力增强：
 
@@ -195,7 +195,7 @@ pnpm deploy:api
 wrangler pages deploy apps/web/dist --project-name=ossshelf-web
 ```
 
-### v4.5.0 (2026-04-12)
+### v2.5.0 (2026-04-12)
 
 本次更新包含 AI 模型库大幅扩展：
 
@@ -214,7 +214,7 @@ wrangler pages deploy apps/web/dist --project-name=ossshelf-web
    - providerId 关联、排序功能、只读模式
    - Thinking 配置字段完善
 
-### v4.2.0 (2026-04-06)
+### v2.2.0 (2026-04-06)
 
 本次更新包含以下重要变更：
 
@@ -263,7 +263,7 @@ pnpm db:migrate
 git push origin main
 ```
 
-### v4.1.0 (2026-04-03)
+### v2.1.0 (2026-04-03)
 
 本次更新包含以下重要变更：
 
@@ -310,7 +310,7 @@ pnpm db:migrate
 git push origin main
 ```
 
-### v4.0.0 (2026-04-02)
+### v2.0.0 (2026-04-02)
 
 本次更新包含以下重要变更：
 
@@ -379,7 +379,7 @@ git push origin main
    - 注册Resend账号并验证域名
    - 在管理面板配置API Key和发件人信息
 
-### v3.8.0 (2026-04-02)
+### v1.9.0 (2026-04-02)
 
 - 迁移文件：`0014_ai_features.sql`
 
@@ -415,7 +415,7 @@ git push origin main
 
 详细配置请参阅 [AI 功能配置](#ai-功能配置) 章节。
 
-### v3.5.0 (2026-03-30)
+### v1.6.0 (2026-03-30)
 
 本次更新包含以下重要变更：
 
@@ -438,7 +438,7 @@ pnpm db:migrate
 git push origin main
 ```
 
-### v3.4.0 (2026-03-27)
+### v1.5.0 (2026-03-27)
 
 本次更新包含以下重要变更：
 
@@ -455,7 +455,7 @@ pnpm db:migrate
 git push origin main
 ```
 
-### v3.3.0 (2026-03-24)
+### v1.4.0 (2026-03-24)
 
 本次更新包含以下重要变更：
 
@@ -598,17 +598,17 @@ pnpm db:migrate
 - `0006_upload_progress.sql` - 上传进度追踪
 - `0007_phase7.sql` - 第七阶段功能
 - `0008_direct_link.sql` - 文件直链功能
-- `0009_file_versions.sql` - 文件版本控制 (v3.3.0)
-- `0010_notes.sql` - 文件笔记 (v3.5.0)
-- `0011_api_keys.sql` - API Keys (v3.5.0)
-- `0012_permission_v2.sql` - 权限系统 v2 (v3.6.0)
-- `0014_ai_features.sql` - AI 功能 (v3.7.0)
-- `0015_notifications.sql` - 通知系统 (v3.8.0)
-- `0016_fts5.sql` - FTS5 全文搜索 (v3.8.0)
-- `0018_email.sql` - 邮件通知系统 (v4.0.0)
-- `0020_ai_models_config.sql` - AI 模型配置 (v4.1.0)
-- `0021_ai_system_config.sql` - AI 系统配置 (v4.2.0)
-- `100_team_collaboration.sql` - 团队协作功能 (v5.0.0)
+- `0009_file_versions.sql` - 文件版本控制 (v1.4.0)
+- `0010_notes.sql` - 文件笔记 (v1.6.0)
+- `0011_api_keys.sql` - API Keys (v1.6.0)
+- `0012_permission_v2.sql` - 权限系统 v2 (v1.7.0)
+- `0014_ai_features.sql` - AI 功能 (v1.8.0)
+- `0015_notifications.sql` - 通知系统 (v1.9.0)
+- `0016_fts5.sql` - FTS5 全文搜索 (v1.9.0)
+- `0018_email.sql` - 邮件通知系统 (v2.0.0)
+- `0020_ai_models_config.sql` - AI 模型配置 (v2.1.0)
+- `0021_ai_system_config.sql` - AI 系统配置 (v2.2.0)
+- `100_team_collaboration.sql` - 团队协作功能 (v3.0.0)
 
 ### Step 5: 设置加密密钥
 
@@ -830,7 +830,7 @@ jobs:
 
 ## 邮件服务配置
 
-v4.0.0+ 版本集成了 Resend 邮件服务，用于邮箱验证、密码重置等功能。
+v2.0.0+ 版本集成了 Resend 邮件服务，用于邮箱验证、密码重置等功能。
 
 ### 1. 注册 Resend 账号
 
@@ -1460,7 +1460,7 @@ curl -I https://your-api.workers.dev/api/direct/<token>
 # 应返回 200 或文件内容，而非 HTML 页面
 ```
 
-#### 10. 版本控制功能不可用（v3.3.0）
+#### 10. 版本控制功能不可用（v1.4.0）
 
 **排查步骤**:
 
@@ -1473,7 +1473,7 @@ curl -I https://your-api.workers.dev/api/direct/<token>
 wrangler d1 execute ossshelf-db --command "SELECT name FROM sqlite_master WHERE type='table' AND name='file_versions'"
 ```
 
-#### 10. 预览功能异常（v3.3.0）
+#### 10. 预览功能异常（v1.4.0）
 
 **排查步骤**:
 
@@ -1515,7 +1515,7 @@ wrangler d1 execute ossshelf-db --command "SELECT name FROM sqlite_master WHERE 
 
 ## AI 功能配置
 
-v4.2.0 版本的 AI 功能包含以下核心能力：
+v2.2.0 版本的 AI 功能包含以下核心能力：
 
 ### 前置要求
 
@@ -1571,7 +1571,7 @@ pnpm deploy:api
 2. 进入「AI 配置」页面
 3. 检查各功能状态
 
-### v4.2.0 新功能
+### v2.2.0 新功能
 
 | 功能         | 说明                                             |
 | ------------ | ------------------------------------------------ |
@@ -1582,7 +1582,7 @@ pnpm deploy:api
 | 全局 AI 聊天 | 悬浮式 AI 聊天组件，支持会话切换                 |
 | 自定义模型   | 支持任意 Workers AI 模型 ID                      |
 
-### v4.1.0 功能
+### v2.1.0 功能
 
 | 功能        | 说明                                                       |
 | ----------- | ---------------------------------------------------------- |
@@ -1761,7 +1761,7 @@ pnpm typecheck        # 类型检查
   - [ ] `CORS_ORIGINS`
   - [ ] `ALERT_TG_BOT_TOKEN`（可选）
   - [ ] `ALERT_TG_CHAT_ID`（可选）
-- [ ] 运行数据库迁移（包含 v3.3.0 版本控制表）
+- [ ] 运行数据库迁移（包含 v1.4.0 版本控制表）
 - [ ] 设置 ENCRYPTION_KEY Secret
 - [ ] 连接 Cloudflare Pages
 - [ ] 配置前端环境变量 `VITE_API_URL`
@@ -1770,11 +1770,11 @@ pnpm typecheck        # 类型检查
 ### 更新部署
 
 - [ ] 拉取最新代码
-- [ ] 检查数据库迁移（特别是 v3.3.0 的 `file_versions` 表）
+- [ ] 检查数据库迁移（特别是 v1.4.0 的 `file_versions` 表）
 - [ ] 推送到 GitHub
 - [ ] 验证自动部署成功
 
-### v3.3.0 升级检查清单
+### v1.4.0 升级检查清单
 
 - [ ] 确认已运行 `0008_file_versions.sql` 迁移
 - [ ] 验证版本控制 API 可用 (`/api/versions`)

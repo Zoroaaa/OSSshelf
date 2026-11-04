@@ -1,7 +1,7 @@
 # OSSshelf 架构文档
 
-**版本**: v5.1.0
-**更新日期**: 2026-06-08
+**版本**: v3.2.0
+**更新日期**: 2026-11-04
 
 ---
 
@@ -82,15 +82,15 @@ OSSshelf/
 │   │   │   ├── index.ts        # 入口文件
 │   │   │   ├── routes/         # API 路由
 │   │   │   │   ├── ai.ts       # AI 相关路由
-│   │   │   │   ├── aiChatRoutes.ts    # AI 对话路由 (v4.3.0)
-│   │   │   │   ├── aiConfigRoutes.ts  # AI 配置路由 (v4.3.0)
+│   │   │   │   ├── aiChatRoutes.ts    # AI 对话路由 (v2.3.0)
+│   │   │   │   ├── aiConfigRoutes.ts  # AI 配置路由 (v2.3.0)
 │   │   │   │   ├── files.ts    # 文件管理路由
 │   │   │   │   ├── auth.ts     # 认证路由
 │   │   │   │   └── ...
 │   │   │   ├── lib/            # 核心库
-│   │   │   │   ├── ai/         # AI 模块 (v4.3.0 重点)
+│   │   │   │   ├── ai/         # AI 模块 (v2.3.0 重点)
 │   │   │   │   │   ├── agentTools/       # 工具集
-│   │   │   │   │   ├── toolAdapter.ts    # 工具 → AI SDK tools (v5.2.0)
+│   │   │   │   │   ├── toolAdapter.ts    # 工具 → AI SDK tools (v3.2.0)
 │   │   │   │   │   ├── modelService.ts   # 模型配置读取（D1）
 │   │   │   │   │   ├── modelRuntime.ts   # 统一模型运行时（AI SDK）
 │   │   │   │   │   └── ...
@@ -104,7 +104,7 @@ OSSshelf/
 │   │   ├── migrations/         # 数据库迁移
 │   │   │   ├── 0001_init.sql
 │   │   │   ├── ...
-│   │   │   └── 0011_ai_confirm_requests.sql  # v4.3.0
+│   │   │   └── 0011_ai_confirm_requests.sql  # v2.3.0
 │   │   ├── wrangler.toml       # Cloudflare Workers 配置
 │   │   └── package.json
 │   │
@@ -113,8 +113,8 @@ OSSshelf/
 │       │   ├── main.tsx        # 入口文件
 │       │   ├── App.tsx         # 应用组件
 │       │   ├── pages/          # 页面组件
-│       │   │   ├── AIChat.tsx  # AI 对话页面 (v4.3.0)
-│       │   │   ├── AISettings.tsx # AI 设置页面 (v4.3.0)
+│       │   │   ├── AIChat.tsx  # AI 对话页面 (v2.3.0)
+│       │   │   ├── AISettings.tsx # AI 设置页面 (v2.3.0)
 │       │   │   ├── Files.tsx   # 文件管理页面
 │       │   │   └── ...
 │       │   ├── components/     # 组件
@@ -138,8 +138,8 @@ OSSshelf/
 │       └── package.json
 │
 ├── docs/                       # 文档
-│   ├── AI_FEATURES.md          # AI 功能说明 (v4.3.0)
-│   ├── API_AI.md               # AI API 文档 (v4.3.0)
+│   ├── AI_FEATURES.md          # AI 功能说明 (v2.3.0)
+│   ├── API_AI.md               # AI API 文档 (v2.3.0)
 │   └── architecture.md         # 架构文档（本文件）
 │
 ├── package.json                # 根 package.json
@@ -206,7 +206,7 @@ OSSshelf/
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 4. 团队协作模块 (v5.0.0 新增)
+### 4. 团队协作模块 (v3.0.0 新增)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -242,13 +242,13 @@ OSSshelf/
 
 ## AI 模块架构
 
-v5.0 AI 模块基于 Cloudflare Agents SDK：对话由 `OSSShelfAgent`（Durable Object）承载，HTTP 层只负责会话/记忆管理、模型配置、索引任务与用量查询。旧的自研 Agent 引擎、RAG 引擎、SSE 链路、熔断器与工具选择器均已删除。
+v3.0 AI 模块基于 Cloudflare Agents SDK：对话由 `OSSShelfAgent`（Durable Object）承载，HTTP 层只负责会话/记忆管理、模型配置、索引任务与用量查询。旧的自研 Agent 引擎、RAG 引擎、SSE 链路、熔断器与工具选择器均已删除。
 
 ### 架构图
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                            AI 模块架构 v5.0                                  │
+│                            AI 模块架构 v3.0                                  │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  HTTP 层                                                                     │
@@ -291,7 +291,7 @@ v5.0 AI 模块基于 Cloudflare Agents SDK：对话由 `OSSShelfAgent`（Durable
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### AI 提供商管理架构 (v4.4.0 新增)
+### AI 提供商管理架构 (v2.4.0 新增)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -348,7 +348,7 @@ v5.0 AI 模块基于 Cloudflare Agents SDK：对话由 `OSSShelfAgent`（Durable
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
 │  │                    ai_models 表 (关联提供商)                          │    │
 │  │                                                                      │    │
-│  │  新增字段 (v4.4.0)：                                                 │    │
+│  │  新增字段 (v2.4.0)：                                                 │    │
 │  │  - provider_id: 关联 ai_providers.id                                │    │
 │  │  - sort_order: 模型排序                                              │    │
 │  │                                                                      │    │
@@ -664,7 +664,7 @@ CREATE TABLE shares (
 #### AI 相关
 
 ```sql
--- AI 提供商表 (v4.4.0 新增)
+-- AI 提供商表 (v2.4.0 新增)
 CREATE TABLE ai_providers (
     id TEXT PRIMARY KEY,
     user_id TEXT,
@@ -686,7 +686,7 @@ CREATE TABLE ai_models (
     user_id TEXT NOT NULL,
     name TEXT NOT NULL,
     provider TEXT NOT NULL,  -- 'workers_ai', 'openai_compatible'
-    provider_id TEXT,  -- v4.4.0 新增: 关联 ai_providers.id
+    provider_id TEXT,  -- v2.4.0 新增: 关联 ai_providers.id
     model_id TEXT NOT NULL,
     api_endpoint TEXT,
     api_key_encrypted TEXT,
@@ -696,9 +696,9 @@ CREATE TABLE ai_models (
     temperature REAL,
     system_prompt TEXT,
     config_json TEXT,
-    sort_order INTEGER DEFAULT 0,  -- v4.4.0 新增: 模型排序
-    supports_thinking INTEGER DEFAULT 0,  -- v4.4.0 新增: 是否支持推理
-    thinking_param_format TEXT,  -- v4.4.0 新增: 推理参数格式
+    sort_order INTEGER DEFAULT 0,  -- v2.4.0 新增: 模型排序
+    supports_thinking INTEGER DEFAULT 0,  -- v2.4.0 新增: 是否支持推理
+    thinking_param_format TEXT,  -- v2.4.0 新增: 推理参数格式
     created_at TEXT,
     updated_at TEXT,
     FOREIGN KEY (provider_id) REFERENCES ai_providers(id) ON DELETE SET NULL
@@ -726,7 +726,7 @@ CREATE TABLE ai_chat_messages (
     created_at TEXT
 );
 
--- AI 记忆表 (v4.7.0 新增)
+-- AI 记忆表 (v2.7.0 新增)
 CREATE TABLE ai_memories (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -748,7 +748,7 @@ CREATE TABLE ai_system_config (
 );
 ```
 
-#### 团队相关 (v5.0.0 新增)
+#### 团队相关 (v3.0.0 新增)
 
 ```sql
 -- 团队表
@@ -842,10 +842,10 @@ DELETE /api/resource/:id      # 删除
 | 分享   | `/api/shares`      | 分享链接管理           |
 | AI     | `/api/ai`          | AI 功能                |
 | 用户   | `/api/user`        | 用户配置               |
-| 团队   | `/api/teams`       | 团队管理 (v5.0.0)      |
-| 权限   | `/api/permissions` | 权限管理 (v5.0.0 扩展) |
+| 团队   | `/api/teams`       | 团队管理 (v3.0.0)      |
+| 权限   | `/api/permissions` | 权限管理 (v3.0.0 扩展) |
 
-### 团队管理 API (v5.0.0 新增)
+### 团队管理 API (v3.0.0 新增)
 
 `/api/teams` — 12 个端点：
 
@@ -864,7 +864,7 @@ DELETE /api/resource/:id      # 删除
 | GET    | `/api/teams/:id/resources`             | 资源列表     |
 | DELETE | `/api/teams/:id/resources/:resourceId` | 卸载资源     |
 
-### 权限扩展 API (v5.0.0 新增)
+### 权限扩展 API (v3.0.0 新增)
 
 `/api/permissions` — 7 个新端点：
 
@@ -934,13 +934,13 @@ DELETE /api/resource/:id      # 删除
 - **分享访问**：验证分享密码和有效期
 - **API 访问**：验证 API Key 权限
 
-### v4.7.0 安全增强（22 项修复）
+### v2.7.0 安全增强（22 项修复）
 
 **安全防护层新增**
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                 v4.7.0 安全防护层                            │
+│                 v2.7.0 安全防护层                            │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
 │  ┌─────────────────┐  ┌─────────────────┐                   │
@@ -971,7 +971,7 @@ DELETE /api/resource/:id      # 删除
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**关键安全组件（v4.7.0 新增）**
+**关键安全组件（v2.7.0 新增）**
 
 | 组件                  | 文件                                       | 功能                           |
 | --------------------- | ------------------------------------------ | ------------------------------ |

@@ -1,7 +1,7 @@
 -- 060_ai.sql - AI 功能：模型配置、对话系统、任务队列、配置中心、提供商
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- AI 提供商表 (v4.4.0)
+-- AI 提供商表 (v2.4.0)
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS ai_providers (
   id TEXT PRIMARY KEY,
@@ -176,7 +176,7 @@ INSERT INTO ai_config (id, key, category, label, description, value_type, number
     ('cfg-agent-max-idle-rounds', 'ai.agent.max_idle_rounds', 'agent', '最大空转轮数', '连续无新文件信息后自动退出的轮数', 'number', 3, '3', 1, 16),
     ('cfg-agent-image-timeout-ms', 'ai.agent.image_timeout_ms', 'agent', '图片分析超时(ms)', '单张图片分析的超时时间（毫秒）', 'number', 25000, '25000', 1, 20);
 
--- Agent 最大上下文 Token 数配置 (v4.4.0)
+-- Agent 最大上下文 Token 数配置 (v2.4.0)
 INSERT INTO ai_config (id, user_id, key, category, label, description, value_type, string_value, default_value, is_editable, sort_order, created_at, updated_at)
 SELECT
   lower(hex(randomblob(16))),
@@ -223,7 +223,7 @@ INSERT INTO ai_config (id, key, category, label, description, value_type, boolea
     ('cfg-feature-vector-index', 'ai.feature.vector_index_enabled', 'feature', '启用向量索引', '是否为文件建立向量索引用于语义搜索', 'boolean', 1, 'true', 1, 51);
 
 -- ═══════════════════════════════════════════════════════════════════════════
--- AI 工具确认请求表 (v4.3.0)
+-- AI 工具确认请求表 (v2.3.0)
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS ai_confirm_requests (
     id TEXT PRIMARY KEY,

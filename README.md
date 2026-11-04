@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-green.svg)](https://nodejs.org)
 [![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers-orange.svg)](https://workers.cloudflare.com)
-[![Version](https://img.shields.io/badge/version-5.1.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.2.0-blue.svg)](CHANGELOG.md)
 [![zread](https://img.shields.io/badge/Ask_Zread-_.svg?style=flat&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS4zMTM1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff)](https://zread.ai/Zoroaaa/OSSshelf)
 
 [功能特性](#-功能特性) • [快速开始](#-快速开始) • [部署指南](#-部署指南) • [API文档](#-api-文档)
@@ -49,7 +49,22 @@
 
 详细的版本更新日志请参阅 [CHANGELOG.md](CHANGELOG.md)。
 
-### 最新版本 v4.7.0 - AI Agent 全面增强：Planning 层、跨会话记忆、交互体验升级 🧠
+> 早期版本号跨度较大，已于 2026-11-04 统一重整为连续版本：v1.x 基础文件管理、v2.x 账号安全与 AI 能力、v3.x 团队协作与 Agent 运行时。
+
+### 最新版本 v3.2.0 - Cloudflare Agents SDK 运行时升级 🧠
+
+**核心更新**：
+
+- **Agent 运行时迁移**：AI 会话改由 Cloudflare Agents SDK 的 `AIChatAgent`（Durable Object）承载，支持断线续传、多端同步、审批后同轮继续；旧 AgentEngine、SSE 链路、熔断器已完全移除
+- **模型调用统一**：新增 `modelRuntime.ts`，Agent 与后台功能共用同一 AI SDK provider 解析与调用入口；接入 models.dev 运行时模型快照，视觉模型走原生 image/prompt
+- **真实用量与配额**：每次调用写入 `ai_usage_events`，新增日配额与分钟限流，会话头部支持模型切换
+- **检索与任务队列**：分块正文落 `file_chunks`，支持 FTS5 关键词召回与 rerank；队列改用 `max_concurrency`，索引任务支持逐文件幂等续跑
+- **会话链路修复**：写操作审批、草稿创建、`@` 文件引用、错误提示、消息时间、中断恢复、历史工具卡片、会话删除等 10 余项修复
+- **工程**：CI 改用 Node 22，移除自动 D1 迁移；客户端长请求超时提升至 150 秒
+
+> 完整清单请参阅 [CHANGELOG.md](CHANGELOG.md) 的 v3.2.0 章节。
+
+### 历史版本 v2.7.0 - AI Agent 全面增强：Planning 层、跨会话记忆、交互体验升级 🧠
 
 **核心更新**：
 
@@ -161,9 +176,9 @@
 | 标签全局管理页 | 合并/重命名/批量删除             |
 | AI 对话导出    | Markdown 一键导出                |
 
-> 完整修复清单请参阅 [CHANGELOG.md](CHANGELOG.md) 的 v4.7.0 章节。
+> 完整修复清单请参阅 [CHANGELOG.md](CHANGELOG.md) 的 v2.7.0 章节。
 
-### 历史版本 v4.6.0 - 用户体验全面优化与AI能力增强 🚀
+### 历史版本 v2.6.0 - 用户体验全面优化与AI能力增强 🚀
 
 **核心更新**：
 
@@ -219,7 +234,7 @@
 - 🔗 **文件直链**: 为文件生成公开访问直链，支持设置有效期，无需登录即可访问
 - 📤 **上传链接**: 创建公开上传链接，允许他人无需登录上传文件到指定文件夹
 - 📁 **文件夹上传**: 支持拖拽上传整个文件夹，自动重建目录结构
-- 📧 **邮件通知系统 v4.0.0**:
+- 📧 **邮件通知系统 v2.0.0**:
   - 注册邮箱验证、邮箱更换确认
   - 忘记密码邮件重置
   - 用户可自定义邮件通知偏好（@提及、分享接收、配额警告、AI完成、系统通知）
@@ -239,14 +254,14 @@
   - **CSV**: 表格视图、搜索、排序、分页
 - 📜 **版本控制**: 可编辑文本文件的版本历史管理、版本回滚（仅支持代码、配置、Markdown 等文本文件）
 - 🔐 **权限管理 v2**: 用户组管理、权限继承、时效性权限、RBAC 权限模型
-- 🏢 **团队协作 v5.0.0**:
+- 🏢 **团队协作 v3.0.0**:
   - 团队空间：创建团队作为协作组织单元
   - 成员管理：四级角色体系（owner/admin/member/guest）
   - 资源挂载：将个人文件挂载到团队空间共享访问
   - 角色模板：viewer/editor/manager 一键授权替代手动设置
   - 权限申请与审批：成员发起申请 → 管理员审批 → 自动授权工作流
   - 批量权限操作：多文件一次性授权/撤销
-  - 详细说明: [CHANGELOG.md](CHANGELOG.md) 的 v5.0.0 章节
+  - 详细说明: [CHANGELOG.md](CHANGELOG.md) 的 v3.0.0 章节
 - 🔑 **API Keys**: 创建和管理 API 密钥，支持细粒度权限控制，实现程序化访问
 - 🌐 **RESTful v1 API**: 标准化 API 接口，支持 OpenAPI 文档和 Swagger UI
 - 🔔 **Webhook**: 文件事件订阅，支持第三方系统集成
@@ -285,23 +300,23 @@
 
 </details>
 
-- 🤖 **AI 功能 v4.6.0 全面升级**:
-  - **用户体验优化**：5项非AI功能改进（详情面板、换桶操作、移动端全屏预览等）v4.6.0 新增
-  - **对话式权限管理**：自然语言授权、过期时间管理、已过期权限查询 v4.6.0 新增
-  - **对话式文件创建**：草稿预览、多轮起草流程、DraftPreview组件 v4.6.0 新增
-  - **智能整理建议**：四维度分析（命名/标签/归类/结构）、可执行建议 v4.6.0 新增
-  - **文件集合分析**：多场景分析（对比/总结/时间脉络）、aiSummary代理 v4.6.0 新增
-  - **懒加载优化**：路由级代码分割、虚拟滚动、图片懒加载，首屏加载减少40%+ v4.6.0 新增
+- 🤖 **AI 功能 v2.6.0 全面升级**:
+  - **用户体验优化**：5项非AI功能改进（详情面板、换桶操作、移动端全屏预览等）v2.6.0 新增
+  - **对话式权限管理**：自然语言授权、过期时间管理、已过期权限查询 v2.6.0 新增
+  - **对话式文件创建**：草稿预览、多轮起草流程、DraftPreview组件 v2.6.0 新增
+  - **智能整理建议**：四维度分析（命名/标签/归类/结构）、可执行建议 v2.6.0 新增
+  - **文件集合分析**：多场景分析（对比/总结/时间脉络）、aiSummary代理 v2.6.0 新增
+  - **懒加载优化**：路由级代码分割、虚拟滚动、图片懒加载，首屏加载减少40%+ v2.6.0 新增
   - **模型库大幅扩展**：16 个厂商 **80+ 个模型**，覆盖 2025 年最新推理/视觉/长上下文模型
-  - Agent 引擎：ReAct 架构，多轮推理，链式调用，Token 预算管理（v4.5.0 增强）
-  - 95+ 个智能工具：覆盖文件操作、权限管理、分享链接等 13+ 个模块（v4.6.0 扩展）
+  - Agent 引擎：ReAct 架构，多轮推理，链式调用，Token 预算管理（v2.5.0 增强）
+  - 95+ 个智能工具：覆盖文件操作、权限管理、分享链接等 13+ 个模块（v2.6.0 扩展）
   - 智能意图识别：自动识别搜索、视觉、内容理解等意图
   - 视觉分析增强：图片搜索结果自动触发视觉分析链路
   - 写操作确认：敏感操作需用户确认后执行
-  - 提供商管理：16 个系统内置提供商 + 用户自定义（v4.4.0）
-  - Thinking Config：各提供商独立推理模式配置（v4.4.0）
-  - 模型分组展示：按提供商分组，支持排序（v4.4.0）
-  - 对话记录增强：支持工具调用和推理内容存储（v4.4.0）
+  - 提供商管理：16 个系统内置提供商 + 用户自定义（v2.4.0）
+  - Thinking Config：各提供商独立推理模式配置（v2.4.0）
+  - 模型分组展示：按提供商分组，支持排序（v2.4.0）
+  - 对话记录增强：支持工具调用和推理内容存储（v2.4.0）
   - 多模型支持：Workers AI（9个模型）+ OpenAI 兼容 API + 80+ 预设模型
   - AI 对话系统：SSE 流式响应、会话管理、RAG 文件问答
   - 文件摘要生成（可配置专用模型）
@@ -343,7 +358,7 @@
 | 存储   | S3 兼容协议 + Telegram Bot API                        |
 | AI     | Cloudflare Workers AI + Vectorize + OpenAI Compatible |
 | 认证   | JWT + bcrypt                                          |
-| 邮件   | Resend API (v4.0.0+)                                  |
+| 邮件   | Resend API (v2.0.0+)                                  |
 
 ---
 
@@ -597,11 +612,11 @@ curl https://your-api.workers.dev/api/auth/registration-config
 - 管理所有用户（查看、编辑配额、重置密码、删除）
 - 控制注册开关（开放/关闭注册）
 - 生成和管理邀请码
-- 配置邮件服务（Resend API、发件人设置）(v4.0.0+)
-- 发送测试邮件验证配置 (v4.0.0+)
-- 群发系统公告邮件 (v4.0.0+)
+- 配置邮件服务（Resend API、发件人设置）(v2.0.0+)
+- 发送测试邮件验证配置 (v2.0.0+)
+- 群发系统公告邮件 (v2.0.0+)
 - 查看系统统计和审计日志
-- 创建和管理团队空间 (v5.0.0)
+- 创建和管理团队空间 (v3.0.0)
 
 ---
 
@@ -653,18 +668,18 @@ ossshelf/
 | `/api/downloads`       | 离线下载                                             |
 | `/api/batch`           | 批量操作                                             |
 | `/api/search`          | 文件搜索                                             |
-| `/api/permissions`     | 权限与标签 + 团队权限/批量操作/审批流（v5.0.0 扩展） |
+| `/api/permissions`     | 权限与标签 + 团队权限/批量操作/审批流（v3.0.0 扩展） |
 | `/api/preview`         | 文件预览                                             |
 | `/api/versions`        | 版本控制                                             |
 | `/api/notes`           | 文件笔记                                             |
 | `/api/api-keys`        | API Keys 管理                                        |
 | `/api/groups`          | 用户组管理                                           |
-| `/api/teams`           | 团队空间管理（v5.0.0 新增）                          |
-| `/api/roles/templates` | 角色模板查询（v5.0.0 新增）                          |
+| `/api/teams`           | 团队空间管理（v3.0.0 新增）                          |
+| `/api/roles/templates` | 角色模板查询（v3.0.0 新增）                          |
 | `/api/webhooks`        | Webhook 管理                                         |
-| `/api/ai`              | AI 文件处理功能 (v4.3.0 增强)                        |
-| `/api/ai-config`       | AI 配置管理、系统配置 (v4.3.0 增强)                  |
-| `/api/ai-chat`         | AI 对话系统、Agent 引擎 (v4.3.0 增强)                |
+| `/api/ai`              | AI 文件处理功能 (v2.3.0 增强)                        |
+| `/api/ai-config`       | AI 配置管理、系统配置 (v2.3.0 增强)                  |
+| `/api/ai-chat`         | AI 对话系统、Agent 引擎 (v2.3.0 增强)                |
 | `/api/analytics`       | 存储分析                                             |
 | `/api/notifications`   | 通知系统                                             |
 | `/api/v1`              | RESTful v1 API                                       |
@@ -709,15 +724,15 @@ pnpm typecheck    # 类型检查
 
 ### Q: 忘记密码怎么办？
 
-A: v4.0.0+ 版本支持邮件重置密码。在登录页面点击"忘记密码"，输入注册邮箱即可收到重置链接。如果是管理员且邮件服务未配置，需要通过数据库直接修改密码哈希。
+A: v2.0.0+ 版本支持邮件重置密码。在登录页面点击"忘记密码"，输入注册邮箱即可收到重置链接。如果是管理员且邮件服务未配置，需要通过数据库直接修改密码哈希。
 
 ### Q: 邮箱验证有什么用？
 
-A: 邮箱验证是v4.0.0新增的安全功能。验证邮箱后才能使用部分功能（可配置），同时支持密码重置、邮箱更换等安全操作。
+A: 邮箱验证是v2.0.0新增的安全功能。验证邮箱后才能使用部分功能（可配置），同时支持密码重置、邮箱更换等安全操作。
 
 ### Q: 如何配置邮件服务？
 
-A: v4.0.0+ 集成了Resend邮件服务。管理员在管理面板→邮件配置中配置Resend API Key和发件人信息即可启用邮件功能。
+A: v2.0.0+ 集成了Resend邮件服务。管理员在管理面板→邮件配置中配置Resend API Key和发件人信息即可启用邮件功能。
 
 ### Q: 文件删除后能恢复吗？
 
