@@ -959,6 +959,78 @@ app.get('/storage-audit', async (c) => {
   }
 });
 
+// ══════════════════════════════════════════════════════════════
+// 存储计数对账（只报告差异，不做任何修改）
+// 用于核对 users.storage_used / storage_buckets 统计与 files 实际数据
+// ══════════════════════════════════════════════════════════════
+
+app.get('/storage-reconcile', async (c) => {
+  const LIMIT = 200;
+
+  const userRows = await c.env.DB.prepare(
+    `SELECT u.id AS userId,
+            u.email AS email,
+            u.storage_used AS recorded,
+            COALESCE(SUM(CASE WHEN f.deleted_at IS NULL AND f.is_folder = 0 THEN f.size ELSE 0 END), 0) AS expected
+     FROM users u
+     LEFT JOIN files f ON f.user_id = u.id
+     GROUP BY u.id
+     HAVING u.storage_used != COALESCE(SUM(CASE WHEN f.deleted_at IS NULL AND f.is_folder = 0 THEN f.size ELSE 0 END), 0)
+     ORDER BY ABS(u.storage_used - COALESCE(SUM(CASE WHEN f.deleted_at IS NULL AND f.is_folder = 0 THEN f.size ELSE 0 END), 0)) DESC
+     LIMIT ?`
+  )
+    .bind(LIMIT)
+    .all<{ userId: string; email: string | null; recorded: number; expected: number }>();
+
+  const bucketRows = await c.env.DB.prepare(
+    `SELECT b.id AS bucketId,
+            b.name AS name,
+            b.storage_used AS recordedSize,
+            b.file_count AS recordedFiles,
+            COALESCE(SUM(CASE WHEN f.deleted_at IS NULL AND f.is_folder = 0 THEN f.size ELSE 0 END), 0) AS expectedSize,
+            COALESCE(SUM(CASE WHEN f.deleted_at IS NULL AND f.is_folder = 0 THEN 1 ELSE 0 END), 0) AS expectedFiles
+     FROM storage_buckets b
+     LEFT JOIN files f ON f.bucket_id = b.id
+     GROUP BY b.id
+     HAVING b.storage_used != COALESCE(SUM(CASE WHEN f.deleted_at IS NULL AND f.is_folder = 0 THEN f.size ELSE 0 END), 0)
+         OR b.file_count != COALESCE(SUM(CASE WHEN f.deleted_at IS NULL AND f.is_folder = 0 THEN 1 ELSE 0 END), 0)
+     ORDER BY ABS(b.storage_used - COALESCE(SUM(CASE WHEN f.deleted_at IS NULL AND f.is_folder = 0 THEN f.size ELSE 0 END), 0)) DESC
+     LIMIT ?`
+  )
+    .bind(LIMIT)
+    .all<{
+      bucketId: string;
+      name: string | null;
+      recordedSize: number;
+      recordedFiles: number;
+      expectedSize: number;
+      expectedFiles: number;
+    }>();
+
+  const totals = await c.env.DB.prepare(
+    `SELECT (SELECT COUNT(*) FROM users) AS usersChecked,
+            (SELECT COUNT(*) FROM storage_buckets) AS bucketsChecked`
+  ).first<{ usersChecked: number; bucketsChecked: number }>();
+
+  return c.json({
+    success: true,
+    data: {
+      generatedAt: new Date().toISOString(),
+      mode: 'report-only',
+      summary: {
+        usersChecked: totals?.usersChecked ?? 0,
+        usersWithDiff: userRows.results.length,
+        usersTruncated: userRows.results.length >= LIMIT,
+        bucketsChecked: totals?.bucketsChecked ?? 0,
+        bucketsWithDiff: bucketRows.results.length,
+        bucketsTruncated: bucketRows.results.length >= LIMIT,
+      },
+      users: userRows.results,
+      buckets: bucketRows.results,
+    },
+  });
+});
+
 app.post('/storage-audit/force', async (c) => {
   try {
     const report = await performStorageAudit({ DB: c.env.DB, KV: c.env.KV, JWT_SECRET: c.env.JWT_SECRET });

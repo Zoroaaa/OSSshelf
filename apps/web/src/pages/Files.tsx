@@ -64,7 +64,7 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import type { FileItem } from '@osshelf/shared';
-import { cn, decodeFileName } from '@/utils';
+import { cn, decodeFileName, runWithConcurrency } from '@/utils';
 
 import {
   NewFolderDialog,
@@ -272,7 +272,12 @@ export default function Files() {
 
   const files = filesData?.items ?? [];
   const totalFiles = filesData?.total ?? 0;
-  const totalPages = Math.ceil(totalFiles / pageSize);
+  // 使用后端实际生效的 pageSize 推算总页数，避免本地状态与后端分页不一致
+  const effectivePageSize = (filesData?.limit ?? pageSize) as 20 | 50 | 100;
+  const totalPages = Math.ceil(totalFiles / effectivePageSize);
+  // 搜索结果由搜索接口返回，不分页；此时隐藏文件分页器
+  const isSearchActive =
+    Boolean(searchQuery) || Boolean(tagSearchQuery) || (showAdvancedSearch && advancedConditions.length > 0);
 
   // ── 分页：切换文件夹/搜索时重置到第1页 ─────────────────────
   useEffect(() => {
@@ -286,7 +291,7 @@ export default function Files() {
 
   const fileIds = files.map((f) => f.id);
   const { data: fileTagsMap = {} } = useQuery<Record<string, any[]>>({
-    queryKey: ['file-tags-batch', fileIds.sort().join(',')],
+    queryKey: ['file-tags-batch', [...fileIds].sort().join(',')],
     queryFn: async () => {
       if (fileIds.length === 0) return {};
       const res = await permissionsApi.getBatchFileTags(fileIds);
@@ -392,12 +397,12 @@ export default function Files() {
   }
 
   const handleUpload = useCallback(
-    async (file: File, key: string) => {
+    async (file: File, key: string): Promise<boolean> => {
       const bucket = getEffectiveBucket();
       const limitErr = checkTelegramLimit(file, bucket);
       if (limitErr) {
         toast({ title: '上传失败', description: limitErr, variant: 'destructive' });
-        return;
+        return false;
       }
       setUploadProgresses((p) => ({ ...p, [key]: 0 }));
       try {
@@ -415,6 +420,7 @@ export default function Files() {
         queryClient.invalidateQueries({ queryKey: ['files'] });
         queryClient.invalidateQueries({ queryKey: ['stats'] });
         toast({ title: '上传成功' });
+        return true;
       } catch (e: any) {
         setUploadProgresses((p) => {
           const n = { ...p };
@@ -426,6 +432,7 @@ export default function Files() {
           description: e?.message || e?.response?.data?.error?.message,
           variant: 'destructive',
         });
+        return false;
       }
     },
     [folderId, queryClient, toast, setUploadProgresses, checkTelegramLimit]
@@ -433,11 +440,13 @@ export default function Files() {
 
   const { isDragActive, handleDragOver, handleDragLeave, handleDrop } = useFileDragDrop({
     folderId: folderId ?? null,
+    bucketId: getEffectiveBucket()?.id ?? null,
     setUploadProgresses,
   });
 
   const { uploadFilesWithRelativePath } = useFolderUpload({
     currentFolderId: folderId ?? undefined,
+    bucketId: getEffectiveBucket()?.id ?? null,
     onFileStart: (name, key) => setUploadProgresses((p) => ({ ...p, [key]: 0 })),
     onFileProgress: (key, progress) => setUploadProgresses((p) => ({ ...p, [key]: progress })),
     onFileDone: (key) => {
@@ -534,14 +543,35 @@ export default function Files() {
   }, [searchParams]);
 
   const handleShareTargetUpload = useCallback(async () => {
-    setShareTargetUploading(true);
-    for (const entry of sharedFiles) {
-      const key = `${entry.name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      await handleUpload(entry.file, key);
+    if (sharedFiles.length === 0) {
+      closeShareTargetDialog();
+      return;
     }
+
+    setShareTargetUploading(true);
+    const failedEntries: SharedFile[] = [];
+
+    await runWithConcurrency(sharedFiles, 3, async (entry) => {
+      const key = `${entry.name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const ok = await handleUpload(entry.file, key);
+      if (!ok) failedEntries.push(entry);
+    });
+
     setShareTargetUploading(false);
+
+    // 失败项保留在暂存缓存中，避免文件被清理后永久丢失；成功项不再重传
+    if (failedEntries.length > 0) {
+      setSharedFiles(failedEntries);
+      toast({
+        title: '部分分享文件上传失败',
+        description: `${failedEntries.length}/${sharedFiles.length} 个文件未上传，可重试上传`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     closeShareTargetDialog();
-  }, [sharedFiles, handleUpload, closeShareTargetDialog]);
+  }, [sharedFiles, handleUpload, closeShareTargetDialog, toast]);
 
   // ── file_handlers：系统「用本应用打开」交付的本地文件，直接进入预览 ──────────
   const [launchFiles, setLaunchFiles] = useState<File[]>([]);
@@ -578,6 +608,18 @@ export default function Files() {
 
     if (action === 'new-folder') {
       setShowNewFolderDialog(true);
+    }
+
+    if (action === 'open') {
+      // file_handlers 入口：支持 launchQueue 的浏览器由 useFileHandlers 交付文件；
+      // 不支持的浏览器给出明确提示，避免入口看起来失效。
+      if (!('launchQueue' in window)) {
+        toast({
+          title: '当前浏览器不支持直接打开本地文件',
+          description: '请使用「上传」后再从列表中预览',
+          variant: 'destructive',
+        });
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
@@ -636,7 +678,7 @@ export default function Files() {
 
   const handleDownload = useCallback(
     async (file: FileItem) => {
-      // 强制下载辅助函数：将 blob 以 octet-stream 强制触发下载，避免浏览器 inline 打开
+      // 代理由后端返回 attachment；此处仅作为不支持 File System Access 时的兜底
       const forceBlobDownload = (blob: Blob, name: string) => {
         const forceBlob = new Blob([blob], { type: 'application/octet-stream' });
         const blobUrl = URL.createObjectURL(forceBlob);
@@ -649,26 +691,34 @@ export default function Files() {
         setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
       };
 
+      // 直接导航到预签名 URL：由浏览器原生流式下载，不占用页面内存
+      const triggerDirectDownload = (href: string, name: string) => {
+        const a = document.createElement('a');
+        a.href = href;
+        a.download = name;
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      };
+
       try {
         const result = await getPresignedDownloadUrl(file.id);
-        const { url, fileName } = result;
+        if (!result.useProxy) {
+          triggerDirectDownload(result.url, result.fileName || file.name);
+          return;
+        }
 
-        // 统一使用 fetch + blob 方式下载，避免跨域时 <a download> 属性无效导致浏览器直接打开
-        const resp = await fetch(url);
+        // 代理下载：携带 Authorization 头，避免 token 出现在 URL
+        const downloadToken = token || useAuthStore.getState().token;
+        const resp = await fetch(result.url, {
+          headers: downloadToken ? { Authorization: `Bearer ${downloadToken}` } : undefined,
+        });
         if (!resp.ok) throw new Error('download failed');
         const blob = await resp.blob();
-        forceBlobDownload(blob, fileName || file.name);
+        forceBlobDownload(blob, result.fileName || file.name);
       } catch {
-        try {
-          const downloadToken = token || useAuthStore.getState().token;
-          const downloadUrl = `${import.meta.env.VITE_API_URL || ''}/api/files/${file.id}/download${downloadToken ? `?token=${encodeURIComponent(downloadToken)}` : ''}`;
-          const resp = await fetch(downloadUrl);
-          if (!resp.ok) throw new Error('download failed');
-          const blob = await resp.blob();
-          forceBlobDownload(blob, file.name);
-        } catch {
-          toast({ title: '下载失败', variant: 'destructive' });
-        }
+        toast({ title: '下载失败', variant: 'destructive' });
       }
     },
     [toast, token]
@@ -1267,15 +1317,7 @@ export default function Files() {
           )}
 
           <label className="inline-flex">
-            <Button
-              variant="outline"
-              size="sm"
-              asChild
-              disabled={
-                !currentFolderInfo?.permissions?.length ||
-                !currentFolderInfo.permissions.some((p) => p.permission === 'write')
-              }
-            >
+            <Button variant="outline" size="sm" asChild disabled={!!folderId && !currentFolderInfo?.canWrite}>
               <span>
                 <Upload className="h-4 w-4 mr-1.5" />
                 上传文件
@@ -1287,25 +1329,18 @@ export default function Files() {
               className="hidden"
               multiple
               onChange={(e) => {
-                Array.from(e.target.files || []).forEach((file) => {
-                  const key = `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-                  handleUpload(file, key);
-                });
+                const files = Array.from(e.target.files || []);
                 e.target.value = '';
+                void runWithConcurrency(files, 3, async (file) => {
+                  const key = `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                  await handleUpload(file, key);
+                });
               }}
             />
           </label>
 
           <label className="inline-flex">
-            <Button
-              variant="outline"
-              size="sm"
-              asChild
-              disabled={
-                !currentFolderInfo?.permissions?.length ||
-                !currentFolderInfo.permissions.some((p) => p.permission === 'write')
-              }
-            >
+            <Button variant="outline" size="sm" asChild disabled={!!folderId && !currentFolderInfo?.canWrite}>
               <span>
                 <FolderInput className="h-4 w-4 mr-1.5" />
                 上传文件夹
@@ -1799,7 +1834,7 @@ export default function Files() {
             <p className="text-sm text-muted-foreground mb-4 truncate">文件: {decodeFileName(permissionFile.name)}</p>
             <FilePermissionManager
               fileId={permissionFile.id}
-              isOwner={true}
+              isOwner={permissionFile.isOwner === true || permissionFile.accessPermission === 'admin'}
               isFolder={permissionFile.isFolder ?? false}
             />
             <div className="flex justify-end mt-4">
@@ -1880,14 +1915,16 @@ export default function Files() {
         }}
       />
 
-      <Pagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        totalItems={totalFiles}
-        pageSize={pageSize}
-        onPageChange={setCurrentPage}
-        onPageSizeChange={handlePageSizeChange}
-      />
+      {!isSearchActive && (
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={totalFiles}
+          pageSize={effectivePageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={handlePageSizeChange}
+        />
+      )}
     </div>
   );
 }

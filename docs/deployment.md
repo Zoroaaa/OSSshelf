@@ -704,10 +704,13 @@ binding = "KV"
 id = "${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}"
 
 [vars]
-JWT_SECRET = "${{ secrets.JWT_SECRET }}"
+PUBLIC_URL = "${{ secrets.PUBLIC_URL }}"
 CORS_ORIGINS = "${{ secrets.CORS_ORIGINS }}"
 TRASH_RETENTION_DAYS = "${{ secrets.TRASH_RETENTION_DAYS || '30' }}"
 ```
+
+> `JWT_SECRET` 与 `ALERT_TG_BOT_TOKEN` 属于敏感值，工作流会在部署前通过
+> `wrangler secret put` 写入 Worker Secrets，不再出现在 `[vars]` 中。
 
 ---
 
@@ -872,16 +875,9 @@ v2.0.0+ 版本集成了 Resend 邮件服务，用于邮箱验证、密码重置�
 4. 点击 **保存配置**
 5. 点击 **发送测试邮件** 验证配置
 
-#### 方式二：通过环境变量配置
+#### 方式二：通过环境变量配置（已废弃）
 
-在 GitHub Secrets 中添加：
-
-```bash
-# 可选：如果需要通过环境变量配置
-RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
-RESEND_FROM_ADDRESS=noreply@yourdomain.com
-RESEND_FROM_NAME=OSSShelf
-```
+邮件配置统一存放在 KV（管理面板写入），不再读取 `RESEND_*` / `SMTP_*` 环境变量，请使用方式一。
 
 ### 5. 邮件功能说明
 
@@ -1396,8 +1392,9 @@ curl -X PROPFIND https://your-api.workers.dev/dav/ \
 2. 查看 Workers 日志
 
 ```bash
-# 手动触发定时任务
-curl -X POST https://your-api.workers.dev/cron/all
+# 手动触发定时任务（需管理员登录令牌）
+curl -X POST https://your-api.workers.dev/cron/all \
+  -H "Authorization: Bearer <admin-jwt-token>"
 ```
 
 #### 7. Telegram 上传失败

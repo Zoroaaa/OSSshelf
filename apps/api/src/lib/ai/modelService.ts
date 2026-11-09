@@ -6,7 +6,7 @@
  * 模型调用统一走 modelRuntime，避免再出现第二套传输链路。
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { getDb, aiModels, aiProviders } from '../../db';
 import type { Env } from '../../types/env';
 import { logger } from '@osshelf/shared';
@@ -53,10 +53,12 @@ export async function getModelById(env: Env, userId: string, modelId: string): P
       .get();
 
     if (!model) {
+      // 按 modelId（模型名）回退：优先启用中的、最近创建的，避免多 providers 同名时随机命中
       model = await db
         .select()
         .from(aiModels)
         .where(and(eq(aiModels.modelId, modelId), eq(aiModels.userId, userId)))
+        .orderBy(desc(aiModels.isActive), desc(aiModels.createdAt))
         .get();
     }
 

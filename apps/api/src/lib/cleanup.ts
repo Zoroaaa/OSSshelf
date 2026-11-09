@@ -10,7 +10,7 @@
  * - cron 执行结果 Telegram 告警
  */
 
-import { eq, and, or, isNotNull, lt } from 'drizzle-orm';
+import { eq, and, or, isNotNull, lt, inArray } from 'drizzle-orm';
 import {
   getDb,
   files,
@@ -18,27 +18,34 @@ import {
   uploadTasks,
   loginAttempts,
   userDevices,
+  emailTokens,
   auditLogs,
   searchHistory,
   notifications,
   aiTasks,
+  aiTaskItems,
+  aiQuotaCounters,
 } from '../db';
-import { TRASH_RETENTION_DAYS, DEVICE_SESSION_EXPIRY, logger, logCleanupError } from '@osshelf/shared';
+import { DEVICE_SESSION_EXPIRY, logger, logCleanupError } from '@osshelf/shared';
 import type { Env } from '../types/env';
-import { getAuditRetentionDays, hasTelegramAlert } from '../types/env';
+import { getAuditRetentionDays, getTrashRetentionDays, hasTelegramAlert } from '../types/env';
 import { s3Delete, s3AbortMultipartUpload } from './s3client';
-import { resolveBucketConfig, updateBucketStats, updateUserStorage } from './bucketResolver';
+import { resolveBucketConfig } from './bucketResolver';
+import { releaseFileRef } from './dedup';
 import { getEncryptionKey } from './crypto';
+import { pathPrefixCondition } from './pathUtils';
 
 interface CleanupResult {
   trash: {
     deletedCount: number;
     freedBytes: number;
+    expiredDirectLinks: number;
   };
   sessions: {
     uploadTasksExpired: number;
     loginAttemptsCleaned: number;
     devicesCleaned: number;
+    emailTokensCleaned: number;
   };
   shares: {
     sharesCleaned: number;
@@ -76,8 +83,8 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
   const startedAt = new Date().toISOString();
 
   const result: CleanupResult = {
-    trash: { deletedCount: 0, freedBytes: 0 },
-    sessions: { uploadTasksExpired: 0, loginAttemptsCleaned: 0, devicesCleaned: 0 },
+    trash: { deletedCount: 0, freedBytes: 0, expiredDirectLinks: 0 },
+    sessions: { uploadTasksExpired: 0, loginAttemptsCleaned: 0, devicesCleaned: 0, emailTokensCleaned: 0 },
     shares: { sharesCleaned: 0 },
     audit: { cleaned: 0 },
     data: { searchHistoryCleaned: 0, notificationsCleaned: 0, aiTasksCleaned: 0 },
@@ -148,13 +155,13 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
   return result;
 }
 
-async function runTrashCleanup(
+export async function runTrashCleanup(
   db: ReturnType<typeof getDb>,
   env: Env,
   encKey: string
-): Promise<{ deletedCount: number; freedBytes: number }> {
+): Promise<{ deletedCount: number; freedBytes: number; expiredDirectLinks: number }> {
   const retentionDate = new Date();
-  retentionDate.setDate(retentionDate.getDate() - TRASH_RETENTION_DAYS);
+  retentionDate.setDate(retentionDate.getDate() - getTrashRetentionDays(env));
   const threshold = retentionDate.toISOString();
 
   // 分批处理参数（防止单次 cron 超时）
@@ -164,6 +171,7 @@ async function runTrashCleanup(
   let deletedCount = 0;
   let freedBytes = 0;
   let batchCount = 0;
+  const deletedIds = new Set<string>();
 
   while (batchCount < MAX_BATCHES) {
     // 分批查询过期文件（每次只取 BATCH_SIZE 条）
@@ -177,27 +185,46 @@ async function runTrashCleanup(
     if (batchFiles.length === 0) break; // 没有更多文件需要处理
 
     for (const file of batchFiles) {
-      if (!file.isFolder) {
-        try {
-          const bucketConfig = await resolveBucketConfig(db, file.userId, encKey, file.bucketId, file.parentId);
-          if (bucketConfig) {
-            await s3Delete(bucketConfig, file.r2Key);
-            await updateBucketStats(db, bucketConfig.id, -file.size, -1);
-          } else if (env.FILES) {
-            await env.FILES.delete(file.r2Key);
-          }
+      if (deletedIds.has(file.id)) continue;
 
-          // 使用原子方法更新用户存储配额
-          await updateUserStorage(db, file.userId, -file.size);
-          freedBytes += file.size;
+      // 文件夹：必须连同整棵子树一起永久删除，否则子项会变成孤儿且无法恢复
+      const subtree =
+        file.isFolder && file.path && file.path !== '/'
+          ? await db.select().from(files).where(pathPrefixCondition(files.path, file.path)).all()
+          : [];
+
+      for (const target of [...subtree, file]) {
+        if (deletedIds.has(target.id)) continue;
+
+        try {
+          if (!target.isFolder) {
+            // CoW：仅当没有其它记录引用同一对象时才物理删除
+            const { shouldDeleteStorage } = await releaseFileRef(db, target.id);
+            if (shouldDeleteStorage) {
+              const bucketConfig = await resolveBucketConfig(
+                db,
+                target.userId,
+                encKey,
+                target.bucketId,
+                target.parentId
+              );
+              if (bucketConfig) {
+                await s3Delete(bucketConfig, target.r2Key);
+              } else if (env.FILES) {
+                await env.FILES.delete(target.r2Key);
+              }
+            }
+            freedBytes += target.size;
+          }
         } catch (error) {
-          logger.error('CLEANUP', '删除文件失败', { fileId: file.id, r2Key: file.r2Key }, error);
+          logger.error('CLEANUP', '删除文件失败', { fileId: target.id, r2Key: target.r2Key }, error);
           continue;
         }
-      }
 
-      await db.delete(files).where(eq(files.id, file.id));
-      deletedCount++;
+        await db.delete(files).where(eq(files.id, target.id));
+        deletedIds.add(target.id);
+        deletedCount++;
+      }
     }
 
     batchCount++;
@@ -209,10 +236,20 @@ async function runTrashCleanup(
 
   logger.info('CLEANUP', `回收站清理完成: ${deletedCount} 文件, ${(freedBytes / 1024 / 1024).toFixed(2)} MB`);
 
-  return { deletedCount, freedBytes };
+  // ── 清理过期直链 token ────────────────────────────────────────────────
+  const now = new Date().toISOString();
+  const expiredDirectLinks = await db
+    .update(files)
+    .set({ directLinkToken: null, directLinkExpiresAt: null })
+    .where(
+      and(isNotNull(files.directLinkToken), isNotNull(files.directLinkExpiresAt), lt(files.directLinkExpiresAt, now))
+    )
+    .returning({ id: files.id });
+
+  return { deletedCount, freedBytes, expiredDirectLinks: expiredDirectLinks.length };
 }
 
-async function runSessionCleanup(
+export async function runSessionCleanup(
   db: ReturnType<typeof getDb>,
   env: Env,
   encKey: string
@@ -220,6 +257,7 @@ async function runSessionCleanup(
   uploadTasksExpired: number;
   loginAttemptsCleaned: number;
   devicesCleaned: number;
+  emailTokensCleaned: number;
 }> {
   const now = new Date().toISOString();
 
@@ -252,19 +290,25 @@ async function runSessionCleanup(
     .where(lt(userDevices.lastActive, deviceExpiryThreshold))
     .returning({ id: userDevices.id });
 
+  const expiredEmailTokens = await db
+    .delete(emailTokens)
+    .where(or(lt(emailTokens.expiresAt, now), isNotNull(emailTokens.usedAt)))
+    .returning({ id: emailTokens.id });
+
   logger.info(
     'CLEANUP',
-    `会话清理完成: ${expiredUploadTasks.length} 上传任务, ${oldLoginAttempts.length} 登录尝试, ${expiredDevices.length} 设备`
+    `会话清理完成: ${expiredUploadTasks.length} 上传任务, ${oldLoginAttempts.length} 登录尝试, ${expiredDevices.length} 设备, ${expiredEmailTokens.length} 邮件令牌`
   );
 
   return {
     uploadTasksExpired: expiredUploadTasks.length,
     loginAttemptsCleaned: oldLoginAttempts.length,
     devicesCleaned: expiredDevices.length,
+    emailTokensCleaned: expiredEmailTokens.length,
   };
 }
 
-async function runShareCleanup(db: ReturnType<typeof getDb>): Promise<{ sharesCleaned: number }> {
+export async function runShareCleanup(db: ReturnType<typeof getDb>): Promise<{ sharesCleaned: number }> {
   const now = new Date().toISOString();
 
   const expiredShares = await db
@@ -277,7 +321,7 @@ async function runShareCleanup(db: ReturnType<typeof getDb>): Promise<{ sharesCl
   return { sharesCleaned: expiredShares.length };
 }
 
-async function runAuditLogCleanup(db: ReturnType<typeof getDb>, env: Env): Promise<{ cleaned: number }> {
+export async function runAuditLogCleanup(db: ReturnType<typeof getDb>, env: Env): Promise<{ cleaned: number }> {
   const retentionDays = getAuditRetentionDays(env);
   const threshold = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
 
@@ -288,9 +332,12 @@ async function runAuditLogCleanup(db: ReturnType<typeof getDb>, env: Env): Promi
   return { cleaned: deleted.length };
 }
 
-async function runDataCleanup(
-  db: ReturnType<typeof getDb>
-): Promise<{ searchHistoryCleaned: number; notificationsCleaned: number; aiTasksCleaned: number }> {
+export async function runDataCleanup(db: ReturnType<typeof getDb>): Promise<{
+  searchHistoryCleaned: number;
+  notificationsCleaned: number;
+  aiTasksCleaned: number;
+  quotaCountersCleaned: number;
+}> {
   const searchRetentionDays = 30;
   const searchThreshold = new Date(Date.now() - searchRetentionDays * 86_400_000).toISOString();
   const oldSearchHistory = await db
@@ -317,14 +364,32 @@ async function runDataCleanup(
     )
     .returning({ id: aiTasks.id });
 
+  // 级联清理任务项，否则 ai_task_items 会无限堆积
+  if (completedAiTasks.length > 0) {
+    await db.delete(aiTaskItems).where(
+      inArray(
+        aiTaskItems.taskId,
+        completedAiTasks.map((task) => task.id)
+      )
+    );
+  }
+
+  // 配额计数窗口只对当天/当分钟有效，保留 24 小时足够诊断，之后删除避免无限增长
+  const quotaCounterThreshold = new Date(Date.now() - 86_400_000).toISOString();
+  const staleQuotaCounters = await db
+    .delete(aiQuotaCounters)
+    .where(lt(aiQuotaCounters.updatedAt, quotaCounterThreshold))
+    .returning({ userId: aiQuotaCounters.userId });
+
   logger.info(
     'CLEANUP',
-    `数据清理完成: ${oldSearchHistory.length} 搜索历史, ${oldNotifications.length} 通知, ${completedAiTasks.length} AI任务`
+    `数据清理完成: ${oldSearchHistory.length} 搜索历史, ${oldNotifications.length} 通知, ${completedAiTasks.length} AI任务, ${staleQuotaCounters.length} 配额窗口`
   );
 
   return {
     searchHistoryCleaned: oldSearchHistory.length,
     notificationsCleaned: oldNotifications.length,
     aiTasksCleaned: completedAiTasks.length,
+    quotaCountersCleaned: staleQuotaCounters.length,
   };
 }

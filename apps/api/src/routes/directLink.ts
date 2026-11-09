@@ -11,7 +11,7 @@
 import { Hono } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files, storageBuckets, telegramFileRefs } from '../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
 import { getEncryptionKey } from '../lib/crypto';
 import { s3Get } from '../lib/s3client';
@@ -37,7 +37,7 @@ const DIRECT_LINK_DEFAULT_EXPIRY_DAYS = 7;
  * GET /api/direct/file/:fileId
  * 注意：这个路由必须放在 /:token 之前
  */
-app.get('/file/:fileId', authMiddleware, async (c) => {
+app.get('/file/:fileId', authMiddleware, requireApiKeyScope('files:read', 'files:write'), async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('fileId');
   const db = getDb(c.env.DB);
@@ -81,7 +81,7 @@ app.get('/file/:fileId', authMiddleware, async (c) => {
  * 创建直链（需认证）
  * POST /api/direct
  */
-app.post('/', authMiddleware, async (c) => {
+app.post('/', authMiddleware, requireApiKeyScope('files:read', 'files:write'), async (c) => {
   const userId = c.get('userId')!;
   const body = await c.req.json();
   const result = createDirectLinkSchema.safeParse(body);
@@ -148,7 +148,7 @@ app.post('/', authMiddleware, async (c) => {
  * 删除直链（需认证）
  * DELETE /api/direct/:fileId
  */
-app.delete('/:fileId', authMiddleware, async (c) => {
+app.delete('/:fileId', authMiddleware, requireApiKeyScope('files:read', 'files:write'), async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('fileId');
   const db = getDb(c.env.DB);
@@ -179,7 +179,7 @@ app.delete('/:fileId', authMiddleware, async (c) => {
  * 更新直链有效期（需认证）
  * PUT /api/direct/:fileId
  */
-app.put('/:fileId', authMiddleware, async (c) => {
+app.put('/:fileId', authMiddleware, requireApiKeyScope('files:read', 'files:write'), async (c) => {
   const userId = c.get('userId')!;
   const fileId = c.req.param('fileId');
   const body = await c.req.json();

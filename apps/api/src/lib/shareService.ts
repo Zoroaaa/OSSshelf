@@ -175,7 +175,7 @@ export async function createUploadLink(
     id: uploadLinkId,
     userId,
     fileId: folderId,
-    password: password || null,
+    password: password ? await hashPassword(password) : null,
     expiresAt,
     downloadLimit: maxUploads || null,
     downloadCount: 0,

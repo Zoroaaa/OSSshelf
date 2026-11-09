@@ -82,48 +82,73 @@ export async function dispatchWebhook(
       const events = JSON.parse(hook.events) as (WebhookEvent | '*')[];
       return events.includes('*') || events.includes(event);
     })
-    .map((hook) => sendWebhookRequest(env, hook, payload));
+    .map((hook) => sendWebhookToHook(env, hook, payload));
 
   await Promise.allSettled(dispatchPromises);
 }
 
-async function sendWebhookRequest(
+/** 单个 Webhook 的最大尝试次数与退避间隔 */
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAYS_MS = [500, 1500];
+
+/**
+ * 向单个 Webhook 发送事件（带指数退避重试）。
+ * 4xx 视为客户端配置问题，不重试；5xx / 网络错误最多重试 2 次。
+ */
+export async function sendWebhookToHook(
   env: Env,
   webhook: typeof webhooks.$inferSelect,
   payload: WebhookPayload
-): Promise<void> {
+): Promise<boolean> {
   const db = getDb(env.DB);
   const body = JSON.stringify(payload);
   const signature = await hmacSha256(webhook.secret, body);
 
-  try {
+  let lastStatus = 0;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-    const response = await fetch(webhook.url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Webhook-Signature': signature,
-        'X-Webhook-Event': payload.event,
-        'X-Webhook-Timestamp': payload.timestamp,
-        'User-Agent': 'OSSShelf-Webhook/1.0',
-      },
-      body,
-      signal: controller.signal,
-    });
+    try {
+      const response = await fetch(webhook.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Webhook-Signature': signature,
+          'X-Webhook-Event': payload.event,
+          'X-Webhook-Timestamp': payload.timestamp,
+          'User-Agent': 'OSSShelf-Webhook/1.0',
+        },
+        body,
+        signal: controller.signal,
+      });
 
-    clearTimeout(timeoutId);
+      lastStatus = response.status;
 
-    await db.update(webhooks).set({ lastStatus: response.status }).where(eq(webhooks.id, webhook.id));
+      if (response.ok) {
+        await db.update(webhooks).set({ lastStatus }).where(eq(webhooks.id, webhook.id));
+        return true;
+      }
 
-    if (!response.ok) {
-      logger.error('WEBHOOK', 'Webhook调用失败', { webhookId: webhook.id, status: response.status });
+      // 4xx 重试也不会成功，直接结束
+      if (response.status < 500) break;
+    } catch (error) {
+      lastStatus = 0;
+      logger.error('WEBHOOK', 'Webhook请求失败', { webhookId: webhook.id, attempt: attempt + 1 }, error);
+    } finally {
+      clearTimeout(timeoutId);
     }
-  } catch (error) {
-    await db.update(webhooks).set({ lastStatus: 0 }).where(eq(webhooks.id, webhook.id));
-    logger.error('WEBHOOK', 'Webhook请求失败', { webhookId: webhook.id }, error);
+
+    const delay = RETRY_DELAYS_MS[attempt];
+    if (delay !== undefined) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
   }
+
+  await db.update(webhooks).set({ lastStatus }).where(eq(webhooks.id, webhook.id));
+  logger.error('WEBHOOK', 'Webhook调用失败', { webhookId: webhook.id, status: lastStatus });
+  return false;
 }
 
 async function hmacSha256(secret: string, data: string): Promise<string> {

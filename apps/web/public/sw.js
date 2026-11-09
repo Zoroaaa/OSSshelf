@@ -31,7 +31,12 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(STATIC_CACHE_NAME).then((cache) => {
       console.log('[SW] Precaching static assets');
-      return cache.addAll(STATIC_ASSETS);
+      // 逐个缓存：单个资源 404/离线不会导致整个 Service Worker 安装失败
+      return Promise.all(
+        STATIC_ASSETS.map((url) =>
+          cache.add(url).catch((error) => console.warn('[SW] Failed to cache', url, error))
+        )
+      );
     })
   );
 

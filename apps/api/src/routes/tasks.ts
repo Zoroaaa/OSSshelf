@@ -12,7 +12,7 @@
 import { Hono } from 'hono';
 import { eq, and, inArray } from 'drizzle-orm';
 import { getDb, uploadTasks, storageBuckets, files, telegramFileRefs, telegramFileChunks } from '../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
 import {
   ERROR_CODES,
   MAX_FILE_SIZE,
@@ -24,6 +24,7 @@ import {
 } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import { getEncryptionKey } from '../lib/crypto';
+import { buildFilePath, normalizeEntryName, normalizeParentId } from '../lib/pathUtils';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import {
@@ -36,8 +37,10 @@ import {
   s3UploadPart,
   type MultipartPart,
 } from '../lib/s3client';
-import { resolveBucketConfig, updateBucketStats, checkBucketQuota, updateUserStorage } from '../lib/bucketResolver';
+import { resolveBucketConfig, checkBucketQuota } from '../lib/bucketResolver';
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
+import { checkFilePermission } from '../lib/permissionService';
+import { getTeamMembership, teamRoleAllows } from '../lib/teamPolicy';
 import { tgUploadFile, TG_MAX_CHUNKED_FILE_SIZE, type TelegramBotConfig } from '../lib/telegramClient';
 import { TG_CHUNK_SIZE, TG_CHUNK_THRESHOLD } from '../lib/telegramChunked';
 import { decryptSecret, s3Delete } from '../lib/s3client';
@@ -48,6 +51,7 @@ import { recordActivityWithEnv } from '../lib/teamActivityService';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
+app.use('*', requireApiKeyScope('files:read', 'files:write'));
 
 const UPLOAD_EXPIRY = 3600;
 
@@ -90,11 +94,42 @@ app.post('/create', async (c) => {
     );
   }
 
-  const { fileName, fileSize, mimeType: providedMimeType, parentId, bucketId: requestedBucketId, teamId } = result.data;
+  const {
+    fileName: rawFileName,
+    fileSize,
+    mimeType: providedMimeType,
+    parentId: rawParentId,
+    bucketId: requestedBucketId,
+    teamId,
+  } = result.data;
+  // 统一入口：文件名与父目录先校验/规范化，任务、对象键与路径全部使用规范化后的值
+  const fileName = normalizeEntryName(rawFileName);
+  const parentId = normalizeParentId(rawParentId);
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
   const mimeType = inferMimeType(fileName, providedMimeType);
+
+  // 团队工作区上传：必须是团队成员且角色达到 write
+  if (teamId) {
+    const membership = await getTeamMembership(db, teamId, userId);
+    if (!membership) throwAppError('TEAM_ACCESS_DENIED', '您不是该团队成员');
+    if (!teamRoleAllows(membership.role, 'write')) {
+      throwAppError('FORBIDDEN', '当前角色没有在团队空间中上传文件的权限');
+    }
+    if (parentId) {
+      const parentFile = await db.select({ teamId: files.teamId }).from(files).where(eq(files.id, parentId)).get();
+      if (parentFile?.teamId !== teamId) {
+        throwAppError('FORBIDDEN', '父目录不属于该团队');
+      }
+    }
+  }
+
+  // 目标目录写权限（个人共享目录 / 团队目录统一走权限判断）
+  if (parentId) {
+    const parentAccess = await checkFilePermission(db, parentId, userId, 'write', c.env);
+    if (!parentAccess.hasAccess) throwAppError('FORBIDDEN', '无权向此目录上传文件');
+  }
 
   const mimeCheck = await checkFolderMimeTypeRestriction(db, parentId, mimeType);
   if (!mimeCheck.allowed) {
@@ -821,7 +856,7 @@ app.post('/complete', async (c) => {
 
       const tgFileId = uploadedParts[0].etag;
       const fileId = task.r2Key.split('/')[2] || crypto.randomUUID();
-      const path = task.parentId ? `${task.parentId}/${task.fileName}` : `/${task.fileName}`;
+      const path = buildFilePath(task.parentId, task.fileName);
 
       const existingFile = await db.select().from(files).where(eq(files.id, fileId)).get();
       if (!existingFile) {
@@ -870,9 +905,7 @@ app.post('/complete', async (c) => {
           });
         }
 
-        await updateUserStorage(db, userId, task.fileSize);
-        const physicalDelta = isDedupHit ? 0 : task.fileSize;
-        await updateBucketStats(db, task.bucketId!, physicalDelta, 1);
+        // 存储统计由 files 触发器统一维护（去重命中同样只记录逻辑占用）。
 
         // 团队活动记录
         if (resolvedTeamId) {
@@ -959,7 +992,7 @@ app.post('/complete', async (c) => {
 
       const virtualFileId = `chunked:${groupId}`;
       const fileId = task.r2Key.split('/')[2] || crypto.randomUUID();
-      const path = task.parentId ? `${task.parentId}/${task.fileName}` : `/${task.fileName}`;
+      const path = buildFilePath(task.parentId, task.fileName);
 
       // 检查是否已写入（幂等）
       const existingFile = await db.select().from(files).where(eq(files.id, fileId)).get();
@@ -1010,9 +1043,7 @@ app.post('/complete', async (c) => {
           });
         }
 
-        await updateUserStorage(db, userId, task.fileSize);
-        const physicalDelta = isDedupHit ? 0 : task.fileSize;
-        await updateBucketStats(db, task.bucketId!, physicalDelta, 1);
+        // 存储统计由 files 触发器统一维护（去重命中同样只记录逻辑占用）。
 
         // 团队活动记录
         if (resolvedTeamId) {
@@ -1097,7 +1128,7 @@ app.post('/complete', async (c) => {
     // 小文件：文件已通过预签名 PUT 直传到 S3，无需合并步骤
 
     const fileId = crypto.randomUUID();
-    const path = task.parentId ? `${task.parentId}/${task.fileName}` : `/${task.fileName}`;
+    const path = buildFilePath(task.parentId, task.fileName);
 
     // ── CoW 去重：使用前端上报的 SHA-256 hash ─────────────────────────────
     let finalR2Key = task.r2Key;
@@ -1138,9 +1169,7 @@ app.post('/complete', async (c) => {
       deletedAt: null,
     });
 
-    await updateUserStorage(db, userId, task.fileSize);
-
-    await updateBucketStats(db, task.bucketId, task.fileSize, 1);
+    // 存储统计由 files 触发器统一维护。
 
     // 团队活动记录
     if (resolvedTeamId) {

@@ -37,8 +37,12 @@ export interface UsageSummary {
   byFeature: Array<{ feature: string; inputTokens: number; outputTokens: number; requests: number }>;
 }
 
-function startOfUtcDay(date = new Date()): string {
-  return `${date.toISOString().slice(0, 10)}T00:00:00.000Z`;
+function startOfUtcDayKey(date = new Date()): string {
+  return `day:${date.toISOString().slice(0, 10)}`;
+}
+
+function startOfUtcMinuteKey(date = new Date()): string {
+  return `min:${date.toISOString().slice(0, 16)}`;
 }
 
 export async function recordUsage(env: Env, input: UsageEventInput): Promise<void> {
@@ -65,20 +69,6 @@ export async function recordUsage(env: Env, input: UsageEventInput): Promise<voi
     // 记账失败不应打断主流程
     logger.error('AI_USAGE', 'Failed to record usage', { userId: input.userId }, error);
   }
-}
-
-export async function getDailyUsage(env: Env, userId: string): Promise<{ tokens: number; requests: number }> {
-  const db = getDb(env.DB);
-  const row = await db
-    .select({
-      tokens: sql<number>`coalesce(sum(${aiUsageEvents.inputTokens} + ${aiUsageEvents.outputTokens}), 0)`,
-      requests: sql<number>`count(*)`,
-    })
-    .from(aiUsageEvents)
-    .where(and(eq(aiUsageEvents.userId, userId), gte(aiUsageEvents.createdAt, startOfUtcDay())))
-    .get();
-
-  return { tokens: row?.tokens ?? 0, requests: row?.requests ?? 0 };
 }
 
 export async function getUsageSummary(env: Env, userId: string, days = 7): Promise<UsageSummary> {
@@ -155,61 +145,251 @@ export interface QuotaDecision {
 
 const DEFAULT_DAILY_TOKENS = 200_000;
 const DEFAULT_DAILY_REQUESTS = 200;
+const DEFAULT_ESTIMATED_TOKENS = 1_000;
 
-/**
- * 日配额 + 分钟级限流。
- * 限额 <= 0 时视为不限制。
- */
-export async function checkAiQuota(env: Env, userId: string): Promise<QuotaDecision> {
-  const [tokenLimit, requestLimit, rpm] = await Promise.all([
+interface QuotaLimits {
+  tokenLimit: number;
+  requestLimit: number;
+  minuteLimit: number;
+  estimatedTokens: number;
+}
+
+interface CounterRow {
+  requests: number;
+  tokens: number;
+}
+
+async function getQuotaLimits(env: Env): Promise<QuotaLimits> {
+  const [tokenLimit, requestLimit, minuteLimit, estimatedTokens] = await Promise.all([
     getAiConfigNumber(env, 'ai.quota.daily_tokens', DEFAULT_DAILY_TOKENS),
     getAiConfigNumber(env, 'ai.quota.daily_requests', DEFAULT_DAILY_REQUESTS),
     getAiConfigNumber(env, 'ai.rate.requests_per_minute', 20),
+    getAiConfigNumber(env, 'ai.quota.estimated_tokens_per_request', DEFAULT_ESTIMATED_TOKENS),
   ]);
+  return { tokenLimit, requestLimit, minuteLimit, estimatedTokens };
+}
 
-  const [daily, minuteCountRow] = await Promise.all([
-    getDailyUsage(env, userId),
-    (async () => {
-      const db = getDb(env.DB);
-      return db
-        .select({ requests: sql<number>`count(*)` })
-        .from(aiUsageEvents)
-        .where(
-          and(
-            eq(aiUsageEvents.userId, userId),
-            gte(aiUsageEvents.createdAt, new Date(Date.now() - 60_000).toISOString())
-          )
-        )
-        .get();
-    })(),
-  ]);
+/**
+ * 原子预扣计数。
+ * 单条 INSERT ... ON CONFLICT DO UPDATE ... WHERE ... RETURNING 在 D1 的串行写事务中完成，
+ * 条件不满足时不更新任何行并返回 null，即“超额拒绝”路径。
+ * 限额 <= 0 表示不限制。
+ */
+async function bumpCounter(
+  env: Env,
+  userId: string,
+  windowKey: string,
+  deltaRequests: number,
+  deltaTokens: number,
+  guard: { maxRequests: number; maxTokens: number }
+): Promise<CounterRow | null> {
+  const row = await env.DB.prepare(
+    `INSERT INTO ai_quota_counters (user_id, window_key, requests, tokens, updated_at)
+     SELECT ?, ?, ?, ?, ?
+     WHERE (? <= 0 OR ? <= ?)
+       AND (? <= 0 OR ? <= ?)
+     ON CONFLICT(user_id, window_key) DO UPDATE SET
+       requests = ai_quota_counters.requests + excluded.requests,
+       tokens = ai_quota_counters.tokens + excluded.tokens,
+       updated_at = excluded.updated_at
+     WHERE (? <= 0 OR ai_quota_counters.requests + excluded.requests <= ?)
+       AND (? <= 0 OR ai_quota_counters.tokens + excluded.tokens <= ?)
+     RETURNING requests, tokens`
+  )
+    .bind(
+      userId,
+      windowKey,
+      deltaRequests,
+      deltaTokens,
+      new Date().toISOString(),
+      // 新窗口插入时的上限校验（避免首次请求的估算值就超过 token 限额）
+      guard.maxRequests,
+      deltaRequests,
+      guard.maxRequests,
+      guard.maxTokens,
+      deltaTokens,
+      guard.maxTokens,
+      // 已有窗口累加时的上限校验
+      guard.maxRequests,
+      guard.maxRequests,
+      guard.maxTokens,
+      guard.maxTokens
+    )
+    .first<CounterRow>();
 
-  const minuteCount = minuteCountRow?.requests ?? 0;
+  return row ?? null;
+}
+
+async function adjustCounter(
+  env: Env,
+  userId: string,
+  windowKey: string,
+  deltaRequests: number,
+  deltaTokens: number
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE ai_quota_counters
+     SET requests = MAX(0, requests + ?),
+         tokens = MAX(0, tokens + ?),
+         updated_at = ?
+     WHERE user_id = ? AND window_key = ?`
+  )
+    .bind(deltaRequests, deltaTokens, new Date().toISOString(), userId, windowKey)
+    .run();
+}
+
+async function readCounter(env: Env, userId: string, windowKey: string): Promise<CounterRow> {
+  const row = await env.DB.prepare(
+    `SELECT requests, tokens FROM ai_quota_counters WHERE user_id = ? AND window_key = ?`
+  )
+    .bind(userId, windowKey)
+    .first<CounterRow>();
+  return { requests: row?.requests ?? 0, tokens: row?.tokens ?? 0 };
+}
+
+export interface QuotaReservation {
+  /** 预扣成功后的用量快照 */
+  decision: QuotaDecision;
+  /** 用真实 token 数结算预扣（只调整 token 差额，不重复计请求） */
+  settle(actualTokens: number): Promise<void>;
+  /** 模型调用未发生（异常/提前返回）时全额回滚预扣 */
+  release(): Promise<void>;
+}
+
+export interface QuotaReserveResult {
+  allowed: boolean;
+  reason?: QuotaDecision['reason'];
+  decision: QuotaDecision;
+  reservation?: QuotaReservation;
+}
+
+/**
+ * 原子预扣日配额与分钟限流。
+ * - 先扣分钟窗口（超额 → rate_limit）
+ * - 再扣日窗口（请求数 + 估算 token；超额 → request_quota / token_quota）
+ * - 任一步失败都会回滚已扣的计数
+ */
+export async function reserveAiQuota(
+  env: Env,
+  userId: string,
+  options: { estimatedTokens?: number } = {}
+): Promise<QuotaReserveResult> {
+  const limits = await getQuotaLimits(env);
+  const estimatedTokens = Math.max(0, Math.floor(options.estimatedTokens ?? limits.estimatedTokens));
+  const dayKey = startOfUtcDayKey();
+  const minuteKey = startOfUtcMinuteKey();
+
+  const minuteRow = await bumpCounter(env, userId, minuteKey, 1, 0, {
+    maxRequests: limits.minuteLimit,
+    maxTokens: 0,
+  });
+
+  if (!minuteRow) {
+    const [day, minute] = await Promise.all([readCounter(env, userId, dayKey), readCounter(env, userId, minuteKey)]);
+    return {
+      allowed: false,
+      reason: 'rate_limit',
+      decision: {
+        allowed: false,
+        reason: 'rate_limit',
+        usedTokens: day.tokens,
+        tokenLimit: limits.tokenLimit,
+        usedRequests: day.requests,
+        requestLimit: limits.requestLimit,
+        minuteRequests: minute.requests,
+        minuteLimit: limits.minuteLimit,
+      },
+    };
+  }
+
+  const dayRow = await bumpCounter(env, userId, dayKey, 1, estimatedTokens, {
+    maxRequests: limits.requestLimit,
+    maxTokens: limits.tokenLimit,
+  });
+
+  if (!dayRow) {
+    // 日窗口失败：回滚刚扣的分钟计数
+    await adjustCounter(env, userId, minuteKey, -1, 0);
+    const [day, minute] = await Promise.all([readCounter(env, userId, dayKey), readCounter(env, userId, minuteKey)]);
+    const reason: QuotaDecision['reason'] =
+      limits.requestLimit > 0 && day.requests >= limits.requestLimit ? 'request_quota' : 'token_quota';
+    return {
+      allowed: false,
+      reason,
+      decision: {
+        allowed: false,
+        reason,
+        usedTokens: day.tokens,
+        tokenLimit: limits.tokenLimit,
+        usedRequests: day.requests,
+        requestLimit: limits.requestLimit,
+        minuteRequests: minute.requests,
+        minuteLimit: limits.minuteLimit,
+      },
+    };
+  }
 
   const decision: QuotaDecision = {
     allowed: true,
-    usedTokens: daily.tokens,
-    tokenLimit,
-    usedRequests: daily.requests,
-    requestLimit,
-    minuteRequests: minuteCount,
-    minuteLimit: rpm,
+    usedTokens: dayRow.tokens,
+    tokenLimit: limits.tokenLimit,
+    usedRequests: dayRow.requests,
+    requestLimit: limits.requestLimit,
+    minuteRequests: minuteRow.requests,
+    minuteLimit: limits.minuteLimit,
   };
 
-  if (rpm > 0 && minuteCount >= rpm) {
-    return { ...decision, allowed: false, reason: 'rate_limit' };
-  }
-  if (requestLimit > 0 && daily.requests >= requestLimit) {
-    return { ...decision, allowed: false, reason: 'request_quota' };
-  }
-  if (tokenLimit > 0 && daily.tokens >= tokenLimit) {
-    return { ...decision, allowed: false, reason: 'token_quota' };
-  }
+  let finalized = false;
 
-  return decision;
+  return {
+    allowed: true,
+    decision,
+    reservation: {
+      decision,
+      settle: async (actualTokens: number) => {
+        if (finalized) return;
+        finalized = true;
+        const delta = Math.max(0, Math.floor(actualTokens)) - estimatedTokens;
+        if (delta !== 0) await adjustCounter(env, userId, dayKey, 0, delta);
+      },
+      release: async () => {
+        if (finalized) return;
+        finalized = true;
+        await Promise.all([
+          adjustCounter(env, userId, dayKey, -1, -estimatedTokens),
+          adjustCounter(env, userId, minuteKey, -1, 0),
+        ]);
+      },
+    },
+  };
 }
 
 /** 配额状态查询（只读，不占用配额） */
 export async function getQuotaStatus(env: Env, userId: string): Promise<QuotaDecision> {
-  return checkAiQuota(env, userId);
+  const limits = await getQuotaLimits(env);
+  const [day, minute] = await Promise.all([
+    readCounter(env, userId, startOfUtcDayKey()),
+    readCounter(env, userId, startOfUtcMinuteKey()),
+  ]);
+
+  const decision: QuotaDecision = {
+    allowed: true,
+    usedTokens: day.tokens,
+    tokenLimit: limits.tokenLimit,
+    usedRequests: day.requests,
+    requestLimit: limits.requestLimit,
+    minuteRequests: minute.requests,
+    minuteLimit: limits.minuteLimit,
+  };
+
+  if (limits.minuteLimit > 0 && minute.requests >= limits.minuteLimit) {
+    return { ...decision, allowed: false, reason: 'rate_limit' };
+  }
+  if (limits.requestLimit > 0 && day.requests >= limits.requestLimit) {
+    return { ...decision, allowed: false, reason: 'request_quota' };
+  }
+  if (limits.tokenLimit > 0 && day.tokens >= limits.tokenLimit) {
+    return { ...decision, allowed: false, reason: 'token_quota' };
+  }
+  return decision;
 }

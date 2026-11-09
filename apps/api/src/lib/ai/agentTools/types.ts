@@ -143,6 +143,11 @@ export const WRITE_TOOLS = new Set([
   'create_api_key',
   'revoke_api_key',
   'create_webhook',
+
+  // AI 任务（会消耗模型额度或覆盖摘要/标签/索引）
+  'trigger_ai_summary',
+  'trigger_ai_tags',
+  'rebuild_vector_index',
 ]);
 
 // ─────────────────────────────────────────────────────────────────────────────

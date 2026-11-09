@@ -10,7 +10,8 @@
  */
 
 import { Hono, type Context } from 'hono';
-import { eq, and, isNull, isNotNull, like, or, inArray, sql, count, gt } from 'drizzle-orm';
+import { buildFilePath, normalizeEntryName, normalizeParentId, pathPrefix } from '../lib/pathUtils';
+import { eq, and, isNull, isNotNull, like, or, inArray, sql, count, gt, ne } from 'drizzle-orm';
 import {
   getDb,
   files,
@@ -36,7 +37,7 @@ import {
   calculateFoldersSize,
   type FolderSizeStats,
 } from '../lib/fileService';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
 import {
   ERROR_CODES,
@@ -51,7 +52,7 @@ import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { sendNotification } from '../lib/notificationUtils';
 import { s3Put, s3Get, s3Delete, decryptSecret } from '../lib/s3client';
-import { resolveBucketConfig, updateBucketStats, updateUserStorage, checkBucketQuota } from '../lib/bucketResolver';
+import { resolveBucketConfig, checkBucketQuota } from '../lib/bucketResolver';
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 import { getEncryptionKey } from '../lib/crypto';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
@@ -170,7 +171,9 @@ app.get('/:id/preview', async (c) => {
   const pvHeaders = {
     'Content-Type': file.mimeType || 'application/octet-stream',
     'Content-Length': file.size.toString(),
-    'Cache-Control': 'public, max-age=3600',
+    // 私有文件不允许被共享缓存；同时禁止浏览器嗅探 MIME，降低存储型 XSS 风险
+    'Cache-Control': 'private, no-store',
+    'X-Content-Type-Options': 'nosniff',
   };
 
   // ── Telegram 桶预览路径 ───────────────────────────────────────────────
@@ -499,6 +502,7 @@ async function fetchFileContent(
 }
 
 app.use('*', authMiddleware);
+app.use('*', requireApiKeyScope('files:read', 'files:write'));
 
 // ── Upload ─────────────────────────────────────────────────────────────────
 app.post('/upload', async (c) => {
@@ -513,7 +517,7 @@ app.post('/upload', async (c) => {
 
   const formData = await c.req.formData();
   const uploadFile = formData.get('file') as File | null;
-  const parentId = formData.get('parentId') as string | null;
+  const rawParentId = formData.get('parentId') as string | null;
   const requestedBucketId = formData.get('bucketId') as string | null;
 
   if (!uploadFile)
@@ -535,7 +539,12 @@ app.post('/upload', async (c) => {
 
   const db = getDb(c.env.DB);
 
-  const fileMime = inferMimeType(uploadFile.name, uploadFile.type);
+  // 统一入口：文件名与父目录先校验/规范化，后续落库、路径与对象键全部使用该值
+  const parentId = normalizeParentId(rawParentId);
+  const rawFileName = String(uploadFile.name);
+  const safeFileName = normalizeEntryName(rawFileName);
+
+  const fileMime = inferMimeType(safeFileName, uploadFile.type);
   const mimeCheck = await checkFolderMimeTypeRestriction(db, parentId, fileMime);
   if (!mimeCheck.allowed) {
     return c.json(
@@ -593,8 +602,8 @@ app.post('/upload', async (c) => {
 
   const fileId = crypto.randomUUID();
   const now = new Date().toISOString();
-  const r2Key = `files/${userId}/${fileId}/${uploadFile.name}`;
-  const path = parentId ? `${parentId}/${uploadFile.name}` : `/${uploadFile.name}`;
+  const r2Key = `files/${userId}/${fileId}/${safeFileName}`;
+  const path = buildFilePath(parentId, safeFileName);
   const finalBucketId = isTelegramBucket ? effectiveBucketId : (bucketConfig?.id ?? null);
 
   // ── CoW 去重：单次读取 buffer，计算 hash，查找可复用对象 ───────────────
@@ -615,13 +624,13 @@ app.post('/upload', async (c) => {
       try {
         if (needsChunking(fileBuffer.byteLength)) {
           // 大文件：分片上传（每块 ≤49MB）
-          const chunked = await tgUploadChunked(tgConfig, fileBuffer, uploadFile.name, fileMime, db, effectiveBucketId);
+          const chunked = await tgUploadChunked(tgConfig, fileBuffer, safeFileName, fileMime, db, effectiveBucketId);
           tgFileId = chunked.virtualFileId; // "chunked:{groupId}"
           tgFileSize = chunked.totalBytes;
         } else {
           // 小文件：直接上传
-          const caption = `📁 ${uploadFile.name}\n🗂 OSSshelf | ${now.slice(0, 10)}`;
-          const result = await tgUploadFile(tgConfig, fileBuffer, uploadFile.name, fileMime, caption);
+          const caption = `📁 ${safeFileName}\n🗂 OSSshelf | ${now.slice(0, 10)}`;
+          const result = await tgUploadFile(tgConfig, fileBuffer, safeFileName, fileMime, caption);
           tgFileId = result.fileId;
           tgFileSize = result.fileSize;
         }
@@ -643,12 +652,12 @@ app.post('/upload', async (c) => {
     } else if (bucketConfig) {
       await s3Put(bucketConfig, finalR2Key, fileBuffer, fileMime, {
         userId,
-        originalName: uploadFile.name,
+        originalName: safeFileName,
       });
     } else if (c.env.FILES) {
       await c.env.FILES.put(finalR2Key, fileBuffer, {
         httpMetadata: { contentType: fileMime },
-        customMetadata: { userId, originalName: uploadFile.name },
+        customMetadata: { userId, originalName: safeFileName },
       });
     } else {
       return c.json(
@@ -684,7 +693,7 @@ app.post('/upload', async (c) => {
     id: fileId,
     userId,
     parentId: parentId || null,
-    name: uploadFile.name,
+    name: safeFileName,
     path,
     type: 'file',
     size: uploadFile.size,
@@ -701,25 +710,17 @@ app.post('/upload', async (c) => {
 
   await inheritParentPermissions(db, fileId, parentId);
 
-  if (user) {
-    await updateUserStorage(db, userId, uploadFile.size);
-  }
-  // bucket stats：去重命中时物理存储未增加（sizeDelta=0），fileCount 仍 +1
-  const physicalSizeDelta = dedupResult.isDuplicate ? 0 : uploadFile.size;
-  if (isTelegramBucket && effectiveBucketId) {
-    await updateBucketStats(db, effectiveBucketId, physicalSizeDelta, 1);
-  } else if (bucketConfig) {
-    await updateBucketStats(db, bucketConfig.id, physicalSizeDelta, 1);
-  }
+  // 存储统计由 080/114 迁移中的 files 触发器统一维护（单一来源），
+  // 这里不再手动 updateUserStorage / updateBucketStats，避免双重记账。
 
   sendNotification(c, {
     userId,
     type: 'file_uploaded',
     title: '文件上传成功',
-    body: `文件「${uploadFile.name}」已成功上传`,
+    body: `文件「${safeFileName}」已成功上传`,
     data: {
       fileId,
-      fileName: uploadFile.name,
+      fileName: safeFileName,
       size: uploadFile.size,
       mimeType: fileMime,
       bucketId: finalBucketId,
@@ -730,7 +731,7 @@ app.post('/upload', async (c) => {
   c.executionCtx.waitUntil(
     dispatchWebhook(c.env, userId, 'file.uploaded', {
       fileId,
-      fileName: uploadFile.name,
+      fileName: safeFileName,
       size: uploadFile.size,
       mimeType: fileMime,
       bucketId: finalBucketId,
@@ -753,7 +754,7 @@ app.post('/upload', async (c) => {
     success: true,
     data: {
       id: fileId,
-      name: uploadFile.name,
+      name: safeFileName,
       size: uploadFile.size,
       mimeType: fileMime,
       path,
@@ -785,8 +786,10 @@ app.get('/', async (c) => {
     : [];
 
   // 分页参数（默认第1页，每页50条，最大100条）
-  const page = Math.max(1, parseInt(c.req.query('page') || '1', 10));
-  const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '50', 10)));
+  const rawPage = parseInt(c.req.query('page') || '1', 10);
+  const rawLimit = parseInt(c.req.query('limit') || '50', 10);
+  const page = Number.isFinite(rawPage) ? Math.max(1, rawPage) : 1;
+  const limit = Number.isFinite(rawLimit) ? Math.min(100, Math.max(1, rawLimit)) : 50;
   const offset = (page - 1) * limit;
   const scope = c.req.query('scope'); // 'all' 表示搜索用户全部文件（不限目录层级）
 
@@ -811,7 +814,11 @@ app.get('/', async (c) => {
       .where(eq(userStars.userId, userId))
       .all();
     if (starredFileIds.length === 0) {
-      return c.json({ success: true, data: { files: [], total: 0 } });
+      return c.json({
+        success: true,
+        data: [],
+        pagination: { page, limit, total: 0, totalPages: 0 },
+      });
     }
     conditions.push(
       inArray(
@@ -831,7 +838,7 @@ app.get('/', async (c) => {
     if (taggedFileIds.length === 0) {
       return c.json({
         success: true,
-        data: { files: [], total: 0 },
+        data: [],
         pagination: { page, limit, total: 0, totalPages: 0 },
       });
     }
@@ -1067,8 +1074,10 @@ app.post('/folders/size', async (c) => {
 app.get('/trash', async (c) => {
   const userId = c.get('userId')!;
   const db = getDb(c.env.DB);
-  const page = Math.max(1, parseInt(c.req.query('page') || '1', 10));
-  const limit = Math.min(100, Math.max(1, parseInt(c.req.query('limit') || '50', 10)));
+  const rawPage = parseInt(c.req.query('page') || '1', 10);
+  const rawLimit = parseInt(c.req.query('limit') || '50', 10);
+  const page = Number.isFinite(rawPage) ? Math.max(1, rawPage) : 1;
+  const limit = Number.isFinite(rawLimit) ? Math.min(100, Math.max(1, rawLimit)) : 50;
   const offset = (page - 1) * limit;
 
   // SQL 层面排序+分页，避免全量加载到内存
@@ -1115,19 +1124,16 @@ app.delete('/trash/:id', async (c) => {
     .get();
   if (!file) throwAppError('FILE_NOT_FOUND');
 
-  let freedBytes = 0;
-
   if (file.isFolder) {
-    const folderPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
-    const pathPrefix = folderPath + '/';
+    const folderPrefix = pathPrefix(file.path);
     const allFiles = await db
       .select()
       .from(files)
       .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
       .all();
 
-    // 精确匹配：确保 pathPrefix 后面是 / 分隔的子路径，避免 /docs 误匹配 /docs-backup/
-    const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(pathPrefix));
+    // 精确匹配：确保前缀后面是 / 分隔的子路径，避免 /docs 误匹配 /docs-backup/
+    const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(folderPrefix));
 
     for (const child of childFiles) {
       if (!child.isFolder) {
@@ -1135,7 +1141,6 @@ app.delete('/trash/:id', async (c) => {
         if (shouldDeleteStorage) {
           await deleteFileFromStorage(c.env, db, userId, encKey, child);
         }
-        freedBytes += child.size;
       }
       await db.delete(files).where(eq(files.id, child.id));
     }
@@ -1144,14 +1149,11 @@ app.delete('/trash/:id', async (c) => {
     if (shouldDeleteStorage) {
       await deleteFileFromStorage(c.env, db, userId, encKey, file);
     }
-    freedBytes = file.size;
   }
 
   await db.delete(files).where(eq(files.id, fileId));
 
-  if (freedBytes > 0) {
-    await updateUserStorage(db, userId, -freedBytes);
-  }
+  // 配额在软删除时已由触发器扣减，永久删除不再重复扣减。
 
   return c.json({ success: true, data: { message: '已永久删除' } });
 });
@@ -1166,7 +1168,6 @@ app.delete('/trash', async (c) => {
     .from(files)
     .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
     .all();
-  let freedBytes = 0;
   for (const file of trashed) {
     if (!file.isFolder) {
       // CoW 引用计数：仅最后一个引用归零时才删除存储对象
@@ -1174,13 +1175,10 @@ app.delete('/trash', async (c) => {
       if (shouldDeleteStorage) {
         await deleteFileFromStorage(c.env, db, userId, encKey, file);
       }
-      freedBytes += file.size;
     }
     await db.delete(files).where(eq(files.id, file.id));
   }
-  if (freedBytes > 0) {
-    await updateUserStorage(db, userId, -freedBytes);
-  }
+  // 配额在软删除时已由触发器扣减，此处不再重复扣减。
   return c.json({ success: true, data: { message: `已清空回收站，释放 ${trashed.length} 个文件` } });
 });
 
@@ -1195,7 +1193,9 @@ app.post('/', async (c) => {
       400
     );
 
-  const { name, parentId, bucketId: requestedBucketId } = result.data;
+  const { name: rawName, parentId: rawParentId, bucketId: requestedBucketId } = result.data;
+  const name = normalizeEntryName(rawName);
+  const parentId = normalizeParentId(rawParentId);
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
@@ -1240,7 +1240,7 @@ app.post('/', async (c) => {
 
   const folderId = crypto.randomUUID();
   const now = new Date().toISOString();
-  const path = parentId ? `${parentId}/${name}` : `/${name}`;
+  const path = buildFilePath(parentId, name);
   const newFolder = {
     id: folderId,
     userId,
@@ -1280,7 +1280,15 @@ app.post('/create', async (c) => {
       400
     );
 
-  const { name, content, parentId, bucketId: requestedBucketId, mimeType: providedMimeType } = result.data;
+  const {
+    name: rawName,
+    content,
+    parentId: rawParentId,
+    bucketId: requestedBucketId,
+    mimeType: providedMimeType,
+  } = result.data;
+  const name = normalizeEntryName(rawName);
+  const parentId = normalizeParentId(rawParentId);
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
@@ -1347,7 +1355,7 @@ app.post('/create', async (c) => {
   const fileId = crypto.randomUUID();
   const now = new Date().toISOString();
   const r2Key = `files/${userId}/${fileId}/${name}`;
-  const path = parentId ? `${parentId}/${name}` : `/${name}`;
+  const path = buildFilePath(parentId, name);
   const hash = await computeSha256Hex(fileArrayBuffer);
 
   const dedupResult = await checkAndClaimDedup(db, hash, effectiveBucketId, userId);
@@ -1440,16 +1448,7 @@ app.post('/create', async (c) => {
 
   await inheritParentPermissions(db, fileId, parentId || null);
 
-  if (user) {
-    await updateUserStorage(db, userId, fileSize);
-  }
-
-  const physicalSizeDelta = dedupResult.isDuplicate ? 0 : fileSize;
-  if (isTelegramBucket && effectiveBucketId) {
-    await updateBucketStats(db, effectiveBucketId, physicalSizeDelta, 1);
-  } else if (bucketConfig) {
-    await updateBucketStats(db, bucketConfig.id, physicalSizeDelta, 1);
-  }
+  // 存储统计由 files 触发器统一维护，避免双重记账。
 
   let bucketInfo: { id: string; name: string; provider: string } | null = null;
   if (effectiveBucketId) {
@@ -1492,13 +1491,16 @@ app.get('/:id', async (c) => {
   const db = getDb(c.env.DB);
 
   // 使用权限检查函数，允许被授权的用户访问
-  const { hasAccess, isOwner } = await checkFilePermission(db, fileId, userId, 'read', c.env);
+  const { hasAccess, permission, isOwner } = await checkFilePermission(db, fileId, userId, 'read', c.env);
   if (!hasAccess) {
     throwAppError('FILE_ACCESS_DENIED', '无权访问此文件');
   }
 
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
   if (!file) throwAppError('FILE_NOT_FOUND');
+
+  // 供前端判断当前目录是否可写（根目录不请求此接口，默认可写）
+  const canWrite = isOwner || permission === 'write' || permission === 'admin';
 
   let bucketInfo: { id: string; name: string; provider: string } | null = null;
   if (file.bucketId) {
@@ -1517,7 +1519,10 @@ app.get('/:id', async (c) => {
     if (owner) ownerInfo = owner;
   }
 
-  return c.json({ success: true, data: { ...file, bucket: bucketInfo, owner: ownerInfo, isOwner } });
+  return c.json({
+    success: true,
+    data: { ...file, bucket: bucketInfo, owner: ownerInfo, isOwner, accessPermission: permission, canWrite },
+  });
 });
 
 // ── File Detail (完整详情) - Phase 4 ──────────────────────────────────────
@@ -1767,7 +1772,8 @@ app.put('/:id', async (c) => {
       400
     );
 
-  const { name, parentId } = result.data;
+  const name = result.data.name ? normalizeEntryName(result.data.name) : undefined;
+  const parentId = result.data.parentId !== undefined ? normalizeParentId(result.data.parentId) : undefined;
 
   if (name) {
     const renameResult = await serviceRenameFile(c.env, userId, fileId, { name });
@@ -1947,7 +1953,6 @@ app.put('/:id/content', async (c) => {
     throwAppError('NO_STORAGE_CONFIGURED', '存储桶未配置');
   }
 
-  const sizeDelta = newSize - file.size;
   const now = new Date().toISOString();
 
   await db
@@ -1961,12 +1966,7 @@ app.put('/:id/content', async (c) => {
     })
     .where(eq(files.id, fileId));
 
-  if (sizeDelta !== 0) {
-    await updateUserStorage(db, file.userId, sizeDelta);
-    if (bucketConfig) {
-      await updateBucketStats(db, bucketConfig.id, sizeDelta, 0);
-    }
-  }
+  // 存储统计（size 变化、bucket 变化）由 files 触发器统一维护。
 
   c.executionCtx.waitUntil(
     dispatchWebhook(c.env, userId, 'file.updated', {
@@ -2147,9 +2147,9 @@ app.delete('/:id', async (c) => {
 
 // ── Shared helper ──────────────────────────────────────────────────────────
 /**
- * 从对象存储中物理删除文件，并更新 bucket 统计。
- * 此函数只应在 CoW ref_count 已归零时调用（由 releaseFileRef 判断）。
- * 注意：不更新用户 storageUsed，由调用方统一处理。
+ * 从对象存储中物理删除文件。
+ * 此函数只应在 r2_key 已无其它引用时调用（由 releaseFileRef 判断）。
+ * 存储统计由 files 触发器维护（软删除时已扣减），这里不再调整计数。
  * 同时清理关联的 file_versions 记录（版本 r2Key 去重 + 物理删除）。
  */
 async function deleteFileFromStorage(
@@ -2169,6 +2169,18 @@ async function deleteFileFromStorage(
   // 收集所有需要删除的版本 r2Key（去重后）
   const versionKeysToDelete = new Set(versions.filter((v) => v.r2Key !== file.r2Key).map((v) => v.r2Key));
 
+  // 版本对象可能被其它文件通过去重共享：仅删除不再被任何记录引用的 key
+  let versionKeys = Array.from(versionKeysToDelete);
+  if (versionKeys.length > 0) {
+    const stillReferenced = await db
+      .select({ r2Key: files.r2Key })
+      .from(files)
+      .where(and(inArray(files.r2Key, versionKeys), ne(files.id, file.id)))
+      .all();
+    const referencedKeys = new Set(stillReferenced.map((r) => r.r2Key));
+    versionKeys = versionKeys.filter((k) => !referencedKeys.has(k));
+  }
+
   // ── Telegram 桶：清理 DB 引用（物理文件在 Telegram 服务器，无法强制删除）
   if (file.bucketId) {
     const bkt = await db.select().from(storageBuckets).where(eq(storageBuckets.id, file.bucketId)).get();
@@ -2178,7 +2190,7 @@ async function deleteFileFromStorage(
         await tgDeleteChunked(db, ref.tgFileId);
       }
       await db.delete(telegramFileRefs).where(eq(telegramFileRefs.r2Key, file.r2Key));
-      for (const vKey of versionKeysToDelete) {
+      for (const vKey of versionKeys) {
         const vRef = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.r2Key, vKey)).get();
         if (vRef) {
           if (isChunkedFileId(vRef.tgFileId)) {
@@ -2191,7 +2203,6 @@ async function deleteFileFromStorage(
       }
       // 删除所有版本记录
       await db.delete(fileVersions).where(eq(fileVersions.fileId, file.id));
-      await updateBucketStats(db, file.bucketId, -file.size, -1);
       return;
     }
   }
@@ -2205,15 +2216,14 @@ async function deleteFileFromStorage(
       logger.error('FILES', 'S3删除失败', { r2Key: file.r2Key }, error);
     }
     // 删除所有版本存储对象
-    for (const vKey of versionKeysToDelete) {
+    for (const vKey of versionKeys) {
       await s3Delete(bucketConfig, vKey).catch((error) => logger.error('FILES', 'S3版本删除失败', { vKey }, error));
     }
-    await updateBucketStats(db, bucketConfig.id, -file.size, -1);
   } else if (env.FILES) {
     // 删除主文件
     await env.FILES.delete(file.r2Key);
     // 删除所有版本存储对象
-    for (const vKey of versionKeysToDelete) {
+    for (const vKey of versionKeys) {
       await env.FILES.delete(vKey).catch((error) => {
         logger.error('FILES', 'R2版本删除失败', { vKey }, error);
       });

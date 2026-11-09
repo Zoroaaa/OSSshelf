@@ -196,6 +196,8 @@ export interface AiProviderConnection {
   sortOrder: number;
   modelsSyncedAt: string | null;
   modelCount: number;
+  /** 端点安全风险标记：insecure_transport / private_network / endpoint_invalid */
+  securityWarnings: string[];
   createdAt: string;
   updatedAt: string;
 }

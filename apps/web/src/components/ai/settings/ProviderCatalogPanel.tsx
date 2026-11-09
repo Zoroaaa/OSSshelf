@@ -125,6 +125,14 @@ export function ProviderCatalogPanel({
                           已连接
                         </span>
                       )}
+                      {connected && connection.securityWarnings?.length > 0 && (
+                        <span
+                          className="px-1.5 py-0.5 rounded text-[10px] bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
+                          title="该连接使用非 https 或私有网络端点，建议尽快更换为公网 https 地址"
+                        >
+                          端点风险
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -164,7 +172,9 @@ export function ProviderCatalogPanel({
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-sm font-semibold">自定义连接</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">公司网关、本地 Ollama / LM Studio 或其他兼容端点。</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              公司网关或其他公网 https 兼容端点（不支持本机/私有网络地址）。
+            </p>
           </div>
           <Button
             variant="outline"
@@ -203,6 +213,14 @@ export function ProviderCatalogPanel({
                     <span className="font-medium text-sm truncate">{connection.name}</span>
                     <ProtocolBadge protocol={connection.protocol} />
                     <span className="text-[10px] text-muted-foreground">{connection.modelCount} 个模型</span>
+                    {connection.securityWarnings?.length > 0 && (
+                      <span
+                        className="px-1.5 py-0.5 rounded text-[10px] bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
+                        title="该连接使用非 https 或私有网络端点，建议尽快更换为公网 https 地址"
+                      >
+                        端点风险
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground font-mono truncate mt-0.5">{connection.apiEndpoint}</p>
                 </div>

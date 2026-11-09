@@ -21,6 +21,7 @@ import { MODEL_ID_FORMAT_HINT, pickSupportedModelId } from './modelId';
 import { recordUsage } from './usage';
 import { estimateTokens, extractThinkingContent } from './utils';
 import { buildWorkersAiConfig, getActiveModel, getModelById } from './modelService';
+import { isPrivateHostname } from './providers/providerService';
 import type { AiFeatureType, ChatContentPart, ChatMessage, ModelConfig, TokenUsage } from './types';
 import { AI_LOG_MODULE } from './constants';
 
@@ -321,15 +322,44 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
-function extractWorkersAiVisionInput(messages: ChatMessage[]): { prompt: string; image: Uint8Array } | null {
+const MAX_VISION_IMAGE_BYTES = 10 * 1024 * 1024;
+
+/**
+ * 将视觉输入统一转换为字节：支持 data URL 与 https 远程地址。
+ * 远程地址强制 https、拒绝私网域名且不跟随重定向，避免 SSRF。
+ */
+async function loadImageBytes(rawUrl: string): Promise<Uint8Array | null> {
+  const dataUrl = parseDataUrl(rawUrl);
+  if (dataUrl) return base64ToBytes(dataUrl.data);
+
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== 'https:' || isPrivateHostname(url.hostname)) return null;
+
+    const response = await fetch(url, { redirect: 'manual' });
+    if (!response.ok) return null;
+
+    const contentLength = Number(response.headers.get('content-length') ?? '0');
+    if (contentLength > MAX_VISION_IMAGE_BYTES) return null;
+
+    const buffer = await response.arrayBuffer();
+    return buffer.byteLength > MAX_VISION_IMAGE_BYTES ? null : new Uint8Array(buffer);
+  } catch {
+    return null;
+  }
+}
+
+async function extractWorkersAiVisionInput(
+  messages: ChatMessage[]
+): Promise<{ prompt: string; image: Uint8Array } | null> {
   for (const message of messages) {
     if (!Array.isArray(message.content)) continue;
 
     const imagePart = message.content.find((part) => part.type === 'image_url' && !!part.image_url?.url);
     if (!imagePart?.image_url?.url) continue;
 
-    const dataUrl = parseDataUrl(imagePart.image_url.url);
-    if (!dataUrl) continue;
+    const image = await loadImageBytes(imagePart.image_url.url);
+    if (!image) continue;
 
     const prompt = message.content
       .filter((part) => part.type === 'text')
@@ -337,7 +367,7 @@ function extractWorkersAiVisionInput(messages: ChatMessage[]): { prompt: string;
       .join('\n')
       .trim();
 
-    return { prompt, image: base64ToBytes(dataUrl.data) };
+    return { prompt, image };
   }
 
   return null;
@@ -418,7 +448,7 @@ async function runWorkersAiVision(
     throw new AiError('AI_CONFIG_INVALID', 'Workers AI 绑定未配置，无法进行视觉分析');
   }
 
-  const input = extractWorkersAiVisionInput(request.messages);
+  const input = await extractWorkersAiVisionInput(request.messages);
   if (!input) {
     throw new AiError('AI_CONFIG_INVALID', '视觉调用缺少图片内容');
   }
@@ -443,7 +473,7 @@ async function runWorkersAiVision(
     };
 
     if (options.record) {
-      void recordUsage(env, {
+      await recordUsage(env, {
         userId: options.userId,
         feature: featureType,
         provider: config.provider,
@@ -460,7 +490,7 @@ async function runWorkersAiVision(
     const mapped = mapAiError(error);
 
     if (options.record) {
-      void recordUsage(env, {
+      await recordUsage(env, {
         userId: options.userId,
         feature: featureType,
         provider: config.provider,
@@ -510,7 +540,7 @@ async function runCompletion(
     const usage = toTokenUsage(result.usage, promptText, result.text ?? '');
 
     if (options.record) {
-      void recordUsage(env, {
+      await recordUsage(env, {
         userId: options.userId,
         feature: featureType,
         provider: config.provider,
@@ -533,7 +563,7 @@ async function runCompletion(
     const mapped = mapAiError(error);
 
     if (options.record) {
-      void recordUsage(env, {
+      await recordUsage(env, {
         userId: options.userId,
         feature: featureType,
         provider: config.provider,

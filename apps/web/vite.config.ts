@@ -30,7 +30,9 @@ export default defineConfig({
   build: {
     target: 'es2022',
     outDir: 'dist',
-    sourcemap: true,
+    // 生产构建默认不产出 sourcemap，避免源码经 CDN 公开；
+    // 需要排查线上问题时可用 VITE_SOURCEMAP=true 单独构建。
+    sourcemap: process.env.VITE_SOURCEMAP === 'true',
     rollupOptions: {
       output: {
         manualChunks(id) {

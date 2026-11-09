@@ -7,11 +7,12 @@
  * - api_key_encrypted 永不出现在 API 响应中，只返回 hasApiKey
  */
 
-import { and, desc, eq } from 'drizzle-orm';
-import { getDb, aiModels, aiProviders } from '../../../db';
+import { and, desc, eq, inArray } from 'drizzle-orm';
+import { getDb, aiModels, aiProviders, aiChatSessions, aiFeatureConfig } from '../../../db';
 import type { Env } from '../../../types/env';
 import { AiError } from '../aiErrors';
 import { decryptCredential, encryptCredential, getEncryptionKey, isAesGcmFormat } from '../../crypto';
+import { logger } from '@osshelf/shared';
 import {
   getProviderPreset,
   isPresetProtocol,
@@ -41,6 +42,8 @@ export interface ProviderConnectionView {
   sortOrder: number;
   modelsSyncedAt: string | null;
   modelCount: number;
+  /** 端点安全风险标记（存量数据只标记不拦截） */
+  securityWarnings: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -63,6 +66,79 @@ export interface ProviderConnectionInput {
 
 const FORBIDDEN_HEADERS = new Set(['host', 'content-length', 'connection', 'transfer-encoding']);
 
+function parseIpv4(host: string): number[] | null {
+  const parts = host.split('.');
+  if (parts.length !== 4) return null;
+  const nums = parts.map((part) => (/^\d{1,3}$/.test(part) ? Number(part) : Number.NaN));
+  if (nums.some((num) => !Number.isInteger(num) || num < 0 || num > 255)) return null;
+  return nums;
+}
+
+function isPrivateIpv4(octets: number[]): boolean {
+  const [a, b] = octets;
+  if (a === 0 || a === 10 || a === 127) return true;
+  if (a === 169 && b === 254) return true; // link-local / 云元数据
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+  if (a === 198 && (b === 18 || b === 19)) return true; // 基准测试网段
+  if (a >= 224) return true; // 组播 + 保留
+  return false;
+}
+
+/** 判断主机名是否指向本机/私有网络/云元数据，防止 SSRF */
+export function isPrivateHostname(hostname: string): boolean {
+  let host = hostname.toLowerCase();
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
+  if (!host) return true;
+
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) {
+    return true;
+  }
+  if (host === 'metadata.google.internal') return true;
+
+  const ipv4 = parseIpv4(host);
+  if (ipv4) return isPrivateIpv4(ipv4);
+
+  if (host.includes(':')) {
+    if (host === '::' || host === '::1') return true;
+    if (/^fe[89ab]/.test(host)) return true; // fe80::/10 链路本地
+    if (/^f[cd]/.test(host)) return true; // fc00::/7 ULA
+    if (host.startsWith('::ffff:')) {
+      const mapped = parseIpv4(host.slice(7));
+      if (mapped) return isPrivateIpv4(mapped);
+    }
+  }
+
+  return false;
+}
+
+export interface EndpointSecurity {
+  secure: boolean;
+  warnings: string[];
+}
+
+/**
+ * 只做标记、不抛错：用于展示存量连接的风险（http / 私网）。
+ * 新建与修改连接由 normalizeBaseUrl 强制执行 https + 公网地址。
+ */
+export function analyzeEndpointSecurity(endpoint: string | null | undefined): EndpointSecurity {
+  if (!endpoint) return { secure: true, warnings: [] };
+
+  const warnings: string[] = [];
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return { secure: false, warnings: ['endpoint_invalid'] };
+  }
+
+  if (url.protocol !== 'https:') warnings.push('insecure_transport');
+  if (isPrivateHostname(url.hostname)) warnings.push('private_network');
+
+  return { secure: warnings.length === 0, warnings };
+}
+
 export function normalizeBaseUrl(value: string): string {
   let normalized = value.trim();
   if (!normalized) throw new AiError('AI_CONFIG_INVALID', 'Base URL 不能为空');
@@ -75,11 +151,14 @@ export function normalizeBaseUrl(value: string): string {
   try {
     url = new URL(normalized);
   } catch {
-    throw new AiError('AI_CONFIG_INVALID', 'Base URL 格式无效，请输入完整的 http(s) 地址');
+    throw new AiError('AI_CONFIG_INVALID', 'Base URL 格式无效，请输入完整的 https 地址');
   }
 
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new AiError('AI_CONFIG_INVALID', 'Base URL 只支持 http/https');
+  if (url.protocol !== 'https:') {
+    throw new AiError('AI_CONFIG_INVALID', 'Base URL 必须使用 https');
+  }
+  if (isPrivateHostname(url.hostname)) {
+    throw new AiError('AI_CONFIG_INVALID', 'Base URL 不能指向本机、私有网络或云元数据地址');
   }
 
   return normalized;
@@ -142,7 +221,11 @@ export async function decryptProviderApiKey(
   encrypted: string | null | undefined
 ): Promise<string | undefined> {
   if (!encrypted) return undefined;
-  if (!isAesGcmFormat(encrypted)) return encrypted;
+  if (!isAesGcmFormat(encrypted)) {
+    // 兼容历史明文：仍可使用，但必须通过一次性迁移工具加密落库
+    logger.warn('AI_PROVIDER', '检测到未加密的供应商密钥，请运行 scripts/encrypt-plaintext-secrets.mjs', {});
+    return encrypted;
+  }
 
   try {
     return await decryptCredential(encrypted, getEncryptionKey(env));
@@ -222,6 +305,7 @@ export function toProviderView(row: AiProviderRow, modelCount: number): Provider
     sortOrder: row.sortOrder,
     modelsSyncedAt: row.modelsSyncedAt,
     modelCount,
+    securityWarnings: analyzeEndpointSecurity(row.apiEndpoint).warnings,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -375,9 +459,21 @@ export async function deleteProviderConnection(
   }
 
   if (dependentModels.length > 0) {
-    for (const model of dependentModels) {
-      await db.delete(aiModels).where(eq(aiModels.id, model.id));
-    }
+    const modelIds = dependentModels.map((model) => model.id);
+    const now = new Date().toISOString();
+
+    await db.delete(aiModels).where(inArray(aiModels.id, modelIds));
+
+    // 清理悬空引用：否则功能配置/会话会指向已删除的模型，运行期静默回退默认模型
+    await db
+      .update(aiFeatureConfig)
+      .set({ modelId: null, updatedAt: now })
+      .where(and(eq(aiFeatureConfig.userId, userId), inArray(aiFeatureConfig.modelId, modelIds)));
+
+    await db
+      .update(aiChatSessions)
+      .set({ modelId: null })
+      .where(and(eq(aiChatSessions.userId, userId), inArray(aiChatSessions.modelId, modelIds)));
   }
 
   await db.delete(aiProviders).where(eq(aiProviders.id, providerId));

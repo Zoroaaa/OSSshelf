@@ -385,7 +385,6 @@
 | ----------------------- | ------- | -------------- |
 | `JWT_EXPIRY`            | 7 天    | JWT 有效期     |
 | `SHARE_DEFAULT_EXPIRY`  | 7 天    | 分享默认有效期 |
-| `TRASH_RETENTION_DAYS`  | 30 天   | 回收站保留天数 |
 | `DEVICE_SESSION_EXPIRY` | 30 天   | 设备会话有效期 |
 | `UPLOAD_TASK_EXPIRY`    | 24 小时 | 上传任务有效期 |
 

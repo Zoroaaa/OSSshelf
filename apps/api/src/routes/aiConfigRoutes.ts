@@ -13,7 +13,9 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { eq, and } from 'drizzle-orm';
 import { getDb, aiModels } from '../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, requireAdmin } from '../middleware/auth';
+import { aiRateLimit } from '../middleware/aiRateLimit';
+import { recordUsage } from '../lib/ai/usage';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
@@ -58,6 +60,8 @@ import {
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
+// 连通性测试会真实调用模型，必须限流并记账，避免被当作免费推理接口刷额度
+app.use('/test', aiRateLimit());
 
 const protocolSchema = z.enum(['openai_compatible', 'anthropic']);
 const capabilitySchema = z.enum(['chat', 'completion', 'embedding', 'vision', 'function_calling']);
@@ -375,7 +379,7 @@ app.get('/catalog-status', async (c) => {
   }
 });
 
-app.post('/catalog-sync', async (c) => {
+app.post('/catalog-sync', requireAdmin(), async (c) => {
   try {
     const status = await syncCatalogSnapshot(c.env);
     logger.info('AI Config', 'Catalog snapshot synced', {
@@ -391,7 +395,7 @@ app.post('/catalog-sync', async (c) => {
   }
 });
 
-app.delete('/catalog-snapshot', async (c) => {
+app.delete('/catalog-snapshot', requireAdmin(), async (c) => {
   try {
     return c.json({ success: true, data: await resetCatalogSnapshot(c.env) });
   } catch (error) {
@@ -966,9 +970,9 @@ app.put('/feature-config', async (c) => {
           400
         );
       }
-      if (!m.capabilities?.includes('chat')) {
+      if (!m.capabilities?.includes('vision')) {
         return c.json(
-          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该模型不支持 chat 能力' } },
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该模型不支持 vision 能力' } },
           400
         );
       }
@@ -1129,6 +1133,18 @@ app.post('/test', async (c) => {
       messages: [{ role: 'user', content: 'Hello, 请用一句话介绍你自己。' }],
     });
     const latencyMs = Date.now() - startTime;
+    c.set('aiUsageTokens', (response.usage?.inputTokens ?? 0) + (response.usage?.outputTokens ?? 0));
+
+    await recordUsage(c.env, {
+      userId,
+      feature: 'test',
+      provider: testConfig.provider,
+      modelId: response.modelId,
+      inputTokens: response.usage?.inputTokens ?? 0,
+      outputTokens: response.usage?.outputTokens ?? 0,
+      latencyMs,
+      status: 'completed',
+    });
 
     return c.json({
       success: true,
@@ -1170,7 +1186,7 @@ app.post('/test', async (c) => {
 // AI功能配置表相关接口
 
 // 获取所有AI配置项
-app.get('/system-config', async (c) => {
+app.get('/system-config', requireAdmin(), async (c) => {
   try {
     await initializeAiConfig(c.env);
     const configs = await getAllAiConfigs(c.env);
@@ -1186,7 +1202,7 @@ app.get('/system-config', async (c) => {
 });
 
 // 更新单个AI配置项
-app.put('/system-config/:key', async (c) => {
+app.put('/system-config/:key', requireAdmin(), async (c) => {
   const key = c.req.param('key');
   const body = await c.req.json();
   const { value } = body as { value: unknown };
@@ -1224,7 +1240,7 @@ app.put('/system-config/:key', async (c) => {
 });
 
 // 重置单个配置为默认值
-app.post('/system-config/:key/reset', async (c) => {
+app.post('/system-config/:key/reset', requireAdmin(), async (c) => {
   const key = c.req.param('key');
 
   try {

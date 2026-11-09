@@ -9,7 +9,7 @@
 
 import type { Env, AiTaskMessage } from '../../types/env';
 import { getDb, aiTasks, aiTaskItems, files } from '../../db';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, ne } from 'drizzle-orm';
 import { logger } from '@osshelf/shared';
 import { indexFileVector, buildFileTextForVector } from './vectorIndex';
 import { generateFileSummary, generateImageTags } from './features';
@@ -45,13 +45,24 @@ export async function getTaskRecord(env: Env, taskId: string): Promise<TaskProgr
   return row as TaskProgress;
 }
 
-export async function getLatestTaskByUserType(env: Env, userId: string, type: string): Promise<TaskProgress | null> {
+export async function getLatestTaskByUserType(
+  env: Env,
+  userId: string,
+  type: string,
+  excludeTaskId?: string
+): Promise<TaskProgress | null> {
   const db = getDb(env.DB);
   const normalizedType = type === 'summary' ? 'summarize' : type;
   const row = await db
     .select()
     .from(aiTasks)
-    .where(and(eq(aiTasks.userId, userId), eq(aiTasks.type, normalizedType)))
+    .where(
+      and(
+        eq(aiTasks.userId, userId),
+        eq(aiTasks.type, normalizedType),
+        excludeTaskId ? ne(aiTasks.id, excludeTaskId) : undefined
+      )
+    )
     .orderBy(sql`${aiTasks.startedAt} DESC`)
     .limit(1)
     .get();
@@ -336,7 +347,9 @@ async function handleAgentBatchTask(env: Env, message: AiTaskMessage): Promise<{
         result = await softDeleteFile(env, userId, fileId);
         break;
       case 'rename': {
-        const newName = (message as any).newName;
+        const args = message as any;
+        // 批量重命名把模板展开后以 names[fileId] 传入；单文件仍支持 newName
+        const newName = (args.newName as string | undefined) || (args.names?.[fileId] as string | undefined);
         result = newName
           ? await renameFile(env, userId, fileId, { name: newName })
           : { success: false, error: '缺少新名称' };
@@ -384,7 +397,12 @@ export async function getTaskItem(
   );
 }
 
-async function ensureTaskItems(env: Env, taskId: string, fileIds: string[]): Promise<void> {
+async function ensureTaskItems(
+  env: Env,
+  taskId: string,
+  fileIds: string[],
+  initialStatus: 'pending' | 'completed' = 'pending'
+): Promise<void> {
   if (fileIds.length === 0) return;
   const now = new Date().toISOString();
   const db = getDb(env.DB);
@@ -393,7 +411,7 @@ async function ensureTaskItems(env: Env, taskId: string, fileIds: string[]): Pro
     id: crypto.randomUUID(),
     taskId,
     fileId,
-    status: 'pending',
+    status: initialStatus,
     attempts: 0,
     updatedAt: now,
   }));
@@ -408,16 +426,30 @@ async function ensureTaskItems(env: Env, taskId: string, fileIds: string[]): Pro
   }
 }
 
-async function markTaskItemRunning(env: Env, taskId: string, fileId: string): Promise<void> {
+/** running 状态超过该时长视为消费者已退出，允许其他消费者重新抢占 */
+const TASK_ITEM_LEASE_MS = 15 * 60_000;
+
+/**
+ * 原子抢占任务项（租约）。
+ *
+ * 队列是"至少一次"投递，同一条消息可能被并发消费。只有把 pending/failed
+ * 或租约已过期的 running 条目成功更新为 running 的消费者才执行实际工作，
+ * 其余消费者直接 ack，避免重复生成摘要、重复索引与重复计费。
+ */
+async function claimTaskItem(env: Env, taskId: string, fileId: string): Promise<boolean> {
   const db = getDb(env.DB);
-  await db
-    .update(aiTaskItems)
-    .set({
-      status: 'running',
-      attempts: sql`attempts + 1`,
-      updatedAt: new Date().toISOString(),
-    })
-    .where(and(eq(aiTaskItems.taskId, taskId), eq(aiTaskItems.fileId, fileId)));
+  const now = new Date();
+  const staleCutoff = new Date(now.getTime() - TASK_ITEM_LEASE_MS).toISOString();
+
+  const result = await db.run(sql`
+    UPDATE ai_task_items
+    SET status = 'running', attempts = attempts + 1, updated_at = ${now.toISOString()}
+    WHERE task_id = ${taskId}
+      AND file_id = ${fileId}
+      AND (status IN ('pending', 'failed') OR (status = 'running' AND updated_at < ${staleCutoff}))
+  `);
+
+  return Number((result as { meta?: { changes?: number } })?.meta?.changes ?? 0) > 0;
 }
 
 async function finalizeTaskItem(
@@ -468,7 +500,17 @@ export async function processAiTaskMessage(
     await ensureTaskItems(env, taskId, [fileId]);
   }
 
-  await markTaskItemRunning(env, taskId, fileId);
+  // 幂等 + 租约：并发重复投递时只有抢占成功的消费者执行实际工作
+  const claimed = await claimTaskItem(env, taskId, fileId);
+  if (!claimed) {
+    const latest = (await getTaskItem(env, taskId, fileId)) ?? item;
+    if (latest?.status === 'completed') {
+      logger.info('AI_QUEUE', 'Task item already completed, skipping', { taskId, fileId });
+    } else {
+      logger.info('AI_QUEUE', 'Task item is being processed by another consumer, skipping', { taskId, fileId });
+    }
+    return { success: true };
+  }
 
   let result: { success: boolean; error?: string };
   switch (type) {
@@ -511,42 +553,46 @@ export async function enqueueAiTasks(
 
   const BATCH_SIZE = 50;
 
-  // ── 断点续传：检查是否有未完成的历史任务 ──
-  if (resumeFrom) {
-    // 从指定的历史任务恢复
-    const previousTask = await getTaskRecord(env, resumeFrom);
-    if (previousTask && (previousTask.status === 'running' || previousTask.status === 'failed')) {
-      logger.info('AI_QUEUE', 'Resuming from previous task', {
-        resumeTaskId: resumeFrom,
-        processed: previousTask.processed,
-        failed: previousTask.failed,
+  // ── 断点续传：跳过上一任务已完成的文件，避免重复消耗模型额度 ──
+  const previousTask = resumeFrom
+    ? await getTaskRecord(env, resumeFrom)
+    : await getLatestTaskByUserType(env, userId, type, taskId);
+
+  let pendingFileIds = fileIds;
+  if (
+    previousTask &&
+    previousTask.id !== taskId &&
+    (previousTask.status === 'running' || previousTask.status === 'failed')
+  ) {
+    const completedItems = await getDb(env.DB)
+      .select({ fileId: aiTaskItems.fileId })
+      .from(aiTaskItems)
+      .where(and(eq(aiTaskItems.taskId, previousTask.id), eq(aiTaskItems.status, 'completed')))
+      .all();
+
+    const completed = new Set(completedItems.map((item) => item.fileId));
+    const skipped = fileIds.filter((fileId) => completed.has(fileId));
+
+    if (skipped.length > 0) {
+      pendingFileIds = fileIds.filter((fileId) => !completed.has(fileId));
+      // 已完成的文件直接落为 completed，任务进度按真实总数收口
+      await ensureTaskItems(env, taskId, skipped, 'completed');
+      logger.info('AI_QUEUE', 'Resuming task, skipping processed files', {
+        previousTaskId: previousTask.id,
+        skipped: skipped.length,
+        remaining: pendingFileIds.length,
       });
-
-      // 查询该任务已处理的文件（通过审计日志或任务记录推断）
-      // 这里简化处理：标记新任务为恢复模式，前端可以显示进度
-      await updateTaskResumeInfo(env, taskId, resumeFrom, previousTask.processed);
-    }
-  } else {
-    // 检查同用户同类型的 running/failed 任务，自动续传
-    const existingTask = await getLatestTaskByUserType(env, userId, type);
-    if (existingTask && (existingTask.status === 'running' || existingTask.status === 'failed')) {
-      if (existingTask.processed > 0) {
-        logger.info('AI_QUEUE', 'Found incomplete task, will skip processed files', {
-          existingTaskId: existingTask.id,
-          processed: existingTask.processed,
-          total: existingTask.total,
-        });
-        // 标记为续传模式
-        await updateTaskResumeInfo(env, taskId, existingTask.id, existingTask.processed);
-
-        // 注意：实际跳过已处理文件的逻辑需要在 handleXxxTask 中实现
-        // 这里先记录元数据，避免重复索引
-      }
     }
   }
 
-  for (let i = 0; i < fileIds.length; i += BATCH_SIZE) {
-    const batch = fileIds.slice(i, i + BATCH_SIZE).map((fileId) => {
+  if (pendingFileIds.length === 0) {
+    await recomputeTaskProgress(env, taskId);
+    logger.info('AI_QUEUE', 'All files already processed in previous task', { taskId, type });
+    return;
+  }
+
+  for (let i = 0; i < pendingFileIds.length; i += BATCH_SIZE) {
+    const batch = pendingFileIds.slice(i, i + BATCH_SIZE).map((fileId) => {
       const baseMessage: any = { type, fileId, userId, taskId, isResumable: true };
       if (type === 'agent_batch' && operation) {
         baseMessage.operation = operation;
@@ -578,33 +624,7 @@ export async function enqueueAiTasks(
     });
   }
 
-  logger.info('AI_QUEUE', 'All tasks enqueued', { type, totalFiles: fileIds.length, taskId });
-}
-
-/**
- * 更新任务的断点续传信息
- */
-async function updateTaskResumeInfo(
-  env: Env,
-  newTaskId: string,
-  previousTaskId: string,
-  alreadyProcessed: number
-): Promise<void> {
-  const db = getDb(env.DB);
-  const now = new Date().toISOString();
-
-  // 在任务记录中存储续传元数据（使用 error 字段或扩展字段）
-  try {
-    await db.run(sql`
-      UPDATE ai_tasks
-      SET error = ${JSON.stringify({ resumedFrom: previousTaskId, alreadyProcessed })},
-          updated_at = ${now}
-      WHERE id = ${newTaskId}
-    `);
-    logger.info('AI_QUEUE', 'Updated resume info for task', { newTaskId, previousTaskId, alreadyProcessed });
-  } catch (error) {
-    logger.error('AI_QUEUE', 'Failed to update resume info', { newTaskId }, error);
-  }
+  logger.info('AI_QUEUE', 'All tasks enqueued', { type, totalFiles: pendingFileIds.length, taskId });
 }
 
 export async function enqueueAgentBatchOperation(

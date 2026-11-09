@@ -17,17 +17,20 @@ import { presignUpload } from '@/services/presignUpload';
 interface UseFileDragDropProps {
   folderId: string | null;
   setUploadProgresses: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+  /** 目标存储桶 ID：非默认桶目录下必须传入 */
+  bucketId?: string | null;
   /** 团队 ID：在团队工作区拖拽上传时传入 */
   teamId?: string | null;
 }
 
-export function useFileDragDrop({ folderId, setUploadProgresses, teamId }: UseFileDragDropProps) {
+export function useFileDragDrop({ folderId, setUploadProgresses, bucketId, teamId }: UseFileDragDropProps) {
   const [isDragActive, setIsDragActive] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const { uploadFolderEntriesDirect } = useFolderUpload({
     currentFolderId: folderId ?? undefined,
+    bucketId,
     teamId,
     onFileStart: (name, key) => setUploadProgresses((p) => ({ ...p, [key]: 0 })),
     onFileProgress: (key, progress) => setUploadProgresses((p) => ({ ...p, [key]: progress })),
@@ -92,6 +95,7 @@ export function useFileDragDrop({ folderId, setUploadProgresses, teamId }: UseFi
             await presignUpload({
               file,
               parentId: folderId || null,
+              bucketId,
               teamId,
               onProgress: (progress) => setUploadProgresses((prev) => ({ ...prev, [key]: progress })),
             });

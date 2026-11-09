@@ -97,7 +97,10 @@ const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, userRol
   // ── 上传进度 ──
   const [uploadProgresses, setUploadProgresses] = useState<Record<string, number>>({});
 
-  const canWrite = userRole === 'admin' || userRole === 'owner' || isOwner;
+  // 与后端 teamPolicy 保持一致：owner/admin=管理，member=读写，guest/viewer=只读
+  const roleRank = isOwner || userRole === 'owner' || userRole === 'admin' ? 3 : userRole === 'member' ? 2 : 1;
+  const canWrite = roleRank >= 2;
+  const canManage = roleRank >= 3;
   const { token } = useAuthStore();
 
   // 切换目录时重置分页和选择
@@ -371,7 +374,7 @@ const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, userRol
       if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'TEXTAREA') return;
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedFileIds.size > 0 && canWrite) {
+        if (selectedFileIds.size > 0 && canManage) {
           const targetFiles = files.filter((f) => selectedFileIds.has(f.fileId));
           if (confirm(`确定对选中的 ${selectedFileIds.size} 个项目执行操作？（挂载资源将被卸载，团队文件将被删除）`)) {
             targetFiles.forEach((f) => handleRemoveFile(f));
@@ -391,7 +394,7 @@ const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, userRol
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [selectedFileIds, canWrite, files, selectAll, clearSelection]);
+  }, [selectedFileIds, canManage, files, selectAll, clearSelection]);
 
   const PermissionBadge = ({ permission }: { permission: string }) => {
     if (permission === 'admin') return <Crown className="h-3.5 w-3.5 text-purple-500" />;
@@ -673,7 +676,7 @@ const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, userRol
               )}
 
               {/* 批量删除 */}
-              {selectedFileIds.size > 0 && canWrite && (
+              {selectedFileIds.size > 0 && canManage && (
                 <Button
                   variant="destructive"
                   size="sm"
@@ -1089,7 +1092,7 @@ const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, userRol
               <Pencil className="h-4 w-4" /> 重命名
             </button>
           )}
-          {canWrite && (contextMenuFile as any).source === 'mounted' ? (
+          {canManage && (contextMenuFile as any).source === 'mounted' ? (
             <button
               className="w-full px-3 py-2 text-left text-sm hover:bg-muted flex items-center gap-2 text-amber-600"
               onClick={() => {
@@ -1100,7 +1103,7 @@ const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, userRol
             >
               <Link2Off className="h-4 w-4" /> 卸载资源
             </button>
-          ) : canWrite ? (
+          ) : canManage ? (
             <button
               className="w-full px-3 py-2 text-left text-sm hover:bg-muted flex items-center gap-2 text-destructive"
               onClick={() => {

@@ -11,7 +11,7 @@
 import { Hono } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, teamMembers, teamResources, files, users } from '../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, denyApiKeyAuth } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
@@ -34,9 +34,13 @@ import {
 import { createInvite, listPendingInvites, listAllInvites, revokeInvite, type InviteInfo } from '../lib/inviteService';
 import { listTeamActivities } from '../lib/teamActivityService';
 import { recordActivityWithEnv } from '../lib/teamActivityService';
+import { normalizeEntryName, normalizeParentId, trimTrailingSlash } from '../lib/pathUtils';
+import { parsePagination } from '../lib/pagination';
+import { getTeamMembership, teamRoleAllows } from '../lib/teamPolicy';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
+app.use('/*', denyApiKeyAuth());
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Zod 验证 Schema
@@ -501,17 +505,19 @@ app.get('/:id/resources/list', async (c) => {
 // 工作区文件浏览
 // ════════════════════════════════════════════════════════════════════════════
 
-/** 获取团队工作区文件列表 */
+/** 获取团队工作区文件列表（分页） */
 app.get('/:id/workspace/files', async (c) => {
   const userId = c.get('userId')!;
   const teamId = c.req.param('id');
   const folderId = c.req.query('folderId') || undefined;
-  const limit = parseInt(c.req.query('limit') || '50', 10);
-  const offset = parseInt(c.req.query('offset') || '0', 10);
+  const { limit, offset } = parsePagination(c);
 
   try {
-    const result = await getTeamFiles(c.env, teamId, userId, { folderId, limit, offset });
-    return c.json({ success: true, data: result });
+    const result = await getTeamFiles(c.env, teamId, userId, { folderId });
+    return c.json({
+      success: true,
+      data: { files: result.files.slice(offset, offset + limit), total: result.total },
+    });
   } catch (e: any) {
     throwAppError('WORKSPACE_ERROR', (e as Error).message || '获取工作区文件失败');
   }
@@ -586,7 +592,7 @@ app.get('/:id/invites', async (c) => {
     .from(teamMembers)
     .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
     .get();
-  if (!membership || (membership.role !== 'admin' && membership.role !== 'owner')) {
+  if (!membership || !teamRoleAllows(membership.role, 'admin')) {
     throwAppError('FORBIDDEN', '只有管理员可查看邀请列表');
   }
 
@@ -709,18 +715,14 @@ app.post('/:id/workspace/folder', async (c) => {
   const body = await c.req.json();
   const db = getDb(c.env.DB);
 
-  // 验证权限：admin 或 owner 或有 write 权限的成员
-  const membership = await db
-    .select()
-    .from(teamMembers)
-    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
-    .get();
+  // 验证权限：成员角色需达到 write（member 读写、admin/owner 管理、viewer 只读）
+  const membership = await getTeamMembership(db, teamId, userId);
   if (!membership) throwAppError('TEAM_ACCESS_DENIED', '您不是该团队成员');
-  if (membership.role !== 'owner' && membership.role !== 'admin') {
-    throwAppError('FORBIDDEN', '只有管理员可以在团队空间中创建文件夹');
+  if (!teamRoleAllows(membership.role, 'write')) {
+    throwAppError('FORBIDDEN', '当前角色没有在团队空间中创建文件夹的权限');
   }
 
-  const nameSchema = z.object({ name: z.string().min(1).max(255), parentId: z.string().optional() });
+  const nameSchema = z.object({ name: z.string().min(1).max(255), parentId: z.string().nullable().optional() });
   const result = nameSchema.safeParse(body);
   if (!result.success)
     return c.json(
@@ -728,7 +730,10 @@ app.post('/:id/workspace/folder', async (c) => {
       400
     );
 
-  const { name, parentId } = result.data;
+  const { name: rawName, parentId: rawParentId } = result.data;
+  // 统一入口：文件夹名 / 父目录先校验、规范化（团队路径为逻辑路径，不使用 buildFilePath）
+  const safeName = normalizeEntryName(rawName);
+  const parentId = normalizeParentId(rawParentId);
 
   // 如果指定了 parentId，验证它属于这个团队或已挂载到这个团队
   if (parentId) {
@@ -754,19 +759,20 @@ app.post('/:id/workspace/folder', async (c) => {
   let folderPath: string;
   if (parentId) {
     const parentFile = await db.select({ path: files.path }).from(files).where(eq(files.id, parentId)).get();
-    folderPath = (parentFile?.path || `/teams/${teamId}/`) + name.trim();
+    const parentPath = trimTrailingSlash(parentFile?.path || `/teams/${teamId}`);
+    folderPath = `${parentPath}/${safeName}`;
   } else {
-    folderPath = `/teams/${teamId}/${name.trim()}`;
+    folderPath = `/teams/${teamId}/${safeName}`;
   }
 
   await db.insert(files).values({
     id: folderId,
     userId,
     parentId: parentId || null,
-    name: name.trim(),
+    name: safeName,
     path: folderPath,
     size: 0,
-    r2Key: `teams/${teamId}/${folderId}/${name.trim()}`,
+    r2Key: `teams/${teamId}/${folderId}/${safeName}`,
     isFolder: true,
     refCount: 0,
     createdAt: now,
@@ -780,12 +786,12 @@ app.post('/:id/workspace/folder', async (c) => {
     action: 'file_uploaded',
     resourceType: 'file',
     resourceId: folderId,
-    details: { fileName: name, isFolder: true },
+    details: { fileName: safeName, isFolder: true },
   });
 
   return c.json({
     success: true,
-    data: { id: folderId, name: name.trim(), isFolder: true, createdAt: now },
+    data: { id: folderId, name: safeName, isFolder: true, createdAt: now },
   });
 });
 
@@ -794,8 +800,6 @@ app.get('/:id/workspace/all-files', async (c) => {
   const userId = c.get('userId')!;
   const teamId = c.req.param('id');
   const folderId = c.req.query('folderId') || undefined;
-  const limit = parseInt(c.req.query('limit') || '50', 10);
-  const offset = parseInt(c.req.query('offset') || '0', 10);
   const db = getDb(c.env.DB);
 
   const membership = await db
@@ -805,13 +809,10 @@ app.get('/:id/workspace/all-files', async (c) => {
     .get();
   if (!membership) throwAppError('TEAM_ACCESS_DENIED', '您不是该团队成员');
 
-  // 直接使用 getTeamFiles()，它内部已正确区分 owned/mounted 并返回 source 字段
-  const workspaceResult = await getTeamFiles(c.env, teamId, userId, { folderId, limit: 999, offset: 0 });
+  // 该端点供工作区前端做本地搜索/排序，返回完整列表
+  const workspaceResult = await getTeamFiles(c.env, teamId, userId, { folderId });
 
-  const total = workspaceResult.files.length;
-  const paged = workspaceResult.files.slice(offset, offset + limit);
-
-  return c.json({ success: true, data: { files: paged, total } });
+  return c.json({ success: true, data: { files: workspaceResult.files, total: workspaceResult.total } });
 });
 
 export default app;

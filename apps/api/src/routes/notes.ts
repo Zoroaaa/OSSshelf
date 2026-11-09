@@ -9,7 +9,7 @@
 import { Hono } from 'hono';
 import { eq, and, desc, isNull, sql } from 'drizzle-orm';
 import { getDb, files, users, fileNotes } from '../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
@@ -35,6 +35,7 @@ const updateNoteSchema = z.object({
 });
 
 app.use('/*', authMiddleware);
+app.use('/*', requireApiKeyScope('files:read', 'files:write'));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 提及相关路由（纯 DB 操作，保留在路由层）

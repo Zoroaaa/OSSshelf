@@ -9,7 +9,7 @@
  * - 清空回收站
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { filesApi } from '@/services/api';
 import { Button } from '@/components/ui/Button';
@@ -27,10 +27,23 @@ export default function Trash() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
 
-  const { data: items = [], isLoading } = useQuery<FileItem[]>({
+  const { data: trashData, isLoading } = useQuery<{ items: FileItem[]; total: number }>({
     queryKey: ['trash', page],
-    queryFn: () => filesApi.listTrash({ page, limit: TRASH_PAGE_SIZE }).then((r) => r.data.data ?? []),
+    queryFn: async () => {
+      const res = await filesApi.listTrash({ page, limit: TRASH_PAGE_SIZE });
+      return { items: res.data.data ?? [], total: res.data.total ?? 0 };
+    },
   });
+  const items = trashData?.items ?? [];
+  const total = trashData?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / TRASH_PAGE_SIZE));
+
+  // 删空当前页后自动回退到上一页，避免停留在空白页
+  useEffect(() => {
+    if (!isLoading && page > 1 && items.length === 0) {
+      setPage((p) => Math.max(1, p - 1));
+    }
+  }, [isLoading, page, items.length]);
 
   // 确认对话框状态
   const [confirmState, setConfirmState] = useState<{
@@ -135,13 +148,15 @@ export default function Trash() {
       )}
 
       {/* Pagination */}
-      {items.length > 0 && items.length >= TRASH_PAGE_SIZE && (
+      {total > TRASH_PAGE_SIZE && (
         <div className="flex items-center justify-center gap-4 pt-2">
           <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
             上一页
           </Button>
-          <span className="text-sm text-muted-foreground">第 {page} 页</span>
-          <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)}>
+          <span className="text-sm text-muted-foreground">
+            第 {page} / {totalPages} 页（共 {total} 项）
+          </span>
+          <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages}>
             下一页
           </Button>
         </div>

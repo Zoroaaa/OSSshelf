@@ -12,18 +12,20 @@
 import { Hono } from 'hono';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { getDb, downloadTasks, users, files } from '../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
 import { ERROR_CODES, MAX_FILE_SIZE } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { s3Put } from '../lib/s3client';
-import { resolveBucketConfig, updateBucketStats, checkBucketQuota, updateUserStorage } from '../lib/bucketResolver';
+import { resolveBucketConfig, checkBucketQuota } from '../lib/bucketResolver';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getEncryptionKey } from '../lib/crypto';
+import { buildFilePath, normalizeEntryName, normalizeParentId } from '../lib/pathUtils';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
+app.use('*', requireApiKeyScope('files:read', 'files:write'));
 
 const createTaskSchema = z.object({
   url: z.string().url('请输入有效的 URL'),
@@ -96,10 +98,42 @@ interface RunDownloadParams {
   env: Env;
 }
 
+const MAX_REDIRECTS = 3;
+
+/**
+ * 手动跟随重定向，每一跳都重新校验目标地址。
+ * 直接 fetch 自动跟随会把 302 到内网/私有地址的 SSRF 绕过校验。
+ */
+async function fetchWithSafeRedirects(url: string, maxRedirects = MAX_REDIRECTS): Promise<Response> {
+  let current = url;
+
+  for (let hop = 0; hop <= maxRedirects; hop += 1) {
+    if (isPrivateUrl(current)) throw new Error('不允许下载内网或私有地址的资源');
+
+    const response = await fetch(current, {
+      method: 'GET',
+      headers: { 'User-Agent': 'OSSshelf/1.0' },
+      redirect: 'manual',
+    });
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('Location');
+      if (!location) return response;
+      current = new URL(location, current).toString();
+      continue;
+    }
+
+    return response;
+  }
+
+  throw new Error('重定向次数过多');
+}
+
 async function runDownload({ db, userId, taskId, task, bucketConfig }: RunDownloadParams): Promise<void> {
   if (!bucketConfig) return;
   const { url, fileName, parentId } = task;
-  const resolvedFileName = fileName || 'downloaded_file';
+  const resolvedFileName = normalizeEntryName(fileName || 'downloaded_file');
+  const safeParentId = normalizeParentId(parentId);
   let downloadedBytes = 0;
   let totalSize = 0;
   const now = new Date().toISOString();
@@ -110,9 +144,7 @@ async function runDownload({ db, userId, taskId, task, bucketConfig }: RunDownlo
       .set({ status: 'downloading', updatedAt: new Date().toISOString() })
       .where(eq(downloadTasks.id, taskId));
 
-    if (isPrivateUrl(url)) throw new Error('不允许下载内网或私有地址的资源');
-
-    const response = await fetch(url, { method: 'GET', headers: { 'User-Agent': 'OSSshelf/1.0' } });
+    const response = await fetchWithSafeRedirects(url);
     if (!response.ok) throw new Error(`下载失败: HTTP ${response.status}`);
 
     const contentLength = response.headers.get('Content-Length');
@@ -146,6 +178,12 @@ async function runDownload({ db, userId, taskId, task, bucketConfig }: RunDownlo
       if (done) break;
       chunks.push(value);
       downloadedBytes += value.length;
+
+      // 服务端未提供 Content-Length 时也要有硬上限，避免无限缓冲
+      if (downloadedBytes > MAX_FILE_SIZE) {
+        throw new Error(`文件大小超过限制（最大 ${MAX_FILE_SIZE / 1024 / 1024 / 1024}GB）`);
+      }
+
       const nowTs = Date.now();
       if (nowTs - lastProgressUpdate >= PROGRESS_UPDATE_INTERVAL) {
         const progress = fileSize > 0 ? Math.round((downloadedBytes / fileSize) * 100) : 0;
@@ -158,6 +196,17 @@ async function runDownload({ db, userId, taskId, task, bucketConfig }: RunDownlo
     }
 
     totalSize = downloadedBytes;
+
+    // Content-Length 缺失时前面按 0 校验过配额，这里用真实大小再校验一次
+    if (totalSize > MAX_FILE_SIZE) {
+      throw new Error(`文件大小超过限制（最大 ${MAX_FILE_SIZE / 1024 / 1024 / 1024}GB）`);
+    }
+    if (freshUser.storageQuota! < 999999 * 1024 ** 3 && freshUser.storageUsed + totalSize > freshUser.storageQuota!) {
+      throw new Error('用户存储配额已满');
+    }
+    const finalQuotaErr = await checkBucketQuota(db, bucketConfig.id, totalSize);
+    if (finalQuotaErr) throw new Error(finalQuotaErr);
+
     const fileData = new Uint8Array(totalSize);
     let offset = 0;
     for (const chunk of chunks) {
@@ -167,14 +216,14 @@ async function runDownload({ db, userId, taskId, task, bucketConfig }: RunDownlo
 
     const fileId = crypto.randomUUID();
     const r2Key = `files/${userId}/${fileId}/${resolvedFileName}`;
-    const path = parentId ? `${parentId}/${resolvedFileName}` : `/${resolvedFileName}`;
+    const path = buildFilePath(safeParentId, resolvedFileName);
 
     await s3Put(bucketConfig, r2Key, fileData, contentType, undefined, totalSize);
 
     await db.insert(files).values({
       id: fileId,
       userId,
-      parentId: parentId || null,
+      parentId: safeParentId,
       name: resolvedFileName,
       path,
       type: 'file',
@@ -189,9 +238,7 @@ async function runDownload({ db, userId, taskId, task, bucketConfig }: RunDownlo
       deletedAt: null,
     });
 
-    await updateUserStorage(db, userId, totalSize);
-
-    await updateBucketStats(db, bucketConfig.id, totalSize, 1);
+    // 存储统计由 files 触发器统一维护。
 
     await db
       .update(downloadTasks)
@@ -219,6 +266,8 @@ app.post('/create', async (c) => {
 
   const { url, fileName, parentId, bucketId } = result.data;
   const db = getDb(c.env.DB);
+  const resolvedFileName = normalizeEntryName(fileName || getFileNameFromUrl(url));
+  const safeParentId = normalizeParentId(parentId);
 
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
   if (!user) {
@@ -226,14 +275,13 @@ app.post('/create', async (c) => {
   }
 
   const encKey = getEncryptionKey(c.env);
-  const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, parentId);
+  const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, safeParentId);
   if (!bucketConfig) {
     throwAppError('NO_STORAGE_CONFIGURED', '未配置存储桶');
   }
 
   const taskId = crypto.randomUUID();
   const now = new Date().toISOString();
-  const resolvedFileName = fileName || getFileNameFromUrl(url);
 
   await db.insert(downloadTasks).values({
     id: taskId,
@@ -241,7 +289,7 @@ app.post('/create', async (c) => {
     url,
     fileName: resolvedFileName,
     fileSize: null,
-    parentId: parentId || null,
+    parentId: safeParentId,
     bucketId: bucketConfig.id,
     status: 'pending',
     progress: 0,
@@ -268,7 +316,7 @@ app.post('/create', async (c) => {
       db,
       userId,
       taskId,
-      task: { url, fileName: resolvedFileName, parentId: parentId || null, bucketId: bucketConfig.id },
+      task: { url, fileName: resolvedFileName, parentId: safeParentId, bucketId: bucketConfig.id },
       bucketConfig,
       env: c.env,
     })
@@ -289,8 +337,10 @@ app.post('/create', async (c) => {
 app.get('/list', async (c) => {
   const userId = c.get('userId')!;
   const status = c.req.query('status') as 'pending' | 'downloading' | 'completed' | 'failed' | undefined;
-  const page = parseInt(c.req.query('page') || '1', 10);
-  const limit = parseInt(c.req.query('limit') || '20', 10);
+  const rawPage = parseInt(c.req.query('page') || '1', 10);
+  const rawLimit = parseInt(c.req.query('limit') || '20', 10);
+  const page = Number.isFinite(rawPage) ? Math.max(1, rawPage) : 1;
+  const limit = Number.isFinite(rawLimit) ? Math.min(100, Math.max(1, rawLimit)) : 20;
 
   const db = getDb(c.env.DB);
 
@@ -385,6 +435,7 @@ app.post('/batch', async (c) => {
   }
 
   const { urls, parentId, bucketId } = result.data;
+  const safeParentId = normalizeParentId(parentId);
   const db = getDb(c.env.DB);
 
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
@@ -393,7 +444,7 @@ app.post('/batch', async (c) => {
   }
 
   const encKey = getEncryptionKey(c.env);
-  const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, parentId);
+  const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, safeParentId);
   if (!bucketConfig) {
     throwAppError('NO_STORAGE_CONFIGURED', '未配置存储桶');
   }
@@ -413,14 +464,14 @@ app.post('/batch', async (c) => {
     }
     try {
       const taskId = crypto.randomUUID();
-      const fileName = getFileNameFromUrl(url);
+      const fileName = normalizeEntryName(getFileNameFromUrl(url));
       await db.insert(downloadTasks).values({
         id: taskId,
         userId,
         url,
         fileName,
         fileSize: null,
-        parentId: parentId || null,
+        parentId: safeParentId,
         bucketId: bucketConfig.id,
         status: 'pending',
         progress: 0,
@@ -434,7 +485,7 @@ app.post('/batch', async (c) => {
           db,
           userId,
           taskId,
-          task: { url, fileName, parentId: parentId || null, bucketId: bucketConfig.id },
+          task: { url, fileName, parentId: safeParentId, bucketId: bucketConfig.id },
           bucketConfig,
           env: c.env,
         })

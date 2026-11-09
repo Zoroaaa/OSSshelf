@@ -11,11 +11,11 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, inArray, isNull, sql } from 'drizzle-orm';
-import { getDb, files, shares, storageBuckets, telegramFileRefs, users } from '../db';
+import { eq, and, inArray, isNull, sql, gt, count } from 'drizzle-orm';
+import { getDb, files, shares, storageBuckets, telegramFileRefs, users, loginAttempts } from '../db';
 import { s3Get, s3Put } from '../lib/s3client';
-import { resolveBucketConfig, updateBucketStats, updateUserStorage } from '../lib/bucketResolver';
-import { authMiddleware } from '../middleware/auth';
+import { resolveBucketConfig } from '../lib/bucketResolver';
+import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
 import {
   ERROR_CODES,
   SHARE_DEFAULT_EXPIRY,
@@ -24,6 +24,7 @@ import {
   isPreviewableMimeType,
   getPreviewType,
   logger,
+  type ErrorInfo,
 } from '@osshelf/shared';
 import { getEncryptionKey, verifyPassword } from '../lib/crypto';
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
@@ -32,6 +33,7 @@ import { isChunkedFileId, tgDownloadChunked, needsChunking, tgUploadChunked } fr
 import { decryptSecret } from '../lib/s3client';
 import { ZipBuilder } from '../lib/zipStream';
 import { encodeFilename } from '../lib/utils';
+import { normalizeEntryName } from '../lib/pathUtils';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
@@ -98,6 +100,48 @@ async function timingSafeEqual(a: string, b: string): Promise<boolean> {
 }
 
 /**
+ * 统一的分享密码校验入口（限流 + 常量时间比较 + 旧明文兼容）。
+ * 下载分享与上传分享共用，避免各处各写一份限流逻辑。
+ */
+async function verifySharePassword(
+  env: Env | undefined,
+  shareId: string,
+  attempt: string,
+  stored: string
+): Promise<{ ok: true } | { ok: false; error: { code: ErrorInfo; message: string }; status: 401 | 429 }> {
+  const rateKey = `share_pwd_attempt:${shareId}`;
+  if (env) {
+    const count = parseInt((await env.KV.get(rateKey)) || '0', 10);
+    if (count >= 10) {
+      return {
+        ok: false,
+        error: { code: ERROR_CODES.RATE_LIMIT_EXCEEDED, message: '密码尝试次数过多，请稍后再试' },
+        status: 429,
+      };
+    }
+  }
+
+  const valid = stored.startsWith('pbkdf2:')
+    ? await verifyPassword(attempt, stored)
+    : await timingSafeEqual(stored, attempt);
+
+  if (!valid) {
+    if (env) {
+      const prev = parseInt((await env.KV.get(rateKey)) || '0', 10);
+      await env.KV.put(rateKey, String(prev + 1), { expirationTtl: 300 });
+    }
+    return {
+      ok: false,
+      error: { code: ERROR_CODES.SHARE_PASSWORD_INVALID, message: '密码错误' },
+      status: 401,
+    };
+  }
+
+  if (env) await env.KV.delete(rateKey);
+  return { ok: true };
+}
+
+/**
  * 验证分享链接有效性（expiry + password），返回 share 记录或 error。
  * 适用于下载类分享（is_upload_link = false）。
  */
@@ -116,30 +160,8 @@ async function resolveDownloadShare(db: ReturnType<typeof getDb>, shareId: strin
     if (password === undefined) {
       return { error: { code: ERROR_CODES.SHARE_PASSWORD_REQUIRED, message: '需要密码访问' }, status: 401 as const };
     }
-    if (env) {
-      const rateKey = `share_pwd_attempt:${shareId}`;
-      const count = await env.KV.get(rateKey);
-      if (count && parseInt(count) >= 10) {
-        return {
-          error: { code: 'RATE_LIMIT_EXCEEDED', message: '密码尝试次数过多，请稍后再试' },
-          status: 429 as const,
-        };
-      }
-    }
-    const valid = share.password.startsWith('pbkdf2:')
-      ? await verifyPassword(password, share.password)
-      : await timingSafeEqual(share.password, password);
-    if (!valid) {
-      if (env) {
-        const rateKey = `share_pwd_attempt:${shareId}`;
-        const prev = await env.KV.get(rateKey);
-        await env.KV.put(rateKey, String(parseInt(prev || '0') + 1), { expirationTtl: 300 });
-      }
-      return { error: { code: ERROR_CODES.SHARE_PASSWORD_INVALID, message: '密码错误' }, status: 401 as const };
-    }
-    if (env) {
-      await env.KV.delete(`share_pwd_attempt:${shareId}`);
-    }
+    const verified = await verifySharePassword(env, shareId, password, share.password);
+    if (!verified.ok) return { error: verified.error, status: verified.status };
   }
   return { share };
 }
@@ -147,7 +169,7 @@ async function resolveDownloadShare(db: ReturnType<typeof getDb>, shareId: strin
 /**
  * 验证上传链接有效性（token + expiry + password）。
  */
-async function resolveUploadShare(db: ReturnType<typeof getDb>, uploadToken: string, password?: string) {
+async function resolveUploadShare(db: ReturnType<typeof getDb>, uploadToken: string, password?: string, env?: Env) {
   const share = await db.select().from(shares).where(eq(shares.uploadToken, uploadToken)).get();
   if (!share) return { error: { code: ERROR_CODES.NOT_FOUND, message: '上传链接不存在' }, status: 404 as const };
   if (!share.isUploadLink)
@@ -162,12 +184,8 @@ async function resolveUploadShare(db: ReturnType<typeof getDb>, uploadToken: str
     if (password === undefined) {
       return { error: { code: ERROR_CODES.SHARE_PASSWORD_REQUIRED, message: '需要密码访问' }, status: 401 as const };
     }
-    const valid = share.password.startsWith('pbkdf2:')
-      ? await verifyPassword(password, share.password)
-      : await timingSafeEqual(share.password, password); // 兼容旧明文记录，使用常量时间比较
-    if (!valid) {
-      return { error: { code: ERROR_CODES.SHARE_PASSWORD_INVALID, message: '密码错误' }, status: 401 as const };
-    }
+    const verified = await verifySharePassword(env, share.id, password, share.password);
+    if (!verified.ok) return { error: verified.error, status: verified.status };
   }
   return { share };
 }
@@ -262,7 +280,7 @@ async function collectFolderFiles(
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ── Create download share ────────────────────────────────────────────────
-app.post('/', authMiddleware, async (c) => {
+app.post('/', authMiddleware, requireApiKeyScope('shares:read', 'shares:write'), async (c) => {
   const userId = c.get('userId')!;
   const body = await c.req.json();
   const result = createShareSchema.safeParse(body);
@@ -312,7 +330,7 @@ app.post('/', authMiddleware, async (c) => {
 });
 
 // ── List user's shares ────────────────────────────────────────────────────
-app.get('/', authMiddleware, async (c) => {
+app.get('/', authMiddleware, requireApiKeyScope('shares:read', 'shares:write'), async (c) => {
   const userId = c.get('userId')!;
   const db = getDb(c.env.DB);
 
@@ -337,7 +355,7 @@ app.get('/', authMiddleware, async (c) => {
 });
 
 // ── Delete share ──────────────────────────────────────────────────────────
-app.delete('/:id', authMiddleware, async (c) => {
+app.delete('/:id', authMiddleware, requireApiKeyScope('shares:read', 'shares:write'), async (c) => {
   const userId = c.get('userId')!;
   const shareId = c.req.param('id');
 
@@ -354,7 +372,7 @@ app.delete('/:id', authMiddleware, async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ── Create upload link ────────────────────────────────────────────────────
-app.post('/upload-link', authMiddleware, async (c) => {
+app.post('/upload-link', authMiddleware, requireApiKeyScope('shares:read', 'shares:write'), async (c) => {
   const userId = c.get('userId')!;
   const body = await c.req.json();
   const result = createUploadLinkSchema.safeParse(body);
@@ -403,9 +421,11 @@ app.post('/upload-link', authMiddleware, async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ── Public: get share info（含文件夹子文件列表）────────────────────────────
-app.get('/:id', async (c) => {
+// POST /api/share/:id  body: { password? } —— 密码走 body，避免出现在 URL / 访问日志
+app.post('/:id', async (c) => {
   const shareId = c.req.param('id');
-  const password = c.req.query('password');
+  const body = await c.req.json().catch(() => ({}) as Record<string, unknown>);
+  const password = typeof body?.password === 'string' ? body.password : undefined;
   const db = getDb(c.env.DB);
 
   const resolved = await resolveDownloadShare(db, shareId, password, c.env);
@@ -507,11 +527,12 @@ async function validateSubfolder(
 }
 
 // ── Public: get subfolder contents（获取子文件夹内容）────────────────────────
-// GET /api/share/:id/folder/:folderId?password=...
-app.get('/:id/folder/:folderId', async (c) => {
+// POST /api/share/:id/folder/:folderId  body: { password? }
+app.post('/:id/folder/:folderId', async (c) => {
   const shareId = c.req.param('id');
   const folderId = c.req.param('folderId');
-  const password = c.req.query('password');
+  const body = await c.req.json().catch(() => ({}) as Record<string, unknown>);
+  const password = typeof body?.password === 'string' ? body.password : undefined;
   const db = getDb(c.env.DB);
 
   const resolved = await resolveDownloadShare(db, shareId, password, c.env);
@@ -1292,7 +1313,7 @@ app.get('/upload/:token', async (c) => {
   const password = c.req.query('password');
   const db = getDb(c.env.DB);
 
-  const resolved = await resolveUploadShare(db, token, password);
+  const resolved = await resolveUploadShare(db, token, password, c.env);
   if ('error' in resolved) {
     return c.json({ success: false, error: resolved.error }, resolved.status);
   }
@@ -1340,28 +1361,51 @@ app.post('/upload/:token', async (c) => {
   if (!uploadFile) {
     throwAppError('VALIDATION_ERROR', '请选择文件');
   }
+  // 统一入口：文件名先校验/规范化
+  const safeFileName = normalizeEntryName(uploadFile.name);
 
   const db = getDb(c.env.DB);
-  const resolved = await resolveUploadShare(db, token, password ?? undefined);
+
+  // 上传链接密码尝试限流：同一 token + IP 15 分钟内最多 10 次失败
+  const attemptKey = `share-upload:${token}`;
+  const clientIp = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown';
+  const attemptWindowStart = new Date(Date.now() - 15 * 60_000).toISOString();
+  const failedAttempts = await db
+    .select({ cnt: count(loginAttempts.id) })
+    .from(loginAttempts)
+    .where(
+      and(
+        eq(loginAttempts.email, attemptKey),
+        eq(loginAttempts.ipAddress, clientIp),
+        eq(loginAttempts.success, false),
+        gt(loginAttempts.createdAt, attemptWindowStart)
+      )
+    )
+    .get();
+
+  if ((failedAttempts?.cnt ?? 0) >= 10) {
+    return c.json(
+      { success: false, error: { code: 'RATE_LIMIT_EXCEEDED', message: '密码错误次数过多，请稍后再试' } },
+      429
+    );
+  }
+
+  const resolved = await resolveUploadShare(db, token, password ?? undefined, c.env);
   if ('error' in resolved) {
+    if (resolved.error?.code === ERROR_CODES.SHARE_PASSWORD_INVALID) {
+      await db.insert(loginAttempts).values({
+        id: crypto.randomUUID(),
+        email: attemptKey,
+        ipAddress: clientIp,
+        success: false,
+        userAgent: c.req.header('User-Agent') ?? null,
+        createdAt: new Date().toISOString(),
+      });
+    }
     return c.json({ success: false, error: resolved.error }, resolved.status);
   }
 
   const { share } = resolved;
-
-  // 检查上传数量限制
-  if (share.maxUploadCount !== null && share.uploadCount >= share.maxUploadCount) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.VALIDATION_ERROR,
-          message: `此上传链接最多允许上传 ${share.maxUploadCount} 个文件，已达上限`,
-        },
-      },
-      403
-    );
-  }
 
   // 检查文件大小
   const maxSize = share.maxUploadSize ?? MAX_FILE_SIZE;
@@ -1379,7 +1423,7 @@ app.post('/upload/:token', async (c) => {
   }
 
   // 检查 MIME 类型（优先使用上传链接自身的限制，其次继承文件夹限制）
-  const fileMime = inferMimeType(uploadFile.name, uploadFile.type);
+  const fileMime = inferMimeType(safeFileName, uploadFile.type);
   const parsedLinkMimes: string[] | null = share.uploadAllowedMimeTypes
     ? JSON.parse(share.uploadAllowedMimeTypes)
     : null;
@@ -1447,14 +1491,38 @@ app.post('/upload/:token', async (c) => {
 
   const fileId = crypto.randomUUID();
   const now = new Date().toISOString();
-  const r2Key = `files/${folderOwnerId}/${fileId}/${encodeFilename(uploadFile.name)}`;
-  const path = `${share.fileId}/${uploadFile.name}`;
+  const r2Key = `files/${folderOwnerId}/${fileId}/${encodeFilename(safeFileName)}`;
+  const path = `${share.fileId}/${safeFileName}`;
+
+  // 原子占用一次上传名额：先读后增在并发下会突破 maxUploadCount
+  const reservation = await db
+    .update(shares)
+    .set({ uploadCount: sql`${shares.uploadCount} + 1` })
+    .where(
+      share.maxUploadCount !== null
+        ? and(eq(shares.id, share.id), sql`${shares.uploadCount} < ${share.maxUploadCount}`)
+        : eq(shares.id, share.id)
+    )
+    .returning({ uploadCount: shares.uploadCount });
+
+  if (reservation.length === 0) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.VALIDATION_ERROR,
+          message: `此上传链接最多允许上传 ${share.maxUploadCount} 个文件，已达上限`,
+        },
+      },
+      403
+    );
+  }
+  const newUploadCount = reservation[0].uploadCount;
+
   const fileBuffer = await uploadFile.arrayBuffer();
 
   // 写入存储
-  let isTelegram = false;
   if (bucketConfig?.provider === 'telegram') {
-    isTelegram = true;
     const bkt = await db.select().from(storageBuckets).where(eq(storageBuckets.id, bucketConfig.id)).get();
     if (!bkt) {
       throwAppError('TG_CONFIG_ERROR', '无法加载 Telegram 配置');
@@ -1468,12 +1536,12 @@ app.post('/upload/:token', async (c) => {
     let tgFileId: string;
     let tgFileSize: number;
     if (needsChunking(fileBuffer.byteLength)) {
-      const chunked = await tgUploadChunked(tgConfig, fileBuffer, uploadFile.name, fileMime, db, bucketConfig.id);
+      const chunked = await tgUploadChunked(tgConfig, fileBuffer, safeFileName, fileMime, db, bucketConfig.id);
       tgFileId = chunked.virtualFileId;
       tgFileSize = chunked.totalBytes;
     } else {
-      const caption = `📁 ${uploadFile.name}\n🗂 OSSshelf Upload Link | ${now.slice(0, 10)}`;
-      const result = await tgUploadFile(tgConfig, fileBuffer, uploadFile.name, fileMime, caption);
+      const caption = `📁 ${safeFileName}\n🗂 OSSshelf Upload Link | ${now.slice(0, 10)}`;
+      const result = await tgUploadFile(tgConfig, fileBuffer, safeFileName, fileMime, caption);
       tgFileId = result.fileId;
       tgFileSize = result.fileSize;
     }
@@ -1489,13 +1557,13 @@ app.post('/upload/:token', async (c) => {
   } else if (bucketConfig) {
     await s3Put(bucketConfig, r2Key, fileBuffer, fileMime, {
       userId: folderOwnerId,
-      originalName: uploadFile.name,
+      originalName: safeFileName,
       uploadedVia: 'upload-link',
     });
   } else if (c.env.FILES) {
     await c.env.FILES.put(r2Key, fileBuffer, {
       httpMetadata: { contentType: fileMime },
-      customMetadata: { userId: folderOwnerId, originalName: uploadFile.name },
+      customMetadata: { userId: folderOwnerId, originalName: safeFileName },
     });
   }
 
@@ -1504,7 +1572,7 @@ app.post('/upload/:token', async (c) => {
     id: fileId,
     userId: folderOwnerId,
     parentId: share.fileId,
-    name: uploadFile.name,
+    name: safeFileName,
     path,
     type: 'file',
     size: uploadFile.size,
@@ -1519,17 +1587,7 @@ app.post('/upload/:token', async (c) => {
     deletedAt: null,
   });
 
-  if (bucketConfig) {
-    await updateBucketStats(db, bucketConfig.id, isTelegram ? uploadFile.size : uploadFile.size, 1);
-  }
-
-  await updateUserStorage(db, folderOwnerId, uploadFile.size);
-
-  // 更新上传链接计数
-  await db
-    .update(shares)
-    .set({ uploadCount: sql`${shares.uploadCount} + 1` })
-    .where(eq(shares.id, share.id));
+  // 存储统计由 files 触发器统一维护。
 
   c.executionCtx.waitUntil(
     (async () => {
@@ -1538,14 +1596,14 @@ app.post('/upload/:token', async (c) => {
           userId: share.userId,
           type: 'upload_link_received',
           title: '您的上传链接收到新文件',
-          body: `文件「${uploadFile.name}」已通过上传链接上传到文件夹「${folder.name}」`,
+          body: `文件「${safeFileName}」已通过上传链接上传到文件夹「${folder.name}」`,
           data: {
             shareId: share.id,
             fileId,
-            fileName: uploadFile.name,
+            fileName: safeFileName,
             folderId: share.fileId,
             folderName: folder.name,
-            uploadCount: share.uploadCount + 1,
+            uploadCount: newUploadCount,
           },
         });
       } catch (error) {
@@ -1558,7 +1616,7 @@ app.post('/upload/:token', async (c) => {
     success: true,
     data: {
       id: fileId,
-      name: uploadFile.name,
+      name: safeFileName,
       size: uploadFile.size,
       mimeType: fileMime,
       createdAt: now,

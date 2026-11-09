@@ -31,6 +31,8 @@ import {
 import { readFileContent } from '../../../lib/fileContentHelper';
 import { buildFileTextForVector } from '../vectorIndex';
 import { getAiConfigNumber, getAiConfigString } from '../aiConfigService';
+import { canGenerateSummary, isImageFile } from '../features';
+import { createTaskRecord, enqueueAiTasks } from '../aiTaskQueue';
 import { validateFileAccess, createSuccessResponse, createErrorResponse } from './agentToolUtils';
 import { getFilesByScope as serviceGetFilesByScope } from '../../../lib/fileService';
 
@@ -631,13 +633,29 @@ export class ContentTools {
       };
     }
 
-    return {
-      fileId,
-      fileName: file.name,
-      status: 'queued',
-      message: 'AI 摘要生成任务已加入队列，完成后将自动更新',
-      _next_actions: ['可通过 get_file_detail 查看更新后的摘要状态'],
-    };
+    if (!canGenerateSummary(file.mimeType, file.name)) {
+      return { error: '该文件类型不支持生成摘要', fileId, fileName: file.name };
+    }
+
+    if (!env.AI_TASKS_QUEUE) {
+      return { error: 'AI 任务队列未配置，无法提交摘要任务', fileId };
+    }
+
+    try {
+      const task = await createTaskRecord(env, 'summary', userId, 1);
+      await enqueueAiTasks(env, 'summary', [fileId], userId, task.id);
+      return {
+        fileId,
+        fileName: file.name,
+        status: 'queued',
+        taskId: task.id,
+        message: 'AI 摘要生成任务已加入队列，完成后将自动更新',
+        _next_actions: ['可通过 get_file_detail 查看更新后的摘要状态'],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '入队失败';
+      return { error: `摘要任务入队失败：${message}`, fileId };
+    }
   }
 
   static async executeGenerateTags(env: Env, userId: string, args: Record<string, unknown>) {
@@ -653,14 +671,30 @@ export class ContentTools {
 
     if (!file) return { error: '文件不存在或无权访问', fileId };
 
-    return {
-      fileId,
-      fileName: file.name,
-      maxTags,
-      status: 'queued',
-      message: `AI 标签生成任务已加入队列，最多生成 ${maxTags} 个标签`,
-      _next_actions: ['可通过 get_file_detail 查看更新后的标签状态', '可通过 search_by_tag 按新标签搜索文件'],
-    };
+    if (!isImageFile(file.mimeType)) {
+      return { error: '仅支持为图片文件生成标签', fileId, fileName: file.name };
+    }
+
+    if (!env.AI_TASKS_QUEUE) {
+      return { error: 'AI 任务队列未配置，无法提交标签任务', fileId };
+    }
+
+    try {
+      const task = await createTaskRecord(env, 'tags', userId, 1);
+      await enqueueAiTasks(env, 'tags', [fileId], userId, task.id);
+      return {
+        fileId,
+        fileName: file.name,
+        maxTags,
+        status: 'queued',
+        taskId: task.id,
+        message: `AI 标签生成任务已加入队列，最多生成 ${maxTags} 个标签`,
+        _next_actions: ['可通过 get_file_detail 查看更新后的标签状态', '可通过 search_by_tag 按新标签搜索文件'],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '入队失败';
+      return { error: `标签任务入队失败：${message}`, fileId };
+    }
   }
 
   static async executeContentPreview(env: Env, userId: string, args: Record<string, unknown>) {

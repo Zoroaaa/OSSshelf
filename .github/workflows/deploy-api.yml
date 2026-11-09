@@ -73,6 +73,7 @@ jobs:
           main = "src/index.ts"
           compatibility_date = "2026-05-01"
           compatibility_flags = ["nodejs_compat"]
+          upload_source_maps = true
 
           [ai]
           binding = "AI"
@@ -122,11 +123,9 @@ jobs:
 
           [vars]
           ENVIRONMENT = "production"
-          JWT_SECRET = "${{ secrets.JWT_SECRET }}"
           PUBLIC_URL = "${{ secrets.PUBLIC_URL }}"
           CORS_ORIGINS = "${{ secrets.CORS_ORIGINS }}"
           TRASH_RETENTION_DAYS = "${{ secrets.TRASH_RETENTION_DAYS || '30' }}"
-          ALERT_TG_BOT_TOKEN = "${{ secrets.ALERT_TG_BOT_TOKEN }}"
           ALERT_TG_CHAT_ID = "${{ secrets.ALERT_TG_CHAT_ID }}"
           CF_ACCOUNT_ID = "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
           CF_API_TOKEN = "${{ secrets.CF_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}"
@@ -134,6 +133,24 @@ jobs:
           [triggers]
           crons = ["0 3 * * *"]
           EOF
+
+      - name: Configure Worker secrets
+        run: |
+          echo "${{ secrets.JWT_SECRET }}" | npx wrangler secret put JWT_SECRET
+          if [ -n "${{ secrets.ALERT_TG_BOT_TOKEN }}" ]; then
+            echo "${{ secrets.ALERT_TG_BOT_TOKEN }}" | npx wrangler secret put ALERT_TG_BOT_TOKEN
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Apply D1 migrations
+        # 以 SQL 迁移为唯一事实源：部署前先应用未执行的迁移，避免代码先于表结构上线
+        run: npx wrangler d1 migrations apply ossshelf-db --remote
+        working-directory: apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy to Cloudflare Workers
         run: pnpm deploy:api

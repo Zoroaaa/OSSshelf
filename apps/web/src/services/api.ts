@@ -60,7 +60,9 @@ export type {
   BucketStatItem,
 } from './storage';
 
-export const { PROVIDER_META } = await import('./storage');
+import api from './api-client';
+
+export { PROVIDER_META } from './storage';
 
 export { shareApi, permissionsApi, groupsApi, webhooksApi, notificationsApi } from './collab';
 
@@ -136,4 +138,4 @@ export type {
   AiChatSession,
 } from './ai';
 
-export default (await import('./api-client')).default;
+export default api;

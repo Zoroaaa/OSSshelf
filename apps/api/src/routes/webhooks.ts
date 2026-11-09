@@ -17,21 +17,14 @@ import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
-import { dispatchWebhook, WEBHOOK_EVENTS, type WebhookEvent } from '../lib/webhook';
+import { sendWebhookToHook, WEBHOOK_EVENTS, type WebhookEvent } from '../lib/webhook';
 import { sendNotification } from '../lib/notificationUtils';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
 
-const VALID_EVENTS: WebhookEvent[] = [
-  'file.uploaded',
-  'file.deleted',
-  'file.updated',
-  'share.created',
-  'share.deleted',
-  'permission.granted',
-  'permission.revoked',
-];
+/** 由 WEBHOOK_EVENTS 派生，避免展示列表与校验列表漂移 */
+const VALID_EVENTS: WebhookEvent[] = WEBHOOK_EVENTS.map((e) => e.value).filter((v): v is WebhookEvent => v !== '*');
 
 const createWebhookSchema = z.object({
   url: z.string().url('请输入有效的 URL'),
@@ -299,10 +292,15 @@ app.post('/:id/test', async (c) => {
     throwAppError('WEBHOOK_NOT_FOUND', 'Webhook 不存在');
   }
 
-  await dispatchWebhook(c.env, userId, 'file.uploaded', {
-    test: true,
-    message: '这是一个测试事件',
-    triggeredAt: new Date().toISOString(),
+  const timestamp = new Date().toISOString();
+  await sendWebhookToHook(c.env, webhook, {
+    event: 'file.uploaded',
+    timestamp,
+    data: {
+      test: true,
+      message: '这是一个测试事件',
+      triggeredAt: timestamp,
+    },
   });
 
   return c.json({ success: true, data: { message: '测试事件已发送' } });

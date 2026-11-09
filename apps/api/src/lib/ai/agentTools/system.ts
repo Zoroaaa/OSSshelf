@@ -11,7 +11,7 @@
 import { eq, and, isNull, desc, sql, like, or, count } from 'drizzle-orm';
 import { getDb, files, apiKeys, webhooks, auditLogs } from '../../../db';
 import type { Env } from '../../../types/env';
-import { logger } from '@osshelf/shared';
+import { APP_VERSION, logger } from '@osshelf/shared';
 import type { ToolDefinition } from './types';
 import { formatBytes } from '../utils';
 
@@ -433,7 +433,7 @@ export class SystemTools {
 
   static async executeGetVersionInfo(_env: Env, _userId: string, _args: Record<string, unknown>) {
     return {
-      version: '1.0.0',
+      version: APP_VERSION,
       releaseDate: '2025-01-01',
       features: ['AI智能助手', '向量搜索', '多存储桶支持', '版本管理'],
       changelog: [{ version: '1.0.0', date: '2025-01-01', changes: '初始版本发布' }],

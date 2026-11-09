@@ -275,7 +275,7 @@ export function ProviderConnectionModal({ preset, connection, onClose, onSaved }
                 placeholder="https://api.example.com/v1"
               />
               <p className="text-[11px] text-muted-foreground mt-1">
-                填到 /v1 或 /v3 为止，不要包含 /chat/completions。本地 Ollama 可用 http://localhost:11434/v1。
+                填到 /v1 或 /v3 为止，不要包含 /chat/completions。必须是公网可访问的 https 地址。
               </p>
             </div>
 
@@ -292,7 +292,7 @@ export function ProviderConnectionModal({ preset, connection, onClose, onSaved }
                   if (event.target.value) setClearApiKey(false);
                 }}
                 className="w-full px-3 py-2 border rounded-lg bg-background text-sm"
-                placeholder={workingConnection?.hasApiKey ? '已保存，留空保持不变' : '输入 API Key（本地端点可留空）'}
+                placeholder={workingConnection?.hasApiKey ? '已保存，留空保持不变' : '输入 API Key（无鉴权端点可留空）'}
               />
               {workingConnection?.hasApiKey && (
                 <label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">

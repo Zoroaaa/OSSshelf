@@ -95,7 +95,7 @@ export function mapModelConfig(raw: Record<string, unknown>, provider?: AiProvid
     inputModalities: parseStringArray(raw.inputModalities, ['text']),
     pricing: raw.pricingJson ? (parseJsonObject(raw.pricingJson) as ModelConfig['pricing']) : undefined,
     metadataSource: (raw.metadataSource as string | undefined) ?? undefined,
-    temperature: (raw.temperature as number) || 0.7,
+    temperature: (raw.temperature as number | null | undefined) ?? 0.7,
     systemPrompt: raw.systemPrompt as string | undefined,
     configJson: parseJsonObject(raw.configJson),
     createdAt: raw.createdAt as string,

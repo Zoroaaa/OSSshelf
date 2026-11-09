@@ -24,9 +24,11 @@ import {
   teamResources,
   roleTemplates,
 } from '../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, denyApiKeyAuth } from '../middleware/auth';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
+import { pathPrefixCondition } from '../lib/pathUtils';
+import { teamRoleAllows } from '../lib/teamPolicy';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
@@ -54,6 +56,7 @@ import {
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
+app.use('*', denyApiKeyAuth());
 
 const grantPermissionSchema = z.object({
   fileId: z.string().min(1),
@@ -316,7 +319,7 @@ app.post('/grant', async (c) => {
       .where(and(eq(teamMembers.teamId, teamId!), eq(teamMembers.userId, userId)))
       .get();
 
-    if (!teamMembership || (teamMembership.role !== 'admin' && teamMembership.role !== 'owner')) {
+    if (!teamMembership || !teamRoleAllows(teamMembership.role, 'admin')) {
       throwAppError('FORBIDDEN', '只有团队管理员可以授予团队权限');
     }
   }
@@ -368,11 +371,10 @@ app.post('/grant', async (c) => {
 
   // 文件夹授权：根据用户选择决定是否穿透下级
   if (file.isFolder && inheritToChildren) {
-    const folderPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
     const childFiles = await db
       .select({ id: files.id })
       .from(files)
-      .where(and(eq(files.userId, file.userId), isNull(files.deletedAt), like(files.path, `${folderPath}/%`)))
+      .where(and(eq(files.userId, file.userId), isNull(files.deletedAt), pathPrefixCondition(files.path, file.path)))
       .all();
 
     for (const child of childFiles) {

@@ -12,7 +12,6 @@ export { FolderSettings } from './FolderSettings';
 export { StorageBar } from './StorageBar';
 export { VersionHistory } from './VersionHistory';
 export { StarButton } from './StarButton';
-export { StarredFiles } from './StarredFiles';
 export { ShareTargetInbox } from './ShareTargetInbox';
 
 export {

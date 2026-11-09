@@ -35,12 +35,16 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
   const [ftsSearch, setFtsSearch] = useState(false);
   const [aiConfigured, setAiConfigured] = useState(false);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suggestionsAbortRef = useRef<AbortController | null>(null);
+  // 记录最新一次建议请求，丢弃过期响应，避免慢请求覆盖新结果
+  const suggestionsSeqRef = useRef(0);
 
   useEffect(() => {
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
+      suggestionsAbortRef.current?.abort();
     };
   }, []);
 
@@ -110,14 +114,23 @@ export function useFileSearch({ folderId }: UseFileSearchProps) {
           setSearchQuery(value);
         }, SEARCH_DEBOUNCE_MS);
 
+        // 取消上一次建议请求并按序号丢弃过期响应，避免竞态覆盖
+        suggestionsAbortRef.current?.abort();
+        const controller = new AbortController();
+        suggestionsAbortRef.current = controller;
+        const seq = ++suggestionsSeqRef.current;
+
         try {
-          const res = await searchApi.suggestions({ q: value, type: 'name' });
+          const res = await searchApi.suggestions({ q: value, type: 'name' }, controller.signal);
+          if (controller.signal.aborted || seq !== suggestionsSeqRef.current) return;
           setSearchSuggestions(res.data.data ?? []);
           setShowSuggestions(true);
         } catch {
+          if (controller.signal.aborted || seq !== suggestionsSeqRef.current) return;
           setSearchSuggestions([]);
         }
       } else {
+        suggestionsAbortRef.current?.abort();
         setSearchQuery('');
         setSearchSuggestions([]);
         setShowSuggestions(false);

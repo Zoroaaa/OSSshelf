@@ -46,20 +46,7 @@ export interface Env {
   ALERT_TG_BOT_TOKEN?: string;
   ALERT_TG_CHAT_ID?: string;
   AUDIT_RETENTION_DAYS?: string;
-  TELEGRAM_BOT_TOKEN?: string;
-  TELEGRAM_API_ID?: string;
-  TELEGRAM_API_HASH?: string;
-  TELEGRAM_SESSION?: string;
-  EMAIL_FROM?: string;
-  RESEND_API_KEY?: string;
-  SMTP_HOST?: string;
-  SMTP_PORT?: string;
-  SMTP_USER?: string;
-  SMTP_PASS?: string;
-  INVITE_CODE?: string;
-  DISABLE_REGISTRATION?: string;
-  MAX_FILE_SIZE?: string;
-  MAX_STORAGE_QUOTA?: string;
+  TRASH_RETENTION_DAYS?: string;
 }
 
 export type Variables = {
@@ -68,6 +55,8 @@ export type Variables = {
   authType?: 'jwt' | 'apiKey';
   apiKeyId?: string;
   apiKeyScopes?: string[];
+  /** 处理函数上报的真实 token 用量，供 aiRateLimit 结算预扣 */
+  aiUsageTokens?: number;
 };
 
 export type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
@@ -81,6 +70,9 @@ export function getEnvNumber(env: Env, key: keyof Env, defaultValue: number): nu
 }
 export function getAuditRetentionDays(env: Env): number {
   return getEnvNumber(env, 'AUDIT_RETENTION_DAYS', 90);
+}
+export function getTrashRetentionDays(env: Env): number {
+  return getEnvNumber(env, 'TRASH_RETENTION_DAYS', 30);
 }
 export function hasTelegramAlert(env: Env): boolean {
   return !!(env.ALERT_TG_BOT_TOKEN && env.ALERT_TG_CHAT_ID);

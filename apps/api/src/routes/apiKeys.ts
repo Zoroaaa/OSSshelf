@@ -11,7 +11,7 @@
 import { Hono } from 'hono';
 import { eq, and, desc } from 'drizzle-orm';
 import { getDb, apiKeys } from '../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, denyApiKeyAuth } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
@@ -35,6 +35,8 @@ const updateApiKeySchema = z.object({
 });
 
 app.use('/*', authMiddleware);
+// 禁止 API Key 管理 API Key：否则只读 Key 可自助签发更高权限的 Key（提权链）
+app.use('/*', denyApiKeyAuth());
 
 app.get('/', async (c) => {
   const userId = c.get('userId')!;
@@ -71,7 +73,7 @@ app.post('/', async (c) => {
   const result = createApiKeySchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -83,7 +85,7 @@ app.post('/', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: `无效的权限: ${invalidScopes.join(', ')}` },
+        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: `无效的权限: ${invalidScopes.join(', ')}` },
       },
       400
     );
@@ -92,7 +94,7 @@ app.post('/', async (c) => {
   const user = c.get('user');
   if (scopes.includes('api_keys:read') && user?.role !== 'admin') {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '只有管理员可以授予 api_keys:read 权限' } },
+      { success: false, error: { code: ERROR_CODES.FORBIDDEN.code, message: '只有管理员可以授予 api_keys:read 权限' } },
       403
     );
   }
@@ -153,7 +155,7 @@ app.patch('/:id', async (c) => {
   const result = updateApiKeySchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -177,7 +179,7 @@ app.patch('/:id', async (c) => {
       return c.json(
         {
           success: false,
-          error: { code: ERROR_CODES.VALIDATION_ERROR, message: `无效的权限: ${invalidScopes.join(', ')}` },
+          error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: `无效的权限: ${invalidScopes.join(', ')}` },
         },
         400
       );
@@ -186,7 +188,10 @@ app.patch('/:id', async (c) => {
     const user = c.get('user');
     if (scopes.includes('api_keys:read') && user?.role !== 'admin') {
       return c.json(
-        { success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '只有管理员可以授予 api_keys:read 权限' } },
+        {
+          success: false,
+          error: { code: ERROR_CODES.FORBIDDEN.code, message: '只有管理员可以授予 api_keys:read 权限' },
+        },
         403
       );
     }

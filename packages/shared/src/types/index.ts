@@ -51,6 +51,11 @@ export interface FileItem {
   aiTagsAt?: string | null;
   vectorIndexedAt?: string | null;
   isStarred?: boolean;
+  /** 当前用户对该文件的有效权限（列表/详情接口返回） */
+  accessPermission?: PermissionLevel | null;
+  /** 当前用户是否可写入该文件/目录（详情接口返回） */
+  canWrite?: boolean;
+  isOwner?: boolean;
 }
 
 export interface UploadedFile {
@@ -77,9 +82,17 @@ export interface FileTag {
 export interface FilePermission {
   id: string;
   fileId: string;
-  userId: string;
+  userId: string | null;
   permission: PermissionLevel;
   grantedBy: string;
+  /** user | group | team | public */
+  subjectType: string;
+  groupId: string | null;
+  teamId: string | null;
+  expiresAt: string | null;
+  inheritToChildren: boolean;
+  scope: string;
+  sourcePermissionId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -177,6 +190,7 @@ export interface UploadTask {
   mimeType: string | null;
   parentId: string | null;
   bucketId: string | null;
+  teamId: string | null;
   r2Key: string;
   uploadId: string;
   totalParts: number;
@@ -197,8 +211,6 @@ export interface DownloadTask {
   url: string;
   fileName: string | null;
   fileSize: number | null;
-  totalSize: number | null;
-  downloadedSize: number | null;
   parentId: string | null;
   bucketId: string | null;
   status: DownloadTaskStatus;

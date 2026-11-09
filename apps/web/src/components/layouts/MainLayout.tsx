@@ -82,6 +82,11 @@ export default function MainLayout() {
 
   const navItems = user?.role === 'admin' ? [...baseNavItems, adminNavItem] : baseNavItems;
 
+  // 移动端快捷操作需保留当前所在目录，避免在子目录里点上传/新建时跳回根目录
+  const currentFolderId = /^\/files\/([^/?#]+)/.exec(location.pathname)?.[1] ?? null;
+  const filesActionUrl = (action: string) =>
+    currentFolderId ? `/files/${currentFolderId}?action=${action}` : `/files?action=${action}`;
+
   const cycleTheme = () => {
     const themes: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system'];
     const currentTheme = theme || 'system';
@@ -343,8 +348,8 @@ export default function MainLayout() {
       </main>
 
       <MobileBottomNav
-        onUpload={() => navigate('/files?action=upload')}
-        onNewFolder={() => navigate('/files?action=new-folder')}
+        onUpload={() => navigate(filesActionUrl('upload'))}
+        onNewFolder={() => navigate(filesActionUrl('new-folder'))}
       />
 
       <PWAPrompt />

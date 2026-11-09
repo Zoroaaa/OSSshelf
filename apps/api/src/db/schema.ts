@@ -6,9 +6,13 @@
  * - 定义所有数据库表结构
  * - 定义表索引和约束
  * - 使用Drizzle ORM的SQLite适配器
+ *
+ * 注意：SQL 迁移文件（apps/api/migrations/*.sql）是表结构的唯一事实源。
+ * 本文件仅用于类型推导与查询构建，禁止用 drizzle-kit generate 覆盖迁移，
+ * 新增字段/索引时必须同时提交对应的迁移文件。
  */
 
-import { sqliteTable, text, integer, real, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, uniqueIndex, index, primaryKey } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable(
   'users',
@@ -79,6 +83,7 @@ export const files = sqliteTable(
     userUpdatedIdx: index('idx_files_user_updated').on(table.userId, table.updatedAt),
     userSizeIdx: index('idx_files_user_size').on(table.userId, table.size),
     hashIdx: index('idx_files_hash').on(table.hash),
+    hashBucketIdx: index('idx_files_hash_bucket').on(table.hash, table.bucketId),
     directLinkTokenIdx: index('idx_files_direct_link_token').on(table.directLinkToken),
     vectorIndexedIdx: index('idx_files_vector_indexed').on(table.userId, table.vectorIndexedAt),
     aiSummaryIdx: index('idx_files_ai_summary').on(table.userId, table.aiSummaryAt),
@@ -746,6 +751,7 @@ export const aiConfig = sqliteTable(
   'ai_config',
   {
     id: text('id').primaryKey(),
+    userId: text('user_id'),
     key: text('key').notNull().unique(),
     category: text('category').notNull(),
     label: text('label').notNull(),
@@ -755,6 +761,7 @@ export const aiConfig = sqliteTable(
     numberValue: real('number_value'),
     booleanValue: integer('boolean_value', { mode: 'boolean' }).default(false),
     jsonValue: text('json_value'),
+    value: text('value'),
     defaultValue: text('default_value').notNull(),
     isSystem: integer('is_system', { mode: 'boolean' }).notNull().default(true),
     isEditable: integer('is_editable', { mode: 'boolean' }).notNull().default(true),
@@ -801,6 +808,7 @@ export const aiMemories = sqliteTable(
   (table) => ({
     userCreatedIdx: index('idx_memories_user_created').on(table.userId, table.createdAt),
     userTypeIdx: index('idx_memories_user_type').on(table.userId, table.type),
+    sessionIdx: index('idx_memories_session').on(table.userId, table.sessionId),
   })
 );
 
@@ -831,6 +839,22 @@ export const aiUsageEvents = sqliteTable(
     userCreatedIdx: index('idx_ai_usage_user_created').on(table.userId, table.createdAt),
     userModelIdx: index('idx_ai_usage_user_model').on(table.userId, table.modelId),
     sessionIdx: index('idx_ai_usage_session').on(table.sessionId),
+  })
+);
+
+export const aiQuotaCounters = sqliteTable(
+  'ai_quota_counters',
+  {
+    userId: text('user_id').notNull(),
+    /** 计数窗口：`day:YYYY-MM-DD` / `min:YYYY-MM-DDTHH:mm`（UTC） */
+    windowKey: text('window_key').notNull(),
+    requests: integer('requests').notNull().default(0),
+    tokens: integer('tokens').notNull().default(0),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.windowKey] }),
+    updatedIdx: index('idx_ai_quota_counters_updated_at').on(table.updatedAt),
   })
 );
 

@@ -446,6 +446,23 @@ export async function createPermissionRequest(
     return { success: false, error: '文件不存在' };
   }
 
+  if (file.userId === requesterId) {
+    return { success: false, error: '您是该文件所有者，无需申请权限' };
+  }
+
+  // 以团队名义申请时，申请人必须是该团队成员，
+  // 防止任意用户把他人文件申请授权给一个自己刚创建、完全无关的团队。
+  if (targetTeamId) {
+    const teamMembership = await db
+      .select({ role: teamMembers.role })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, targetTeamId), eq(teamMembers.userId, requesterId)))
+      .get();
+    if (!teamMembership) {
+      return { success: false, error: '您不是目标团队成员，无法以该团队名义申请权限' };
+    }
+  }
+
   // 防重复：检查是否已有 pending 状态的同一文件申请
   const existingRequest = await db
     .select()
@@ -528,23 +545,13 @@ export async function approvePermissionRequest(
     return { success: false, error: '关联文件不存在' };
   }
 
-  // 检查审批人是否有权限（文件所有者 或 团队 admin/owner）
-  const isFileOwner = file.userId === reviewerId;
-  let isTeamAdmin = false;
-
-  if (!isFileOwner && request.targetTeamId) {
-    const teamMembership = await db
-      .select()
-      .from(teamMembers)
-      .where(and(eq(teamMembers.teamId, request.targetTeamId), eq(teamMembers.userId, reviewerId)))
-      .get();
-    if (teamMembership && (teamMembership.role === 'admin' || teamMembership.role === 'owner')) {
-      isTeamAdmin = true;
-    }
+  // 审批权只属于文件所有者：
+  // 目标团队管理员不应有权把"别人的文件"授权给自己的团队（可自建团队绕过）。
+  if (reviewerId === request.requesterId) {
+    return { success: false, error: '不能审批自己提交的申请' };
   }
-
-  if (!isFileOwner && !isTeamAdmin) {
-    return { success: false, error: '无权审批此申请（需为文件所有者或团队管理员）' };
+  if (file.userId !== reviewerId) {
+    return { success: false, error: '无权审批此申请（仅文件所有者可审批）' };
   }
 
   const now = new Date().toISOString();
