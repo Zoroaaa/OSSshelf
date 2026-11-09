@@ -1,6 +1,8 @@
 -- ============================================================
 -- 101_team_v2.sql — 团队协作 V2：邀请机制 + 工作空间 + 活动
 -- ============================================================
+-- ⚠️ 不可重复执行：包含 ALTER TABLE ADD COLUMN（SQLite 不支持 IF NOT EXISTS），
+--    重跑会报 duplicate column name。请勿在控制台手工执行，只能依赖 d1_migrations 记录。
 
 -- 1. 扩展 teams 表
 ALTER TABLE teams ADD COLUMN storage_quota INTEGER DEFAULT 5368709120;

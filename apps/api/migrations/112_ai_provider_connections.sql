@@ -1,6 +1,11 @@
 -- 112_ai_provider_connections.sql
 -- AI 配置改造：连接信息从 ai_models 上移到 ai_providers
 --
+-- ⚠️ 不可重复执行：包含 ALTER TABLE ADD COLUMN 与 DROP COLUMN，SQLite 不支持
+--    IF [NOT] EXISTS，重跑会报 duplicate column name / no such column。
+--    请勿在控制台手工执行本文件，只能依赖 d1_migrations 记录保证不重跑。
+--    若曾手工执行过片段导致 duplicate 错误，修复步骤见 docs/runbooks/d1-112-repair.md。
+--
 -- 目标：
 -- 1. ai_providers = 用户级连接（protocol + base_url + encrypted key）
 -- 2. ai_models = 模型元数据 + 能力路由，不再重复存 endpoint/key

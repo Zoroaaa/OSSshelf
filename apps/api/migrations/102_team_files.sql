@@ -1,6 +1,8 @@
 -- ============================================================
 -- 102_team_files.sql — 团队共享空间：files 表增加 team_id
 -- ============================================================
+-- ⚠️ 不可重复执行：包含 ALTER TABLE ADD COLUMN（SQLite 不支持 IF NOT EXISTS），
+--    重跑会报 duplicate column name。请勿在控制台手工执行，只能依赖 d1_migrations 记录。
 
 ALTER TABLE files ADD COLUMN team_id TEXT;
 

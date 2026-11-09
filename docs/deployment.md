@@ -574,6 +574,10 @@ wrangler r2 bucket create ossshelf-files
 
 ### Step 4: 运行数据库迁移
 
+> **迁移只能通过 `wrangler d1 migrations apply` 或 CI 执行，禁止在 D1 控制台手工执行迁移 SQL。**
+> 手工执行不会写入 `d1_migrations`，下一次 CI 会重复执行同一条迁移并因 `duplicate column name` 等错误失败。
+> 已经手工执行过的库，请先按 [d1-112-repair.md](runbooks/d1-112-repair.md) 对齐 schema 与迁移记录。
+
 首次部署前需要初始化数据库：
 
 ```bash
@@ -587,6 +591,17 @@ cp apps/api/wrangler.toml.example apps/api/wrangler.toml
 # 运行迁移
 pnpm db:migrate
 ```
+
+部署前的迁移预检（CI 会在 `Apply D1 migrations` 之前自动执行，本地也可手动运行）：
+
+```bash
+cd apps/api
+node scripts/preflight-migrations.mjs --remote   # 比对 d1_migrations 与真实 schema
+node scripts/preflight-migrations.mjs --plan     # 只静态检查迁移文件，不连数据库
+```
+
+预检会输出具体的迁移文件、对象与修复提示：发现“对象已存在但迁移未记录”或“已记录但对象缺失”时直接失败，
+避免部署进行到一半才报 SQLite 错误；IF NOT EXISTS 重复建对象等可容忍差异只输出警告。
 
 迁移文件位于 `apps/api/migrations/`：
 
@@ -609,6 +624,17 @@ pnpm db:migrate
 - `0020_ai_models_config.sql` - AI 模型配置 (v2.1.0)
 - `0021_ai_system_config.sql` - AI 系统配置 (v2.2.0)
 - `100_team_collaboration.sql` - 团队协作功能 (v3.0.0)
+
+#### 新增迁移的自检清单
+
+- [ ] 建表 / 建索引 / 建触发器使用 `IF NOT EXISTS`，删除对象使用 `IF EXISTS`
+- [ ] 不使用已存在的对象名（新增索引/触发器前先确认命名不冲突）
+- [ ] `ALTER TABLE ... ADD/DROP COLUMN` 无法幂等（SQLite 限制）：文件头写 `⚠️ 不可重复执行` 注释，
+      并在 PR 里说明“该迁移只能依赖 `d1_migrations` 记录避免重跑”
+- [ ] `node scripts/preflight-migrations.mjs --plan` 的输出中，除 ADD/DROP COLUMN 外没有其它不可重复语句
+- [ ] 在空库上完整跑一遍：`wrangler d1 migrations apply ossshelf-db --local`
+- [ ] 部署前 `node scripts/preflight-migrations.mjs --remote` 通过
+- [ ] **不修改已发布（已在生产执行过）的迁移文件**：需要调整 schema 时新增一个迁移，而不是改历史文件
 
 ### Step 5: 设置运行时密钥
 
