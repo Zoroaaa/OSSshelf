@@ -2,13 +2,22 @@
  * teamService.ts — 团队管理核心服务层
  */
 
-import { eq, and, isNull, sql, or, inArray, like } from 'drizzle-orm';
+import { eq, and, isNull, sql, or, inArray } from 'drizzle-orm';
 import { getDb, teams, teamMembers, teamResources, files, users, filePermissions } from '../db';
 import type { DrizzleDb } from '../db';
 import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';
+import { pathPrefixCondition, trimTrailingSlash } from './pathUtils';
 import { recordActivity } from './teamActivityService';
-import { invalidatePermissionCacheForUser } from './permissionResolver';
+import { invalidatePermissionCacheForUser, type PermissionLevel } from './permissionResolver';
+import { checkFilePermission } from './permissionService';
+import {
+  capPermissionByTeamRole,
+  getTeamMembership,
+  permissionRank,
+  teamRoleAllows,
+  teamRoleToPermission,
+} from './teamPolicy';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 类型定义
@@ -35,12 +44,6 @@ export interface ManageTeamMembersInput {
 // ─────────────────────────────────────────────────────────────────────────────
 // 内部工具函数
 // ─────────────────────────────────────────────────────────────────────────────
-
-function permissionRank(perm: string): number {
-  if (perm === 'admin') return 3;
-  if (perm === 'write') return 2;
-  return 1; // read or unknown
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 团队 CRUD
@@ -168,7 +171,7 @@ export async function updateTeam(
     .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
     .get();
 
-  if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
+  if (!membership || !teamRoleAllows(membership.role, 'admin')) {
     return { success: false, error: '只有团队管理员可以修改团队信息' };
   }
 
@@ -364,7 +367,7 @@ export async function manageTeamMembers(
   switch (action) {
     case 'add': {
       // admin 或 owner 可添加成员
-      if (operatorMembership.role !== 'admin' && operatorMembership.role !== 'owner') {
+      if (!teamRoleAllows(operatorMembership.role, 'admin')) {
         return { success: false, error: '只有管理员或所有者可以添加成员' };
       }
 
@@ -440,7 +443,7 @@ export async function manageTeamMembers(
           return { success: false, error: '管理员不能移除其他管理员' };
         }
         // 只有 owner 和 admin 可以移除其他成员
-        if (operatorMembership.role !== 'owner' && operatorMembership.role !== 'admin') {
+        if (!teamRoleAllows(operatorMembership.role, 'admin')) {
           return { success: false, error: '只有管理员或所有者可以移除成员' };
         }
       }
@@ -594,12 +597,14 @@ export async function mountResourceToTeam(
     return { success: false, error: '文件不存在或已被删除' };
   }
 
-  // 挂载者必须是文件所有者 或 团队 admin/owner
+  // 挂载者必须对目标文件拥有实际读取权限（文件所有者天然满足）。
+  // 不能仅凭"团队管理员"身份挂载他人的私有文件。
   const isFileOwner = file.userId === userId;
-  const isTeamAdminOrOwner = membership.role === 'admin' || membership.role === 'owner';
-
-  if (!isFileOwner && !isTeamAdminOrOwner) {
-    return { success: false, error: '只有文件所有者或团队管理员可以挂载资源' };
+  if (!isFileOwner) {
+    const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', env);
+    if (!hasAccess) {
+      return { success: false, error: '无权访问该文件，无法挂载到团队' };
+    }
   }
 
   // 检查是否已挂载
@@ -655,14 +660,19 @@ export async function mountResourceToTeam(
 
   // 穿透挂载：如果目标是文件夹且启用穿透，递归挂载所有子文件
   if (file.isFolder && options?.penetrate) {
-    const folderPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
     const childFiles = await db
       .select({ id: files.id, name: files.name, isFolder: files.isFolder })
       .from(files)
-      .where(and(eq(files.userId, file.userId), isNull(files.deletedAt), like(files.path, `${folderPath}/%`)))
+      .where(and(eq(files.userId, file.userId), isNull(files.deletedAt), pathPrefixCondition(files.path, file.path)))
       .all();
 
     for (const child of childFiles) {
+      // 非所有者只能挂载自己确实有读取权限的子项，避免穿透泄露被隔离的子文件
+      if (!isFileOwner) {
+        const { hasAccess } = await checkFilePermission(db, child.id, userId, 'read', env);
+        if (!hasAccess) continue;
+      }
+
       // 检查子文件是否已挂载
       const existingChildMount = await db
         .select()
@@ -770,7 +780,7 @@ export async function unmountResourceFromTeam(
 
   // 文件所有者或团队 admin/owner 可以卸载
   const isFileOwner = file.userId === userId;
-  const isTeamAdminOrOwner = membership.role === 'admin' || membership.role === 'owner';
+  const isTeamAdminOrOwner = teamRoleAllows(membership.role, 'admin');
 
   if (!isFileOwner && !isTeamAdminOrOwner) {
     return { success: false, error: '只有文件所有者或团队管理员可以卸载资源' };
@@ -857,18 +867,15 @@ export async function getTeamFiles(
   env: Env,
   teamId: string,
   viewerUserId: string,
-  options?: { folderId?: string; limit?: number; offset?: number }
+  options?: { folderId?: string }
 ): Promise<{ files: TeamFileItem[]; total: number }> {
   const db = getDb(env.DB);
-  const { folderId, limit = 50, offset = 0 } = options ?? {};
+  const { folderId } = options ?? {};
 
-  // 验证查看者是团队成员
-  const membership = await db
-    .select()
-    .from(teamMembers)
-    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, viewerUserId)))
-    .get();
+  // 验证查看者是团队成员，角色决定其可见/可写上限
+  const membership = await getTeamMembership(db, teamId, viewerUserId);
   if (!membership) return { files: [], total: 0 };
+  const viewerRole = membership.role;
 
   // ═══════════════════════════════════════════════════════════════
   // Phase 1: 识别"当前位置"的类型 — 这是整个函数的核心分发点
@@ -883,7 +890,7 @@ export async function getTeamFiles(
 
   if (!folderId) {
     // ── 根目录：合并两类内容 ──
-    return getTeamRootContent(db, env, teamId, viewerUserId);
+    return getTeamRootContent(db, env, teamId, viewerUserId, viewerRole);
   }
 
   // 判断 folderId 属于哪类
@@ -895,7 +902,7 @@ export async function getTeamFiles(
 
   if (isTeamOwnFile) {
     // ── 分支A：团队自有文件夹 → 用 parentId 查子文件 ──
-    return getTeamOwnFolderContent(db, env, teamId, viewerUserId, folderId);
+    return getTeamOwnFolderContent(db, env, teamId, viewerUserId, viewerRole, folderId);
   }
 
   const isMountedResource = await db
@@ -906,7 +913,7 @@ export async function getTeamFiles(
 
   if (isMountedResource) {
     // ── 分支B：挂载的文件夹 → 展示其原始子文件（基于权限）──
-    return getMountedFolderContent(db, env, teamId, viewerUserId, folderId);
+    return getMountedFolderContent(db, env, teamId, viewerUserId, viewerRole, folderId);
   }
 
   // folderId 不属于任何已知节点
@@ -922,7 +929,8 @@ async function getTeamRootContent(
   db: DrizzleDb,
   env: Env,
   teamId: string,
-  viewerUserId: string
+  viewerUserId: string,
+  viewerRole: string
 ): Promise<{ files: TeamFileItem[]; total: number }> {
   // 团队自有文件：parentId IS NULL 且 teamId = teamId
   const ownFiles = await db
@@ -935,6 +943,7 @@ async function getTeamRootContent(
       size: files.size,
       isFolder: files.isFolder,
       userId: files.userId,
+      teamId: files.teamId,
     })
     .from(files)
     .where(and(eq(files.teamId, teamId), isNull(files.parentId), isNull(files.deletedAt)))
@@ -965,6 +974,7 @@ async function getTeamRootContent(
             size: files.size,
             isFolder: files.isFolder,
             userId: files.userId,
+            teamId: files.teamId,
           })
           .from(files)
           .where(and(inArray(files.id, mountedFileIds), isNull(files.deletedAt)))
@@ -973,7 +983,17 @@ async function getTeamRootContent(
 
   // 合并并检查权限（ownFiles=owned, mountedFiles=mounted）
   const allItems = [...ownFiles, ...mountedFiles];
-  const result = await filterByPermission(db, allItems, teamId, viewerUserId, mountedAtMap, null, false, 'owned');
+  const result = await filterByPermission(
+    db,
+    allItems,
+    teamId,
+    viewerUserId,
+    viewerRole,
+    mountedAtMap,
+    null,
+    false,
+    'owned'
+  );
 
   return { files: result, total: result.length };
 }
@@ -984,6 +1004,7 @@ async function getTeamOwnFolderContent(
   env: Env,
   teamId: string,
   viewerUserId: string,
+  viewerRole: string,
   folderId: string
 ): Promise<{ files: TeamFileItem[]; total: number }> {
   // 团队自有子文件
@@ -997,6 +1018,7 @@ async function getTeamOwnFolderContent(
       size: files.size,
       isFolder: files.isFolder,
       userId: files.userId,
+      teamId: files.teamId,
     })
     .from(files)
     .where(and(eq(files.teamId, teamId), eq(files.parentId, folderId), isNull(files.deletedAt)))
@@ -1027,6 +1049,7 @@ async function getTeamOwnFolderContent(
             size: files.size,
             isFolder: files.isFolder,
             userId: files.userId,
+            teamId: files.teamId,
           })
           .from(files)
           .where(and(inArray(files.id, mountedFileIds), isNull(files.deletedAt)))
@@ -1034,7 +1057,17 @@ async function getTeamOwnFolderContent(
       : [];
 
   const allItems = [...ownChildren, ...mountedFiles];
-  const result = await filterByPermission(db, allItems, teamId, viewerUserId, mountedAtMap, folderId, false, 'owned');
+  const result = await filterByPermission(
+    db,
+    allItems,
+    teamId,
+    viewerUserId,
+    viewerRole,
+    mountedAtMap,
+    folderId,
+    false,
+    'owned'
+  );
 
   return { files: result, total: result.length };
 }
@@ -1045,8 +1078,14 @@ async function getMountedFolderContent(
   env: Env,
   teamId: string,
   viewerUserId: string,
+  viewerRole: string,
   mountedFolderId: string
 ): Promise<{ files: TeamFileItem[]; total: number }> {
+  // 挂载文件夹本身的访问权限（其子文件默认继承该权限）
+  const folderAccess = await checkFilePermission(db, mountedFolderId, viewerUserId, 'read', env);
+  if (!folderAccess.hasAccess) return { files: [], total: 0 };
+  const inheritedPermission = (folderAccess.permission ?? 'read') as PermissionLevel;
+
   // 获取挂载文件夹的信息（原始路径和所有者）
   const folderInfo = await db
     .select({ path: files.path, userId: files.userId })
@@ -1055,8 +1094,6 @@ async function getMountedFolderContent(
     .get();
 
   if (!folderInfo) return { files: [], total: 0 };
-
-  const folderPath = folderInfo.path.endsWith('/') ? folderInfo.path.slice(0, -1) : folderInfo.path;
 
   // 查询原始空间中该文件夹的直接子文件
   const childFiles = await db
@@ -1069,14 +1106,22 @@ async function getMountedFolderContent(
       size: files.size,
       isFolder: files.isFolder,
       userId: files.userId,
+      teamId: files.teamId,
     })
     .from(files)
-    .where(and(eq(files.userId, folderInfo.userId), isNull(files.deletedAt), like(files.path, `${folderPath}/%`)))
+    .where(
+      and(
+        eq(files.userId, folderInfo.userId),
+        isNull(files.deletedAt),
+        pathPrefixCondition(files.path, folderInfo.path)
+      )
+    )
     .all();
 
   // 只保留直接子级（排除更深层的嵌套，但保留直接子文件夹）
+  const folderPrefix = trimTrailingSlash(folderInfo.path);
   const directChildren = childFiles.filter((f) => {
-    const relativePath = (f.path ?? '').replace(`${folderPath}/`, '');
+    const relativePath = (f.path ?? '').replace(`${folderPrefix}/`, '');
     // 直接子文件：不含 / ；直接子文件夹：/ 仅出现在末尾
     const slashIndex = relativePath.indexOf('/');
     return slashIndex === -1 || slashIndex === relativePath.length - 1;
@@ -1088,10 +1133,12 @@ async function getMountedFolderContent(
     directChildren,
     teamId,
     viewerUserId,
+    viewerRole,
     new Map(), // 子文件没有独立的挂载记录
     mountedFolderId, // targetFolderId 设为父文件夹ID
     true, // viaMountedFolder: 通过挂载文件夹访问
-    'mounted' // 所有子文件都来源自挂载
+    'mounted', // 所有子文件都来源自挂载
+    inheritedPermission // 继承父文件夹的有效权限
   );
 
   return { files: result, total: result.length };
@@ -1113,25 +1160,34 @@ async function filterByPermission(
     size: number;
     isFolder: boolean;
     userId: string;
+    teamId?: string | null;
   }>,
   teamId: string,
   viewerUserId: string,
+  viewerRole: string,
   mountedAtMap: Map<string, string>,
   targetFolderId: string | null,
   /** 是否通过挂载文件夹访问（此时无独立权限也应展示） */
   viaMountedFolder: boolean = false,
   /** 无挂载记录时的默认来源（由调用方根据上下文决定） */
-  defaultSource: 'owned' | 'mounted' = 'owned'
+  defaultSource: 'owned' | 'mounted' = 'owned',
+  /** 通过挂载文件夹访问时，子文件继承的父级权限 */
+  inheritedPermission: PermissionLevel = 'read'
 ): Promise<TeamFileItem[]> {
   if (items.length === 0) return [];
 
   const fileIds = items.map((f) => f.id).filter(Boolean);
 
-  // 批量权限查询
-  const permsMap = new Map<string, string>();
+  // 批量权限查询：区分用户直授与团队授权，团队授权需按角色上限收敛
+  const userPerms = new Map<string, string>();
+  const teamPerms = new Map<string, string>();
   if (fileIds.length > 0) {
     const perms = await db
-      .select({ fileId: filePermissions.fileId, permission: filePermissions.permission })
+      .select({
+        fileId: filePermissions.fileId,
+        permission: filePermissions.permission,
+        subjectType: filePermissions.subjectType,
+      })
       .from(filePermissions)
       .where(
         and(
@@ -1144,75 +1200,70 @@ async function filterByPermission(
       )
       .all();
     for (const p of perms) {
-      const existing = permsMap.get(p.fileId);
-      const pPerm = p.permission as string;
-      if (!existing || permissionRank(pPerm) > permissionRank(existing)) {
-        permsMap.set(p.fileId, pPerm);
+      const map = p.subjectType === 'team' ? teamPerms : userPerms;
+      const existing = map.get(p.fileId);
+      if (!existing || permissionRank(p.permission as PermissionLevel) > permissionRank(existing as PermissionLevel)) {
+        map.set(p.fileId, p.permission);
       }
     }
   }
 
-  // 过滤 + 格式化
+  const buildItem = (
+    file: (typeof items)[number],
+    permission: PermissionLevel,
+    hasMountRecord: boolean,
+    source: 'owned' | 'mounted'
+  ): TeamFileItem => ({
+    fileId: file.id,
+    fileName: file.name,
+    filePath: file.path,
+    fileType: file.type,
+    mimeType: file.mimeType,
+    size: Number(file.size ?? 0),
+    isFolder: Boolean(file.isFolder),
+    mountedAt: hasMountRecord ? (mountedAtMap.get(file.id) ?? '') : '',
+    permission,
+    targetFolderId,
+    source,
+  });
+
   const result: TeamFileItem[] = [];
   for (const f of items) {
     if (!f.id) continue;
 
     // 判断是否有挂载记录（用于区分"团队自有"和"挂载资源"）
     const hasMountRecord = mountedAtMap.has(f.id);
-    // source 判断：有挂载记录=mounted，否则由调用方上下文决定
     const source = hasMountRecord ? 'mounted' : defaultSource;
 
     // 文件所有者总有完全权限
     if (f.userId === viewerUserId) {
-      result.push({
-        fileId: f.id,
-        fileName: f.name,
-        filePath: f.path,
-        fileType: f.type,
-        mimeType: f.mimeType,
-        size: Number(f.size ?? 0),
-        isFolder: Boolean(f.isFolder),
-        mountedAt: hasMountRecord ? (mountedAtMap.get(f.id) ?? '') : '',
-        permission: 'admin',
-        targetFolderId,
-        source,
-      });
+      result.push(buildItem(f, 'admin', hasMountRecord, source));
       continue;
     }
 
-    const perm = permsMap.get(f.id);
-    if (perm) {
-      // 有独立权限记录 → 展示
-      result.push({
-        fileId: f.id,
-        fileName: f.name,
-        filePath: f.path,
-        fileType: f.type,
-        mimeType: f.mimeType,
-        size: Number(f.size ?? 0),
-        isFolder: Boolean(f.isFolder),
-        mountedAt: hasMountRecord ? (mountedAtMap.get(f.id) ?? '') : '',
-        permission: perm as 'read' | 'write' | 'admin',
-        targetFolderId,
-        source,
-      });
-    } else if (viaMountedFolder) {
-      // 通过挂载文件夹访问、子文件无独立权限 → 继承父级权限展示
-      result.push({
-        fileId: f.id,
-        fileName: f.name,
-        filePath: f.path,
-        fileType: f.type,
-        mimeType: f.mimeType,
-        size: Number(f.size ?? 0),
-        isFolder: Boolean(f.isFolder),
-        mountedAt: '',
-        permission: 'read', // 通过父级文件夹权限访问，默认只读
-        targetFolderId,
-        source, // viaMountedFolder 时 defaultSource 由调用方决定
-      });
+    const userPerm = userPerms.get(f.id) as PermissionLevel | undefined;
+    const rawTeamPerm = teamPerms.get(f.id) as PermissionLevel | undefined;
+    const teamPerm = rawTeamPerm ? capPermissionByTeamRole(rawTeamPerm, viewerRole) : undefined;
+
+    let effectivePermission: PermissionLevel | undefined;
+    if (userPerm && teamPerm) {
+      effectivePermission = permissionRank(userPerm) >= permissionRank(teamPerm) ? userPerm : teamPerm;
+    } else {
+      effectivePermission = userPerm ?? teamPerm;
     }
-    // 无权限且非挂载文件夹访问 → 不加入结果
+
+    // 团队自有资源：无独立授权时按团队角色开放（viewer 只读 / member 读写 / admin+ 管理）
+    if (!effectivePermission && f.teamId === teamId) {
+      effectivePermission = teamRoleToPermission(viewerRole);
+    }
+
+    // 通过挂载文件夹访问、子文件无独立权限 → 继承父级文件夹权限
+    if (!effectivePermission && viaMountedFolder) {
+      effectivePermission = inheritedPermission;
+    }
+
+    if (!effectivePermission) continue;
+    result.push(buildItem(f, effectivePermission, hasMountRecord, source));
   }
 
   return result;

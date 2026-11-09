@@ -14,13 +14,14 @@ import { files, filePermissions, groupMembers, teams, teamMembers } from '../db'
 import type { DrizzleDb } from '../db';
 import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';
+import { capPermissionByTeamRole, teamRoleToPermission } from './teamPolicy';
 
 export type PermissionLevel = 'read' | 'write' | 'admin';
 
 export interface PermissionResolution {
   hasAccess: boolean;
   permission: PermissionLevel | null;
-  source: 'explicit' | 'inherited' | 'owner';
+  source: 'explicit' | 'inherited' | 'owner' | 'team_role';
   sourceFileId?: string;
   sourceFilePath?: string;
   expiresAt?: string;
@@ -87,11 +88,16 @@ export async function resolveEffectivePermission(
   // team 维度显式权限查找（优先级低于 user/group 显式权限）
   const teamExplicitPerm = await findTeamPermission(db, fileId, teamRoles);
   if (teamExplicitPerm) {
-    const hasAccess = checkPermissionLevel(teamExplicitPerm.permission as PermissionLevel, requiredLevel);
+    // 团队角色决定权限上限：viewer 只读、member 读写、admin/owner 管理
+    const effectivePermission = capPermissionByTeamRole(
+      teamExplicitPerm.permission as PermissionLevel,
+      teamRoles.get(teamExplicitPerm.teamId ?? '')
+    );
+    const hasAccess = checkPermissionLevel(effectivePermission, requiredLevel);
     const teamInfo = teamExplicitPerm.teamId ? await getTeamInfo(db, teamExplicitPerm.teamId) : null;
     return {
       hasAccess,
-      permission: teamExplicitPerm.permission as PermissionLevel,
+      permission: effectivePermission,
       source: 'explicit',
       sourceFileId: file.id,
       sourceFilePath: file.path,
@@ -104,14 +110,22 @@ export async function resolveEffectivePermission(
 
   const inheritedPermission = await findInheritedPermission(db, env, fileId, userId, userGroupIds, teamRoles);
   if (inheritedPermission) {
-    const hasAccess = checkPermissionLevel(inheritedPermission.permission as PermissionLevel, requiredLevel);
+    // 继承链路若来自团队授权，同样受团队角色上限约束
+    const effectivePermission =
+      inheritedPermission.subjectType === 'team'
+        ? capPermissionByTeamRole(
+            inheritedPermission.permission as PermissionLevel,
+            teamRoles.get(inheritedPermission.teamId ?? '')
+          )
+        : (inheritedPermission.permission as PermissionLevel);
+    const hasAccess = checkPermissionLevel(effectivePermission, requiredLevel);
     const sourceFile = await db.select().from(files).where(eq(files.id, inheritedPermission.fileId)).get();
     const isInheritedTeam = inheritedPermission.subjectType === 'team';
     const inheritedTeamInfo =
       isInheritedTeam && inheritedPermission.teamId ? await getTeamInfo(db, inheritedPermission.teamId) : null;
     return {
       hasAccess,
-      permission: inheritedPermission.permission as PermissionLevel,
+      permission: effectivePermission,
       source: 'inherited',
       sourceFileId: inheritedPermission.fileId,
       sourceFilePath: sourceFile?.path,
@@ -120,6 +134,22 @@ export async function resolveEffectivePermission(
       groupId: inheritedPermission.groupId ?? undefined,
       teamId: inheritedPermission.teamId ?? undefined,
       teamName: inheritedTeamInfo?.name,
+    };
+  }
+
+  // 团队自有资源：无独立授权时按团队角色判定（与团队工作区展示规则一致）
+  if (file.teamId && teamRoles.has(file.teamId)) {
+    const rolePermission = teamRoleToPermission(teamRoles.get(file.teamId));
+    const teamInfo = await getTeamInfo(db, file.teamId);
+    return {
+      hasAccess: checkPermissionLevel(rolePermission, requiredLevel),
+      permission: rolePermission,
+      source: 'team_role',
+      sourceFileId: file.id,
+      sourceFilePath: file.path,
+      subjectType: 'team',
+      teamId: file.teamId,
+      teamName: teamInfo?.name,
     };
   }
 

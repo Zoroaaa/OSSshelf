@@ -20,10 +20,16 @@
 import { useCallback } from 'react';
 import { filesApi } from '@/services/api';
 import { presignUpload } from '@/services/presignUpload';
+import { runWithConcurrency } from '@/utils';
 import { useQueryClient } from '@tanstack/react-query';
+
+/** 同时进行的上传数量上限，避免多文件整读内存导致 OOM */
+const UPLOAD_CONCURRENCY = 3;
 
 interface UseFolderUploadOptions {
   currentFolderId?: string;
+  /** 目标存储桶 ID：非默认桶目录下必须传入，否则会落到默认桶 */
+  bucketId?: string | null;
   /** 团队 ID：在团队工作区上传时传入 */
   teamId?: string | null;
   onFileStart?: (name: string, key: string) => void;
@@ -35,6 +41,7 @@ interface UseFolderUploadOptions {
 
 export function useFolderUpload({
   currentFolderId,
+  bucketId,
   teamId,
   onFileStart,
   onFileProgress,
@@ -80,11 +87,10 @@ export function useFolderUpload({
           : (currentFolderId ?? null);
 
         try {
-          const res = await filesApi.createFolder(name, parentId);
+          const res = await filesApi.createFolder(name, parentId, bucketId);
           const createdId = res.data.data?.id;
           if (createdId) {
             folderIdMap.set(folderPath, createdId);
-            queryClient.invalidateQueries({ queryKey: ['files'] });
           }
         } catch (e: any) {
           console.warn(`创建文件夹 "${folderPath}" 失败:`, e?.response?.data?.error?.message);
@@ -94,7 +100,7 @@ export function useFolderUpload({
       let uploadedCount = 0;
       let failedCount = 0;
 
-      for (const { file, relativePath } of filesWithPaths) {
+      await runWithConcurrency(filesWithPaths, UPLOAD_CONCURRENCY, async ({ file, relativePath }) => {
         const parts = relativePath.split('/');
         const parentPath = parts.slice(0, -1).join('/');
         const parentId = parentPath
@@ -108,23 +114,23 @@ export function useFolderUpload({
           await presignUpload({
             file,
             parentId,
+            bucketId,
             teamId,
             onProgress: (progress) => onFileProgress?.(key, progress),
           });
           uploadedCount++;
           onFileDone?.(key);
-          queryClient.invalidateQueries({ queryKey: ['files'] });
         } catch (e: any) {
           failedCount++;
           onFileError?.(key, e);
         }
-      }
+      });
 
       queryClient.invalidateQueries({ queryKey: ['files'] });
       queryClient.invalidateQueries({ queryKey: ['stats'] });
       onAllDone?.({ uploaded: uploadedCount, failed: failedCount });
     },
-    [currentFolderId, teamId, queryClient, onFileStart, onFileProgress, onFileDone, onFileError, onAllDone]
+    [currentFolderId, bucketId, teamId, queryClient, onFileStart, onFileProgress, onFileDone, onFileError, onAllDone]
   );
 
   const uploadFolderEntriesDirect = useCallback(
@@ -191,18 +197,17 @@ export function useFolderUpload({
           : (currentFolderId ?? null);
 
         try {
-          const res = await filesApi.createFolder(name, parentId);
+          const res = await filesApi.createFolder(name, parentId, bucketId);
           const createdId = res.data.data?.id;
           if (createdId) {
             folderIdMap.set(folderPath, createdId);
-            queryClient.invalidateQueries({ queryKey: ['files'] });
           }
         } catch (e: any) {
           console.warn(`创建文件夹 "${folderPath}" 失败:`, e?.response?.data?.error?.message);
         }
       }
 
-      for (const { file, relativePath } of files) {
+      await runWithConcurrency(files, UPLOAD_CONCURRENCY, async ({ file, relativePath }) => {
         const parts = relativePath.split('/');
         const parentPath = parts.slice(0, -1).join('/');
         const parentId = parentPath
@@ -216,19 +221,20 @@ export function useFolderUpload({
           await presignUpload({
             file,
             parentId,
+            bucketId,
+            teamId,
             onProgress: (progress) => onFileProgress?.(key, progress),
           });
           onFileDone?.(key);
-          queryClient.invalidateQueries({ queryKey: ['files'] });
         } catch (e) {
           onFileError?.(key, e);
         }
-      }
+      });
 
       queryClient.invalidateQueries({ queryKey: ['files'] });
       onAllDone?.();
     },
-    [currentFolderId, teamId, queryClient, onFileStart, onFileProgress, onFileDone, onFileError, onAllDone]
+    [currentFolderId, bucketId, teamId, queryClient, onFileStart, onFileProgress, onFileDone, onFileError, onAllDone]
   );
 
   return { uploadFolderEntriesDirect, uploadFilesWithRelativePath };

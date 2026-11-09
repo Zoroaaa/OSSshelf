@@ -18,6 +18,7 @@ import { VECTOR_LOG_MODULE } from './constants';
 import { resolveEmbeddingProvider } from './modelRuntime';
 import { getAiConfigBoolean } from './aiConfigService';
 import { estimateTokens } from './utils';
+import { recordUsage } from './usage';
 import { searchFileIdsByKeyword } from './retrieval/fts';
 
 const MAX_TEXT_LENGTH = 4096;
@@ -116,6 +117,7 @@ function isVectorizeRateLimit(error: unknown): boolean {
 async function withVectorizeRateLimitRetry<T>(operation: () => Promise<T>, action: string): Promise<T> {
   let attempt = 1;
 
+  // eslint-disable-next-line no-constant-condition -- 由内部 return/throw 退出，重试次数由 VECTORIZE_RETRY.maxAttempts 控制
   while (true) {
     try {
       return await operation();
@@ -180,11 +182,25 @@ export async function indexFileVector(env: Env, fileId: string, text: string): P
 
     const chunks = splitTextIntoChunks(text);
     const provider = await resolveEmbeddingProvider(env);
-    const embeddings = await provider.embed(chunks.map((chunk) => chunk.slice(0, MAX_TEXT_LENGTH)));
+    const embedInputs = chunks.map((chunk) => chunk.slice(0, MAX_TEXT_LENGTH));
+    const embedStartedAt = Date.now();
+    const embeddings = await provider.embed(embedInputs);
 
     if (embeddings.length !== chunks.length || embeddings.length === 0) {
       throw new Error('Failed to generate embeddings: empty data');
     }
+
+    // embedding 也是按 token 计费的模型调用，必须纳入用量统计与配额
+    await recordUsage(env, {
+      userId: file.userId,
+      feature: 'embedding',
+      provider: 'workers_ai',
+      modelId: provider.modelKey,
+      inputTokens: embedInputs.reduce((sum, item) => sum + estimateTokens(item), 0),
+      outputTokens: 0,
+      latencyMs: Date.now() - embedStartedAt,
+      status: 'completed',
+    });
 
     await deleteVectorsForFile(env, fileId);
     await db.delete(fileChunks).where(eq(fileChunks.fileId, fileId));
@@ -312,8 +328,20 @@ export async function searchSimilarFiles(
   try {
     const effectiveLimit = Math.min(limit * 5, 50);
     const provider = await resolveEmbeddingProvider(env);
+    const embedStartedAt = Date.now();
     const [values] = await provider.embed([query.slice(0, MAX_TEXT_LENGTH)]);
     if (!values) return [];
+
+    await recordUsage(env, {
+      userId,
+      feature: 'embedding',
+      provider: 'workers_ai',
+      modelId: provider.modelKey,
+      inputTokens: estimateTokens(query.slice(0, MAX_TEXT_LENGTH)),
+      outputTokens: 0,
+      latencyMs: Date.now() - embedStartedAt,
+      status: 'completed',
+    });
 
     const results = await env.VECTORIZE.query(values, {
       topK: effectiveLimit,
@@ -412,7 +440,7 @@ export async function searchChunkContent(
   }
 
   if (await getAiConfigBoolean(env, 'ai.rag.rerank_enabled', false)) {
-    return (await rerankChunks(env, query, results)).slice(0, limit);
+    return (await rerankChunks(env, query, results, userId)).slice(0, limit);
   }
 
   return results.slice(0, limit);
@@ -421,17 +449,37 @@ export async function searchChunkContent(
 /**
  * 可选重排：Workers AI bge-reranker。失败时原样返回。
  */
-async function rerankChunks(env: Env, query: string, results: ChunkSearchResult[]): Promise<ChunkSearchResult[]> {
+async function rerankChunks(
+  env: Env,
+  query: string,
+  results: ChunkSearchResult[],
+  userId: string
+): Promise<ChunkSearchResult[]> {
   if (!env.AI || results.length === 0) return results;
 
+  const rerankModel = '@cf/baai/bge-reranker-base';
+  const startedAt = Date.now();
+
   try {
-    const response = (await (env.AI as any).run('@cf/baai/bge-reranker-base', {
+    const response = (await (env.AI as any).run(rerankModel, {
       query,
       contexts: results.map((item) => ({ text: item.snippet })),
     })) as {
       response?: Array<{ id?: number; index?: number; score?: number }>;
       result?: Array<{ id?: number; index?: number; score?: number }>;
     };
+
+    // rerank 同样按输入 token 计费，计入用量与配额
+    await recordUsage(env, {
+      userId,
+      feature: 'rerank',
+      provider: 'workers_ai',
+      modelId: rerankModel,
+      inputTokens: estimateTokens(query) + results.reduce((sum, item) => sum + estimateTokens(item.snippet), 0),
+      outputTokens: 0,
+      latencyMs: Date.now() - startedAt,
+      status: 'completed',
+    });
 
     const scores = response?.response ?? response?.result;
     if (!Array.isArray(scores) || scores.length === 0) return results;

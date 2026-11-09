@@ -142,7 +142,7 @@ export async function presignUpload({
       uploadCtx
     );
   }
-  return singlePresignUpload({ file, parentId, bucketId, onProgress, onFallback, signal }, uploadCtx);
+  return singlePresignUpload({ file, parentId, bucketId, teamId, onProgress, onFallback, signal }, uploadCtx);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -189,7 +189,7 @@ async function singlePresignUpload(
 
   if (init.useProxy) {
     onFallback?.();
-    return proxyUpload({ file, parentId, bucketId, onProgress, signal });
+    return proxyUpload({ file, parentId, bucketId, teamId, onProgress, signal });
   }
 
   const { taskId, uploadUrl } = init;
@@ -200,12 +200,8 @@ async function singlePresignUpload(
 
   await tasksApi.start(taskId).catch(() => {});
 
-  // 读取 buffer 并计算 SHA-256（用于服务端去重）
-  const fileBuffer = await file.arrayBuffer();
-  const hashBuffer = await crypto.subtle.digest('SHA-256', fileBuffer);
-  const fileHash = Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+  // 计算 SHA-256（用于服务端去重）；超大文件跳过，避免整文件读入内存
+  const fileHash = await computeFileHash(file);
 
   try {
     await directPut(uploadUrl, file, file.type || 'application/octet-stream', onProgress, signal);
@@ -215,7 +211,7 @@ async function singlePresignUpload(
       console.warn('检测到 CORS 错误，切换到代理上传模式');
       uploadCtx.corsErrorDetected = true;
       onFallback?.();
-      return proxyUpload({ file, parentId, bucketId, onProgress, signal });
+      return proxyUpload({ file, parentId, bucketId, teamId, onProgress, signal });
     }
     throw error;
   }
@@ -315,7 +311,7 @@ async function multipartUpload(
     // 检查是否返回了 useProxy（兼容旧逻辑）
     if ('useProxy' in init && init.useProxy) {
       onFallback?.();
-      return proxyUpload({ file, parentId, bucketId, onProgress, signal });
+      return proxyUpload({ file, parentId, bucketId, teamId, onProgress, signal });
     }
 
     const initData = init as any;
@@ -773,13 +769,9 @@ export async function getPresignedDownloadUrl(fileId: string): Promise<PresignDo
     mimeType?: string;
   }>(`/api/presign/download/${fileId}`).catch(() => null);
 
-  // Fall back gracefully
+  // Fall back gracefully —— 代理下载由调用方携带 Authorization 头请求，避免 token 出现在 URL
   if (!data || data.useProxy) {
-    const token = useAuthStore.getState().token;
-    const proxyUrl = token
-      ? `${API_BASE}/api/files/${fileId}/download?token=${encodeURIComponent(token)}`
-      : `${API_BASE}/api/files/${fileId}/download`;
-    return { useProxy: true, url: proxyUrl };
+    return { useProxy: true, url: `${API_BASE}/api/files/${fileId}/download` };
   }
 
   return {
@@ -820,9 +812,16 @@ export async function getPresignedPreviewUrl(fileId: string): Promise<PresignDow
 /**
  * 计算 SHA-256 哈希值
  * 用于上传完成时服务端去重。
- * 注意：大文件会阻塞主线程，生产环境可改为 Web Worker。
+ *
+ * 浏览器 WebCrypto 不支持流式摘要，只能整文件读入内存；
+ * 因此对超过阈值的文件直接跳过去重（服务端 hash 为可选字段），
+ * 避免移动端上传数 GB 文件时 OOM。
  */
+const HASH_MAX_BYTES = 64 * 1024 * 1024;
+
 async function computeFileHash(file: File): Promise<string | undefined> {
+  if (file.size > HASH_MAX_BYTES) return undefined;
+
   try {
     const buf = await file.arrayBuffer();
     const hashBuf = await crypto.subtle.digest('SHA-256', buf);

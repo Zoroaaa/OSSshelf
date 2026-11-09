@@ -17,7 +17,7 @@
 import { Hono } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files } from '../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
 import { ERROR_CODES, isPreviewableMimeType } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import { getEncryptionKey } from '../lib/crypto';
@@ -27,11 +27,22 @@ import { resolveBucketConfig } from '../lib/bucketResolver';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
+app.use('*', requireApiKeyScope('files:read', 'files:write'));
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
 /** 6-hour download expiry (large files take time) */
 const DOWNLOAD_EXPIRY = 21600;
+
+/** 生成 RFC 5987 / RFC 6266 的 attachment 头，兼容中文文件名 */
+function contentDispositionAttachment(name: string): string {
+  const asciiFallback = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+  const encoded = encodeURIComponent(name).replace(
+    /['()*]/g,
+    (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`;
+}
 
 // ── GET /api/presign/download/:id ─────────────────────────────────────────
 
@@ -60,7 +71,14 @@ app.get('/download/:id', async (c) => {
     return c.json({ success: true, data: { useProxy: true, proxyUrl: `/api/files/${fileId}/download` } });
   }
 
-  const downloadUrl = await s3PresignUrl(bucketConfig, 'GET', file.r2Key, DOWNLOAD_EXPIRY);
+  const downloadUrl = await s3PresignUrl(
+    bucketConfig,
+    'GET',
+    file.r2Key,
+    DOWNLOAD_EXPIRY,
+    undefined,
+    contentDispositionAttachment(file.name)
+  );
 
   return c.json({
     success: true,

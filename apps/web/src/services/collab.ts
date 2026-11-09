@@ -93,11 +93,12 @@ export const shareApi = {
   create: (params: ShareCreateParams) => api.post<ApiResponse<Share>>('/api/share', params),
   list: () => api.get<ApiResponse<any[]>>('/api/share'),
   delete: (id: string) => api.delete<ApiResponse<{ message: string }>>(`/api/share/${id}`),
-  get: (id: string, password?: string) => api.get<ApiResponse<ShareInfo>>(`/api/share/${id}`, { params: { password } }),
+  get: (id: string, password?: string) =>
+    api.post<ApiResponse<ShareInfo>>(`/api/share/${id}`, password ? { password } : {}),
 
   /** 获取分享文件夹下的子目录内容 */
   getFolder: (shareId: string, folderId: string, password?: string) =>
-    api.get<ApiResponse<ShareFolderInfo>>(`/api/share/${shareId}/folder/${folderId}`, { params: { password } }),
+    api.post<ApiResponse<ShareFolderInfo>>(`/api/share/${shareId}/folder/${folderId}`, password ? { password } : {}),
   download: (id: string, password?: string) =>
     api.get(`/api/share/${id}/download`, { params: { password }, responseType: 'blob' }),
   downloadUrl: (id: string, password?: string) =>
@@ -204,7 +205,7 @@ export interface GlobalPermission {
 export interface ResolvedPermission {
   hasAccess: boolean;
   permission: string | null;
-  source: 'explicit' | 'inherited' | 'owner';
+  source: 'explicit' | 'inherited' | 'owner' | 'team_role';
   sourceFileId?: string;
   sourceFilePath?: string;
   expiresAt?: string;

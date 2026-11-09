@@ -13,13 +13,21 @@
 import { Hono } from 'hono';
 import { eq, and, isNull, isNotNull, inArray } from 'drizzle-orm';
 import { getDb, files } from '../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { s3Delete, s3Get } from '../lib/s3client';
-import { resolveBucketConfig, updateBucketStats, updateUserStorage } from '../lib/bucketResolver';
+import {
+  buildFilePath,
+  normalizeEntryName,
+  normalizeParentId,
+  pathPrefix,
+  replacePathPrefix,
+  trimTrailingSlash,
+} from '../lib/pathUtils';
+import { resolveBucketConfig } from '../lib/bucketResolver';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getEncryptionKey } from '../lib/crypto';
 import { releaseFileRef } from '../lib/dedup';
@@ -27,6 +35,7 @@ import { ZipBuilder } from '../lib/zipStream';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
+app.use('*', requireApiKeyScope('files:read', 'files:write'));
 
 const batchDeleteSchema = z.object({
   fileIds: z.array(z.string().min(1)).min(1).max(100),
@@ -132,7 +141,9 @@ app.post('/move', async (c) => {
     );
   }
 
-  const { fileIds, targetParentId } = result.data;
+  const { fileIds, targetParentId: rawTargetParentId } = result.data;
+  // 统一入口：目标父目录先校验/规范化
+  const targetParentId = normalizeParentId(rawTargetParentId);
   const db = getDb(c.env.DB);
   const now = new Date().toISOString();
   const batchResult: BatchResult = { success: 0, failed: 0, errors: [] };
@@ -215,14 +226,14 @@ app.post('/move', async (c) => {
         continue;
       }
 
-      const newPath = targetParentId ? `${targetParentId}/${file.name}` : `/${file.name}`;
+      const newPath = buildFilePath(targetParentId, file.name);
       await db
         .update(files)
         .set({ parentId: targetParentId, path: newPath, updatedAt: now })
         .where(eq(files.id, fileId));
 
       if (file.isFolder) {
-        const oldPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
+        const oldPath = trimTrailingSlash(file.path);
         const allFiles = await db
           .select()
           .from(files)
@@ -231,7 +242,7 @@ app.post('/move', async (c) => {
 
         const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(oldPath + '/'));
         for (const child of childFiles) {
-          const newChildPath = newPath + child.path.slice(oldPath.length);
+          const newChildPath = replacePathPrefix(child.path, oldPath, newPath);
           await db.update(files).set({ path: newChildPath, updatedAt: now }).where(eq(files.id, child.id));
         }
       }
@@ -286,13 +297,15 @@ app.post('/rename', async (c) => {
         continue;
       }
 
+      const newName = normalizeEntryName(item.newName);
+
       const conflict = await db
         .select()
         .from(files)
         .where(
           and(
             eq(files.userId, userId),
-            eq(files.name, item.newName),
+            eq(files.name, newName),
             file.parentId ? eq(files.parentId, file.parentId) : isNull(files.parentId),
             isNull(files.deletedAt)
           )
@@ -305,14 +318,11 @@ app.post('/rename', async (c) => {
         continue;
       }
 
-      const newPath = file.parentId ? `${file.parentId}/${item.newName}` : `/${item.newName}`;
-      await db
-        .update(files)
-        .set({ name: item.newName, path: newPath, updatedAt: now })
-        .where(eq(files.id, item.fileId));
+      const newPath = buildFilePath(file.parentId, newName);
+      await db.update(files).set({ name: newName, path: newPath, updatedAt: now }).where(eq(files.id, item.fileId));
 
       if (file.isFolder) {
-        const oldPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
+        const oldPath = trimTrailingSlash(file.path);
         const allFiles = await db
           .select()
           .from(files)
@@ -321,7 +331,7 @@ app.post('/rename', async (c) => {
 
         const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(oldPath + '/'));
         for (const child of childFiles) {
-          const newChildPath = newPath + child.path.slice(oldPath.length);
+          const newChildPath = replacePathPrefix(child.path, oldPath, newPath);
           await db.update(files).set({ path: newChildPath, updatedAt: now }).where(eq(files.id, child.id));
         }
       }
@@ -378,14 +388,14 @@ app.post('/permanent-delete', async (c) => {
       }
 
       if (file.isFolder) {
-        const folderPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
+        const subtreePrefix = pathPrefix(file.path);
         const allFiles = await db
           .select()
           .from(files)
           .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
           .all();
 
-        const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(folderPath + '/'));
+        const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(subtreePrefix));
 
         for (const child of childFiles) {
           if (!child.isFolder) {
@@ -395,7 +405,6 @@ app.post('/permanent-delete', async (c) => {
               if (bucketConfig) {
                 try {
                   await s3Delete(bucketConfig, child.r2Key);
-                  await updateBucketStats(db, bucketConfig.id, -child.size, -1);
                 } catch (error) {
                   logger.error('BATCH', 'S3删除失败', { r2Key: child.r2Key }, error);
                 }
@@ -414,7 +423,6 @@ app.post('/permanent-delete', async (c) => {
           if (bucketConfig) {
             try {
               await s3Delete(bucketConfig, file.r2Key);
-              await updateBucketStats(db, bucketConfig.id, -file.size, -1);
             } catch (error) {
               logger.error('BATCH', 'S3删除失败', { r2Key: file.r2Key }, error);
             }
@@ -433,9 +441,7 @@ app.post('/permanent-delete', async (c) => {
     }
   }
 
-  if (totalFreed > 0) {
-    await updateUserStorage(db, userId, -totalFreed);
-  }
+  // 配额在软删除时已由 files 触发器扣减，永久删除不重复扣减。
 
   return c.json({
     success: true,
@@ -480,14 +486,14 @@ app.post('/restore', async (c) => {
       await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, fileId));
 
       if (file.isFolder) {
-        const folderPath = file.path.endsWith('/') ? file.path.slice(0, -1) : file.path;
+        const subtreePrefix = pathPrefix(file.path);
         const allFiles = await db
           .select()
           .from(files)
           .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
           .all();
 
-        const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(folderPath + '/'));
+        const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(subtreePrefix));
         for (const child of childFiles) {
           await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, child.id));
         }

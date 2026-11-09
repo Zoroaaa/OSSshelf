@@ -2,6 +2,8 @@ name = "ossshelf-api"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"
 compatibility_flags = ["nodejs_compat"]
+# 生产环境上传 sourcemap，便于在 Cloudflare 控制台还原堆栈
+upload_source_maps = true
 
 [ai]
 binding = "AI"
@@ -67,15 +69,15 @@ max_concurrency = 10
 
 [vars]
 ENVIRONMENT = "development"
+# 本地开发可放在 [vars]；生产环境必须使用 `wrangler secret put JWT_SECRET`
 JWT_SECRET = "your-jwt-secret-change-in-production"
 # CORS允许的域名，多个域名用逗号分隔（必填！部署时请修改为你的前端域名）
 # 示例：CORS_ORIGINS = "https://your-frontend.pages.dev,https://your-custom-domain.com"
 CORS_ORIGINS = "https://your-frontend.pages.dev"
 # ── Cron 告警（可选）──────────────────────────────────────────────────────
 # 配置后，每次 cron 执行完成或失败时会向指定 Telegram Chat 发送通知。
-# ALERT_TG_BOT_TOKEN: 通过 @BotFather 创建的 Bot Token
-# ALERT_TG_CHAT_ID:   接收告警的 Chat ID（个人/群组均可，可通过 @userinfobot 获取）
-# ALERT_TG_BOT_TOKEN = "123456789:AAxxxxxxxxxxxxxxxxxxxx"
+# 生产环境请通过 `wrangler secret put ALERT_TG_BOT_TOKEN` 配置，避免明文写入配置。
+# ALERT_TG_CHAT_ID: 接收告警的 Chat ID（个人/群组均可，可通过 @userinfobot 获取）
 # ALERT_TG_CHAT_ID = "-100xxxxxxxxxx"
 
 # ── Cron Triggers (定时任务) ─────────────────────────────────────────────
@@ -84,9 +86,11 @@ CORS_ORIGINS = "https://your-frontend.pages.dev"
 crons = ["0 3 * * *"]
 
 [env.production]
-vars = { ENVIRONMENT = "production", JWT_SECRET = "YOUR_JWT_SECRET", CORS_ORIGINS = "https://your-frontend.pages.dev" }
-# 生产环境告警：
-# ALERT_TG_BOT_TOKEN = "YOUR_BOT_TOKEN"
+vars = { ENVIRONMENT = "production", CORS_ORIGINS = "https://your-frontend.pages.dev" }
+# 生产环境密钥（JWT_SECRET / ALERT_TG_BOT_TOKEN）必须通过 secrets 配置：
+#   wrangler secret put JWT_SECRET --env production
+#   wrangler secret put ALERT_TG_BOT_TOKEN --env production
+# 生产环境告警 Chat ID：
 # ALERT_TG_CHAT_ID = "YOUR_CHAT_ID"
 
 # 生产环境 Cron 触发器

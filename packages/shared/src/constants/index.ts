@@ -27,6 +27,9 @@
  * ============================================================================
  */
 
+/** 应用版本号（与各 package.json 保持一致，发布时同步更新） */
+export const APP_VERSION = '3.2.0';
+
 export const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024;
 
 export const JWT_EXPIRY = 7 * 24 * 60 * 60 * 1000;
@@ -38,8 +41,6 @@ export const UPLOAD_CHUNK_SIZE = 10 * 1024 * 1024;
 export const MULTIPART_THRESHOLD = 100 * 1024 * 1024;
 
 export const MAX_CONCURRENT_PARTS = 3;
-
-export const TRASH_RETENTION_DAYS = 30;
 
 export const LOGIN_MAX_ATTEMPTS = 5;
 

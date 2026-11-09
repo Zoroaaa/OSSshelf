@@ -22,7 +22,7 @@ import { ERROR_CODES, logger } from '@osshelf/shared';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
-app.use('/ws-ticket', aiRateLimit());
+app.use('/ws-ticket', aiRateLimit({ estimatedTokens: 0 }));
 app.use('/sessions/:sessionId/title', aiRateLimit());
 
 /** 标题清洗：去换行、去首尾引号、限长 */
@@ -160,8 +160,12 @@ app.post('/sessions', async (c) => {
     const existing = await db
       .select({ id: aiChatSessions.id })
       .from(aiChatSessions)
-      .where(and(eq(aiChatSessions.id, sessionId), eq(aiChatSessions.userId, userId)))
+      .where(eq(aiChatSessions.id, sessionId))
       .get();
+
+    if (existing) {
+      return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '会话 ID 已存在' } }, 409);
+    }
 
     const newSession = {
       id: sessionId,
@@ -172,7 +176,7 @@ app.post('/sessions', async (c) => {
       updatedAt: new Date().toISOString(),
     };
 
-    if (!existing) await db.insert(aiChatSessions).values(newSession);
+    await db.insert(aiChatSessions).values(newSession);
 
     return c.json({ success: true, data: newSession });
   } catch (error) {
@@ -266,6 +270,7 @@ app.post('/sessions/:sessionId/title', async (c) => {
     });
 
     const title = normalizeTitle(response.content ?? '', 24);
+    c.set('aiUsageTokens', (response.usage?.inputTokens ?? 0) + (response.usage?.outputTokens ?? 0));
     if (!title) {
       return c.json({ success: true, data: { id: sessionId, title: session.title } });
     }
@@ -427,8 +432,10 @@ app.delete('/sessions/:sessionId', async (c) => {
 app.get('/memories', async (c) => {
   const userId = c.get('userId')!;
   const type = c.req.query('type');
-  const limit = parseInt(c.req.query('limit') || '50', 10);
-  const offset = parseInt(c.req.query('offset') || '0', 10);
+  const rawLimit = parseInt(c.req.query('limit') || '50', 10);
+  const rawOffset = parseInt(c.req.query('offset') || '0', 10);
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 50;
+  const offset = Number.isFinite(rawOffset) ? Math.max(rawOffset, 0) : 0;
 
   try {
     const memory = new AgentMemory(c.env);

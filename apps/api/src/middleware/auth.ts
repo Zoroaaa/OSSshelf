@@ -148,7 +148,77 @@ async function handleApiKeyAuth(c: AppContext, next: () => Promise<void>, apiKey
     );
   }
 }
-export function requireEmailVerification(): MiddlewareHandler<AppEnv> {
+/**
+ * API Key 可用的权限作用域。
+ * 注意：JWT 登录用户不受这些 scope 限制（scope 只约束 API Key）。
+ */
+export type ApiKeyScope =
+  | 'files:read'
+  | 'files:write'
+  | 'shares:read'
+  | 'shares:write'
+  | 'buckets:read'
+  | 'api_keys:read';
+
+/**
+ * 按 HTTP 方法对 API Key 做 scope 校验：
+ * - 读请求（GET/HEAD/OPTIONS）需要 readScope
+ * - 写请求需要 writeScope
+ * - 持有 writeScope 的 Key 也允许读
+ *
+ * JWT 身份直接放行，保持原有登录态行为不变。
+ */
+export function requireApiKeyScope(readScope: ApiKeyScope, writeScope: ApiKeyScope): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    if (c.get('authType') !== 'apiKey') {
+      await next();
+      return;
+    }
+
+    const scopes = (c.get('apiKeyScopes') as string[] | undefined) ?? [];
+    const method = c.req.method.toUpperCase();
+    const isRead = method === 'GET' || method === 'HEAD' || method === 'OPTIONS';
+    const required = isRead ? readScope : writeScope;
+
+    if (!scopes.includes(required) && !scopes.includes(writeScope)) {
+      return c.json(
+        {
+          success: false,
+          error: { code: ERROR_CODES.FORBIDDEN.code, message: `API Key 缺少所需权限: ${required}` },
+        },
+        403
+      );
+    }
+
+    await next();
+  };
+}
+
+/**
+ * 拒绝 API Key 身份访问（仅允许登录令牌）。
+ * 用于 API Key 自助管理、权限/团队等尚未定义 scope 的敏感接口，
+ * 防止低权限 Key 通过这些接口提权。
+ */
+export function denyApiKeyAuth(): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    if (c.get('authType') === 'apiKey') {
+      return c.json(
+        {
+          success: false,
+          error: { code: ERROR_CODES.FORBIDDEN.code, message: '该接口不支持 API Key 认证，请使用登录令牌' },
+        },
+        403
+      );
+    }
+    await next();
+  };
+}
+
+/**
+ * 管理员校验（以数据库中的角色为准，避免 JWT 内角色过期）。
+ * 用于系统级配置、全局快照等仅管理员可操作的接口。
+ */
+export function requireAdmin(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const userId = c.get('userId');
     if (!userId) {
@@ -158,20 +228,17 @@ export function requireEmailVerification(): MiddlewareHandler<AppEnv> {
     const db = getDb(c.env.DB);
     const user = await db.select().from(users).where(eq(users.id, userId)).get();
 
-    if (!user) {
-      return c.json({ success: false, error: { code: ERROR_CODES.USER_NOT_FOUND.code, message: '用户不存在' } }, 404);
-    }
-
-    if (!user.emailVerified) {
+    if (!user || user.role !== 'admin') {
       return c.json(
         {
           success: false,
-          error: { code: ERROR_CODES.EMAIL_NOT_VERIFIED.code, message: '请先验证邮箱后再使用此功能' },
+          error: { code: ERROR_CODES.ADMIN_REQUIRED.code, message: ERROR_CODES.ADMIN_REQUIRED.message },
         },
         403
       );
     }
 
+    c.set('user', { id: user.id, email: user.email, role: user.role });
     await next();
   };
 }

@@ -15,7 +15,7 @@ import { eq, and, isNull, like, gte, lte, inArray, desc, asc, sql, SQL } from 'd
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
 import { getDb, files, fileTags, storageBuckets, searchHistory } from '../db';
 import type { DrizzleDb } from '../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
@@ -24,6 +24,7 @@ import { searchSimilarFiles, isAIConfigured } from '../lib/ai/vectorIndex';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
+app.use('*', requireApiKeyScope('files:read', 'files:write'));
 
 const searchSchema = z.object({
   query: z.string().min(1).optional(),

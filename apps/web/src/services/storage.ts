@@ -359,7 +359,13 @@ export const searchApi = {
     semantic?: boolean;
     hybrid?: boolean;
     fts?: boolean;
-  }) => api.get<ApiResponse<FileSearchResult>>('/api/search', { params }),
+  }) => {
+    // 后端只接受 `tags=a,b` 形式；axios 默认会把数组序列化成 `tags[]=a&tags[]=b`
+    const { tags, ...rest } = params;
+    return api.get<ApiResponse<FileSearchResult>>('/api/search', {
+      params: tags && tags.length > 0 ? { ...rest, tags: tags.join(',') } : rest,
+    });
+  },
 
   advanced: (data: {
     conditions: Array<{
@@ -378,8 +384,8 @@ export const searchApi = {
       data
     ),
 
-  suggestions: (params: { q: string; type: 'name' | 'tags' | 'mime' }) =>
-    api.get<ApiResponse<string[]>>('/api/search/suggestions', { params }),
+  suggestions: (params: { q: string; type: 'name' | 'tags' | 'mime' }, signal?: AbortSignal) =>
+    api.get<ApiResponse<string[]>>('/api/search/suggestions', { params, signal }),
   recent: () => api.get<ApiResponse<FileItem[]>>('/api/search/recent'),
   history: () => api.get<ApiResponse<Array<{ id: string; query: string; createdAt: string }>>>('/api/search/history'),
   deleteHistory: (id: string) => api.delete<ApiResponse<void>>(`/api/search/history/${id}`),

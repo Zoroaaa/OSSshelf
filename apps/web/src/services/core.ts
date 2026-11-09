@@ -236,7 +236,9 @@ export const filesApi = {
 
   // ── 回收站 ──
   listTrash: (params?: { page?: number; limit?: number }) =>
-    api.get<ApiResponse<FileItem[]>>('/api/files/trash', { params }),
+    api.get<ApiResponse<FileItem[]> & { total?: number; page?: number; limit?: number }>('/api/files/trash', {
+      params,
+    }),
   restoreTrash: (id: string) => api.post<ApiResponse<{ message: string }>>(`/api/files/trash/${id}/restore`),
   deleteTrash: (id: string) => api.delete<ApiResponse<{ message: string }>>(`/api/files/trash/${id}`),
   emptyTrash: () => api.delete<ApiResponse<{ message: string }>>('/api/files/trash'),

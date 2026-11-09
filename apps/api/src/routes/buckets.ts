@@ -12,7 +12,7 @@
 import { Hono } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, storageBuckets, files } from '../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
@@ -22,6 +22,7 @@ import { sendNotification } from '../lib/notificationUtils';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
+app.use('*', requireApiKeyScope('buckets:read', 'files:write'));
 
 // ── Provider metadata (for frontend display) ──────────────────────────────
 export const PROVIDERS = {

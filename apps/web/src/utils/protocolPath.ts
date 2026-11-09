@@ -31,11 +31,30 @@ export interface ProtocolPathResult {
  * 把协议链接中的原始 path 拆成目录名称数组。
  * Chrome 传入的是 scheme 之后的部分，可能带 `//` 前缀或百分号编码。
  */
+const PROTOCOL_SCHEME_PATTERN = /^web\+osshelf:(\/\/)?/i;
+
+function tryDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 export function parseProtocolPath(raw: string | null): string[] {
   if (!raw) return [];
 
+  // 浏览器通过 `%s` 传递的是完整 URL（可能整条被百分号编码），
+  // 先整体解码并去掉 `web+osshelf://` 前缀，避免把 scheme 当作目录名。
+  let value = raw.trim();
+  const decoded = tryDecode(value);
+  const schemeMatch = PROTOCOL_SCHEME_PATTERN.exec(decoded);
+  if (schemeMatch) {
+    value = decoded.slice(schemeMatch[0].length);
+  }
+
   // 先按 `/` 分段再逐段解码，避免目录名中的编码斜杠（%2F）被误当作分隔符
-  return raw
+  return value
     .split('/')
     .map((segment) => {
       try {

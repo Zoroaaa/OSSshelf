@@ -53,23 +53,23 @@ interface OssShelfChatHandle {
 }
 
 const EMPTY_MESSAGES: UIMessage[] = [];
-const TICKET_REFRESH_MARGIN_MS = 2 * 60_000;
-// 票据本身 2h 有效，但本地只缓存 10 分钟：既省掉切换会话的换票往返，又能在密钥轮换后自愈
+// 票据剩余有效期低于该阈值时视为过期，必须重新签票
+const TICKET_REFRESH_MARGIN_MS = 60_000;
 const TICKET_CACHE_MAX_AGE_MS = 10 * 60_000;
-const DEFAULT_TICKET_TTL_MS = 2 * 60 * 60_000;
+const DEFAULT_TICKET_TTL_MS = 10 * 60_000;
 const TICKET_RETRY_DELAYS_MS = [600, 1500];
 const CONNECT_TIMEOUT_MS = 9_000;
 
 const ticketCache = new Map<string, { ticket: string; expiresAt: number }>();
 
-function readCachedTicket(name: string): string | null {
+function readCachedTicket(name: string): { ticket: string; expiresAt: number } | null {
   const entry = ticketCache.get(name);
   if (!entry) return null;
   if (entry.expiresAt - Date.now() <= TICKET_REFRESH_MARGIN_MS) {
     ticketCache.delete(name);
     return null;
   }
-  return entry.ticket;
+  return entry;
 }
 
 function toHost(value: string): string {
@@ -138,9 +138,13 @@ export function useOssShelfChat({ userId, sessionId, enabled }: UseOssShelfChatO
   }, [agentName]);
 
   // 票据与会话绑定：切换会话时绝不复用上一个会话的票据
-  const [ticketState, setTicketState] = useState<{ name: string; ticket: string } | null>(null);
-  const ticket =
-    (agentName ? readCachedTicket(agentName) : null) ?? (ticketState?.name === agentName ? ticketState.ticket : null);
+  const [ticketState, setTicketState] = useState<{ name: string; ticket: string; expiresAt: number } | null>(null);
+  const cachedTicket = agentName ? readCachedTicket(agentName) : null;
+  const ticketEntry =
+    cachedTicket ??
+    (ticketState?.name === agentName ? { ticket: ticketState.ticket, expiresAt: ticketState.expiresAt } : null);
+  const ticket = ticketEntry?.ticket ?? null;
+  const ticketExpiresAt = ticketEntry?.expiresAt ?? 0;
 
   useEffect(() => {
     if (!agentName || !sessionId) {
@@ -168,7 +172,7 @@ export function useOssShelfChat({ userId, sessionId, enabled }: UseOssShelfChatO
             : DEFAULT_TICKET_TTL_MS;
         const expiresAt = Date.now() + Math.min(ticketTtl, TICKET_CACHE_MAX_AGE_MS);
         ticketCache.set(agentName, { ticket: result.ticket, expiresAt });
-        setTicketState({ name: agentName, ticket: result.ticket });
+        setTicketState({ name: agentName, ticket: result.ticket, expiresAt });
         setTicketError(null);
       } catch (error) {
         if (cancelled) return;
@@ -264,17 +268,25 @@ export function useOssShelfChat({ userId, sessionId, enabled }: UseOssShelfChatO
     queryClient,
   ]);
 
-  // 连接超时自愈：票据有效但 9s 内未完成身份识别，自动重新换票一次
-  const autoRetriedRef = useRef<string | null>(null);
+  // 票据临近过期时主动换票并重连：重连绝不携带即将过期/已过期的旧票据
+  useEffect(() => {
+    if (!agentName || !ticketExpiresAt) return;
+    const delay = Math.max(30_000, ticketExpiresAt - Date.now() - TICKET_REFRESH_MARGIN_MS);
+    const timer = window.setTimeout(() => retryConnection(), delay);
+    return () => window.clearTimeout(timer);
+  }, [agentName, ticketExpiresAt, retryConnection]);
+
+  // 连接超时自愈：票据有效但 9s 内未完成身份识别，自动重新换票一次（每张票据一次机会）
+  const autoRetriedTicketRef = useRef<string | null>(null);
   useEffect(() => {
     if (!agentName || !ticket) return;
     if (agent.identified) {
-      autoRetriedRef.current = null;
+      autoRetriedTicketRef.current = null;
       return;
     }
     const timer = window.setTimeout(() => {
-      if (!agent.identified && autoRetriedRef.current !== agentName) {
-        autoRetriedRef.current = agentName;
+      if (!agent.identified && autoRetriedTicketRef.current !== ticket) {
+        autoRetriedTicketRef.current = ticket;
         retryConnection();
       }
     }, CONNECT_TIMEOUT_MS);

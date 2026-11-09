@@ -15,6 +15,7 @@
 
 import { Hono } from 'hono';
 import { Scalar } from '@scalar/hono-api-reference';
+import { APP_VERSION } from '@osshelf/shared';
 import type { Env } from '../types/env';
 import type { RouterRoute } from 'hono/types';
 
@@ -79,7 +80,7 @@ const routeMetadata: Record<string, RouteMeta> = {
   'get  /share': { summary: '列出我的分享', tags: ['Share'] },
   'post /share': { summary: '创建下载分享', tags: ['Share'] },
   'post /share/upload-link': { summary: '创建上传链接', tags: ['Share'] },
-  'get  /share/:shareId': { summary: '获取分享信息（公开）', tags: ['Share'], auth: false },
+  'post /share/:shareId': { summary: '获取分享信息（公开）', tags: ['Share'], auth: false },
   'delete /share/:shareId': { summary: '删除分享', tags: ['Share'] },
 
   // ── Direct Link ─────────────────────────────────────
@@ -87,8 +88,7 @@ const routeMetadata: Record<string, RouteMeta> = {
   'get  /direct/:token': { summary: '通过直链下载文件（公开）', tags: ['DirectLink'], auth: false },
 
   // ── Presign ─────────────────────────────────────────
-  'post /presign/upload': { summary: '获取上传预签名 URL', tags: ['Presign'] },
-  'get  /presign/download/:fileId': { summary: '获取下载预签名 URL', tags: ['Presign'] },
+  'get  /presign/download/:id': { summary: '获取下载预签名 URL', tags: ['Presign'] },
 
   // ── Search ──────────────────────────────────────────
   'get  /search': { summary: '搜索文件', tags: ['Search'] },
@@ -173,9 +173,9 @@ const routeMetadata: Record<string, RouteMeta> = {
   'delete /notes/:noteId': { summary: '删除笔记', tags: ['Notes'] },
 
   // ── API Keys ────────────────────────────────────────
-  'get  /api-keys': { summary: '获取 API Key 列表', tags: ['ApiKeys'] },
-  'post /api-keys': { summary: '创建 API Key', tags: ['ApiKeys'] },
-  'delete /api-keys/:keyId': { summary: '撤销 API Key', tags: ['ApiKeys'] },
+  'get  /keys': { summary: '获取 API Key 列表', tags: ['ApiKeys'] },
+  'post /keys': { summary: '创建 API Key', tags: ['ApiKeys'] },
+  'delete /keys/:keyId': { summary: '撤销 API Key', tags: ['ApiKeys'] },
 
   // ── Analytics ───────────────────────────────────────
   'get  /analytics/storage-breakdown': { summary: '获取存储空间分布', tags: ['Analytics'] },
@@ -302,7 +302,7 @@ function buildOpenApiSpec(appRoutes: RouterRoute[]) {
     openapi: '3.1.0',
     info: {
       title: 'OSSshelf API',
-      version: '5.0.0',
+      version: APP_VERSION,
       description: `
 OSSshelf 对象存储管理平台 RESTful API 文档
 

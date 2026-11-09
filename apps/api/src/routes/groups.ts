@@ -11,7 +11,7 @@
 import { Hono } from 'hono';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { getDb, userGroups, groupMembers, users, filePermissions, files } from '../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, denyApiKeyAuth } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
 import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
@@ -20,6 +20,7 @@ import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
+app.use('/*', denyApiKeyAuth());
 
 const createGroupSchema = z.object({
   name: z.string().min(1, '组名不能为空').max(100, '组名过长'),

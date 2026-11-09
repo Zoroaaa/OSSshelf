@@ -207,7 +207,8 @@ export async function s3PresignUrl(
   method: 'PUT' | 'GET',
   key: string,
   expiresIn = 3600,
-  _contentType?: string
+  _contentType?: string,
+  responseContentDisposition?: string
 ): Promise<string> {
   const { url, host, canonicalUri } = buildObjectUrl(config, key);
   const region = config.region || 'us-east-1';
@@ -230,6 +231,11 @@ export async function s3PresignUrl(
     'X-Amz-Expires': String(expiresIn),
     'X-Amz-SignedHeaders': 'host',
   };
+
+  // 让对象存储直接返回 attachment，浏览器可原生流式下载而无需先读入内存
+  if (responseContentDisposition) {
+    queryParams['response-content-disposition'] = responseContentDisposition;
+  }
 
   // For PUT presigns, include Content-Type in signed headers when provided.
   // However most S3 providers (and R2) do NOT enforce Content-Type in presign

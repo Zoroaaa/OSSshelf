@@ -3,14 +3,21 @@
  * Agent WebSocket 鉴权
  *
  * 设计:
- * - 客户端先用 REST 换取短期 ticket（60s，HMAC-SHA256）
+ * - 客户端先用 REST 换取短期 ticket（有效期见 WS_TICKET_TTL_MS，HMAC-SHA256）
  * - WebSocket 连接只携带 ticket，避免长期 JWT 出现在 URL / 日志
- * - onBeforeConnect 校验 ticket 与 DO 名称（userId:sessionId）一致后，注入内部头
+ * - onBeforeConnect 校验 ticket、DO 名称（userId:sessionId）与会话存在性后，注入内部头
  */
 
+import { and, eq } from 'drizzle-orm';
+import { getDb, aiChatSessions } from '../db';
 import type { Env } from '../types/env';
 
-export const WS_TICKET_TTL_MS = 2 * 60 * 60_000;
+/**
+ * ticket 有效期。
+ * 连接建立后只校验一次，因此前端会在临近过期时重新签票并重连，
+ * 绝不在重连时复用旧票据；配额/限流为消息级校验（见 OSSShelfAgent.onChatMessage）。
+ */
+export const WS_TICKET_TTL_MS = 10 * 60_000;
 
 const USER_HEADER = 'x-osshelf-user-id';
 const SESSION_HEADER = 'x-osshelf-session-id';
@@ -118,6 +125,16 @@ export async function verifyAgentConnection(
   if (route.name !== buildAgentInstanceName(claims.userId, claims.sessionId)) {
     return unauthorized('Ticket does not match session');
   }
+
+  // 会话被删除后，旧 ticket 不应还能建立连接
+  const db = getDb(env.DB);
+  const session = await db
+    .select({ id: aiChatSessions.id })
+    .from(aiChatSessions)
+    .where(and(eq(aiChatSessions.id, claims.sessionId), eq(aiChatSessions.userId, claims.userId)))
+    .get();
+
+  if (!session) return unauthorized('Session not found');
 
   const headers = new Headers(request.headers);
   headers.set(USER_HEADER, claims.userId);

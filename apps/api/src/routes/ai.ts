@@ -11,7 +11,7 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, isNull, sql, inArray } from 'drizzle-orm';
+import { eq, and, isNull, sql, inArray, or, lt } from 'drizzle-orm';
 import { getDb, files, fileChunks, aiTasks, aiTaskItems } from '../db';
 import { authMiddleware } from '../middleware';
 import { aiRateLimit } from '../middleware/aiRateLimit';
@@ -41,19 +41,15 @@ import { rebuildFtsForUser } from '../lib/ai/retrieval/fts';
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
 
+// 仅入队的端点不消耗模型 token（由后台任务消费），只做请求级限流
+const aiEnqueueGuard = aiRateLimit({ estimatedTokens: 0 });
+for (const path of ['/index/all', '/index/rebuild', '/summarize/batch', '/tags/batch', '/process-selected']) {
+  app.use(path, aiEnqueueGuard);
+}
+
+// 同步调用模型的端点：预扣估算 token，处理函数可上报真实用量结算
 const aiQuotaGuard = aiRateLimit();
-for (const path of [
-  '/index/all',
-  '/index/rebuild',
-  '/summarize/batch',
-  '/tags/batch',
-  '/process-selected',
-  '/search',
-  '/summarize/:fileId',
-  '/tags/:fileId',
-  '/rename-suggest/:fileId',
-  '/name-suggest',
-]) {
+for (const path of ['/search', '/summarize/:fileId', '/tags/:fileId', '/rename-suggest/:fileId', '/name-suggest']) {
   app.use(path, aiQuotaGuard);
 }
 
@@ -183,12 +179,8 @@ app.post('/index/rebuild', async (c) => {
     return c.json({ success: true, data: { message: '没有可重建的文件', task: null } });
   }
 
-  await db
-    .update(files)
-    .set({ vectorIndexedAt: null })
-    .where(and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false)));
-
   const task = await createTaskRecord(c.env, 'index', userId, userFiles.length);
+  const rebuildStartedAt = new Date().toISOString();
   try {
     await enqueueAiTasks(
       c.env,
@@ -202,6 +194,20 @@ app.post('/index/rebuild', async (c) => {
     await markTaskFailed(c.env, task.id, message);
     return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
   }
+
+  // 入队成功后再清标记：入队失败时保留原索引状态，避免全库永久显示未索引。
+  // 只清入队开始前的时间戳，避免覆盖 worker 在并发中刚写入的新索引标记。
+  await db
+    .update(files)
+    .set({ vectorIndexedAt: null })
+    .where(
+      and(
+        eq(files.userId, userId),
+        isNull(files.deletedAt),
+        eq(files.isFolder, false),
+        or(isNull(files.vectorIndexedAt), lt(files.vectorIndexedAt, rebuildStartedAt))
+      )
+    );
 
   c.executionCtx.waitUntil(rebuildFtsForUser(c.env, userId));
 

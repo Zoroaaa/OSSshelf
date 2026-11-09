@@ -5,24 +5,28 @@
  * 设计原则：
  *   - 相同 hash + 相同 bucketId 的文件共享一个存储对象（r2Key）
  *   - files 表中每条记录对应一个逻辑文件（独立 name/path/parentId）
- *   - ref_count 追踪同一 r2Key 的引用数：
- *       新文件上传      → ref_count = 1，写入新对象到存储
- *       命中去重        → ref_count += 1，复用 existing r2Key，不写存储
- *       软删除/永久删除 → ref_count -= 1；ref_count 降为 0 时才删除存储对象
+ *   - 物理对象在同一 r2Key 的所有 files 记录之间共享
+ *       新文件上传 → 写入新对象
+ *       命中去重   → 复用 existing r2Key，不写存储
+ *       删除文件   → 仅当再无其它记录引用该 r2Key 时才删除物理对象
  *
  * 约束：
  *   - hash 为 null 的文件不参与去重（流式上传/未知 hash 场景）
  *   - 跨存储桶不去重（R2 和 Telegram 对象不互通）
  *   - 已软删除的文件不作为去重目标
  *
+ * 引用计数语义：
+ *   - 物理对象的存活由 files 表中同一 r2_key 的记录数决定（含回收站中的记录，
+ *     因为软删除不删除物理对象）
+ *   - files.ref_count 仅作为兼容字段保留，不再作为删除判断依据，
+ *     避免"逐行计数"与"对象级计数"混用导致误删共享对象
+ *
  * 并发安全：
- *   - checkAndClaimDedup 使用单条原子 UPDATE ... RETURNING 替代 SELECT+UPDATE
- *     两步操作，消除并发上传同一文件时的 race condition
- *   - releaseFileRef 使用 UPDATE ref_count = ref_count - 1 WHERE ref_count > 0
- *     原子递减，避免读旧值后回写的 TOCTOU 问题
+ *   - checkAndClaimDedup 通过 LIMIT 1 精确定位单个候选对象，不会误改其他行
+ *   - releaseFileRef 通过 r2_key 聚合判断是否还有其它引用，删除前不会误删共享对象
  */
 
-import { and, eq, isNull, gt, sql } from 'drizzle-orm';
+import { and, eq, isNull, gt, ne } from 'drizzle-orm';
 import { files } from '../db/schema';
 import type { DrizzleDb } from '../db';
 
@@ -36,11 +40,15 @@ export interface DedupResult {
 }
 
 /**
- * 原子去重声明：用单条 UPDATE ... RETURNING 替代 SELECT + UPDATE 两步操作。
+ * 查找可复用的物理对象。
  *
- * SQLite/D1 保证单条语句的原子性。即使两个 Worker 实例并发上传相同 hash，
- * 也只有一个会命中并成功递增；另一个会因为 WHERE 匹配不到行而返回空集，
- * 从而走新文件写入路径（最坏情况：两份物理对象，但 ref_count 始终正确）。
+ * 只做 SELECT（LIMIT 1），不修改任何行的 ref_count：
+ * 引用关系由 files.r2_key 本身表达，删除时按 r2_key 聚合判断，
+ * 因此无需在插入前"抢占"计数，也就不会出现原实现中
+ * "所有同 hash 行都被 +1、但只有一行被返回"的数据错乱。
+ *
+ * 并发上传同一内容时，双方都可能各自写入一份物理对象（最坏情况），
+ * 但引用关系始终正确，不会误删仍在使用的对象。
  */
 export async function checkAndClaimDedup(
   db: DrizzleDb,
@@ -50,16 +58,9 @@ export async function checkAndClaimDedup(
 ): Promise<DedupResult> {
   if (!hash) return { isDuplicate: false };
 
-  const now = new Date().toISOString();
-
-  // 原子：找到候选行并立即递增 ref_count，通过 RETURNING 取回 r2Key/size
-  // D1 支持 Drizzle 的 .returning()，单条语句保证原子性
-  const updated = await db
-    .update(files)
-    .set({
-      refCount: sql`${files.refCount} + 1`,
-      updatedAt: now,
-    })
+  const existing = await db
+    .select({ r2Key: files.r2Key, size: files.size })
+    .from(files)
     .where(
       and(
         eq(files.userId, userId),
@@ -70,45 +71,44 @@ export async function checkAndClaimDedup(
         bucketId ? eq(files.bucketId, bucketId) : isNull(files.bucketId)
       )
     )
-    .returning({ r2Key: files.r2Key, size: files.size })
-    // D1 UPDATE 可能命中多行（同 hash 多条记录）；取第一行即可
-    .then((rows) => rows[0] ?? null);
+    .limit(1)
+    .get();
 
-  if (!updated) return { isDuplicate: false };
+  if (!existing) return { isDuplicate: false };
 
   return {
     isDuplicate: true,
-    existingR2Key: updated.r2Key,
-    existingSize: updated.size,
+    existingR2Key: existing.r2Key,
+    existingSize: existing.size,
   };
 }
 
 /**
- * 删除文件时的引用计数原子递减。
- * 使用 ref_count = ref_count - 1 WHERE ref_count > 0 避免读旧值后回写。
+ * 删除文件时判断是否可以清理物理对象。
  *
- * @returns shouldDeleteStorage  true = ref_count 已归零，调用方应删除存储对象
+ * 判断依据：files 表中是否还有其它记录引用同一个 r2_key。
+ * 这里必须把回收站中的记录也计算在内——软删除只释放配额，
+ * 并不会删除物理对象，因此它仍然持有一个引用。
+ *
+ * @returns shouldDeleteStorage  true = 没有其它引用，调用方应删除存储对象
  */
 export async function releaseFileRef(db: DrizzleDb, fileId: string): Promise<{ shouldDeleteStorage: boolean }> {
   const now = new Date().toISOString();
 
-  // 原子递减：仅当 ref_count > 1 时执行减法（还有其他引用）
-  const decremented = await db
-    .update(files)
-    .set({ refCount: sql`${files.refCount} - 1`, updatedAt: now })
-    .where(and(eq(files.id, fileId), gt(files.refCount, 1)))
-    .returning({ id: files.id })
-    .then((rows) => rows[0] ?? null);
+  const file = await db.select({ r2Key: files.r2Key }).from(files).where(eq(files.id, fileId)).get();
+  if (!file) return { shouldDeleteStorage: true };
 
-  if (decremented) {
-    // 成功递减，仍有剩余引用，不删存储
-    return { shouldDeleteStorage: false };
-  }
+  const otherRef = await db
+    .select({ id: files.id })
+    .from(files)
+    .where(and(eq(files.r2Key, file.r2Key), ne(files.id, fileId)))
+    .limit(1)
+    .get();
 
-  // ref_count 为 1（或已为 0）：此次是最后一个引用，归零并通知调用方清理存储
+  // 兼容字段归零，便于排查；真正的删除判断看上面的聚合结果
   await db.update(files).set({ refCount: 0, updatedAt: now }).where(eq(files.id, fileId));
 
-  return { shouldDeleteStorage: true };
+  return { shouldDeleteStorage: !otherRef };
 }
 
 /**

@@ -14,7 +14,7 @@
  * - 使用 ref_count 追踪同一 r2Key 的引用，实现去重存储
  */
 
-import { eq, and, desc, lt } from 'drizzle-orm';
+import { eq, and, desc, lt, ne } from 'drizzle-orm';
 import { files, fileVersions } from '../db';
 import type { DrizzleDb } from '../db';
 import type { Env } from '../types/env';
@@ -22,7 +22,6 @@ import { logger } from '@osshelf/shared';
 import { s3Delete } from './s3client';
 import { resolveBucketConfig } from './bucketResolver';
 import { getEncryptionKey } from './crypto';
-import { updateUserStorage } from './bucketResolver';
 import { isEditableFile } from '@osshelf/shared';
 
 type FileRecord = typeof files.$inferSelect;
@@ -30,6 +29,16 @@ type FileRecord = typeof files.$inferSelect;
 const isVersionableFile = isEditableFile;
 
 export { isEditableFile, isVersionableFile };
+
+async function isKeySharedByOtherFile(db: DrizzleDb, r2Key: string, fileId: string): Promise<boolean> {
+  const row = await db
+    .select({ id: files.id })
+    .from(files)
+    .where(and(eq(files.r2Key, r2Key), ne(files.id, fileId)))
+    .limit(1)
+    .get();
+  return !!row;
+}
 
 export interface CreateVersionOptions {
   changeSummary?: string;
@@ -224,7 +233,7 @@ export async function pruneExcessVersions(
           .where(and(eq(fileVersions.r2Key, version.r2Key), eq(fileVersions.fileId, fileId)))
           .all();
 
-        if (sharedRefs.length === 0) {
+        if (sharedRefs.length === 0 && !(await isKeySharedByOtherFile(db, version.r2Key, fileId))) {
           await deleteStorageObject(db, env, file, version.r2Key, encKey);
           result.freedBytes += version.size;
         }
@@ -237,9 +246,7 @@ export async function pruneExcessVersions(
     }
   }
 
-  if (result.freedBytes > 0 && file.userId) {
-    await updateUserStorage(db, file.userId, -result.freedBytes);
-  }
+  // 版本快照不计入用户配额，清理时也不扣减（避免 storage_used 变负）。
 
   return result;
 }
@@ -307,7 +314,7 @@ export async function cleanExpiredVersions(db: DrizzleDb, env: Env): Promise<Pru
             .where(and(eq(fileVersions.r2Key, version.r2Key), eq(fileVersions.fileId, file.id)))
             .all();
 
-          if (sharedRefs.length === 0) {
+          if (sharedRefs.length === 0 && !(await isKeySharedByOtherFile(db, version.r2Key, file.id))) {
             await deleteStorageObject(db, env, file as any, version.r2Key, encKey);
             fileFreedBytes += version.size;
           }
@@ -320,8 +327,7 @@ export async function cleanExpiredVersions(db: DrizzleDb, env: Env): Promise<Pru
       }
     }
 
-    if (fileFreedBytes > 0 && file.userId) {
-      await updateUserStorage(db, file.userId, -fileFreedBytes);
+    if (fileFreedBytes > 0) {
       result.freedBytes += fileFreedBytes;
     }
   }

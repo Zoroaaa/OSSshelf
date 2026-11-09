@@ -20,13 +20,22 @@ import { logger } from '@osshelf/shared';
 import { checkFilePermission } from '../lib/permissionService';
 import { inheritParentPermissions } from '../lib/permissionService';
 import { inferMimeType, isEditableFile, MAX_EDITABLE_SIZE } from '@osshelf/shared';
-import { resolveBucketConfig, updateUserStorage, updateBucketStats, checkBucketQuota } from './bucketResolver';
+import { resolveBucketConfig, checkBucketQuota } from './bucketResolver';
 import { getEncryptionKey } from './crypto';
 import { createVersionSnapshot, shouldCreateVersion } from './versionManager';
 import { dispatchWebhook } from './webhook';
 import { readFileContent, writeFileContent } from './fileContentHelper';
 import { deleteFileVector } from './ai/vectorIndex';
 import { deleteFileFts, syncFileFts } from './ai/retrieval/fts';
+import {
+  buildFilePath,
+  normalizeEntryName,
+  normalizeParentId,
+  pathPrefix,
+  pathPrefixCondition,
+  replacePathPrefix,
+  trimTrailingSlash,
+} from './pathUtils';
 
 export interface CreateTextFileInput {
   name: string;
@@ -55,7 +64,22 @@ export async function createTextFile(
 ): Promise<{ success: true; fileId: string; file: Record<string, unknown> } | { success: false; error: string }> {
   const db = getDb(env.DB);
   const encKey = getEncryptionKey(env);
-  const { name, content, parentId, bucketId: requestedBucketId, mimeType: providedMimeType } = input;
+  const {
+    name: rawName,
+    content,
+    parentId: rawParentId,
+    bucketId: requestedBucketId,
+    mimeType: providedMimeType,
+  } = input;
+
+  let name: string;
+  let parentId: string | null;
+  try {
+    name = normalizeEntryName(rawName);
+    parentId = normalizeParentId(rawParentId);
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : '名称无效' };
+  }
 
   const fileMime = inferMimeType(name, providedMimeType);
 
@@ -86,7 +110,7 @@ export async function createTextFile(
   const fileId = crypto.randomUUID();
   const now = new Date().toISOString();
   const r2Key = `files/${userId}/${fileId}/${name}`;
-  const path = parentId ? `${parentId}/${name}` : `/${name}`;
+  const path = buildFilePath(parentId, name);
 
   // 写入存储
   try {
@@ -140,13 +164,7 @@ export async function createTextFile(
 
   await inheritParentPermissions(db, fileId, parentId || null);
 
-  if (user) {
-    await updateUserStorage(db, userId, contentBytes.length);
-  }
-
-  if (effectiveBucketId) {
-    await updateBucketStats(db, effectiveBucketId, contentBytes.length, 1);
-  }
+  // 存储统计由 files 触发器统一维护，避免双重记账。
 
   logger.info('FileService', '文本文件创建成功', { fileId, fileName: name, size: contentBytes.length });
 
@@ -190,26 +208,31 @@ export async function updateFileContent(
     oldContent = readResult.content;
   }
 
-  // 创建版本快照（如果配置允许且内容有变化）
-  if (oldContent !== newContent) {
-    try {
-      const newHash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(newContent)).then((buf) =>
-        Array.from(new Uint8Array(buf))
-          .map((b) => b.toString(16).padStart(2, '0'))
-          .join('')
-      );
-      const doSnapshot = await shouldCreateVersion(getDb(env.DB), fileId, newHash);
-      if (doSnapshot) {
-        await createVersionSnapshot(db, env, { id: fileId } as any, { changeSummary: 'Agent 编辑', createdBy: userId });
-      }
-    } catch (versionError) {
-      logger.warn('FileService', '创建版本快照失败（非致命）', { fileId }, versionError);
-    }
+  // 内容未变化时直接返回，避免产生无意义的新对象与版本
+  if (oldContent === newContent) {
+    return { success: true, message: '内容未变化' };
   }
 
-  // 写入新内容
   const contentBytes = new TextEncoder().encode(newContent);
-  const writeResult = await writeFileContent(env, file, newContent, userId);
+  const newHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', contentBytes)))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  const currentVersion = file.currentVersion ?? 1;
+
+  // 创建版本快照（必须在写入新对象之前，快照引用的是旧 r2Key）
+  try {
+    const doSnapshot = await shouldCreateVersion(db, fileId, newHash);
+    if (doSnapshot) {
+      await createVersionSnapshot(db, env, file, { changeSummary: 'Agent 编辑', createdBy: userId });
+    }
+  } catch (versionError) {
+    logger.warn('FileService', '创建版本快照失败（非致命）', { fileId }, versionError);
+  }
+
+  // 写入新对象：使用新的版本化 r2Key，避免原地覆盖导致历史版本内容丢失
+  const newR2Key = `files/${userId}/${fileId}/v${currentVersion + 1}_${file.name}`;
+  const writeResult = await writeFileContent(env, { ...file, r2Key: newR2Key } as any, newContent, userId);
 
   if (!writeResult.success) {
     return { success: false, error: writeResult.error || '保存失败' };
@@ -220,7 +243,10 @@ export async function updateFileContent(
   await db
     .update(files)
     .set({
+      r2Key: newR2Key,
       size: contentBytes.length,
+      hash: newHash,
+      currentVersion: currentVersion + 1,
       updatedAt: now,
     })
     .where(eq(files.id, fileId));
@@ -315,7 +341,7 @@ export async function moveFile(
   }
 
   const now = new Date().toISOString();
-  const newPath = targetParentId ? `${targetParentId}/${file.name}` : `/${file.name}`;
+  const newPath = buildFilePath(targetParentId, file.name);
 
   await db.update(files).set({ parentId: targetParentId, path: newPath, updatedAt: now }).where(eq(files.id, fileId));
 
@@ -351,10 +377,12 @@ export async function renameFile(
   input: RenameFileInput
 ): Promise<{ success: true; message: string } | { success: false; error: string }> {
   const db = getDb(env.DB);
-  const { name } = input;
 
-  if (!name || name.length === 0 || name.length > 255) {
-    return { success: false, error: '名称长度必须在1-255个字符之间' };
+  let name: string;
+  try {
+    name = normalizeEntryName(input.name);
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : '名称无效' };
   }
 
   const { hasAccess } = await checkFilePermission(db, fileId, userId, 'write', env);
@@ -364,7 +392,7 @@ export async function renameFile(
   if (!file) return { success: false, error: '文件不存在' };
 
   const now = new Date().toISOString();
-  const newPath = file.parentId ? `${file.parentId}/${name}` : `/${name}`;
+  const newPath = buildFilePath(file.parentId, name);
 
   await db
     .update(files)
@@ -374,6 +402,23 @@ export async function renameFile(
       updatedAt: now,
     })
     .where(eq(files.id, fileId));
+
+  // 文件夹重命名必须同步子项 path，否则递归删除/移动按旧前缀匹配不到子项
+  if (file.isFolder) {
+    const oldPath = trimTrailingSlash(file.path);
+    const descendants = await db
+      .select({ id: files.id, path: files.path })
+      .from(files)
+      .where(and(eq(files.userId, file.userId), pathPrefixCondition(files.path, oldPath), isNull(files.deletedAt)))
+      .all();
+
+    for (const child of descendants) {
+      await db
+        .update(files)
+        .set({ path: replacePathPrefix(child.path, oldPath, newPath), updatedAt: now })
+        .where(eq(files.id, child.id));
+    }
+  }
 
   await syncFileFts(env, fileId);
 
@@ -427,13 +472,8 @@ export async function softDeleteFile(
   if (file.isFolder) await softDeleteFolder(db, fileId, now, env);
   await db.update(files).set({ deletedAt: now, updatedAt: now }).where(eq(files.id, fileId));
 
-  // 软删除时立即释放存储配额（避免用户反复上传-软删除导致配额误判）
-  if (!file.isFolder && file.size > 0) {
-    await updateUserStorage(db, userId, -file.size);
-    if (file.bucketId) {
-      await updateBucketStats(db, file.bucketId, -file.size, -1);
-    }
-  }
+  // 配额与桶统计的扣减由 files 触发器（trg_files_storage_delete）完成，
+  // 这里不再手动调用 updateUserStorage / updateBucketStats。
 
   await deleteFileVector(env, fileId);
   await deleteFileFts(env, fileId);
@@ -505,6 +545,13 @@ export async function createFolder(
   const db = getDb(env.DB);
   const encKey = getEncryptionKey(env);
 
+  try {
+    name = normalizeEntryName(name);
+    parentId = normalizeParentId(parentId);
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : '名称无效' };
+  }
+
   // 同名检查
   const existing = await db
     .select()
@@ -548,7 +595,7 @@ export async function createFolder(
 
   const folderId = crypto.randomUUID();
   const now = new Date().toISOString();
-  const path = parentId ? `${parentId}/${name}` : `/${name}`;
+  const path = buildFilePath(parentId, name);
 
   const newFolder = {
     id: folderId,
@@ -594,15 +641,14 @@ export async function restoreFile(
   await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, fileId));
 
   if (file.isFolder) {
-    const folderPath = file.path?.endsWith('/') ? file.path.slice(0, -1) : file.path;
-    const pathPrefix = folderPath + '/';
+    const folderPrefix = file.path ? pathPrefix(file.path) : '/';
     const allTrashed = await db
       .select()
       .from(files)
       .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
       .all();
 
-    const childFiles = allTrashed.filter((f) => f.path && f.path.startsWith(pathPrefix));
+    const childFiles = allTrashed.filter((f) => f.path && f.path.startsWith(folderPrefix));
     for (const child of childFiles) {
       await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, child.id));
     }

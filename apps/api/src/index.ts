@@ -14,7 +14,7 @@ import { logger } from 'hono/logger';
 import { prettyJSON } from 'hono/pretty-json';
 import { secureHeaders } from 'hono/secure-headers';
 import { routeAgentRequest } from 'agents';
-import { logger as appLogger } from '@osshelf/shared';
+import { logger as appLogger, APP_VERSION } from '@osshelf/shared';
 import { OSSShelfAgent } from './agents/OSSShelfAgent';
 import { verifyAgentConnection } from './agents/auth';
 import authRoutes from './routes/auth';
@@ -95,6 +95,7 @@ app.use(
     allowHeaders: [
       'Content-Type',
       'Authorization',
+      'X-API-Key',
       'Depth',
       'Destination',
       'X-Requested-With',
@@ -139,7 +140,7 @@ app.use('*', errorHandler);
 app.get('/', (c) => {
   return c.json({
     name: 'OSSshelf API',
-    version: '3.5.0',
+    version: APP_VERSION,
     description: '基于 Cloudflare 部署的多厂商 OSS 文件管理系统 API',
   });
 });

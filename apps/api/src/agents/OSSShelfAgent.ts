@@ -27,7 +27,7 @@ import { buildAgentTools } from '../lib/ai/toolAdapter';
 import { AI_REQUEST_DEFAULTS, getAiConfigNumber } from '../lib/ai/aiConfigService';
 import { AGENT_SYSTEM_PROMPT } from '../lib/ai/prompts/agentSystem';
 import { AgentMemory } from '../lib/ai/agentMemory';
-import { recordUsage } from '../lib/ai/usage';
+import { recordUsage, reserveAiQuota, type QuotaReservation } from '../lib/ai/usage';
 import { mapAiError } from '../lib/ai/aiErrors';
 import { estimateTokens } from '../lib/ai/utils';
 import { logger } from '@osshelf/shared';
@@ -46,7 +46,7 @@ const DEFAULT_MAX_CONTEXT_TOKENS = 100_000;
 const CONTEXT_HISTORY_RATIO = 0.7;
 /** 至少保留最近 N 条消息，避免把当前轮上下文裁掉 */
 const MIN_KEEP_MESSAGES = 2;
-/** 新增消息数达到该阈值才做一次记忆提取 */
+/** 已处理的对话轮数，每达到该阈值做一次记忆提取 */
 const MEMORY_EXTRACT_INTERVAL = 4;
 const MAX_CONTEXT_FILES = 5;
 
@@ -54,6 +54,22 @@ interface MessageMetadata {
   createdAt?: string;
   aborted?: boolean;
 }
+
+interface PendingUsage {
+  userId: string;
+  sessionId: string;
+  requestId?: string;
+  provider: string;
+  modelId: string;
+  startedAt: number;
+  inputTokensEstimate: number;
+}
+
+const QUOTA_REASON_MESSAGE: Record<string, string> = {
+  rate_limit: 'AI 请求过于频繁，请稍后再试',
+  request_quota: '今日 AI 调用次数已达上限',
+  token_quota: '今日 AI Token 配额已用完',
+};
 
 function getMessageText(message: UIMessage): string {
   return message.parts
@@ -104,6 +120,15 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
   maxPersistedMessages = 200;
   messageConcurrency = 'queue' as const;
   chatStreamStallTimeoutMs = 120_000;
+
+  /**
+   * 本轮请求的待记账信息。
+   * 正常结束由 onFinish 用真实 usage 记账并清空；中断/异常时 onFinish 不触发，
+   * 由 onChatResponse 用估算值兜底记账，避免"点停止即免费"。
+   */
+  private pendingUsage: PendingUsage | null = null;
+  /** 本轮消息的配额预扣；模型调用完成后结算，异常时回滚 */
+  private pendingQuota: QuotaReservation | null = null;
 
   async onConnect(connection: Connection, ctx: ConnectionContext): Promise<void> {
     const { userId, sessionId } = getVerifiedIdentity(ctx.request);
@@ -285,6 +310,30 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
       });
     }
 
+    // ticket 只在建立连接时校验一次，会话期间每条消息都必须重新执行原子配额预扣
+    const estimatedInput =
+      estimateTokens(AGENT_SYSTEM_PROMPT) +
+      this.messages.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
+    const quota = await reserveAiQuota(this.env, userId, { estimatedTokens: estimatedInput });
+    if (!quota.allowed || !quota.reservation) {
+      const decision = quota.decision;
+      const message = QUOTA_REASON_MESSAGE[decision.reason ?? 'rate_limit'] ?? 'AI 配额不足';
+      return new Response(
+        JSON.stringify({
+          error: message,
+          code: decision.reason === 'rate_limit' ? 'AI_RATE_LIMIT' : 'AI_QUOTA_EXCEEDED',
+          quota: {
+            usedTokens: decision.usedTokens,
+            tokenLimit: decision.tokenLimit,
+            usedRequests: decision.usedRequests,
+            requestLimit: decision.requestLimit,
+          },
+        }),
+        { status: 429, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    this.pendingQuota = quota.reservation;
+
     try {
       const requestedModelId =
         typeof options?.body?.modelId === 'string' ? (options.body.modelId as string) : undefined;
@@ -326,8 +375,20 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
       const startedAt = Date.now();
       const db = getDb(this.env.DB);
 
+      // 记录本轮的估算输入成本：中断时无法拿到 provider usage，用该值兜底
+      this.pendingUsage = {
+        userId,
+        sessionId,
+        requestId: options?.requestId,
+        provider: config.provider,
+        modelId: config.modelId,
+        startedAt,
+        inputTokensEstimate:
+          estimateTokens(system) + prunedUiMessages.reduce((sum, message) => sum + estimateMessageTokens(message), 0),
+      };
+
       // D1 审计镜像：供管理端与历史统计使用，DO 仍是消息事实源
-      if (lastUserText) {
+      if (lastUserText && (await this.isOwnMessage(lastUserText.id, sessionId))) {
         try {
           await db
             .insert(aiChatMessages)
@@ -385,6 +446,13 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
             status: 'completed',
           });
 
+          // 真实用量已记账，onChatResponse 不再兜底，避免重复计费
+          this.pendingUsage = null;
+
+          // 用真实总 token 结算配额预扣（差额回补/补扣）
+          await this.pendingQuota?.settle((usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0));
+          this.pendingQuota = null;
+
           try {
             await db
               .update(aiChatSessions)
@@ -403,6 +471,10 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
 
       return result.toUIMessageStreamResponse();
     } catch (error) {
+      // 模型调用未发生（配置解析失败等）：全额回滚本轮预扣
+      await this.pendingQuota?.release();
+      this.pendingQuota = null;
+
       const aiError = mapAiError(error);
       logger.error('Agent', 'onChatMessage failed', { userId, sessionId, code: aiError.code }, error);
 
@@ -413,6 +485,20 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
     }
   }
 
+  /**
+   * D1 镜像按 message.id 做 upsert，而 id 由客户端提供。
+   * 写入前确认该 id 不属于其它会话，避免伪造 id 覆盖他人消息。
+   */
+  private async isOwnMessage(messageId: string, sessionId: string): Promise<boolean> {
+    const existing = await getDb(this.env.DB)
+      .select({ sessionId: aiChatMessages.sessionId })
+      .from(aiChatMessages)
+      .where(eq(aiChatMessages.id, messageId))
+      .get();
+
+    return !existing || existing.sessionId === sessionId;
+  }
+
   protected async onChatResponse(result: ChatResponseResult): Promise<void> {
     if (!this.state.sessionId) return;
 
@@ -421,7 +507,7 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
     const aborted = result.status === 'aborted';
 
     // 助手审计镜像：使用与 DO 完全相同的 message.id，避免历史恢复时重复
-    if (assistantMessage) {
+    if (assistantMessage && (await this.isOwnMessage(assistantMessage.id, this.state.sessionId))) {
       try {
         const toolCalls = assistantMessage.parts
           .filter((part) => typeof (part as { type?: unknown }).type === 'string')
@@ -472,37 +558,60 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
     }
 
     if (result.status !== 'completed') {
-      try {
-        await recordUsage(this.env, {
-          userId: this.state.userId,
-          sessionId: this.state.sessionId,
-          requestId: result.requestId,
-          feature: 'chat',
-          provider: 'unknown',
-          modelId: this.state.modelId ?? 'unknown',
-          inputTokens: 0,
-          outputTokens: 0,
-          latencyMs: 0,
-          toolCalls: 0,
-          status: aborted ? 'aborted' : 'error',
-        });
-      } catch {
-        // 用量记录失败不影响会话
+      const pending = this.pendingUsage;
+      this.pendingUsage = null;
+
+      // 中断/异常时 onFinish 不会触发：用部分回答文本估算 output token，
+      // 否则用户点「停止」即可免费拿到已生成内容，用量统计也会系统性失真。
+      if (pending) {
+        const partialText = assistantMessage ? getMessageText(assistantMessage) : '';
+        const partialOutputTokens = estimateTokens(partialText);
+        const toolCallCount =
+          assistantMessage?.parts.filter((part) => ((part as { type?: string }).type ?? '').startsWith('tool-'))
+            .length ?? 0;
+
+        try {
+          await recordUsage(this.env, {
+            userId: pending.userId,
+            sessionId: pending.sessionId,
+            requestId: pending.requestId ?? result.requestId,
+            feature: 'chat',
+            provider: pending.provider,
+            modelId: pending.modelId,
+            inputTokens: pending.inputTokensEstimate,
+            outputTokens: partialOutputTokens,
+            latencyMs: Date.now() - pending.startedAt,
+            toolCalls: toolCallCount,
+            status: aborted ? 'aborted' : 'error',
+          });
+        } catch {
+          // 用量记录失败不影响会话
+        }
+
+        // onFinish 未触发：用估算的输入 + 已生成内容结算预扣
+        await this.pendingQuota?.settle(pending.inputTokensEstimate + partialOutputTokens);
+        this.pendingQuota = null;
       }
       return;
     }
 
+    // 正常完成的请求由 onFinish 记账与结算；这里清空兜底状态，避免影响下一轮
+    this.pendingUsage = null;
+    this.pendingQuota = null;
+
     await this.maybeExtractMemories(assistantMessage);
   }
 
-  /** 记忆提取节流：新增消息达到阈值才调用模型，避免每轮一次额外推理 */
+  /** 记忆提取节流：每 N 轮对话触发一次额外推理 */
   private async maybeExtractMemories(assistantMessage?: UIMessage): Promise<void> {
-    const extractedCount = this.state.memoryExtractedMessageCount ?? 0;
-    const delta = this.messages.length - extractedCount;
-    if (delta < MEMORY_EXTRACT_INTERVAL) return;
+    // messages 会被 maxPersistedMessages 裁剪，不能用「数组长度差」判断新增消息，
+    // 否则达到上限后差值恒为负，记忆提取会永久停摆。改为按对话轮数取模。
+    const turns = (this.state.memoryExtractedMessageCount ?? 0) + 1;
+    this.setState({ ...this.state, memoryExtractedMessageCount: turns });
+    if (turns % MEMORY_EXTRACT_INTERVAL !== 0) return;
 
     try {
-      const recent = this.messages.slice(-Math.max(delta, MEMORY_EXTRACT_INTERVAL));
+      const recent = this.messages.slice(-MEMORY_EXTRACT_INTERVAL * 2);
       const userText = recent
         .filter((message) => message.role === 'user')
         .map((message) => getMessageText(message))
@@ -526,7 +635,7 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
         `${userText}\n${assistantText}`,
         toolCallsStr
       );
-      this.setState({ ...this.state, memoryExtractedMessageCount: this.messages.length });
+      this.setState({ ...this.state, memoryExtractedMessageCount: turns });
     } catch (error) {
       logger.warn('Agent', 'Memory extraction failed', { sessionId: this.state.sessionId }, error);
     }

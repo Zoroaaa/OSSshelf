@@ -58,6 +58,8 @@ import {
 } from '@/services/api';
 import type { AIIndexTask, AISummarizeTask, AITagsTask, AIIndexStats } from '@/services/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuthStore } from '@/stores/auth';
+import { formatBytes } from '@/utils';
 
 type TabType = 'models' | 'providers' | 'index' | 'vectors' | 'memory' | 'usage' | 'advanced';
 
@@ -66,9 +68,18 @@ export function AISettings() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { user } = useAuthStore();
+  const isAdmin = user?.role === 'admin';
 
   const [activeTab, setActiveTab] = useState<TabType>((urlTab as TabType) || 'models');
   const [showAddModal, setShowAddModal] = useState(false);
+
+  // 系统配置为管理员专属；普通用户直接访问 ?tab=advanced 时回落到模型页
+  useEffect(() => {
+    if (user && !isAdmin && activeTab === 'advanced') {
+      setActiveTab('models');
+    }
+  }, [user, isAdmin, activeTab]);
 
   const handleTabChange = (tabId: TabType) => {
     setActiveTab(tabId);
@@ -159,6 +170,7 @@ export function AISettings() {
     queryKey: ['ai-system-config'],
     queryFn: () => aiApi.config.getSystemConfig().then((r) => r.data.data ?? []),
     staleTime: 30000,
+    enabled: isAdmin,
   });
 
   const createMutation = useMutation({
@@ -356,13 +368,6 @@ export function AISettings() {
     } finally {
       setIsMemoryBatchDeleting(false);
     }
-  };
-
-  const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
   };
 
   // 向量索引详情相关状态
@@ -642,7 +647,8 @@ export function AISettings() {
     { id: 'vectors', label: '向量库', icon: Layers },
     { id: 'memory', label: '记忆管理', icon: MessageSquare },
     { id: 'usage', label: '用量统计', icon: BarChart3 },
-    { id: 'advanced', label: '系统配置', icon: Sliders },
+    // 系统配置为全局设置，仅管理员可见（后端同样做了管理员校验）
+    ...(isAdmin ? [{ id: 'advanced' as TabType, label: '系统配置', icon: Sliders }] : []),
   ];
 
   return (
@@ -893,7 +899,7 @@ export function AISettings() {
 
         {activeTab === 'providers' && (
           <div className="space-y-4">
-            <CatalogSnapshotCard />
+            {isAdmin && <CatalogSnapshotCard />}
             {showWorkersAiCatalog ? (
               <div className="space-y-4">
                 <Button variant="outline" size="sm" onClick={() => setShowWorkersAiCatalog(false)}>
@@ -956,7 +962,7 @@ export function AISettings() {
             currentPage={vectorPage}
             totalPages={vectorsData?.pagination.totalPages || 1}
             totalRecords={vectorsData?.pagination.total || 0}
-            formatFileSize={formatFileSize}
+            formatFileSize={formatBytes}
             selectedIds={selectedVectorIds}
             isBatchDeleting={isVectorBatchDeleting}
             onToggleSelect={toggleVectorSelect}
@@ -1156,7 +1162,7 @@ export function AISettings() {
           </div>
         )}
 
-        {activeTab === 'advanced' && (
+        {activeTab === 'advanced' && isAdmin && (
           <SystemConfigPanel
             systemConfigs={systemConfigs}
             configLoading={configLoading}

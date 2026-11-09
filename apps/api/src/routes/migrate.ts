@@ -19,11 +19,11 @@
 import { Hono } from 'hono';
 import { and, eq, isNull, inArray } from 'drizzle-orm';
 import { getDb, files, storageBuckets, telegramFileRefs } from '../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import { getEncryptionKey } from '../lib/crypto';
-import { updateBucketStats } from '../lib/bucketResolver';
+import { releaseFileRef } from '../lib/dedup';
 import { s3Get, s3Put, s3Delete, decryptSecret, makeBucketConfigAsync } from '../lib/s3client';
 import { tgUploadFile, tgDownloadFile, type TelegramBotConfig } from '../lib/telegramClient';
 import {
@@ -34,11 +34,13 @@ import {
   tgUploadChunked,
 } from '../lib/telegramChunked';
 import { encodeFilename } from '../lib/utils';
+import { buildFilePath, normalizeParentId } from '../lib/pathUtils';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
+app.use('*', requireApiKeyScope('files:read', 'files:write'));
 
 // ── 迁移状态 KV Key 格式 ─────────────────────────────────────────────────
 // kv key: "migrate:{userId}:{migrationId}"
@@ -160,7 +162,15 @@ app.post('/start', async (c) => {
     );
   }
 
-  const { sourceBucketId: _sourceBucketId, targetBucketId, fileIds, targetFolderId, deleteSource } = result.data;
+  const {
+    sourceBucketId: _sourceBucketId,
+    targetBucketId,
+    fileIds,
+    targetFolderId: rawTargetFolderId,
+    deleteSource,
+  } = result.data;
+  // 统一入口：目标文件夹标识先校验/规范化
+  const targetFolderId = normalizeParentId(rawTargetFolderId);
   const db = getDb(c.env.DB);
   const encKey = getEncryptionKey(c.env);
 
@@ -479,7 +489,7 @@ async function runMigration(
 
       // Step 3: 插入新 files 记录（保持原 parentId 或使用 targetFolderId）
       const newParentId = status.targetFolderId ?? file.parentId;
-      const newPath = newParentId ? `${newParentId}/${file.name}` : `/${file.name}`;
+      const newPath = buildFilePath(newParentId, file.name);
 
       await db.insert(files).values({
         id: newFileId,
@@ -500,27 +510,28 @@ async function runMigration(
         deletedAt: null,
       });
 
-      // Step 4: 更新目标桶统计
-      await updateBucketStats(db, status.targetBucketId, file.size, 1);
+      // Step 4: 存储统计由 files 触发器统一维护（目标桶 +size / 来源桶 -size）。
 
       // Step 5: 如果是"移动"模式，删除来源
       if (deleteSource) {
         try {
-          if (srcBucketRow.provider === 'telegram') {
-            // 删除 Telegram 引用记录（物理文件在 Telegram 服务器不可删除）
-            const srcRef = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, file.id)).get();
-            if (srcRef && isChunkedFileId(srcRef.tgFileId)) {
-              await tgDeleteChunked(db, srcRef.tgFileId);
+          // 仅当没有其它记录引用同一物理对象时才删除存储，避免破坏去重共享
+          const { shouldDeleteStorage } = await releaseFileRef(db, file.id);
+          if (shouldDeleteStorage) {
+            if (srcBucketRow.provider === 'telegram') {
+              // 删除 Telegram 引用记录（物理文件在 Telegram 服务器不可删除）
+              const srcRef = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, file.id)).get();
+              if (srcRef && isChunkedFileId(srcRef.tgFileId)) {
+                await tgDeleteChunked(db, srcRef.tgFileId);
+              }
+              await db.delete(telegramFileRefs).where(eq(telegramFileRefs.fileId, file.id));
+            } else if (srcS3) {
+              await s3Delete(srcS3, file.r2Key);
+            } else if (env.FILES) {
+              await env.FILES.delete(file.r2Key);
             }
-            await db.delete(telegramFileRefs).where(eq(telegramFileRefs.fileId, file.id));
-          } else if (srcS3) {
-            await s3Delete(srcS3, file.r2Key);
-          } else if (env.FILES) {
-            await env.FILES.delete(file.r2Key);
           }
-          // 更新来源桶统计
-          await updateBucketStats(db, status.sourceBucketId, -file.size, -1);
-          // 软删除原文件记录
+          // 软删除原文件记录：触发器负责扣减来源桶统计与用户配额
           await db.update(files).set({ deletedAt: now, updatedAt: now }).where(eq(files.id, file.id));
         } catch (delErr) {
           logger.warn('MIGRATE', '删除源文件失败', { fileId: file.id }, delErr);

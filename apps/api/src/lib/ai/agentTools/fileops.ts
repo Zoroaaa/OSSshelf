@@ -1277,31 +1277,6 @@ services:
     const previewOnly = args.previewOnly === true;
     const db = getDb(env.DB);
 
-    if (fileIds.length > BATCH_THRESHOLD && !previewOnly) {
-      try {
-        const batchResult = await enqueueAgentBatchOperation(env, 'rename', fileIds, userId, { template });
-        return {
-          status: 'queued',
-          taskId: batchResult.taskId,
-          message: `任务已提交到队列（共 ${batchResult.total} 个文件），预计 ${batchResult.estimatedMinutes} 分钟完成`,
-          totalFiles: batchResult.total,
-          estimatedMinutes: batchResult.estimatedMinutes,
-          _next_actions: [
-            `✅ 批量重命名任务已入队（taskId: ${batchResult.taskId}）`,
-            '可通过 GET /api/ai/index/task 查看进度',
-            '完成后结果会在对话流中返回',
-          ],
-        };
-      } catch (queueError) {
-        logger.warn(
-          'AgentTool',
-          'Batch queue failed, falling back to sync execution',
-          { fileCount: fileIds.length },
-          queueError
-        );
-      }
-    }
-
     const rows = await db
       .select()
       .from(files)
@@ -1327,6 +1302,39 @@ services:
       };
     });
 
+    if (!previewOnly && previews.length > BATCH_THRESHOLD) {
+      try {
+        // 队列消费方按 fileId 读取 newName；必须把模板展开为每个文件的具体名称
+        const names = Object.fromEntries(previews.map((preview) => [preview.fileId, preview.newName]));
+        const batchResult = await enqueueAgentBatchOperation(
+          env,
+          'rename',
+          previews.map((preview) => preview.fileId),
+          userId,
+          { names }
+        );
+        return {
+          status: 'queued',
+          taskId: batchResult.taskId,
+          message: `任务已提交到队列（共 ${batchResult.total} 个文件），预计 ${batchResult.estimatedMinutes} 分钟完成`,
+          totalFiles: batchResult.total,
+          estimatedMinutes: batchResult.estimatedMinutes,
+          _next_actions: [
+            `✅ 批量重命名任务已入队（taskId: ${batchResult.taskId}）`,
+            '可通过 GET /api/ai/index/task 查看进度',
+            '完成后结果会在对话流中返回',
+          ],
+        };
+      } catch (queueError) {
+        logger.warn(
+          'AgentTool',
+          'Batch queue failed, falling back to sync execution',
+          { fileCount: previews.length },
+          queueError
+        );
+      }
+    }
+
     if (previewOnly) {
       return {
         mode: 'preview',
@@ -1339,18 +1347,13 @@ services:
     const results = [];
     for (const preview of previews) {
       try {
-        const row = rows.find((r) => r.id === preview.fileId)!;
-        const parentPath = row.parentId
-          ? (await db.select({ path: files.path }).from(files).where(eq(files.id, row.parentId)).get())?.path
-          : undefined;
-        const newPath = parentPath ? parentPath + '/' + preview.newName : preview.newName;
-
-        await db
-          .update(files)
-          .set({ name: preview.newName, path: newPath, updatedAt: new Date().toISOString() })
-          .where(eq(files.id, preview.fileId));
-
-        results.push({ fileId: preview.fileId, success: true, oldName: preview.oldName, newName: preview.newName });
+        // 统一走 renameFile：带重名检查、文件夹子项 path 级联与审计
+        const renameResult = await renameFile(env, userId, preview.fileId, { name: preview.newName });
+        results.push(
+          renameResult.success
+            ? { fileId: preview.fileId, success: true, oldName: preview.oldName, newName: preview.newName }
+            : { fileId: preview.fileId, success: false, error: renameResult.error ?? '重命名失败' }
+        );
       } catch (error) {
         results.push({ fileId: preview.fileId, success: false, error: (error as Error).message });
       }

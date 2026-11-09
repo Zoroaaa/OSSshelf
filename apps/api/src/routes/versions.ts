@@ -11,17 +11,16 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql, ne } from 'drizzle-orm';
 import { getDb, files, fileVersions } from '../db';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { checkFilePermission } from './permissions';
 import { z } from 'zod';
-import { updateUserStorage } from '../lib/bucketResolver';
-import { s3Get, s3Delete } from '../lib/s3client';
 import { resolveBucketConfig } from '../lib/bucketResolver';
+import { s3Get, s3Delete } from '../lib/s3client';
 import { getEncryptionKey } from '../lib/crypto';
 import { isVersionableFile } from '../lib/versionManager';
 
@@ -33,6 +32,7 @@ const updateVersionSettingsSchema = z.object({
 });
 
 app.use('/*', authMiddleware);
+app.use('/*', requireApiKeyScope('files:read', 'files:write'));
 
 app.get('/:fileId/versions', async (c) => {
   const userId = c.get('userId');
@@ -324,9 +324,17 @@ app.delete('/:fileId/versions/:version', async (c) => {
 
   const isLastRef = sharedRefs.length <= 1 && version.r2Key !== file.r2Key;
 
+  // 该对象还可能被其它文件（去重共享）引用，存在时不能物理删除
+  const sharedFileRef = await db
+    .select({ id: files.id })
+    .from(files)
+    .where(and(eq(files.r2Key, version.r2Key), ne(files.id, fileId)))
+    .limit(1)
+    .get();
+
   await db.delete(fileVersions).where(eq(fileVersions.id, version.id));
 
-  if (isLastRef) {
+  if (isLastRef && !sharedFileRef) {
     const encKey = getEncryptionKey(c.env);
     const bucketConfig = await resolveBucketConfig(db, userId!, encKey, file.bucketId);
     if (bucketConfig) {
@@ -338,8 +346,10 @@ app.delete('/:fileId/versions/:version', async (c) => {
         logger.error('VERSIONS', 'R2版本删除失败', { r2Key: version.r2Key }, error);
       });
     }
-    await updateUserStorage(db, userId!, -version.size);
   }
+
+  // 版本快照不计入用户配额（创建时从未计入），删除时也不再扣减，
+  // 避免版本清理把 storage_used 减成负数。
 
   return c.json({
     success: true,
