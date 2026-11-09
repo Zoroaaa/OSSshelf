@@ -5,7 +5,7 @@
  * - 离线缓存
  * - 预缓存静态资源
  * - 运行时缓存策略
- * - 后台同步
+ * - 系统分享面板（Web Share Target）接管
  */
 
 const CACHE_NAME = 'osshelf-v2';
@@ -13,6 +13,11 @@ const STATIC_CACHE_NAME = 'osshelf-static-v2';
 const DYNAMIC_CACHE_NAME = 'osshelf-dynamic-v2';
 
 const STATIC_ASSETS = ['/', '/index.html', '/manifest.json'];
+
+// 系统分享面板（Web Share Target）：manifest.json 中声明的 action
+const SHARE_TARGET_PATH = '/api/share-target';
+const SHARE_TARGET_CACHE_NAME = 'osshelf-share-target-v1';
+const SHARE_TARGET_ENTRY_PREFIX = '/__share-target/';
 
 const CACHE_STRATEGIES = {
   networkFirst: ['/api/'],
@@ -41,7 +46,12 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         cacheNames
           .filter((name) => {
-            return name !== STATIC_CACHE_NAME && name !== DYNAMIC_CACHE_NAME && name !== CACHE_NAME;
+            return (
+              name !== STATIC_CACHE_NAME &&
+              name !== DYNAMIC_CACHE_NAME &&
+              name !== CACHE_NAME &&
+              name !== SHARE_TARGET_CACHE_NAME
+            );
           })
           .map((name) => {
             console.log('[SW] Deleting old cache:', name);
@@ -57,6 +67,13 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
+
+  // 系统分享面板：manifest.json 声明 POST /api/share-target。
+  // 该路径在静态托管上并不存在（直接放行会得到 405），必须由 SW 拦截并暂存文件。
+  if (request.method === 'POST' && url.pathname === SHARE_TARGET_PATH) {
+    event.respondWith(handleShareTarget(request));
+    return;
+  }
 
   // 只处理 GET 请求
   if (request.method !== 'GET') {
@@ -110,6 +127,58 @@ self.addEventListener('fetch', (event) => {
 
   // 其他请求（fetch/XHR 发出的 API 调用等）不拦截，避免意外捕获导致网络错误
 });
+
+/**
+ * 处理系统分享面板提交的文件：
+ * 1. 解析 multipart/form-data 中的文件
+ * 2. 暂存到 Cache（页面通过 /__share-target/<token>/... 读取）
+ * 3. 303 重定向到文件管理页，由页面确认并上传
+ */
+async function handleShareTarget(request) {
+  const token =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const filesUrl = new URL('/files', self.location.origin).href;
+
+  try {
+    const formData = await request.formData();
+    const files = formData.getAll('file').filter((item) => item instanceof File && item.size > 0);
+
+    if (files.length === 0) {
+      console.warn('[SW] Share target 未收到文件');
+      return Response.redirect(`${filesUrl}?shareTargetEmpty=1`, 303);
+    }
+
+    const cache = await caches.open(SHARE_TARGET_CACHE_NAME);
+    // 分享数据为一次性：清理上一次未被消费的残留
+    const staleKeys = await cache.keys();
+    await Promise.all(staleKeys.map((key) => cache.delete(key)));
+
+    const manifest = { token, createdAt: Date.now(), files: [] };
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      manifest.files.push({ name: file.name, type: file.type, size: file.size });
+      await cache.put(
+        new URL(`${SHARE_TARGET_ENTRY_PREFIX}${token}/${i}`, self.location.origin).href,
+        new Response(file, {
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        })
+      );
+    }
+
+    await cache.put(
+      new URL(`${SHARE_TARGET_ENTRY_PREFIX}${token}/manifest`, self.location.origin).href,
+      new Response(JSON.stringify(manifest), { headers: { 'Content-Type': 'application/json' } })
+    );
+
+    return Response.redirect(`${filesUrl}?shareTarget=${token}`, 303);
+  } catch (error) {
+    console.error('[SW] 处理系统分享失败', error);
+    return Response.redirect(`${filesUrl}?shareTargetError=1`, 303);
+  }
+}
 
 async function networkFirst(request) {
   try {
@@ -176,66 +245,3 @@ async function staleWhileRevalidate(request) {
 
   return cachedResponse || fetchPromise;
 }
-
-self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
-
-  if (event.data && event.data.type === 'CLEAR_CACHE') {
-    event.waitUntil(
-      caches.keys().then((cacheNames) => {
-        return Promise.all(cacheNames.map((name) => caches.delete(name)));
-      })
-    );
-  }
-});
-
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'upload-pending') {
-    event.waitUntil(processPendingUploads());
-  }
-});
-
-async function processPendingUploads() {
-  console.log('[SW] Processing pending uploads...');
-}
-
-self.addEventListener('push', (event) => {
-  if (!event.data) return;
-
-  const data = event.data.json();
-
-  const options = {
-    body: data.body || '您有新的通知',
-    icon: '/icons/icon-192x192.png',
-    badge: '/icons/badge-72x72.png',
-    vibrate: [100, 50, 100],
-    data: {
-      url: data.url || '/',
-    },
-    actions: data.actions || [],
-  };
-
-  event.waitUntil(self.registration.showNotification(data.title || 'OSSshelf', options));
-});
-
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-
-  const url = event.notification.data?.url || '/';
-
-  event.waitUntil(
-    clients.matchAll({ type: 'window' }).then((clientList) => {
-      for (const client of clientList) {
-        if (client.url === url && 'focus' in client) {
-          return client.focus();
-        }
-      }
-
-      if (clients.openWindow) {
-        return clients.openWindow(url);
-      }
-    })
-  );
-});
