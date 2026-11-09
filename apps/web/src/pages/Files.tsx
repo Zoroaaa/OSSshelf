@@ -64,7 +64,7 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import type { FileItem } from '@osshelf/shared';
-import { cn, decodeFileName, runWithConcurrency } from '@/utils';
+import { cn, decodeFileName, getErrorMessage, runWithConcurrency } from '@/utils';
 
 import {
   NewFolderDialog,
@@ -424,7 +424,7 @@ export default function Files() {
         });
         toast({
           title: '上传失败',
-          description: e?.message || e?.response?.data?.error?.message,
+          description: getErrorMessage(e, '请检查网络后重试'),
           variant: 'destructive',
         });
         return false;
@@ -1667,8 +1667,12 @@ export default function Files() {
                     queryClient.invalidateQueries({ queryKey: ['files'] });
                     setChangeFolderBucketFile(null);
                   }
-                } catch {
-                  toast({ title: '更新失败', variant: 'destructive' });
+                } catch (e) {
+                  toast({
+                    title: '更新失败',
+                    description: getErrorMessage(e, '请稍后重试'),
+                    variant: 'destructive',
+                  });
                 } finally {
                   setChangingFolderBucket(false);
                 }
