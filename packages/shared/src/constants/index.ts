@@ -32,6 +32,13 @@ export const APP_VERSION = '3.2.0';
 
 export const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024;
 
+/**
+ * 需要在 Worker 内存中整体缓冲的传输上限（WebDAV PUT / 分享上传 / URL 转存）。
+ * Workers 内存上限 128MB，留出解码与写盘余量后取 64MB。
+ * 超过该上限的链路必须走分片直传或流式链路。
+ */
+export const MAX_BUFFERED_TRANSFER_BYTES = 64 * 1024 * 1024;
+
 export const JWT_EXPIRY = 7 * 24 * 60 * 60 * 1000;
 
 export const SHARE_DEFAULT_EXPIRY = 7 * 24 * 60 * 60 * 1000;

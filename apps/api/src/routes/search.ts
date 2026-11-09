@@ -19,7 +19,7 @@ import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
 import { ERROR_CODES, logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
-import { buildFolderPath, clearFilePathCache } from '../lib/utils';
+import { buildFolderPath } from '../lib/pathUtils';
 import { searchSimilarFiles, isAIConfigured } from '../lib/ai/vectorIndex';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -285,8 +285,6 @@ app.get('/', async (c) => {
   ]);
 
   const total = countRow?.count ?? 0;
-
-  clearFilePathCache();
 
   // bucketMap 批量查询（一次 inArray 替代 N 次 .get()）
   const bucketIds = [...new Set(paginatedResults.map((f) => f.bucketId).filter(Boolean))] as string[];

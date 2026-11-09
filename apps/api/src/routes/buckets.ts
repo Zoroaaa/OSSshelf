@@ -10,8 +10,8 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, isNull } from 'drizzle-orm';
-import { getDb, storageBuckets, files } from '../db';
+import { eq, and, isNull, sql } from 'drizzle-orm';
+import { getDb, storageBuckets, files, storageDeletionQueue } from '../db';
 import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
 import { ERROR_CODES } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
@@ -69,6 +69,73 @@ function sanitize(bucket: typeof storageBuckets.$inferSelect) {
     ...safe,
     accessKeyId: displayAkId,
     secretAccessKeyMasked: bucket.provider === 'telegram' ? '(telegram)' : '••••••••••••••••',
+  };
+}
+
+// ── Helper: 统计存储桶实际使用情况（用于停用/删除护栏）────────────────────
+interface BucketUsage {
+  /** 显式指向该桶的文件数（含回收站，物理对象仍在桶内） */
+  explicitFiles: number;
+  /** bucketId 为空、沿祖先链最近命中该桶的文件数 */
+  inheritedFiles: number;
+  /** bucketId 为空且祖先链无桶、会回落到默认/任意活跃桶的文件数 */
+  unresolvedFiles: number;
+  /** 待补偿删除的队列项（删除配置后将永久无法重试） */
+  pendingDeletions: number;
+}
+
+async function inspectBucketUsage(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  bucketId: string
+): Promise<BucketUsage> {
+  const explicit = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(files)
+    .where(and(eq(files.userId, userId), eq(files.bucketId, bucketId)))
+    .get();
+
+  const pending = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(storageDeletionQueue)
+    .where(
+      and(
+        eq(storageDeletionQueue.userId, userId),
+        eq(storageDeletionQueue.bucketId, bucketId),
+        isNull(storageDeletionQueue.resolvedAt)
+      )
+    )
+    .get();
+
+  // 递归解析：从每个 bucket_id 为空的活跃文件出发，向上找到最近的桶，或确认无桶
+  const resolved = await db.run(sql`
+    WITH RECURSIVE resolve(file_id, bucket_id, parent_id, depth) AS (
+      SELECT id, bucket_id, parent_id, 0
+      FROM files
+      WHERE user_id = ${userId} AND deleted_at IS NULL AND is_folder = 0 AND bucket_id IS NULL
+      UNION ALL
+      SELECT r.file_id, f.bucket_id, f.parent_id, r.depth + 1
+      FROM resolve r
+      JOIN files f ON f.id = r.parent_id
+      WHERE r.bucket_id IS NULL AND f.user_id = ${userId} AND f.deleted_at IS NULL AND r.depth < 64
+    )
+    SELECT
+      (SELECT COUNT(DISTINCT file_id) FROM resolve WHERE bucket_id = ${bucketId}) AS inherited,
+      (
+        SELECT COUNT(*) FROM (SELECT DISTINCT file_id FROM resolve) x
+        WHERE NOT EXISTS (
+          SELECT 1 FROM resolve r WHERE r.file_id = x.file_id AND r.bucket_id IS NOT NULL
+        )
+      ) AS unresolved
+  `);
+
+  const row = (resolved.results as Array<{ inherited: number; unresolved: number }>)[0];
+
+  return {
+    explicitFiles: Number(explicit?.count ?? 0),
+    inheritedFiles: Number(row?.inherited ?? 0),
+    unresolvedFiles: Number(row?.unresolved ?? 0),
+    pendingDeletions: Number(pending?.count ?? 0),
   };
 }
 
@@ -330,6 +397,55 @@ app.post('/:id/toggle', async (c) => {
 
   const now = new Date().toISOString();
   const newIsActive = !bucket.isActive;
+
+  // 停用护栏：停用后解析链会跳过该桶，仍指向它的文件将无法读取
+  if (!newIsActive) {
+    if (bucket.isDefault) {
+      return c.json(
+        {
+          success: false,
+          error: { code: 'BUCKET_IS_DEFAULT', message: '默认存储桶不能停用，请先将其他存储桶设为默认' },
+        },
+        409
+      );
+    }
+
+    const usage = await inspectBucketUsage(db, userId, id);
+    const otherActive = await db
+      .select({ id: storageBuckets.id })
+      .from(storageBuckets)
+      .where(and(eq(storageBuckets.userId, userId), eq(storageBuckets.isActive, true)))
+      .all();
+
+    if (usage.explicitFiles > 0 || usage.inheritedFiles > 0 || usage.pendingDeletions > 0) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: 'BUCKET_IN_USE',
+            message: `该存储桶仍被 ${usage.explicitFiles} 个文件显式引用、${usage.inheritedFiles} 个文件继承引用${
+              usage.pendingDeletions > 0 ? `，并有 ${usage.pendingDeletions} 个待补偿删除任务` : ''
+            }，停用会导致这些文件无法访问`,
+          },
+        },
+        409
+      );
+    }
+
+    if (usage.unresolvedFiles > 0 && otherActive.filter((b) => b.id !== id).length === 0) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: 'BUCKET_LAST_ACTIVE',
+            message: `仍有 ${usage.unresolvedFiles} 个文件依赖默认/兜底解析，不能停用最后一个活跃存储桶`,
+          },
+        },
+        409
+      );
+    }
+  }
+
   await db.update(storageBuckets).set({ isActive: newIsActive, updatedAt: now }).where(eq(storageBuckets.id, id));
 
   // 返回实际写入的值而非内存中的旧值，防止并发时返回错误状态
@@ -408,24 +524,53 @@ app.delete('/:id', async (c) => {
     throwAppError('BUCKET_NOT_FOUND');
   }
 
-  const filesUsingBucket = await db
-    .select({ id: files.id })
-    .from(files)
-    .where(and(eq(files.bucketId, id), eq(files.userId, userId), isNull(files.deletedAt)))
-    .limit(1)
-    .all();
+  // ── 删除护栏 ──────────────────────────────────────────────────────────
+  // 1) 显式引用（含回收站：软删除不会删除物理对象，配置删掉后将无法恢复）
+  // 2) bucketId 为空、沿祖先链继承到该桶的文件
+  // 3) 待补偿删除任务（配置删除后重试将永久失败）
+  const usage = await inspectBucketUsage(db, userId, id);
 
-  if (filesUsingBucket.length > 0) {
+  if (usage.explicitFiles > 0 || usage.inheritedFiles > 0 || usage.pendingDeletions > 0) {
     return c.json(
       {
         success: false,
         error: {
           code: 'BUCKET_IN_USE',
-          message: '该存储桶正在被文件使用，请先迁移或删除相关文件',
+          message: `该存储桶仍被 ${usage.explicitFiles} 个文件直接引用（含回收站）、${usage.inheritedFiles} 个文件继承引用${
+            usage.pendingDeletions > 0 ? `，并有 ${usage.pendingDeletions} 个待补偿删除任务` : ''
+          }，请先迁移或彻底删除相关文件`,
         },
       },
-      400
+      409
     );
+  }
+
+  // 4) 未显式指定桶的文件会回落到默认桶（无默认时回落到任意活跃桶）
+  if (usage.unresolvedFiles > 0) {
+    const activeDefault = await db
+      .select({ id: storageBuckets.id })
+      .from(storageBuckets)
+      .where(
+        and(
+          eq(storageBuckets.userId, userId),
+          eq(storageBuckets.isDefault, true),
+          eq(storageBuckets.isActive, true)
+        )
+      )
+      .get();
+
+    if (bucket.isDefault || !activeDefault) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: 'BUCKET_IN_USE',
+            message: `仍有 ${usage.unresolvedFiles} 个文件依赖默认/兜底解析落到该桶，删除配置会导致这些文件无法访问`,
+          },
+        },
+        409
+      );
+    }
   }
 
   if (bucket.isDefault) {

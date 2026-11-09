@@ -13,7 +13,7 @@ import { Hono } from 'hono';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { getDb, downloadTasks, users, files } from '../db';
 import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
-import { ERROR_CODES, MAX_FILE_SIZE } from '@osshelf/shared';
+import { ERROR_CODES, MAX_BUFFERED_TRANSFER_BYTES } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
@@ -150,8 +150,10 @@ async function runDownload({ db, userId, taskId, task, bucketConfig }: RunDownlo
     const contentLength = response.headers.get('Content-Length');
     const fileSize = contentLength ? parseInt(contentLength, 10) : 0;
 
-    if (fileSize > MAX_FILE_SIZE) {
-      throw new Error(`文件大小超过限制（最大 ${MAX_FILE_SIZE / 1024 / 1024 / 1024}GB）`);
+    if (fileSize > MAX_BUFFERED_TRANSFER_BYTES) {
+      throw new Error(
+        `文件大小超过转存上限（最大 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB），请先下载后通过网页端上传`
+      );
     }
 
     const contentType = response.headers.get('Content-Type') || 'application/octet-stream';
@@ -180,8 +182,10 @@ async function runDownload({ db, userId, taskId, task, bucketConfig }: RunDownlo
       downloadedBytes += value.length;
 
       // 服务端未提供 Content-Length 时也要有硬上限，避免无限缓冲
-      if (downloadedBytes > MAX_FILE_SIZE) {
-        throw new Error(`文件大小超过限制（最大 ${MAX_FILE_SIZE / 1024 / 1024 / 1024}GB）`);
+      if (downloadedBytes > MAX_BUFFERED_TRANSFER_BYTES) {
+        throw new Error(
+          `文件大小超过转存上限（最大 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB），请先下载后通过网页端上传`
+        );
       }
 
       const nowTs = Date.now();
@@ -198,8 +202,10 @@ async function runDownload({ db, userId, taskId, task, bucketConfig }: RunDownlo
     totalSize = downloadedBytes;
 
     // Content-Length 缺失时前面按 0 校验过配额，这里用真实大小再校验一次
-    if (totalSize > MAX_FILE_SIZE) {
-      throw new Error(`文件大小超过限制（最大 ${MAX_FILE_SIZE / 1024 / 1024 / 1024}GB）`);
+    if (totalSize > MAX_BUFFERED_TRANSFER_BYTES) {
+      throw new Error(
+        `文件大小超过转存上限（最大 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB），请先下载后通过网页端上传`
+      );
     }
     if (freshUser.storageQuota! < 999999 * 1024 ** 3 && freshUser.storageUsed + totalSize > freshUser.storageQuota!) {
       throw new Error('用户存储配额已满');
@@ -216,7 +222,7 @@ async function runDownload({ db, userId, taskId, task, bucketConfig }: RunDownlo
 
     const fileId = crypto.randomUUID();
     const r2Key = `files/${userId}/${fileId}/${resolvedFileName}`;
-    const path = buildFilePath(safeParentId, resolvedFileName);
+    const path = await buildFilePath(db, userId, safeParentId, resolvedFileName);
 
     await s3Put(bucketConfig, r2Key, fileData, contentType, undefined, totalSize);
 

@@ -249,12 +249,14 @@ export default function Files() {
     page: number;
     limit: number;
   }>({
-    queryKey: ['files', folderId, currentPage, pageSize],
+    queryKey: ['files', folderId, currentPage, pageSize, sortBy, sortOrder],
     queryFn: async () => {
       const res = await filesApi.list({
         parentId: folderId || null,
         page: currentPage,
         limit: pageSize,
+        sortBy,
+        sortOrder,
       });
       const data = res.data.data;
       const pagination = (res as any).data?.pagination;
@@ -307,14 +309,7 @@ export default function Files() {
       ? (advancedSearchResults ?? [])
       : searchQuery && searchResults
         ? (searchResults ?? [])
-        : [...files]
-            .filter((f) => !searchQuery || f.name.toLowerCase().includes(searchQuery.toLowerCase()))
-            .sort((a, b) => {
-              if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
-              const av = (a as any)[sortBy] ?? '',
-                bv = (b as any)[sortBy] ?? '';
-              return sortOrder === 'asc' ? (av > bv ? 1 : -1) : av < bv ? 1 : -1;
-            });
+        : [...files].filter((f) => !searchQuery || f.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
   const imageFiles = displayFiles.filter((f) => f.mimeType?.startsWith('image/'));
   const hasImages = imageFiles.length > 0;

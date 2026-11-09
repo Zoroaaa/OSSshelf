@@ -10,7 +10,7 @@
  */
 
 import { Hono, type Context } from 'hono';
-import { buildFilePath, normalizeEntryName, normalizeParentId, pathPrefix } from '../lib/pathUtils';
+import { buildFilePath, normalizeEntryName, normalizeParentId, pathPrefix, pathPrefixCondition } from '../lib/pathUtils';
 import { eq, and, isNull, isNotNull, like, or, inArray, sql, count, gt, ne } from 'drizzle-orm';
 import {
   getDb,
@@ -42,6 +42,7 @@ import { throwAppError } from '../middleware/error';
 import {
   ERROR_CODES,
   MAX_FILE_SIZE,
+  MAX_BUFFERED_TRANSFER_BYTES,
   isPreviewableMimeType,
   inferMimeType,
   logger,
@@ -51,10 +52,13 @@ import {
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { sendNotification } from '../lib/notificationUtils';
-import { s3Put, s3Get, s3Delete, decryptSecret } from '../lib/s3client';
+import { s3Put, s3Get, decryptSecret } from '../lib/s3client';
+import { deleteObjectSafely } from '../lib/storageGC';
 import { resolveBucketConfig, checkBucketQuota } from '../lib/bucketResolver';
 import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 import { getEncryptionKey } from '../lib/crypto';
+import { createZipStream, assertZipLimits } from '../lib/zipStream';
+import { openFileStream } from '../lib/fileContentHelper';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { recordActivityWithEnv } from '../lib/teamActivityService';
 import { tgUploadFile, tgDownloadFile, TG_MAX_CHUNKED_FILE_SIZE, type TelegramBotConfig } from '../lib/telegramClient';
@@ -325,8 +329,6 @@ app.get('/:id/zip', async (c) => {
 
   if (!folder) throwAppError('FILE_NOT_FOUND');
 
-  const encKey = getEncryptionKey(c.env);
-
   // 收集要打包的文件
   let entries: Array<{ file: typeof files.$inferSelect; relativePath: string }>;
 
@@ -348,9 +350,8 @@ app.get('/:id/zip', async (c) => {
     throwAppError('VALIDATION_ERROR', '文件夹为空或无可下载文件');
   }
 
-  // 安全限制
+  // 安全限制：单次 ZIP 最多 200 个文件（总量受 ZIP32 4GB 上限约束）
   const MAX_ZIP_FILES = 200;
-  const MAX_ZIP_BYTES = 500 * 1024 * 1024; // 500MB
 
   if (entries.length > MAX_ZIP_FILES) {
     return c.json(
@@ -365,48 +366,35 @@ app.get('/:id/zip', async (c) => {
     );
   }
 
-  const totalBytes = entries.reduce((n, e) => n + e.file.size, 0);
-  if (totalBytes > MAX_ZIP_BYTES) {
+  try {
+    assertZipLimits(entries.map((e) => e.file));
+  } catch (error) {
     return c.json(
       {
         success: false,
         error: {
           code: ERROR_CODES.VALIDATION_ERROR,
-          message: `ZIP 打包总大小不超过 500MB，当前 ${(totalBytes / 1024 / 1024).toFixed(1)}MB`,
+          message: error instanceof Error ? error.message : 'ZIP 打包参数超出限制',
         },
       },
       400
     );
   }
 
-  // 构建 ZIP
-  const { ZipBuilder } = await import('../lib/zipStream');
-  const zip = new ZipBuilder();
-  const errors: string[] = [];
+  // 流式打包：逐个文件按 chunk 透传，不再把整个目录读入 Worker 内存
+  const sources = entries.map(({ file, relativePath }) => ({
+    name: relativePath,
+    size: file.size,
+    modDate: new Date(file.updatedAt),
+    open: () => openFileStream(c.env, file),
+  }));
 
-  for (const { file, relativePath } of entries) {
-    try {
-      const buf = await fetchFileContent(c.env, db, encKey, file);
-      zip.addFile(relativePath, buf, new Date(file.updatedAt));
-    } catch (error) {
-      errors.push(`${relativePath}: ${error instanceof Error ? error.message : '未知错误'}`);
-      logger.error('FILES', '获取文件内容失败', { relativePath }, error);
-    }
-  }
-
-  if (errors.length === entries.length) {
-    throwAppError('FILE_DOWNLOAD_FAILED', '所有文件下载失败');
-  }
-
-  const zipBytes = zip.finalize();
   const zipName = `${folder.name}.zip`;
 
-  return new Response(zipBytes.buffer as ArrayBuffer, {
+  return new Response(createZipStream(sources), {
     headers: {
       'Content-Type': 'application/zip',
       'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(zipName)}`,
-      'Content-Length': zipBytes.length.toString(),
-      ...(errors.length > 0 ? { 'X-Partial-Zip': String(errors.length) } : {}),
     },
   });
 });
@@ -440,67 +428,6 @@ async function collectFolderFiles(
   return result;
 }
 
-/**
- * 从对象存储中获取文件内容
- */
-async function fetchFileContent(
-  env: Env,
-  db: ReturnType<typeof getDb>,
-  encKey: string,
-  file: typeof files.$inferSelect
-): Promise<ArrayBuffer> {
-  if (file.bucketId) {
-    const bkt = await db.select().from(storageBuckets).where(eq(storageBuckets.id, file.bucketId)).get();
-    if (bkt?.provider === 'telegram') {
-      const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, file.id)).get();
-      if (!ref) throw new Error(`Telegram 文件引用不存在: ${file.id}`);
-
-      const botToken = await decryptSecret(bkt.accessKeyId, encKey);
-      const tgConfig = { botToken, chatId: bkt.bucketName, apiBase: bkt.endpoint || undefined };
-
-      if (isChunkedFileId(ref.tgFileId)) {
-        const { tgDownloadChunked } = await import('../lib/telegramChunked');
-        const stream = await tgDownloadChunked(tgConfig, ref.tgFileId, db);
-        const reader = stream.getReader();
-        const chunks: Uint8Array[] = [];
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value) chunks.push(value);
-        }
-        const total = chunks.reduce((n, c) => n + c.length, 0);
-        const out = new Uint8Array(total);
-        let pos = 0;
-        for (const c of chunks) {
-          out.set(c, pos);
-          pos += c.length;
-        }
-        return out.buffer;
-      }
-
-      const { tgDownloadFile } = await import('../lib/telegramClient');
-      const resp = await tgDownloadFile(tgConfig, ref.tgFileId);
-      return resp.arrayBuffer();
-    }
-
-    const bucketCfg = await resolveBucketConfig(db, file.userId, encKey, file.bucketId, file.parentId);
-    if (bucketCfg) {
-      const { s3Get } = await import('../lib/s3client');
-      const resp = await s3Get(bucketCfg, file.r2Key);
-      return resp.arrayBuffer();
-    }
-  }
-
-  if (env.FILES) {
-    const obj = await env.FILES.get(file.r2Key);
-    if (!obj) throw new Error(`文件内容不存在: ${file.r2Key}`);
-    return obj.arrayBuffer();
-  }
-
-  throw new Error('存储桶未配置');
-}
-
 app.use('*', authMiddleware);
 app.use('*', requireApiKeyScope('files:read', 'files:write'));
 
@@ -512,6 +439,21 @@ app.post('/upload', async (c) => {
     return c.json(
       { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请使用 multipart/form-data 格式上传' } },
       400
+    );
+  }
+
+  // 先看 Content-Length，避免超大请求进入 formData() 全量缓冲
+  const declaredLength = Number(c.req.header('Content-Length') || '0');
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BUFFERED_TRANSFER_BYTES + 1024 * 1024) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.FILE_TOO_LARGE,
+          message: `代理上传单文件上限 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB，请使用前端分片上传`,
+        },
+      },
+      413
     );
   }
 
@@ -592,6 +534,18 @@ app.post('/upload', async (c) => {
   }
 
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
+  if (uploadFile.size > MAX_BUFFERED_TRANSFER_BYTES) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.FILE_TOO_LARGE,
+          message: `代理上传单文件上限 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB，请使用分片上传`,
+        },
+      },
+      413
+    );
+  }
   if (user && user.storageQuota! < 999999 * 1024 ** 3 && user.storageUsed + uploadFile.size > user.storageQuota!) {
     throwAppError('STORAGE_EXCEEDED', '用户存储配额已满');
   }
@@ -603,7 +557,7 @@ app.post('/upload', async (c) => {
   const fileId = crypto.randomUUID();
   const now = new Date().toISOString();
   const r2Key = `files/${userId}/${fileId}/${safeFileName}`;
-  const path = buildFilePath(parentId, safeFileName);
+  const path = await buildFilePath(db, userId, parentId, safeFileName);
   const finalBucketId = isTelegramBucket ? effectiveBucketId : (bucketConfig?.id ?? null);
 
   // ── CoW 去重：单次读取 buffer，计算 hash，查找可复用对象 ───────────────
@@ -770,7 +724,7 @@ app.get('/', async (c) => {
   const userId = c.get('userId')!;
   const parentId = c.req.query('parentId') || null;
   const search = c.req.query('search') || '';
-  const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'name', 'size'] as const;
+  const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'name', 'size', 'mimeType'] as const;
   const sortByRaw = c.req.query('sortBy') || 'createdAt';
   const sortBy = ALLOWED_SORT_FIELDS.includes(sortByRaw as any) ? sortByRaw : 'createdAt';
   const sortOrder = c.req.query('sortOrder') || 'desc';
@@ -805,6 +759,17 @@ app.get('/', async (c) => {
 
   // 构建查询条件
   const conditions: Array<ReturnType<typeof isNull> | ReturnType<typeof eq>> = [isNull(files.deletedAt)];
+
+  // 被授权文件 -> 当前用户拥有的最高权限（用于列表返回真实 accessPermission）
+  const permittedPermissionMap = new Map<string, string>();
+  const permissionRank: Record<string, number> = { read: 1, write: 2, admin: 3 };
+  const rememberPermission = (fileId: string, permission: string | null) => {
+    if (!permission) return;
+    const current = permittedPermissionMap.get(fileId);
+    if (!current || (permissionRank[permission] ?? 0) > (permissionRank[current] ?? 0)) {
+      permittedPermissionMap.set(fileId, permission);
+    }
+  };
 
   // 收藏文件筛选
   if (starred) {
@@ -872,7 +837,7 @@ app.get('/', async (c) => {
 
     // 查询用户直接获得授权的文件ID（排除自己的文件，避免重复）
     const userPermittedFiles = await db
-      .select({ fileId: filePermissions.fileId, fileUserId: files.userId })
+      .select({ fileId: filePermissions.fileId, permission: filePermissions.permission, fileUserId: files.userId })
       .from(filePermissions)
       .innerJoin(files, eq(filePermissions.fileId, files.id))
       .where(
@@ -883,12 +848,13 @@ app.get('/', async (c) => {
         )
       )
       .all();
+    for (const p of userPermittedFiles) rememberPermission(p.fileId, p.permission);
 
     // 查询用户组获得授权的文件ID（排除自己的文件，避免重复）
-    let groupPermittedFiles: { fileId: string }[] = [];
+    let groupPermittedFiles: { fileId: string; permission: string | null }[] = [];
     if (groupIds.length > 0) {
       groupPermittedFiles = await db
-        .select({ fileId: filePermissions.fileId })
+        .select({ fileId: filePermissions.fileId, permission: filePermissions.permission })
         .from(filePermissions)
         .innerJoin(files, eq(filePermissions.fileId, files.id))
         .where(
@@ -899,6 +865,7 @@ app.get('/', async (c) => {
           )
         )
         .all();
+      for (const p of groupPermittedFiles) rememberPermission(p.fileId, p.permission);
     }
 
     const permittedIds = new Set([
@@ -943,6 +910,8 @@ app.get('/', async (c) => {
         return files.name;
       case 'size':
         return files.size;
+      case 'mimeType':
+        return files.mimeType;
       default:
         return files.createdAt;
     }
@@ -953,7 +922,8 @@ app.get('/', async (c) => {
     .select()
     .from(files)
     .where(and(...conditions.filter(Boolean)))
-    .orderBy(sql`${orderColumn} ${orderDir}`)
+    // 文件夹优先，保证跨页顺序稳定（前端不再做页内排序）
+    .orderBy(sql`${files.isFolder} DESC, ${orderColumn} ${orderDir}`)
     .limit(limit)
     .offset(offset)
     .all();
@@ -987,7 +957,7 @@ app.get('/', async (c) => {
   for (const file of items) {
     const isOwner = file.userId === userId;
     permissionsMap[file.id] = {
-      permission: isOwner ? 'admin' : null,
+      permission: isOwner ? 'admin' : (permittedPermissionMap.get(file.id) ?? null),
       isOwner,
     };
   }
@@ -1240,7 +1210,7 @@ app.post('/', async (c) => {
 
   const folderId = crypto.randomUUID();
   const now = new Date().toISOString();
-  const path = buildFilePath(parentId, name);
+  const path = await buildFilePath(db, userId, parentId, name);
   const newFolder = {
     id: folderId,
     userId,
@@ -1355,7 +1325,7 @@ app.post('/create', async (c) => {
   const fileId = crypto.randomUUID();
   const now = new Date().toISOString();
   const r2Key = `files/${userId}/${fileId}/${name}`;
-  const path = buildFilePath(parentId, name);
+  const path = await buildFilePath(db, userId, parentId, name);
   const hash = await computeSha256Hex(fileArrayBuffer);
 
   const dedupResult = await checkAndClaimDedup(db, hash, effectiveBucketId, userId);
@@ -2207,27 +2177,22 @@ async function deleteFileFromStorage(
     }
   }
 
-  const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
-  if (bucketConfig) {
-    // 删除主文件
-    try {
-      await s3Delete(bucketConfig, file.r2Key);
-    } catch (error) {
-      logger.error('FILES', 'S3删除失败', { r2Key: file.r2Key }, error);
-    }
-    // 删除所有版本存储对象
-    for (const vKey of versionKeys) {
-      await s3Delete(bucketConfig, vKey).catch((error) => logger.error('FILES', 'S3版本删除失败', { vKey }, error));
-    }
-  } else if (env.FILES) {
-    // 删除主文件
-    await env.FILES.delete(file.r2Key);
-    // 删除所有版本存储对象
-    for (const vKey of versionKeys) {
-      await env.FILES.delete(vKey).catch((error) => {
-        logger.error('FILES', 'R2版本删除失败', { vKey }, error);
-      });
-    }
+  // 主文件 + 版本对象统一走补偿删除：失败自动入队重试
+  await deleteObjectSafely(env, db, {
+    userId,
+    bucketId: file.bucketId,
+    parentId: file.parentId,
+    r2Key: file.r2Key,
+    reason: 'permanent-delete',
+  });
+  for (const vKey of versionKeys) {
+    await deleteObjectSafely(env, db, {
+      userId,
+      bucketId: file.bucketId,
+      parentId: file.parentId,
+      r2Key: vKey,
+      reason: 'permanent-delete-version',
+    });
   }
 
   // 删除所有版本记录
@@ -2286,14 +2251,53 @@ app.put('/:id/bucket', async (c) => {
     return c.json({ success: true, data: { message: '已是目标存储桶，无需更改', updatedCount: 0 } });
   }
 
-  // 验证目标桶存在
+  // 验证目标桶存在且可用
   const targetBucket = await db
     .select()
     .from(storageBuckets)
-    .where(and(eq(storageBuckets.id, targetBucketId), eq(storageBuckets.userId, userId)))
+    .where(
+      and(
+        eq(storageBuckets.id, targetBucketId),
+        eq(storageBuckets.userId, userId),
+        eq(storageBuckets.isActive, true)
+      )
+    )
     .get();
   if (!targetBucket) {
-    return c.json({ success: false, error: { code: 'BUCKET_NOT_FOUND', message: '目标存储桶不存在' } }, 404);
+    return c.json({ success: false, error: { code: 'BUCKET_NOT_FOUND', message: '目标存储桶不存在或已停用' } }, 404);
+  }
+
+  // ── 换桶护栏：只改元数据不会迁移物理对象 ──────────────────────────────
+  // 子树内 bucketId 为空的文件依赖祖先继承；文件夹换桶后它们会被解析到新桶，
+  // 而数据仍在旧桶，读取将 404。必须阻断，待迁移能力上线后再放开。
+  const inheritedFiles = await db
+    .select({ count: count() })
+    .from(files)
+    .where(
+      and(
+        eq(files.userId, userId),
+        folder.teamId ? eq(files.teamId, folder.teamId) : isNull(files.teamId),
+        eq(files.isFolder, false),
+        isNull(files.deletedAt),
+        isNull(files.bucketId),
+        pathPrefixCondition(files.path, folder.path)
+      )
+    )
+    .get();
+
+  const inheritedCount = Number(inheritedFiles?.count ?? 0);
+  if (inheritedCount > 0) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'BUCKET_SWITCH_REQUIRES_MIGRATION',
+          message: `该文件夹下有 ${inheritedCount} 个文件依赖继承存储桶，换桶不会迁移已有数据，请先迁移文件或逐个指定存储桶`,
+          inheritedFiles: inheritedCount,
+        },
+      },
+      409
+    );
   }
 
   const now = new Date().toISOString();

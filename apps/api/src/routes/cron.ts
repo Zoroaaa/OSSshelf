@@ -14,6 +14,7 @@ import { authMiddleware, requireAdmin } from '../middleware/auth';
 import { getEncryptionKey } from '../lib/crypto';
 import { cleanExpiredVersions } from '../lib/versionManager';
 import { runDataCleanup, runSessionCleanup, runShareCleanup, runTrashCleanup } from '../lib/cleanup';
+import { runStorageReconciliation } from '../lib/storageReconciliation';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -86,6 +87,13 @@ app.post('/data-cleanup', async (c) => {
   return c.json({ success: true, data: result });
 });
 
+// ── 存储对账（只读，每日定时任务也会执行）────────────────────────────────
+app.post('/reconcile', async (c) => {
+  const report = await runStorageReconciliation(c.env);
+
+  return c.json({ success: true, data: report });
+});
+
 app.post('/all', async (c) => {
   const db = getDb(c.env.DB);
   const env = c.env;
@@ -106,6 +114,7 @@ app.post('/all', async (c) => {
   await runStep('shares', () => runShareCleanup(db));
   await runStep('versions', () => cleanExpiredVersions(db, env));
   await runStep('data', () => runDataCleanup(db));
+  await runStep('reconcile', () => runStorageReconciliation(env));
 
   return c.json({ success: true, data: results });
 });

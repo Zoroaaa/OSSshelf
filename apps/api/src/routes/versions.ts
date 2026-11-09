@@ -20,7 +20,8 @@ import type { Env, Variables } from '../types/env';
 import { checkFilePermission } from './permissions';
 import { z } from 'zod';
 import { resolveBucketConfig } from '../lib/bucketResolver';
-import { s3Get, s3Delete } from '../lib/s3client';
+import { s3Get } from '../lib/s3client';
+import { deleteObjectSafely } from '../lib/storageGC';
 import { getEncryptionKey } from '../lib/crypto';
 import { isVersionableFile } from '../lib/versionManager';
 
@@ -171,27 +172,30 @@ app.get('/:fileId/versions/:version/download', async (c) => {
 
   const encKey = await getEncryptionKey(c.env);
 
-  let fileBuffer: ArrayBuffer;
+  let fileStream: ReadableStream<Uint8Array> | null = null;
   if (file.bucketId) {
     const bucketConfig = await resolveBucketConfig(db, userId!, encKey, file.bucketId);
     if (!bucketConfig) {
       throwAppError('BUCKET_CONNECTION_FAILED');
     }
     const fileResponse = await s3Get(bucketConfig, version.r2Key);
-    fileBuffer = await fileResponse.arrayBuffer();
+    if (!fileResponse.ok) throwAppError('FILE_CONTENT_NOT_FOUND', '版本文件内容不存在');
+    fileStream = fileResponse.body;
   } else if (c.env.FILES) {
     const obj = await c.env.FILES.get(version.r2Key);
     if (!obj) throwAppError('FILE_CONTENT_NOT_FOUND', '版本文件内容不存在');
-    fileBuffer = await obj.arrayBuffer();
+    fileStream = obj.body;
   } else {
     throwAppError('BUCKET_NOT_FOUND');
   }
+
+  if (!fileStream) throwAppError('FILE_CONTENT_NOT_FOUND', '版本文件内容不存在');
 
   c.header('Content-Type', version.mimeType || 'application/octet-stream');
   c.header('Content-Disposition', `attachment; filename="${encodeURIComponent(file.name)}"`);
   c.header('Content-Length', String(version.size));
 
-  return c.body(fileBuffer);
+  return c.body(fileStream);
 });
 
 app.post('/:fileId/versions/:version/restore', async (c) => {
@@ -335,17 +339,13 @@ app.delete('/:fileId/versions/:version', async (c) => {
   await db.delete(fileVersions).where(eq(fileVersions.id, version.id));
 
   if (isLastRef && !sharedFileRef) {
-    const encKey = getEncryptionKey(c.env);
-    const bucketConfig = await resolveBucketConfig(db, userId!, encKey, file.bucketId);
-    if (bucketConfig) {
-      await s3Delete(bucketConfig, version.r2Key).catch((error) =>
-        logger.error('VERSIONS', '版本删除失败', { r2Key: version.r2Key }, error)
-      );
-    } else if (c.env.FILES) {
-      await (c.env.FILES as R2Bucket).delete(version.r2Key).catch((error) => {
-        logger.error('VERSIONS', 'R2版本删除失败', { r2Key: version.r2Key }, error);
-      });
-    }
+    await deleteObjectSafely(c.env, db, {
+      userId: userId!,
+      bucketId: file.bucketId,
+      parentId: file.parentId,
+      r2Key: version.r2Key,
+      reason: 'version-delete',
+    });
   }
 
   // 版本快照不计入用户配额（创建时从未计入），删除时也不再扣减，

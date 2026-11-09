@@ -19,7 +19,7 @@ import { files, fileVersions } from '../db';
 import type { DrizzleDb } from '../db';
 import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';
-import { s3Delete } from './s3client';
+import { deleteObjectSafely } from './storageGC';
 import { resolveBucketConfig } from './bucketResolver';
 import { getEncryptionKey } from './crypto';
 import { isEditableFile } from '@osshelf/shared';
@@ -234,7 +234,7 @@ export async function pruneExcessVersions(
           .all();
 
         if (sharedRefs.length === 0 && !(await isKeySharedByOtherFile(db, version.r2Key, fileId))) {
-          await deleteStorageObject(db, env, file, version.r2Key, encKey);
+          await deleteStorageObject(db, env, file, version.r2Key);
           result.freedBytes += version.size;
         }
       }
@@ -315,7 +315,7 @@ export async function cleanExpiredVersions(db: DrizzleDb, env: Env): Promise<Pru
             .all();
 
           if (sharedRefs.length === 0 && !(await isKeySharedByOtherFile(db, version.r2Key, file.id))) {
-            await deleteStorageObject(db, env, file as any, version.r2Key, encKey);
+            await deleteStorageObject(db, env, file as any, version.r2Key);
             fileFreedBytes += version.size;
           }
         }
@@ -344,20 +344,15 @@ async function deleteStorageObject(
   db: DrizzleDb,
   env: Env,
   file: FileRecord,
-  r2Key: string,
-  encKey: string
+  r2Key: string
 ): Promise<void> {
-  const bucketConfig = await resolveBucketConfig(db, file.userId, encKey, file.bucketId, file.parentId);
-
-  if (bucketConfig) {
-    await s3Delete(bucketConfig, r2Key).catch((error) => {
-      logger.error('VERSION', '删除存储对象失败', { r2Key }, error);
-    });
-  } else if (env.FILES) {
-    await (env.FILES as R2Bucket).delete(r2Key).catch((error) => {
-      logger.error('VERSION', 'R2删除失败', { r2Key }, error);
-    });
-  }
+  await deleteObjectSafely(env, db, {
+    userId: file.userId,
+    bucketId: file.bucketId,
+    parentId: file.parentId,
+    r2Key,
+    reason: 'version-retention',
+  });
 }
 
 /**

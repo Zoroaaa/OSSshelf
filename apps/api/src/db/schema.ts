@@ -157,6 +157,26 @@ export const storageBuckets = sqliteTable(
   })
 );
 
+export const storageDeletionQueue = sqliteTable(
+  'storage_deletion_queue',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    bucketId: text('bucket_id'),
+    objectKey: text('object_key').notNull(),
+    reason: text('reason'),
+    attempts: integer('attempts').default(0).notNull(),
+    lastError: text('last_error'),
+    nextRetryAt: text('next_retry_at').notNull(),
+    createdAt: text('created_at').notNull(),
+    resolvedAt: text('resolved_at'),
+  },
+  (table) => ({
+    dueIdx: index('idx_storage_deletion_due').on(table.resolvedAt, table.nextRetryAt),
+    objectIdx: index('idx_storage_deletion_object').on(table.objectKey),
+  })
+);
+
 export const fileTags = sqliteTable(
   'file_tags',
   {

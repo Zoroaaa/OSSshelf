@@ -10,7 +10,7 @@
  * - cron 执行结果 Telegram 告警
  */
 
-import { eq, and, or, isNotNull, lt, inArray } from 'drizzle-orm';
+import { eq, and, or, isNull, isNotNull, lt, inArray } from 'drizzle-orm';
 import {
   getDb,
   files,
@@ -29,11 +29,13 @@ import {
 import { DEVICE_SESSION_EXPIRY, logger, logCleanupError } from '@osshelf/shared';
 import type { Env } from '../types/env';
 import { getAuditRetentionDays, getTrashRetentionDays, hasTelegramAlert } from '../types/env';
-import { s3Delete, s3AbortMultipartUpload } from './s3client';
+import { s3AbortMultipartUpload } from './s3client';
 import { resolveBucketConfig } from './bucketResolver';
 import { releaseFileRef } from './dedup';
 import { getEncryptionKey } from './crypto';
 import { pathPrefixCondition } from './pathUtils';
+import { processDeletionQueue, deleteObjectSafely } from './storageGC';
+import { runStorageReconciliation, type ReconciliationReport } from './storageReconciliation';
 
 interface CleanupResult {
   trash: {
@@ -58,6 +60,12 @@ interface CleanupResult {
     notificationsCleaned: number;
     aiTasksCleaned: number;
   };
+  storageGC: {
+    processed: number;
+    succeeded: number;
+    failed: number;
+  };
+  reconciliation: ReconciliationReport;
 }
 
 async function sendCronAlert(env: Env, message: string): Promise<void> {
@@ -88,6 +96,15 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
     shares: { sharesCleaned: 0 },
     audit: { cleaned: 0 },
     data: { searchHistoryCleaned: 0, notificationsCleaned: 0, aiTasksCleaned: 0 },
+    storageGC: { processed: 0, succeeded: 0, failed: 0 },
+    reconciliation: {
+      generatedAt: '',
+      users: { checked: 0, withDiff: 0, totalDiffBytes: 0, samples: [] },
+      buckets: { checked: 0, withDiff: 0, totalDiffBytes: 0, totalDiffCount: 0, samples: [] },
+      unassigned: { files: 0, bytes: 0 },
+      dedup: { sharedGroups: 0, crossBucketGroups: 0 },
+      path: { mismatch: 0, unreachable: 0 },
+    },
   };
 
   const failures: string[] = [];
@@ -132,15 +149,36 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
     failures.push(`数据清理: ${msg}`);
   }
 
+  try {
+    result.storageGC = await processDeletionQueue(env);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    logCleanupError('存储删除补偿', error);
+    failures.push(`存储删除补偿: ${msg}`);
+  }
+
+  try {
+    result.reconciliation = await runStorageReconciliation(env);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    logCleanupError('存储对账', error);
+    failures.push(`存储对账: ${msg}`);
+  }
+
   if (failures.length > 0) {
     const alertMsg =
       `⚠️ <b>OSSshelf Cron 告警</b>\n` +
       `时间：${startedAt}\n` +
-      `失败任务（${failures.length}/5）：\n` +
+      `失败任务（${failures.length}/7）：\n` +
       failures.map((f) => `• ${f}`).join('\n');
     await sendCronAlert(env, alertMsg);
   } else {
     const mb = (result.trash.freedBytes / 1024 / 1024).toFixed(2);
+    const rc = result.reconciliation;
+    const rcLine =
+      rc.users.withDiff + rc.buckets.withDiff + rc.path.mismatch + rc.path.unreachable > 0
+        ? `• 对账：用户差异 ${rc.users.withDiff}，桶差异 ${rc.buckets.withDiff}，路径不一致 ${rc.path.mismatch}，不可达 ${rc.path.unreachable}`
+        : `• 对账：通过`;
     const summaryMsg =
       `✅ <b>OSSshelf Cron 完成</b>\n` +
       `时间：${startedAt}\n` +
@@ -148,7 +186,8 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
       `• 会话：清理 ${result.sessions.uploadTasksExpired} 上传任务，${result.sessions.devicesCleaned} 设备\n` +
       `• 分享：清理 ${result.shares.sharesCleaned} 条\n` +
       `• 审计日志：清理 ${result.audit.cleaned} 条\n` +
-      `• 数据：清理 ${result.data.searchHistoryCleaned} 搜索历史，${result.data.notificationsCleaned} 通知，${result.data.aiTasksCleaned} AI任务`;
+      `• 数据：清理 ${result.data.searchHistoryCleaned} 搜索历史，${result.data.notificationsCleaned} 通知，${result.data.aiTasksCleaned} AI任务\n` +
+      rcLine;
     await sendCronAlert(env, summaryMsg);
   }
 
@@ -188,9 +227,20 @@ export async function runTrashCleanup(
       if (deletedIds.has(file.id)) continue;
 
       // 文件夹：必须连同整棵子树一起永久删除，否则子项会变成孤儿且无法恢复
+      const namespaceCondition = file.teamId ? eq(files.teamId, file.teamId) : isNull(files.teamId);
       const subtree =
         file.isFolder && file.path && file.path !== '/'
-          ? await db.select().from(files).where(pathPrefixCondition(files.path, file.path)).all()
+          ? await db
+              .select()
+              .from(files)
+              .where(
+                and(
+                  eq(files.userId, file.userId),
+                  namespaceCondition,
+                  pathPrefixCondition(files.path, file.path)
+                )
+              )
+              .all()
           : [];
 
       for (const target of [...subtree, file]) {
@@ -201,18 +251,13 @@ export async function runTrashCleanup(
             // CoW：仅当没有其它记录引用同一对象时才物理删除
             const { shouldDeleteStorage } = await releaseFileRef(db, target.id);
             if (shouldDeleteStorage) {
-              const bucketConfig = await resolveBucketConfig(
-                db,
-                target.userId,
-                encKey,
-                target.bucketId,
-                target.parentId
-              );
-              if (bucketConfig) {
-                await s3Delete(bucketConfig, target.r2Key);
-              } else if (env.FILES) {
-                await env.FILES.delete(target.r2Key);
-              }
+              await deleteObjectSafely(env, db, {
+                userId: target.userId,
+                bucketId: target.bucketId,
+                parentId: target.parentId,
+                r2Key: target.r2Key,
+                reason: 'trash-cleanup',
+              });
             }
             freedBytes += target.size;
           }
