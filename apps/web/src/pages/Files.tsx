@@ -73,7 +73,12 @@ import {
   ShareDialog,
   FileListContainer,
   Pagination,
+  ShareTargetInbox,
 } from '@/components/files';
+import { readSharedFiles, clearSharedFiles, type SharedFile } from '@/utils/shareTarget';
+import { parseProtocolPath, resolveProtocolFolder } from '@/utils/protocolPath';
+import { useFileHandlers } from '@/hooks/useFileHandlers';
+import { LocalFilePreviewDialog } from '@/components/files/LocalFilePreviewDialog';
 import { MobileFilesToolbar, MobileSearchPanel } from '@/components/files/MobileFilesToolbar';
 import { UploadLinkDialog } from '@/components/files/dialogs';
 import { DirectLinkDialog } from '@/components/files/dialogs';
@@ -468,6 +473,166 @@ export default function Files() {
       }
     },
   });
+
+  // ── 系统分享（Web Share Target）：SW 暂存文件后重定向到 /files?shareTarget=<token> ──
+  const shareTargetToken = searchParams.get('shareTarget');
+  const [sharedFiles, setSharedFiles] = useState<SharedFile[]>([]);
+  const [showShareTargetDialog, setShowShareTargetDialog] = useState(false);
+  const [shareTargetUploading, setShareTargetUploading] = useState(false);
+
+  useEffect(() => {
+    if (!shareTargetToken) return;
+    let cancelled = false;
+
+    readSharedFiles(shareTargetToken)
+      .then((entries) => {
+        if (cancelled) return;
+        if (entries.length === 0) {
+          toast({ title: '未找到分享的文件', description: '请重新从系统分享面板发送', variant: 'destructive' });
+          return;
+        }
+        setSharedFiles(entries);
+        setShowShareTargetDialog(true);
+      })
+      .catch(() => {
+        if (!cancelled) toast({ title: '读取分享内容失败', variant: 'destructive' });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shareTargetToken]);
+
+  const closeShareTargetDialog = useCallback(() => {
+    setShowShareTargetDialog(false);
+    setSharedFiles([]);
+    if (shareTargetToken) clearSharedFiles(shareTargetToken);
+    const next = new URLSearchParams(searchParams);
+    next.delete('shareTarget');
+    next.delete('shareTargetEmpty');
+    next.delete('shareTargetError');
+    setSearchParams(next, { replace: true });
+  }, [shareTargetToken, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    const isEmpty = searchParams.has('shareTargetEmpty');
+    const isError = searchParams.has('shareTargetError');
+    if (!isEmpty && !isError) return;
+
+    toast({
+      title: isEmpty ? '分享内容为空' : '接收分享失败',
+      description: isEmpty ? '请选择文件后再分享' : '请重试或换一种分享方式',
+      variant: 'destructive',
+    });
+
+    const next = new URLSearchParams(searchParams);
+    next.delete('shareTargetEmpty');
+    next.delete('shareTargetError');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  const handleShareTargetUpload = useCallback(async () => {
+    setShareTargetUploading(true);
+    for (const entry of sharedFiles) {
+      const key = `${entry.name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      await handleUpload(entry.file, key);
+    }
+    setShareTargetUploading(false);
+    closeShareTargetDialog();
+  }, [sharedFiles, handleUpload, closeShareTargetDialog]);
+
+  // ── file_handlers：系统「用本应用打开」交付的本地文件，直接进入预览 ──────────
+  const [launchFiles, setLaunchFiles] = useState<File[]>([]);
+  const [launchFileIndex, setLaunchFileIndex] = useState(0);
+
+  const handleLaunchFiles = useCallback((incoming: File[]) => {
+    setLaunchFiles(incoming);
+    setLaunchFileIndex(0);
+  }, []);
+
+  useFileHandlers(handleLaunchFiles);
+
+  // ── manifest 入口参数：?action=upload 触发上传选择器 / ?action=open 清理参数 ──
+  useEffect(() => {
+    const action = searchParams.get('action');
+    if (!action) return;
+
+    const next = new URLSearchParams(searchParams);
+    next.delete('action');
+    setSearchParams(next, { replace: true });
+
+    if (action === 'upload') {
+      // 浏览器要求文件选择器必须由用户激活触发；快捷方式冷启动时无激活，改为提示用户手动点击
+      const hasActivation = !('userActivation' in navigator) || navigator.userActivation.isActive;
+      if (hasActivation) {
+        fileInputRef.current?.click();
+      } else {
+        toast({
+          title: '请点击「上传」按钮选择文件',
+          description: '当前浏览器要求由用户操作打开文件选择器',
+        });
+      }
+    }
+
+    if (action === 'new-folder') {
+      setShowNewFolderDialog(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  // ── protocol_handlers：web+osshelf://<目录路径>，按名称逐级解析后打开 ──────────
+  useEffect(() => {
+    const rawPath = searchParams.get('path');
+    if (rawPath === null) return;
+
+    const segments = parseProtocolPath(rawPath);
+    const next = new URLSearchParams(searchParams);
+    next.delete('path');
+    setSearchParams(next, { replace: true });
+
+    // 空路径或 `/` 回根目录
+    if (segments.length === 0) {
+      navigate('/files');
+      return;
+    }
+
+    let cancelled = false;
+    resolveProtocolFolder(segments)
+      .then((result) => {
+        if (cancelled) return;
+
+        if (result.missingAt) {
+          toast({
+            title: '未找到目录',
+            description: `路径中的「${result.missingAt}」不存在，已返回根目录`,
+            variant: 'destructive',
+          });
+          navigate('/files');
+          return;
+        }
+
+        if (result.duplicateAt) {
+          toast({
+            title: '存在同名目录',
+            description: `已打开同级第一个「${result.duplicateAt}」`,
+          });
+        }
+
+        navigate(result.folderId ? `/files/${result.folderId}` : '/files');
+      })
+      .catch(() => {
+        if (!cancelled) {
+          toast({ title: '打开目录失败', description: '请稍后重试', variant: 'destructive' });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const handleDownload = useCallback(
     async (file: FileItem) => {
@@ -1305,6 +1470,23 @@ export default function Files() {
             </div>
           ))}
         </div>
+      )}
+
+      <ShareTargetInbox
+        open={showShareTargetDialog}
+        files={sharedFiles}
+        uploading={shareTargetUploading}
+        onConfirm={handleShareTargetUpload}
+        onCancel={closeShareTargetDialog}
+      />
+
+      {launchFiles.length > 0 && (
+        <LocalFilePreviewDialog
+          files={launchFiles}
+          index={launchFileIndex}
+          onIndexChange={setLaunchFileIndex}
+          onClose={() => setLaunchFiles([])}
+        />
       )}
 
       <NewFolderDialog

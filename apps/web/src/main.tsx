@@ -47,6 +47,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
+    // 首次安装时 controller 为空，不需要提示更新
+    const hadController = Boolean(navigator.serviceWorker.controller);
+    const notifyUpdate = () => window.dispatchEvent(new Event('ossshelf:sw-update'));
+
     try {
       const registration = await navigator.serviceWorker.register('/sw.js', {
         scope: '/',
@@ -55,12 +59,22 @@ if ('serviceWorker' in navigator) {
 
       registration.addEventListener('updatefound', () => {
         const newWorker = registration.installing;
-        if (newWorker) {
-          newWorker.addEventListener('statechange', () => {
-            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-              console.log('New content available, please refresh.');
-            }
-          });
+        if (!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && hadController) {
+            notifyUpdate();
+          }
+        });
+      });
+
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (hadController) notifyUpdate();
+      });
+
+      // 应用回到前台时检查一次更新，避免长期停留在旧 SW 上
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          registration.update().catch(() => {});
         }
       });
     } catch (error) {

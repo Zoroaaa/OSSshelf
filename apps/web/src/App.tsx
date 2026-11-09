@@ -9,7 +9,7 @@
  */
 
 import { useEffect } from 'react';
-import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuthStore } from './stores/auth';
 import MainLayout from './components/layouts/MainLayout';
 import AuthLayout from './components/layouts/AuthLayout';
@@ -43,6 +43,7 @@ import {
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isInitialized } = useAuthStore();
+  const location = useLocation();
 
   if (!isInitialized) {
     return (
@@ -52,7 +53,16 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (!isAuthenticated) {
+    // 系统分享 token / 协议目录路径只挂在 URL 上，登录后需要回到原地址继续处理
+    const params = new URLSearchParams(location.search);
+    if (params.has('shareTarget') || params.has('path')) {
+      const redirect = encodeURIComponent(`${location.pathname}${location.search}`);
+      return <Navigate to={`/login?redirect=${redirect}`} replace />;
+    }
+    return <Navigate to="/login" replace />;
+  }
+
   return <>{children}</>;
 }
 

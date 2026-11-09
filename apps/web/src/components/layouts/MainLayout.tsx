@@ -18,6 +18,7 @@ import { StorageBar } from '@/components/files/StorageBar';
 import { Toaster } from '@/components/ui/Toaster';
 import { MobileBottomNav } from '@/components/layouts/MobileBottomNav';
 import { PWAPrompt } from '@/components/ui/PWAInstallPrompt';
+import { SWUpdatePrompt } from '@/components/ui/SWUpdatePrompt';
 import { NotificationBell } from '@/components/notifications';
 import { EmailVerificationBanner } from '@/components/auth/EmailVerificationBanner';
 import { AIChatWidget } from '@/components/ai';
@@ -47,7 +48,7 @@ import {
   Tag,
   Users,
 } from 'lucide-react';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/utils';
 import { KeyboardShortcutsDialog } from '@/components/ui/KeyboardShortcutsDialog';
 
@@ -78,7 +79,6 @@ export default function MainLayout() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [isHovering, setIsHovering] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const navItems = user?.role === 'admin' ? [...baseNavItems, adminNavItem] : baseNavItems;
 
@@ -145,18 +145,6 @@ export default function MainLayout() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [goBack, goForward, navigate]);
-
-  const handleUpload = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      console.log('Selected files:', files);
-    }
-    e.target.value = '';
-  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -355,20 +343,15 @@ export default function MainLayout() {
       </main>
 
       <MobileBottomNav
-        onUpload={handleUpload}
-        onNewFolder={() => {
-          if (location.pathname.startsWith('/files')) {
-            console.log('New folder');
-          }
-        }}
+        onUpload={() => navigate('/files?action=upload')}
+        onNewFolder={() => navigate('/files?action=new-folder')}
       />
 
       <PWAPrompt />
+      <SWUpdatePrompt />
       <Toaster />
 
       <KeyboardShortcutsDialog isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
-
-      <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileSelect} />
 
       <AIChatWidget />
     </div>

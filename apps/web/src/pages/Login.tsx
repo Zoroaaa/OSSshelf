@@ -9,7 +9,7 @@
  */
 
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth';
 import { authApi } from '@/services/api';
@@ -20,18 +20,24 @@ import { useToast } from '@/components/ui/useToast';
 
 export default function Login() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { setAuth } = useAuthStore();
   const { toast } = useToast();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
+  // 仅接受站内路径，避免开放重定向
+  const redirectParam = searchParams.get('redirect');
+  const redirectTo =
+    redirectParam && redirectParam.startsWith('/') && !redirectParam.startsWith('//') ? redirectParam : '/files';
+
   const loginMutation = useMutation({
     mutationFn: () => authApi.login({ email, password }),
     onSuccess: (response) => {
       if (response.data.success && response.data.data) {
         setAuth(response.data.data.user, response.data.data.token);
-        navigate('/files');
+        navigate(redirectTo);
       }
     },
     onError: (error: any) => {
