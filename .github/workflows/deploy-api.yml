@@ -128,21 +128,10 @@ jobs:
           TRASH_RETENTION_DAYS = "${{ secrets.TRASH_RETENTION_DAYS || '30' }}"
           ALERT_TG_CHAT_ID = "${{ secrets.ALERT_TG_CHAT_ID }}"
           CF_ACCOUNT_ID = "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
-          CF_API_TOKEN = "${{ secrets.CF_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}"
 
           [triggers]
           crons = ["0 3 * * *"]
           EOF
-
-      - name: Configure Worker secrets
-        run: |
-          echo "${{ secrets.JWT_SECRET }}" | npx wrangler secret put JWT_SECRET
-          if [ -n "${{ secrets.ALERT_TG_BOT_TOKEN }}" ]; then
-            echo "${{ secrets.ALERT_TG_BOT_TOKEN }}" | npx wrangler secret put ALERT_TG_BOT_TOKEN
-          fi
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Apply D1 migrations
         # 以 SQL 迁移为唯一事实源：部署前先应用未执行的迁移，避免代码先于表结构上线
@@ -154,6 +143,24 @@ jobs:
 
       - name: Deploy to Cloudflare Workers
         run: pnpm deploy:api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Configure Worker secrets
+        # 必须指定 working-directory，否则 wrangler 在仓库根目录找不到
+        # apps/api/wrangler.toml，会报 "Required Worker name missing"。
+        # 放在 deploy 之后：首次部署时 Worker 尚不存在，secret put 会失败。
+        working-directory: apps/api
+        run: |
+          echo "${{ secrets.JWT_SECRET }}" | npx wrangler secret put JWT_SECRET
+          if [ -n "${{ secrets.ALERT_TG_BOT_TOKEN }}" ]; then
+            echo "${{ secrets.ALERT_TG_BOT_TOKEN }}" | npx wrangler secret put ALERT_TG_BOT_TOKEN
+          fi
+          # CF_API_TOKEN 是 Cloudflare API 令牌，禁止写入明文 [vars]
+          if [ -n "${{ secrets.CF_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}" ]; then
+            echo "${{ secrets.CF_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}" | npx wrangler secret put CF_API_TOKEN
+          fi
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

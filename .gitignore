@@ -20,6 +20,11 @@ wrangler.toml
 .env.local
 .env.*.local
 
+# 一次性密钥迁移产物（备份含明文密钥，禁止提交）
+backups/
+encrypt-keys-*.sql
+rollback-*.sql
+
 # IDE
 .idea/
 .vscode/

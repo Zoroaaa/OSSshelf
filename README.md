@@ -486,7 +486,6 @@ id = "你的KV命名空间ID"  # ← 替换这里
 
 [vars]
 ENVIRONMENT = "production"
-JWT_SECRET = "生成一个强随机字符串"  # ← 替换这里
 CORS_ORIGINS = "https://your-frontend.pages.dev"  # ← 替换为你的前端域名
 
 [triggers]
@@ -494,9 +493,11 @@ crons = ["0 3 * * *"]  # 每天凌晨3点清理
 ```
 
 ```bash
-# Step 3: 设置加密密钥（用于加密存储桶凭证）
-wrangler secret put ENCRYPTION_KEY
-# 输入一个32字节的随机字符串，例如: openssl rand -base64 32
+# Step 3: 设置运行时密钥（敏感值禁止写进 wrangler.toml）
+wrangler secret put JWT_SECRET
+# 输入 32+ 字符随机字符串，例如: openssl rand -base64 32
+# 可选：Workers AI 实时模型目录（需 Workers AI Read 权限）
+# wrangler secret put CF_API_TOKEN
 
 # Step 4: 运行数据库迁移
 pnpm db:migrate
@@ -520,12 +521,13 @@ curl https://your-api.workers.dev/api/auth/registration-config
 
 ### 环境变量说明
 
-| 变量名           | 必填 | 说明                                           |
-| ---------------- | ---- | ---------------------------------------------- |
-| `JWT_SECRET`     | ✅   | JWT 签名密钥，建议 32+ 字符随机字符串          |
-| `ENCRYPTION_KEY` | ✅   | 存储桶凭证加密密钥，32 字节                    |
-| `PUBLIC_URL`     | ⚪   | 应用公网地址，用于生成文件直接访问链接（可选） |
-| `CORS_ORIGINS`   | ✅   | CORS 允许域名，多个用逗号分隔                  |
+| 变量名         | 必填 | 说明                                           |
+| -------------- | ---- | ---------------------------------------------- |
+| `JWT_SECRET`   | ✅   | JWT 签名密钥，建议 32+ 字符随机字符串          |
+| `PUBLIC_URL`   | ⚪   | 应用公网地址，用于生成文件直接访问链接（可选） |
+| `CORS_ORIGINS` | ✅   | CORS 允许域名，多个用逗号分隔                  |
+
+> `JWT_SECRET` 同时用于派生存储桶凭证的加密密钥（AES-GCM），无需单独配置 `ENCRYPTION_KEY`。
 
 ---
 

@@ -557,7 +557,7 @@ wrangler r2 bucket create ossshelf-files
 | `CORS_ORIGINS`               | CORS 允许域名       | 前端域名，多个用逗号分隔               |
 | `TRASH_RETENTION_DAYS`       | 回收站保留天数      | 可选，默认 30                          |
 
-> Workers AI 实时模型目录复用 `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN`，工作流会注入为 Worker 的 `CF_ACCOUNT_ID` / `CF_API_TOKEN`。`CLOUDFLARE_API_TOKEN` 需要额外勾选 `Workers AI:Read`。
+> Workers AI 实时模型目录的账户 ID 复用 `CLOUDFLARE_ACCOUNT_ID`（工作流注入为 `CF_ACCOUNT_ID`）；API Token 通过 `wrangler secret put CF_API_TOKEN` 写入 Worker Secret，不再出现在 `[vars]` 中。`CLOUDFLARE_API_TOKEN` 需要额外勾选 `Workers AI:Read`。
 
 #### 获取 Cloudflare API Token
 
@@ -569,7 +569,7 @@ wrangler r2 bucket create ossshelf-files
    - Account Resources: Include → Your Account
    - Zone Resources: Include → All zones（或指定域名）
    - 如需 Workers AI 实时模型目录：Account → Workers AI → Read
-6. 创建并复制 Token（填入 `CLOUDFLARE_API_TOKEN`；工作流会注入为 Worker 的 `CF_API_TOKEN`）
+6. 创建并复制 Token（填入 `CLOUDFLARE_API_TOKEN`；工作流会通过 `wrangler secret put` 写入 Worker 的 `CF_API_TOKEN`）
 7. 安全建议：模型目录可单独创建仅含 `Workers AI:Read` 的 Token，存入仓库 Secret `CF_API_TOKEN`；工作流会优先使用它，避免把部署 Token 暴露给 Worker
 
 ### Step 4: 运行数据库迁移
@@ -610,17 +610,13 @@ pnpm db:migrate
 - `0021_ai_system_config.sql` - AI 系统配置 (v2.2.0)
 - `100_team_collaboration.sql` - 团队协作功能 (v3.0.0)
 
-### Step 5: 设置加密密钥
+### Step 5: 设置运行时密钥
 
-存储桶凭证需要加密存储，设置加密密钥：
+存储桶凭证使用 AES-GCM 加密，加密密钥由 `JWT_SECRET` 派生（SHA-256），**无需单独配置 `ENCRYPTION_KEY`**。只需设置 JWT 密钥：
 
 ```bash
-# 生成 32 字节随机密钥
-openssl rand -base64 32
-
-# 设置为 Cloudflare Worker Secret
-wrangler secret put ENCRYPTION_KEY --name ossshelf-api
-# 粘贴上面生成的密钥
+wrangler secret put JWT_SECRET --name ossshelf-api
+# 输入 32+ 字符随机密钥，例如: openssl rand -base64 32
 ```
 
 ### Step 6: 连接 Cloudflare Pages（前端部署）
@@ -668,7 +664,7 @@ curl https://your-api.workers.dev/api/auth/registration-config
 | `CORS_ORIGINS`               | ✅   | CORS 允许域名                                  |
 | `PUBLIC_URL`                 | ⚪   | 应用公网地址，用于生成文件直接访问链接（可选） |
 
-> Workers AI 模型目录无需新增必需 Secret：默认复用 `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN`（需 `Workers AI:Read`）。也可额外配置 `CF_API_TOKEN`（仅 `Workers AI:Read`），工作流会优先使用它。
+> Workers AI 模型目录无需新增必需 Secret：默认复用 `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN`（需 `Workers AI:Read`）。也可额外配置 `CF_API_TOKEN`（仅 `Workers AI:Read`），工作流会优先使用它，并通过 `wrangler secret put` 写入 Worker Secret。
 
 ### 可选 Secrets
 
@@ -709,7 +705,7 @@ CORS_ORIGINS = "${{ secrets.CORS_ORIGINS }}"
 TRASH_RETENTION_DAYS = "${{ secrets.TRASH_RETENTION_DAYS || '30' }}"
 ```
 
-> `JWT_SECRET` 与 `ALERT_TG_BOT_TOKEN` 属于敏感值，工作流会在部署前通过
+> `JWT_SECRET`、`ALERT_TG_BOT_TOKEN` 与 `CF_API_TOKEN` 属于敏感值，工作流会在部署后通过
 > `wrangler secret put` 写入 Worker Secrets，不再出现在 `[vars]` 中。
 
 ---
@@ -1487,7 +1483,7 @@ wrangler d1 execute ossshelf-db --command "SELECT name FROM sqlite_master WHERE 
 
 - 使用 `wrangler secret` 管理敏感信息
 - 不要在代码中硬编码密钥
-- 定期轮换 JWT_SECRET 和 ENCRYPTION_KEY
+- 定期轮换 JWT_SECRET（存储桶凭证加密密钥由它派生，轮换后需重新录入存储桶凭证）
 
 ### 2. 访问控制
 
@@ -1622,7 +1618,7 @@ Cloudflare Workers AI 和 Vectorize 的定价：
 
 - ✅ 使用 GitHub Secrets 存储敏感信息
 - ✅ 使用 `wrangler secret` 存储运行时密钥
-- ✅ 定期轮换 JWT_SECRET 和 ENCRYPTION_KEY
+- ✅ 定期轮换 JWT_SECRET 与 CF_API_TOKEN
 - ❌ 不要在代码中存储敏感信息
 
 ### 2. 访问控制
@@ -1758,8 +1754,9 @@ pnpm typecheck        # 类型检查
   - [ ] `CORS_ORIGINS`
   - [ ] `ALERT_TG_BOT_TOKEN`（可选）
   - [ ] `ALERT_TG_CHAT_ID`（可选）
+  - [ ] `CF_API_TOKEN`（可选，仅 Workers AI Read）
 - [ ] 运行数据库迁移（包含 v1.4.0 版本控制表）
-- [ ] 设置 ENCRYPTION_KEY Secret
+- [ ] 设置 JWT_SECRET Secret
 - [ ] 连接 Cloudflare Pages
 - [ ] 配置前端环境变量 `VITE_API_URL`
 - [ ] 验证部署成功

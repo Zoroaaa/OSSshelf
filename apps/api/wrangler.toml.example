@@ -10,9 +10,10 @@ binding = "AI"
 
 # ── Workers AI 模型目录（可选）────────────────────────────────────────────
 # 配置后可实时拉取 Cloudflare 官方模型目录（含参数/价格字段），
-# API Token 需要账户级权限：Workers AI Read
+# CF_ACCOUNT_ID 是账户标识，可放在 [vars]；CF_API_TOKEN 是 API 令牌，
+# 必须通过 secret 配置，禁止写入本文件或提交到仓库：
+#   wrangler secret put CF_API_TOKEN   # 需要 Workers AI Read 权限
 # CF_ACCOUNT_ID = "your-cloudflare-account-id"
-# CF_API_TOKEN = "your-cloudflare-api-token"
 
 [[vectorize]]
 binding = "VECTORIZE"
@@ -69,8 +70,9 @@ max_concurrency = 10
 
 [vars]
 ENVIRONMENT = "development"
-# 本地开发可放在 [vars]；生产环境必须使用 `wrangler secret put JWT_SECRET`
-JWT_SECRET = "your-jwt-secret-change-in-production"
+# JWT_SECRET / CF_API_TOKEN 属于敏感值，禁止写入本文件或提交到仓库：
+#   wrangler secret put JWT_SECRET
+#   wrangler secret put CF_API_TOKEN
 # CORS允许的域名，多个域名用逗号分隔（必填！部署时请修改为你的前端域名）
 # 示例：CORS_ORIGINS = "https://your-frontend.pages.dev,https://your-custom-domain.com"
 CORS_ORIGINS = "https://your-frontend.pages.dev"
