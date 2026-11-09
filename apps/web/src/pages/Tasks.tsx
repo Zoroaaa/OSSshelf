@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
 import { useToast } from '@/components/ui/useToast';
 import { useResponsive } from '@/hooks/useResponsive';
-import { formatBytes, formatDate } from '@/utils';
+import { formatBytes, formatDate, getErrorMessage } from '@/utils';
 import { cn } from '@/utils';
 import {
   Upload,
@@ -327,7 +327,7 @@ export default function Tasks() {
     } catch (error: any) {
       toast({
         title: '上传失败',
-        description: error.message || '未知错误',
+        description: getErrorMessage(error, '未知错误'),
         variant: 'destructive',
       });
     } finally {

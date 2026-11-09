@@ -49,7 +49,7 @@ import {
   Pencil,
   Link2Off,
 } from 'lucide-react';
-import { cn, formatBytes } from '@/utils';
+import { cn, formatBytes, getErrorMessage } from '@/utils';
 import type { ViewMode } from '@/stores/files';
 import TeamStorageBar from './TeamStorageBar';
 import TeamActivityFeed from './TeamActivityFeed';
@@ -333,7 +333,11 @@ const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, userRol
           delete n[key];
           return n;
         });
-        toast({ title: `${file.name} 上传失败`, description: uploadErr.message, variant: 'destructive' });
+        toast({
+          title: `${file.name} 上传失败`,
+          description: getErrorMessage(uploadErr, '请稍后重试'),
+          variant: 'destructive',
+        });
       }
     }
 

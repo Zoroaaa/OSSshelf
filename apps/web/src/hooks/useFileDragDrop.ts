@@ -13,6 +13,7 @@ import { useFolderUpload } from '@/hooks/useFolderUpload';
 import { useToast } from '@/components/ui/useToast';
 import { useQueryClient } from '@tanstack/react-query';
 import { presignUpload } from '@/services/presignUpload';
+import { getErrorMessage } from '@/utils';
 
 interface UseFileDragDropProps {
   folderId: string | null;
@@ -48,7 +49,7 @@ export function useFileDragDrop({ folderId, setUploadProgresses, bucketId, teamI
         delete n[key];
         return n;
       });
-      toast({ title: '上传失败', description: e?.response?.data?.error?.message, variant: 'destructive' });
+      toast({ title: '上传失败', description: getErrorMessage(e, '请稍后重试'), variant: 'destructive' });
     },
     onAllDone: () => {
       queryClient.invalidateQueries({ queryKey: ['files'] });

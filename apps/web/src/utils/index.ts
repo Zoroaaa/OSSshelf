@@ -56,7 +56,11 @@ export function formatDate(date: string | Date | undefined | null): string {
 
 export function getErrorMessage(error: unknown, fallback = '操作失败'): string {
   const err = error as any;
-  return err?.response?.data?.error?.message || err?.message || fallback;
+  const backendMessage = err?.response?.data?.error?.message || err?.response?.data?.message;
+  if (backendMessage) return backendMessage;
+  // 后端未返回错误体时（如网关拦截），把状态码转成可读中文，避免暴露英文原始信息
+  if (err?.response?.status === 413) return '文件过大，请压缩或分片后重试';
+  return err?.message || fallback;
 }
 
 /**
