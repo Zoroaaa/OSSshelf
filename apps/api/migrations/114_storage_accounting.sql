@@ -21,7 +21,7 @@
 
 -- ── 1. 插入 ────────────────────────────────────────────────────────────────
 DROP TRIGGER IF EXISTS trg_files_storage_insert;
-CREATE TRIGGER trg_files_storage_insert
+CREATE TRIGGER IF NOT EXISTS trg_files_storage_insert
 AFTER INSERT ON files
 WHEN NEW.deleted_at IS NULL AND NEW.is_folder = 0
 BEGIN
@@ -33,7 +33,7 @@ END;
 
 -- ── 2. 大小变化（桶未变化）─────────────────────────────────────────────────
 DROP TRIGGER IF EXISTS trg_files_storage_update;
-CREATE TRIGGER trg_files_storage_update
+CREATE TRIGGER IF NOT EXISTS trg_files_storage_update
 AFTER UPDATE ON files
 WHEN OLD.deleted_at IS NULL AND NEW.deleted_at IS NULL
      AND OLD.is_folder = 0 AND NEW.is_folder = 0
@@ -48,7 +48,7 @@ END;
 
 -- ── 3. 桶变化（迁移 / 切换存储）───────────────────────────────────────────
 DROP TRIGGER IF EXISTS trg_files_storage_bucket_change;
-CREATE TRIGGER trg_files_storage_bucket_change
+CREATE TRIGGER IF NOT EXISTS trg_files_storage_bucket_change
 AFTER UPDATE OF bucket_id ON files
 WHEN OLD.deleted_at IS NULL AND NEW.deleted_at IS NULL
      AND OLD.is_folder = 0 AND NEW.is_folder = 0
@@ -66,7 +66,7 @@ END;
 
 -- ── 4. 软删除 ──────────────────────────────────────────────────────────────
 DROP TRIGGER IF EXISTS trg_files_storage_delete;
-CREATE TRIGGER trg_files_storage_delete
+CREATE TRIGGER IF NOT EXISTS trg_files_storage_delete
 AFTER UPDATE OF deleted_at ON files
 WHEN OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL AND NEW.is_folder = 0
 BEGIN
@@ -78,7 +78,7 @@ END;
 
 -- ── 5. 回收站恢复 ──────────────────────────────────────────────────────────
 DROP TRIGGER IF EXISTS trg_files_storage_restore;
-CREATE TRIGGER trg_files_storage_restore
+CREATE TRIGGER IF NOT EXISTS trg_files_storage_restore
 AFTER UPDATE OF deleted_at ON files
 WHEN OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL AND NEW.is_folder = 0
 BEGIN
@@ -90,7 +90,7 @@ END;
 
 -- ── 6. 硬删除（未被软删除过的活跃文件）────────────────────────────────────
 DROP TRIGGER IF EXISTS trg_files_storage_purge;
-CREATE TRIGGER trg_files_storage_purge
+CREATE TRIGGER IF NOT EXISTS trg_files_storage_purge
 AFTER DELETE ON files
 WHEN OLD.deleted_at IS NULL AND OLD.is_folder = 0
 BEGIN

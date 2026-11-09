@@ -1,4 +1,6 @@
 -- 100_team_collaboration.sql - 团队协作能力扩展
+-- ⚠️ 不可重复执行：包含 ALTER TABLE ADD COLUMN（SQLite 不支持 IF NOT EXISTS），
+--    重跑会报 duplicate column name。请勿在控制台手工执行，只能依赖 d1_migrations 记录。
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 团队空间表
