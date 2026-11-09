@@ -242,7 +242,7 @@ export interface PaginationParams {
 
 export interface FileListParams extends PaginationParams {
   parentId: string | null;
-  sortBy?: 'name' | 'size' | 'createdAt' | 'updatedAt';
+  sortBy?: 'name' | 'size' | 'createdAt' | 'updatedAt' | 'mimeType';
   sortOrder?: 'asc' | 'desc';
   search?: string;
   tags?: string[];

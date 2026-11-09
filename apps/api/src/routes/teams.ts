@@ -34,7 +34,7 @@ import {
 import { createInvite, listPendingInvites, listAllInvites, revokeInvite, type InviteInfo } from '../lib/inviteService';
 import { listTeamActivities } from '../lib/teamActivityService';
 import { recordActivityWithEnv } from '../lib/teamActivityService';
-import { normalizeEntryName, normalizeParentId, trimTrailingSlash } from '../lib/pathUtils';
+import { buildTeamFilePath, normalizeEntryName, normalizeParentId } from '../lib/pathUtils';
 import { parsePagination } from '../lib/pagination';
 import { getTeamMembership, teamRoleAllows } from '../lib/teamPolicy';
 
@@ -731,7 +731,7 @@ app.post('/:id/workspace/folder', async (c) => {
     );
 
   const { name: rawName, parentId: rawParentId } = result.data;
-  // 统一入口：文件夹名 / 父目录先校验、规范化（团队路径为逻辑路径，不使用 buildFilePath）
+  // 统一入口：文件夹名 / 父目录先校验、规范化（团队路径使用 /teams/<teamId>/ 命名空间）
   const safeName = normalizeEntryName(rawName);
   const parentId = normalizeParentId(rawParentId);
 
@@ -755,15 +755,8 @@ app.post('/:id/workspace/folder', async (c) => {
 
   const now = new Date().toISOString();
   const folderId = crypto.randomUUID();
-  // 构建文件夹完整路径
-  let folderPath: string;
-  if (parentId) {
-    const parentFile = await db.select({ path: files.path }).from(files).where(eq(files.id, parentId)).get();
-    const parentPath = trimTrailingSlash(parentFile?.path || `/teams/${teamId}`);
-    folderPath = `${parentPath}/${safeName}`;
-  } else {
-    folderPath = `/teams/${teamId}/${safeName}`;
-  }
+  // 文件树以 parentId 为唯一事实，path 只是统一规则下的缓存（团队使用 /teams/<teamId>/ 命名空间）
+  const folderPath = await buildTeamFilePath(db, teamId, parentId, safeName);
 
   await db.insert(files).values({
     id: folderId,

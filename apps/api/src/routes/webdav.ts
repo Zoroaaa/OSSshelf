@@ -24,16 +24,23 @@
  */
 
 import { Hono, Context } from 'hono';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, inArray } from 'drizzle-orm';
 import { getDb, files, users } from '../db';
 import type { File } from '../db/schema';
-import { s3Put, s3Get, s3Delete } from '../lib/s3client';
+import { s3Put, s3Get } from '../lib/s3client';
+import { deleteObjectSafely } from '../lib/storageGC';
 import { resolveBucketConfig, checkBucketQuota } from '../lib/bucketResolver';
-import { normalizeEntryName, pathPrefixCondition, trimTrailingSlash } from '../lib/pathUtils';
+import {
+  buildFilePath,
+  buildDescendantPathUpdate,
+  normalizeEntryName,
+  pathPrefixCondition,
+  trimTrailingSlash,
+} from '../lib/pathUtils';
 import { releaseFileRef } from '../lib/dedup';
 import { verifyPassword, getEncryptionKey } from '../lib/crypto';
 import type { Env, Variables } from '../types/env';
-import { logger } from '@osshelf/shared';
+import { logger, MAX_BUFFERED_TRANSFER_BYTES } from '@osshelf/shared';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
@@ -349,7 +356,7 @@ async function handlePropfind(c: AppContext, userId: string, path: string, rawPa
   const rawItems = await db
     .select()
     .from(files)
-    .where(and(eq(files.userId, userId), parentCondition, isNull(files.deletedAt)))
+    .where(and(eq(files.userId, userId), isNull(files.teamId), parentCondition, isNull(files.deletedAt)))
     .all();
 
   const items = buildItemsWithLogicalPaths(cache, rawItems);
@@ -397,14 +404,23 @@ async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path
   let file = await db
     .select()
     .from(files)
-    .where(and(eq(files.userId, userId), eq(files.path, normalized), isNull(files.deletedAt)))
+    .where(
+      and(eq(files.userId, userId), isNull(files.teamId), eq(files.path, normalized), isNull(files.deletedAt))
+    )
     .get();
 
   if (!file) {
     file = await db
       .select()
       .from(files)
-      .where(and(eq(files.userId, userId), eq(files.path, normalized + '/'), isNull(files.deletedAt)))
+      .where(
+        and(
+          eq(files.userId, userId),
+          isNull(files.teamId),
+          eq(files.path, normalized + '/'),
+          isNull(files.deletedAt)
+        )
+      )
       .get();
   }
 
@@ -431,6 +447,7 @@ async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path
         .where(
           and(
             eq(files.userId, userId),
+            isNull(files.teamId),
             eq(files.name, namePart),
             currentParentId ? eq(files.parentId, currentParentId) : isNull(files.parentId),
             isNull(files.deletedAt)
@@ -486,11 +503,55 @@ async function handleGet(c: AppContext, userId: string, path: string, headOnly: 
   return new Response('Storage not configured', { status: 500, headers: DAV_BASE_HEADERS });
 }
 
+/**
+ * 读取请求体并强制内存上限。
+ * WebDAV 客户端普遍发送 Content-Length，可提前拒绝；缺失时按块读取并累计校验。
+ */
+async function readLimitedBody(c: AppContext, maxBytes: number): Promise<ArrayBuffer | 'too_large'> {
+  const declared = Number(c.req.header('Content-Length') || '0');
+  if (Number.isFinite(declared) && declared > maxBytes) return 'too_large';
+
+  const rawBody = c.req.raw.body;
+  if (!rawBody) return new ArrayBuffer(0);
+
+  const reader = rawBody.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      return 'too_large';
+    }
+    chunks.push(value);
+  }
+
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    out.set(chunks[i], offset);
+    offset += chunks[i].byteLength;
+    // 逐块释放，避免峰值内存达到 2 倍请求体
+    chunks[i] = new Uint8Array(0);
+  }
+  return out.buffer;
+}
+
 async function handlePut(c: AppContext, userId: string, path: string) {
-  const body = await c.req.arrayBuffer();
+  const body = await readLimitedBody(c, MAX_BUFFERED_TRANSFER_BYTES);
+  if (body === 'too_large') {
+    return new Response(
+      `Payload Too Large: WebDAV 单次上传上限 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB，请使用网页端分片上传大文件`,
+      { status: 413, headers: DAV_BASE_HEADERS }
+    );
+  }
   // 关键修复：先标准化路径，去除尾部斜杠，确保路径解析正确
   const normalizedPath = trimTrailingSlash(path);
-  const fileName = normalizeEntryName(normalizedPath.split('/').pop() || 'untitled');
+  const fileName = normalizeEntryName(decodeName(normalizedPath.split('/').pop() || 'untitled'));
   const parentPath =
     normalizedPath.lastIndexOf('/') > 0 ? normalizedPath.slice(0, normalizedPath.lastIndexOf('/')) : '/';
 
@@ -514,13 +575,15 @@ async function handlePut(c: AppContext, userId: string, path: string) {
           const folderId = crypto.randomUUID();
           const now = new Date().toISOString();
           const bucketCfg = await resolveBucketConfig(db, userId, encKeyP, null, currentParentId);
+          const folderName = decodeName(part);
+          const folderPath = await buildFilePath(db, userId, currentParentId, folderName);
 
           await db.insert(files).values({
             id: folderId,
             userId,
             parentId: currentParentId,
-            name: part,
-            path: currentPath,
+            name: folderName,
+            path: folderPath,
             type: 'folder',
             size: 0,
             r2Key: `folders/${folderId}`,
@@ -549,6 +612,7 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   const now = new Date().toISOString();
   const mimeType = c.req.header('Content-Type') || 'application/octet-stream';
   const r2Key = `files/${userId}/${fileId}/${fileName}`;
+  const storedPath = await buildFilePath(db, userId, parentId, fileName);
 
   const bucketCfgP = await resolveBucketConfig(db, userId, encKeyP, null, parentId);
 
@@ -616,16 +680,13 @@ async function handlePut(c: AppContext, userId: string, path: string) {
   }
 
   if (shouldDeleteOldObject && existingFile) {
-    const oldBucketCfg = await resolveBucketConfig(db, userId, encKeyP, existingFile.bucketId, existingFile.parentId);
-    if (oldBucketCfg) {
-      try {
-        await s3Delete(oldBucketCfg, existingFile.r2Key);
-      } catch (error) {
-        logger.error('WEBDAV', '删除旧对象失败', { r2Key: existingFile.r2Key }, error);
-      }
-    } else if (c.env.FILES) {
-      await c.env.FILES.delete(existingFile.r2Key);
-    }
+    await deleteObjectSafely(c.env, db, {
+      userId,
+      bucketId: existingFile.bucketId,
+      parentId: existingFile.parentId,
+      r2Key: existingFile.r2Key,
+      reason: 'webdav-overwrite',
+    });
   }
 
   if (existingFile) {
@@ -641,7 +702,7 @@ async function handlePut(c: AppContext, userId: string, path: string) {
       userId,
       parentId,
       name: fileName,
-      path: normalizedPath,
+      path: storedPath,
       type: 'file',
       size: body.byteLength,
       r2Key,
@@ -661,7 +722,7 @@ async function handlePut(c: AppContext, userId: string, path: string) {
 
 async function handleMkcol(c: AppContext, userId: string, path: string) {
   const cleanPath = trimTrailingSlash(path);
-  const folderName = cleanPath.split('/').pop() || 'untitled';
+  const folderName = normalizeEntryName(decodeName(cleanPath.split('/').pop() || 'untitled'));
   const parentPath = cleanPath.lastIndexOf('/') > 0 ? cleanPath.slice(0, cleanPath.lastIndexOf('/')) : '/';
 
   const db = getDb(c.env.DB);
@@ -682,13 +743,14 @@ async function handleMkcol(c: AppContext, userId: string, path: string) {
   const now = new Date().toISOString();
   const encKey = getEncryptionKey(c.env);
   const bucketCfg = await resolveBucketConfig(db, userId, encKey, null, parentId);
+  const storedPath = await buildFilePath(db, userId, parentId, folderName);
 
   await db.insert(files).values({
     id: folderId,
     userId,
     parentId,
     name: folderName,
-    path: normalizedPath,
+    path: storedPath,
     type: 'folder',
     size: 0,
     r2Key: `folders/${folderId}`,
@@ -710,50 +772,51 @@ async function handleDelete(c: AppContext, userId: string, path: string) {
 
   if (!file) return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
 
-  const encKeyD = getEncryptionKey(c.env);
-
+  const idsToDelete: string[] = [];
   if (file.isFolder) {
     const childFiles = await db
       .select()
       .from(files)
-      .where(and(eq(files.userId, userId), pathPrefixCondition(files.path, file.path), isNull(files.deletedAt)))
+      .where(
+        and(
+          eq(files.userId, userId),
+          isNull(files.teamId),
+          pathPrefixCondition(files.path, file.path),
+          isNull(files.deletedAt)
+        )
+      )
       .all();
 
     for (const child of childFiles) {
       if (!child.isFolder) {
         const { shouldDeleteStorage } = await releaseFileRef(db, child.id);
         if (shouldDeleteStorage) {
-          const bucketCfgD = await resolveBucketConfig(db, userId, encKeyD, child.bucketId, child.parentId);
-          if (bucketCfgD) {
-            try {
-              await s3Delete(bucketCfgD, child.r2Key);
-            } catch (error) {
-              logger.error('WEBDAV', 'S3删除失败', { r2Key: child.r2Key }, error);
-            }
-          } else if (c.env.FILES) {
-            await c.env.FILES.delete(child.r2Key);
-          }
+          await deleteObjectSafely(c.env, db, {
+            userId,
+            bucketId: child.bucketId,
+            parentId: child.parentId,
+            r2Key: child.r2Key,
+            reason: 'webdav-delete',
+          });
         }
       }
-      await db.delete(files).where(eq(files.id, child.id));
+      idsToDelete.push(child.id);
     }
   } else {
     const { shouldDeleteStorage } = await releaseFileRef(db, file.id);
     if (shouldDeleteStorage) {
-      const bucketCfgD = await resolveBucketConfig(db, userId, encKeyD, file.bucketId, file.parentId);
-      if (bucketCfgD) {
-        try {
-          await s3Delete(bucketCfgD, file.r2Key);
-        } catch (error) {
-          logger.error('WEBDAV', 'S3删除失败', { r2Key: file.r2Key }, error);
-        }
-      } else if (c.env.FILES) {
-        await c.env.FILES.delete(file.r2Key);
-      }
+      await deleteObjectSafely(c.env, db, {
+        userId,
+        bucketId: file.bucketId,
+        parentId: file.parentId,
+        r2Key: file.r2Key,
+        reason: 'webdav-delete',
+      });
     }
   }
 
-  await db.delete(files).where(eq(files.id, file.id));
+  idsToDelete.push(file.id);
+  await db.delete(files).where(and(eq(files.userId, userId), inArray(files.id, idsToDelete)));
 
   // 配额由 trg_files_storage_purge 触发器统一扣减（仅对未软删除的行生效）。
 
@@ -771,7 +834,7 @@ async function handleMove(c: AppContext, userId: string, path: string) {
 
   if (!file) return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
 
-  const newName = normalizeEntryName(destPath.split('/').pop() || file.name);
+  const newName = normalizeEntryName(decodeName(destPath.split('/').pop() || file.name));
 
   const destParentPath = destPath.lastIndexOf('/') > 0 ? destPath.slice(0, destPath.lastIndexOf('/')) : '/';
   let destParentId: string | null = null;
@@ -782,12 +845,13 @@ async function handleMove(c: AppContext, userId: string, path: string) {
 
   const now = new Date().toISOString();
   const oldPath = trimTrailingSlash(file.path);
+  const newPath = await buildFilePath(db, userId, destParentId, newName);
 
   // 禁止移动到自身或自身后代：否则会制造 parentId 环，PROPFIND 递归会死循环
-  if (destPath === oldPath) {
+  if (newPath === oldPath) {
     return new Response('Destination equals source', { status: 409, headers: DAV_BASE_HEADERS });
   }
-  if (file.isFolder && destPath.startsWith(`${oldPath}/`)) {
+  if (file.isFolder && newPath.startsWith(`${oldPath}/`)) {
     return new Response('Cannot move folder into its descendant', { status: 409, headers: DAV_BASE_HEADERS });
   }
 
@@ -804,21 +868,18 @@ async function handleMove(c: AppContext, userId: string, path: string) {
     ancestorId = parent?.parentId ?? null;
   }
 
-  await db
+  const updateSelf = db
     .update(files)
-    .set({ name: newName, path: destPath, parentId: destParentId, updatedAt: now })
+    .set({ name: newName, path: newPath, parentId: destParentId, updatedAt: now })
     .where(eq(files.id, file.id));
 
   if (file.isFolder) {
-    const childFiles = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.userId, userId), pathPrefixCondition(files.path, oldPath), isNull(files.deletedAt)))
-      .all();
-    for (const child of childFiles) {
-      const newChildPath = destPath + child.path.slice(oldPath.length);
-      await db.update(files).set({ path: newChildPath, updatedAt: now }).where(eq(files.id, child.id));
-    }
+    await db.batch([
+      updateSelf,
+      buildDescendantPathUpdate(db, userId, oldPath, newPath, now, file.teamId ?? null),
+    ]);
+  } else {
+    await db.batch([updateSelf]);
   }
 
   return new Response(null, { status: 201, headers: DAV_BASE_HEADERS });
@@ -835,7 +896,7 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
 
   if (!file) return new Response('Not Found', { status: 404, headers: DAV_BASE_HEADERS });
 
-  const newName = normalizeEntryName(destPath.split('/').pop() || file.name);
+  const newName = normalizeEntryName(decodeName(destPath.split('/').pop() || file.name));
   const now = new Date().toISOString();
 
   const destParentPath = destPath.lastIndexOf('/') > 0 ? destPath.slice(0, destPath.lastIndexOf('/')) : '/';
@@ -844,6 +905,8 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
     const destParentFolder = await findFileByPath(db, userId, destParentPath);
     destParentId = destParentFolder?.id ?? null;
   }
+
+  const destBasePath = await buildFilePath(db, userId, destParentId, newName);
 
   const encKeyC = getEncryptionKey(c.env);
   const destBucketCfg = await resolveBucketConfig(db, userId, encKeyC, null, destParentId);
@@ -854,6 +917,12 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
     const newR2Key = `files/${userId}/${newId}/${newName}`;
 
     if (destBucketCfg) {
+      if (file.size > MAX_BUFFERED_TRANSFER_BYTES) {
+        return new Response(
+          `Payload Too Large: WebDAV 复制单文件上限 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB`,
+          { status: 413, headers: DAV_BASE_HEADERS }
+        );
+      }
       let fileContent: ArrayBuffer;
       if (srcBucketCfg) {
         const srcRes = await s3Get(srcBucketCfg, file.r2Key);
@@ -872,7 +941,7 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
         userId,
         parentId: destParentId,
         name: newName,
-        path: destPath,
+        path: destBasePath,
         type: 'file',
         size: file.size,
         r2Key: newR2Key,
@@ -896,7 +965,7 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
           userId,
           parentId: destParentId,
           name: newName,
-          path: destPath,
+          path: destBasePath,
           type: 'file',
           size: file.size,
           r2Key: newR2Key,
@@ -915,12 +984,36 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
     const newFolderId = crypto.randomUUID();
     const srcFolderPath = trimTrailingSlash(file.path);
 
+    const childFiles = await db
+      .select()
+      .from(files)
+      .where(
+        and(
+          eq(files.userId, userId),
+          isNull(files.teamId),
+          pathPrefixCondition(files.path, srcFolderPath),
+          isNull(files.deletedAt)
+        )
+      )
+      .all();
+
+    // 按相对层级升序处理，保证父目录先于子项写入 idMapping
+    const relativeDepth = (childPath: string) => childPath.slice(srcFolderPath.length).split('/').length;
+    childFiles.sort((a, b) => relativeDepth(a.path) - relativeDepth(b.path));
+
+    if (childFiles.some((child) => !child.isFolder && child.size > MAX_BUFFERED_TRANSFER_BYTES)) {
+      return new Response(
+        `Payload Too Large: WebDAV 复制单文件上限 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB`,
+        { status: 413, headers: DAV_BASE_HEADERS }
+      );
+    }
+
     await db.insert(files).values({
       id: newFolderId,
       userId,
       parentId: destParentId,
       name: newName,
-      path: destPath + '/',
+      path: destBasePath,
       type: 'folder',
       size: 0,
       r2Key: `folders/${newFolderId}`,
@@ -934,12 +1027,6 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
       deletedAt: null,
     });
 
-    const childFiles = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.userId, userId), pathPrefixCondition(files.path, srcFolderPath), isNull(files.deletedAt)))
-      .all();
-
     const idMapping: Map<string, string> = new Map();
     idMapping.set(file.id, newFolderId);
 
@@ -948,7 +1035,7 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
       idMapping.set(child.id, newChildId);
 
       const childRelativePath = child.path.slice(srcFolderPath.length);
-      const newChildPath = destPath + childRelativePath;
+      const newChildPath = destBasePath + childRelativePath;
 
       const childParentPath =
         newChildPath.lastIndexOf('/') > 0 ? newChildPath.slice(0, newChildPath.lastIndexOf('/')) : '/';
@@ -956,7 +1043,7 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
       let childParentId: string | null = null;
       if (child.parentId && idMapping.has(child.parentId)) {
         childParentId = idMapping.get(child.parentId)!;
-      } else if (childParentPath === destPath) {
+      } else if (childParentPath === destBasePath || childParentPath === destBasePath + '/') {
         childParentId = newFolderId;
       }
 
@@ -966,7 +1053,7 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
           userId,
           parentId: childParentId,
           name: child.name,
-          path: newChildPath.endsWith('/') ? newChildPath : newChildPath + '/',
+          path: newChildPath,
           type: 'folder',
           size: 0,
           r2Key: `folders/${newChildId}`,

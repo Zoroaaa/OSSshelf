@@ -1,20 +1,23 @@
 /**
  * pathUtils.ts
- * 文件路径语义的统一校验 / 规范化入口。
+ * 文件路径语义的唯一入口。
  *
- * 当前数据模型同时存在两种 path 写法：
- *   - REST / 上传：`<parentId>/<name>`（根目录为 `/<name>`）
- *   - WebDAV 展示：由 parentId 链拼出的逻辑路径
- * 本模块只统一“写入口”的校验与前缀匹配方式，不改变现有数据模型；
- * 数据模型迁移在存储升级线中完成。
+ * 数据模型（117 迁移后）：
+ *   - parentId 是目录结构的唯一事实
+ *   - files.path 是由 parentId 链拼出的逻辑路径缓存：`/docs/2026/a.txt`
+ *     根目录文件为 `/a.txt`，不带尾部斜杠
+ *   - 所有写入口必须通过 buildFilePath / buildFolderPath 生成路径，
+ *     禁止再手工拼接 `<parentId>/<name>`
  *
  * 约定：
  * - 文件名必须经过 normalizeEntryName 校验后才允许落库
  * - 递归匹配统一使用 pathPrefixCondition（精确前缀 + 分隔符），不再直接拼 LIKE 通配符
  */
 
-import { sql, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, sql, type SQL } from 'drizzle-orm';
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
+import type { DrizzleDb } from '../db';
+import { files } from '../db/schema';
 import { throwAppError } from '../middleware/error';
 
 const MAX_NAME_LENGTH = 255;
@@ -54,11 +57,96 @@ export function normalizeParentId(parentId: string | null | undefined): string |
   return value;
 }
 
-/** 构造存储路径（保持现有 `<parentId>/<name>` 语义） */
-export function buildFilePath(parentId: string | null | undefined, name: string): string {
+/** 目录链路最大深度，防御脏数据造成的环 */
+const MAX_FOLDER_DEPTH = 64;
+
+/**
+ * 构造逻辑路径：由 parentId 链上的 name 依次拼接。
+ * 与 WebDAV 展示路径完全一致，是 path 字段的唯一写入口。
+ */
+export async function buildFilePath(
+  db: DrizzleDb,
+  userId: string,
+  parentId: string | null | undefined,
+  name: string
+): Promise<string> {
   const safeName = normalizeEntryName(name);
   const pid = normalizeParentId(parentId);
-  return pid ? `${pid}/${safeName}` : `/${safeName}`;
+  if (!pid) return `/${safeName}`;
+
+  const parts: string[] = [safeName];
+  let cursor: string | null = pid;
+  const visited = new Set<string>();
+
+  while (cursor) {
+    if (visited.has(cursor) || visited.size >= MAX_FOLDER_DEPTH) {
+      throwAppError('INVALID_PATH', '目录层级异常，无法计算路径');
+    }
+    visited.add(cursor);
+
+    const parent = await db
+      .select({ name: files.name, parentId: files.parentId })
+      .from(files)
+      .where(and(eq(files.id, cursor), eq(files.userId, userId)))
+      .get();
+
+    if (!parent) break;
+    parts.unshift(parent.name);
+    cursor = parent.parentId;
+  }
+
+  return `/${parts.join('/')}`;
+}
+
+/**
+ * 团队文件路径：团队根使用 `/teams/<teamId>/` 命名空间，避免与个人路径冲突。
+ * 子项沿用父目录 path 前缀；父目录也可能是挂载到团队的个人文件夹。
+ */
+export async function buildTeamFilePath(
+  db: DrizzleDb,
+  teamId: string,
+  parentId: string | null | undefined,
+  name: string
+): Promise<string> {
+  const safeName = normalizeEntryName(name);
+  const pid = normalizeParentId(parentId);
+  if (!pid) return `/teams/${teamId}/${safeName}`;
+
+  const parent = await db.select({ path: files.path }).from(files).where(eq(files.id, pid)).get();
+  if (!parent) throwAppError('INVALID_PATH', '父目录不存在');
+
+  return `${trimTrailingSlash(parent.path)}/${safeName}`;
+}
+
+/** 构造文件夹展示路径（带尾部斜杠），用于搜索结果等展示场景 */
+export async function buildFolderPath(
+  db: DrizzleDb,
+  userId: string,
+  parentId: string | null | undefined
+): Promise<string> {
+  const pid = normalizeParentId(parentId);
+  if (!pid) return '/';
+
+  const parts: string[] = [];
+  let cursor: string | null = pid;
+  const visited = new Set<string>();
+
+  while (cursor) {
+    if (visited.has(cursor) || visited.size >= MAX_FOLDER_DEPTH) break;
+    visited.add(cursor);
+
+    const parent = await db
+      .select({ name: files.name, parentId: files.parentId })
+      .from(files)
+      .where(and(eq(files.id, cursor), eq(files.userId, userId)))
+      .get();
+
+    if (!parent) break;
+    parts.unshift(parent.name);
+    cursor = parent.parentId;
+  }
+
+  return `/${parts.join('/')}${parts.length > 0 ? '/' : ''}`;
 }
 
 export function trimTrailingSlash(path: string): string {
@@ -85,11 +173,30 @@ export function pathPrefixCondition(column: SQLiteColumn, folderPath: string): S
   return sql`substr(${column}, 1, ${prefix.length}) = ${prefix}`;
 }
 
-/** 把以 oldPath 为前缀的路径改写为 newPath 前缀 */
-export function replacePathPrefix(path: string, oldPath: string, newPath: string): string {
-  const oldPrefix = trimTrailingSlash(oldPath);
-  if (!path.startsWith(oldPrefix)) return path;
-  return `${trimTrailingSlash(newPath)}${path.slice(oldPrefix.length)}`;
+/**
+ * 构造“替换子树 path 前缀”的更新语句（不执行）。
+ * 供 db.batch 将“更新自身 + 更新子树”合并为原子事务。
+ */
+export function buildDescendantPathUpdate(
+  db: DrizzleDb,
+  userId: string,
+  oldPath: string,
+  newPath: string,
+  updatedAt: string,
+  teamId: string | null = null
+) {
+  const oldPrefix = pathPrefix(oldPath);
+  const newPrefix = pathPrefix(newPath);
+  const offset = oldPrefix.length + 1; // SQLite substr 从 1 开始
+  const namespaceCondition = teamId ? eq(files.teamId, teamId) : isNull(files.teamId);
+
+  return db
+    .update(files)
+    .set({
+      path: sql`${newPrefix} || substr(${files.path}, ${offset})`,
+      updatedAt,
+    })
+    .where(and(eq(files.userId, userId), namespaceCondition, pathPrefixCondition(files.path, oldPath)));
 }
 
 /** candidate 是否等于 ancestor 或位于其子树内（用于移动/循环校验） */

@@ -20,6 +20,7 @@ import {
   ERROR_CODES,
   SHARE_DEFAULT_EXPIRY,
   MAX_FILE_SIZE,
+  MAX_BUFFERED_TRANSFER_BYTES,
   inferMimeType,
   isPreviewableMimeType,
   getPreviewType,
@@ -31,9 +32,11 @@ import { checkFolderMimeTypeRestriction } from '../lib/folderPolicy';
 import { tgUploadFile, tgDownloadFile, type TelegramBotConfig } from '../lib/telegramClient';
 import { isChunkedFileId, tgDownloadChunked, needsChunking, tgUploadChunked } from '../lib/telegramChunked';
 import { decryptSecret } from '../lib/s3client';
-import { ZipBuilder } from '../lib/zipStream';
+import { createZipStream, assertZipLimits } from '../lib/zipStream';
+import { openFileStream } from '../lib/fileContentHelper';
 import { encodeFilename } from '../lib/utils';
-import { normalizeEntryName } from '../lib/pathUtils';
+import { buildFilePath, buildTeamFilePath, normalizeEntryName } from '../lib/pathUtils';
+import { sliceReadableStream } from '../lib/streamUtils';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
@@ -625,10 +628,9 @@ app.get('/:id/preview', async (c) => {
     );
   }
 
-  const encKey = getEncryptionKey(c.env);
   try {
-    const buf = await fetchFileContent(c.env, db, encKey, file);
-    return new Response(buf, {
+    const stream = await openFileStream(c.env, file);
+    return new Response(stream, {
       headers: { 'Content-Type': file.mimeType!, 'Cache-Control': 'private, max-age=300' },
     });
   } catch (e: any) {
@@ -674,14 +676,14 @@ app.get('/:id/stream', async (c) => {
         const body = isChunkedFileId(ref.tgFileId)
           ? await tgDownloadChunked(tgConfig, ref.tgFileId, db)
           : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
-        const buf = await new Response(body).arrayBuffer();
-        const fileSize = file.size || buf.byteLength;
+        if (!body) throwAppError('FILE_CONTENT_NOT_FOUND');
+        const fileSize = file.size;
 
         if (range) {
           const parts = range.replace(/bytes=/, '').split('-');
           const start = parseInt(parts[0] || '0', 10);
           const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-          return new Response(buf.slice(start, end + 1), {
+          return new Response(sliceReadableStream(body, start, end), {
             status: 206,
             headers: {
               'Content-Type': file.mimeType!,
@@ -692,7 +694,7 @@ app.get('/:id/stream', async (c) => {
             },
           });
         }
-        return new Response(buf, {
+        return new Response(body, {
           headers: {
             'Content-Type': file.mimeType!,
             'Content-Length': String(fileSize),
@@ -863,9 +865,8 @@ app.get('/:id/download', async (c) => {
     );
   }
 
-  const encKey = getEncryptionKey(c.env);
   try {
-    const buf = await fetchFileContent(c.env, db, encKey, file);
+    const stream = await openFileStream(c.env, file);
 
     c.executionCtx.waitUntil(
       (async () => {
@@ -888,7 +889,7 @@ app.get('/:id/download', async (c) => {
       })()
     );
 
-    return new Response(buf, {
+    return new Response(stream, {
       headers: {
         'Content-Type': file.mimeType || 'application/octet-stream',
         'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
@@ -922,8 +923,6 @@ app.get('/:id/zip', async (c) => {
     throwAppError('VALIDATION_ERROR', '此分享不是文件夹');
   }
 
-  const encKey = getEncryptionKey(c.env);
-
   // 收集要打包的文件
   let entries: Array<{ file: typeof files.$inferSelect; relativePath: string }>;
   if (fileIdsParam) {
@@ -943,9 +942,8 @@ app.get('/:id/zip', async (c) => {
     throwAppError('VALIDATION_ERROR', '文件夹为空');
   }
 
-  // 安全限制：单次 ZIP 最多 200 个文件，总大小不超过 500MB
+  // 安全限制：单次 ZIP 最多 200 个文件（总量受 ZIP32 4GB 上限约束）
   const MAX_ZIP_FILES = 200;
-  const MAX_ZIP_BYTES = 500 * 1024 * 1024;
   if (entries.length > MAX_ZIP_FILES) {
     return c.json(
       {
@@ -958,36 +956,19 @@ app.get('/:id/zip', async (c) => {
       400
     );
   }
-  const totalBytes = entries.reduce((n, e) => n + e.file.size, 0);
-  if (totalBytes > MAX_ZIP_BYTES) {
+  try {
+    assertZipLimits(entries.map((e) => e.file));
+  } catch (error) {
     return c.json(
       {
         success: false,
         error: {
           code: ERROR_CODES.VALIDATION_ERROR,
-          message: `ZIP 打包总大小不超过 500MB，当前 ${(totalBytes / 1024 / 1024).toFixed(1)}MB`,
+          message: error instanceof Error ? error.message : 'ZIP 打包参数超出限制',
         },
       },
       400
     );
-  }
-
-  // 构建 ZIP
-  const zip = new ZipBuilder();
-  const errors: string[] = [];
-
-  for (const { file, relativePath } of entries) {
-    try {
-      const buf = await fetchFileContent(c.env, db, encKey, file);
-      zip.addFile(relativePath, buf, new Date(file.updatedAt));
-    } catch (error: any) {
-      errors.push(`${relativePath}: ${error?.message}`);
-      logger.error('SHARE', '获取文件内容失败', { relativePath }, error);
-    }
-  }
-
-  if (errors.length === entries.length) {
-    throwAppError('FILE_DOWNLOAD_FAILED', '所有文件下载失败');
   }
 
   // 更新下载计数（整个 ZIP 算一次下载）— 原子操作，防止超额下载
@@ -1003,15 +984,20 @@ app.get('/:id/zip', async (c) => {
     );
   }
 
-  const zipBytes = zip.finalize();
+  // 流式打包：文件内容不进入 Worker 内存
+  const sources = entries.map(({ file, relativePath }) => ({
+    name: relativePath,
+    size: file.size,
+    modDate: new Date(file.updatedAt),
+    open: () => openFileStream(c.env, file),
+  }));
+
   const zipName = `${folder.name}.zip`;
 
-  return new Response(zipBytes.buffer as ArrayBuffer, {
+  return new Response(createZipStream(sources), {
     headers: {
       'Content-Type': 'application/zip',
       'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(zipName)}`,
-      'Content-Length': zipBytes.length.toString(),
-      ...(errors.length > 0 ? { 'X-Partial-Zip': errors.length.toString() } : {}),
     },
   });
 });
@@ -1045,10 +1031,9 @@ app.get('/:id/file/:fileId/download', async (c) => {
     throwAppError('FILE_NOT_FOUND');
   }
 
-  const encKey = getEncryptionKey(c.env);
   try {
-    const buf = await fetchFileContent(c.env, db, encKey, childFile);
-    return new Response(buf, {
+    const stream = await openFileStream(c.env, childFile);
+    return new Response(stream, {
       headers: {
         'Content-Type': childFile.mimeType || 'application/octet-stream',
         'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(childFile.name)}`,
@@ -1106,10 +1091,9 @@ app.get('/:id/file/:fileId/preview', async (c) => {
     );
   }
 
-  const encKey = getEncryptionKey(c.env);
   try {
-    const buf = await fetchFileContent(c.env, db, encKey, childFile);
-    return new Response(buf, {
+    const stream = await openFileStream(c.env, childFile);
+    return new Response(stream, {
       headers: { 'Content-Type': childFile.mimeType!, 'Cache-Control': 'private, max-age=300' },
     });
   } catch (e: any) {
@@ -1165,14 +1149,14 @@ app.get('/:id/file/:fileId/stream', async (c) => {
         const body = isChunkedFileId(ref.tgFileId)
           ? await tgDownloadChunked(tgConfig, ref.tgFileId, db)
           : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
-        const buf = await new Response(body).arrayBuffer();
-        const fileSize = childFile.size || buf.byteLength;
+        if (!body) throwAppError('FILE_CONTENT_NOT_FOUND');
+        const fileSize = childFile.size;
 
         if (range) {
           const parts = range.replace(/bytes=/, '').split('-');
           const start = parseInt(parts[0] || '0', 10);
           const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-          return new Response(buf.slice(start, end + 1), {
+          return new Response(sliceReadableStream(body, start, end), {
             status: 206,
             headers: {
               'Content-Type': childFile.mimeType!,
@@ -1183,7 +1167,7 @@ app.get('/:id/file/:fileId/stream', async (c) => {
             },
           });
         }
-        return new Response(buf, {
+        return new Response(body, {
           headers: {
             'Content-Type': childFile.mimeType!,
             'Content-Length': String(fileSize),
@@ -1354,6 +1338,21 @@ app.post('/upload/:token', async (c) => {
     );
   }
 
+  // 先看 Content-Length，避免超大请求进入 formData() 全量缓冲
+  const declaredLength = Number(c.req.header('Content-Length') || '0');
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BUFFERED_TRANSFER_BYTES + 1024 * 1024) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: ERROR_CODES.FILE_TOO_LARGE,
+          message: `单次上传上限 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB`,
+        },
+      },
+      413
+    );
+  }
+
   const formData = await c.req.formData();
   const password = formData.get('password') as string | null;
   const uploadFile = formData.get('file') as File | null;
@@ -1407,8 +1406,8 @@ app.post('/upload/:token', async (c) => {
 
   const { share } = resolved;
 
-  // 检查文件大小
-  const maxSize = share.maxUploadSize ?? MAX_FILE_SIZE;
+  // 检查文件大小（同时受网关内存硬上限约束，避免 Worker OOM）
+  const maxSize = Math.min(share.maxUploadSize ?? MAX_FILE_SIZE, MAX_BUFFERED_TRANSFER_BYTES);
   if (uploadFile.size > maxSize) {
     return c.json(
       {
@@ -1418,7 +1417,7 @@ app.post('/upload/:token', async (c) => {
           message: `文件大小超过限制（此链接最大 ${(maxSize / 1024 / 1024).toFixed(0)}MB）`,
         },
       },
-      400
+      413
     );
   }
 
@@ -1492,7 +1491,9 @@ app.post('/upload/:token', async (c) => {
   const fileId = crypto.randomUUID();
   const now = new Date().toISOString();
   const r2Key = `files/${folderOwnerId}/${fileId}/${encodeFilename(safeFileName)}`;
-  const path = `${share.fileId}/${safeFileName}`;
+  const path = folder.teamId
+    ? await buildTeamFilePath(db, folder.teamId, share.fileId, safeFileName)
+    : await buildFilePath(db, folderOwnerId, share.fileId, safeFileName);
 
   // 原子占用一次上传名额：先读后增在并发下会突破 maxUploadCount
   const reservation = await db
@@ -1572,6 +1573,7 @@ app.post('/upload/:token', async (c) => {
     id: fileId,
     userId: folderOwnerId,
     parentId: share.fileId,
+    teamId: folder.teamId ?? null,
     name: safeFileName,
     path,
     type: 'file',

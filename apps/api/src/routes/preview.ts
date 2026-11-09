@@ -38,6 +38,7 @@ import { verifyJWT, getEncryptionKey } from '../lib/crypto';
 import { tgDownloadFile } from '../lib/telegramClient';
 import { isChunkedFileId, tgDownloadChunked } from '../lib/telegramChunked';
 import { decryptSecret } from '../lib/s3client';
+import { sliceReadableStream } from '../lib/streamUtils';
 import type { Context, MiddlewareHandler } from 'hono';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -361,14 +362,14 @@ app.get('/:id/stream', async (c) => {
         const body = isChunkedFileId(ref.tgFileId)
           ? await tgDownloadChunked(tgConfig, ref.tgFileId, db)
           : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
-        const buf = await new Response(body).arrayBuffer();
-        const fileSize = file.size || buf.byteLength;
+        if (!body) throwAppError('FILE_CONTENT_NOT_FOUND');
+        const fileSize = file.size;
 
         if (range) {
           const parts = range.replace(/bytes=/, '').split('-');
           const start = parseInt(parts[0] || '0', 10);
           const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-          return new Response(buf.slice(start, end + 1), {
+          return new Response(sliceReadableStream(body, start, end), {
             status: 206,
             headers: {
               'Content-Type': file.mimeType || 'application/octet-stream',
@@ -379,7 +380,7 @@ app.get('/:id/stream', async (c) => {
             },
           });
         }
-        return new Response(buf, {
+        return new Response(body, {
           headers: {
             'Content-Type': file.mimeType || 'application/octet-stream',
             'Content-Length': String(fileSize),
@@ -476,11 +477,10 @@ app.get('/:id/thumbnail', async (c) => {
         throwAppError('TG_CONFIG_ERROR', '无法加载 Telegram 配置');
       }
       try {
-        const body = isChunkedFileId(ref.tgFileId)
+        const imageBody = isChunkedFileId(ref.tgFileId)
           ? await tgDownloadChunked(tgConfig, ref.tgFileId, db)
           : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
-        const imageBuffer = await new Response(body).arrayBuffer();
-        return new Response(imageBuffer, {
+        return new Response(imageBody, {
           headers: {
             'Content-Type': file.mimeType,
             'Cache-Control': 'private, max-age=3600',
@@ -502,9 +502,8 @@ app.get('/:id/thumbnail', async (c) => {
   const s3Res = await s3Get(bucketConfig, file.r2Key);
   if (!s3Res.ok) throwAppError('FILE_CONTENT_NOT_FOUND');
 
-  const imageBuffer = await s3Res.arrayBuffer();
-
-  return new Response(imageBuffer, {
+  // 缩略图暂未做服务端缩放，直接流式返回原图，避免大图占满 Worker 内存
+  return new Response(s3Res.body, {
     headers: {
       'Content-Type': file.mimeType,
       'Cache-Control': 'private, max-age=3600',

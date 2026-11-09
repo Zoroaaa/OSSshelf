@@ -29,12 +29,11 @@ import { deleteFileVector } from './ai/vectorIndex';
 import { deleteFileFts, syncFileFts } from './ai/retrieval/fts';
 import {
   buildFilePath,
+  buildDescendantPathUpdate,
   normalizeEntryName,
   normalizeParentId,
   pathPrefix,
   pathPrefixCondition,
-  replacePathPrefix,
-  trimTrailingSlash,
 } from './pathUtils';
 
 export interface CreateTextFileInput {
@@ -110,7 +109,7 @@ export async function createTextFile(
   const fileId = crypto.randomUUID();
   const now = new Date().toISOString();
   const r2Key = `files/${userId}/${fileId}/${name}`;
-  const path = buildFilePath(parentId, name);
+  const path = await buildFilePath(db, userId, parentId, name);
 
   // 写入存储
   try {
@@ -341,25 +340,21 @@ export async function moveFile(
   }
 
   const now = new Date().toISOString();
-  const newPath = buildFilePath(targetParentId, file.name);
+  const newPath = await buildFilePath(db, userId, targetParentId, file.name);
 
-  await db.update(files).set({ parentId: targetParentId, path: newPath, updatedAt: now }).where(eq(files.id, fileId));
+  const updateSelf = db
+    .update(files)
+    .set({ parentId: targetParentId, path: newPath, updatedAt: now })
+    .where(eq(files.id, fileId));
 
-  // 如果是文件夹，更新所有子项的路径
+  // 自身与子树 path 同一事务更新，避免中途失败留下半套路径
   if (file.isFolder) {
-    const folderPath = file.path?.endsWith('/') ? file.path!.slice(0, -1) : file.path;
-    const allFiles = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
-      .all();
-
-    const childFiles = allFiles.filter((f) => f.id !== fileId && f.path && f.path.startsWith(folderPath + '/'));
-    for (const child of childFiles) {
-      const relativePath = child.path!.slice(folderPath!.length);
-      const childNewPath = `${newPath.endsWith('/') ? newPath.slice(0, -1) : newPath}${relativePath}`;
-      await db.update(files).set({ path: childNewPath, updatedAt: now }).where(eq(files.id, child.id));
-    }
+    await db.batch([
+      updateSelf,
+      buildDescendantPathUpdate(db, userId, file.path, newPath, now, file.teamId ?? null),
+    ]);
+  } else {
+    await db.batch([updateSelf]);
   }
 
   logger.info('FileService', '文件移动成功', { fileId, fileName: file.name, targetParentId });
@@ -392,9 +387,9 @@ export async function renameFile(
   if (!file) return { success: false, error: '文件不存在' };
 
   const now = new Date().toISOString();
-  const newPath = buildFilePath(file.parentId, name);
+  const newPath = await buildFilePath(db, userId, file.parentId, name);
 
-  await db
+  const updateSelf = db
     .update(files)
     .set({
       name,
@@ -405,19 +400,12 @@ export async function renameFile(
 
   // 文件夹重命名必须同步子项 path，否则递归删除/移动按旧前缀匹配不到子项
   if (file.isFolder) {
-    const oldPath = trimTrailingSlash(file.path);
-    const descendants = await db
-      .select({ id: files.id, path: files.path })
-      .from(files)
-      .where(and(eq(files.userId, file.userId), pathPrefixCondition(files.path, oldPath), isNull(files.deletedAt)))
-      .all();
-
-    for (const child of descendants) {
-      await db
-        .update(files)
-        .set({ path: replacePathPrefix(child.path, oldPath, newPath), updatedAt: now })
-        .where(eq(files.id, child.id));
-    }
+    await db.batch([
+      updateSelf,
+      buildDescendantPathUpdate(db, userId, file.path, newPath, now, file.teamId ?? null),
+    ]);
+  } else {
+    await db.batch([updateSelf]);
   }
 
   await syncFileFts(env, fileId);
@@ -434,19 +422,34 @@ async function softDeleteFolder(db: ReturnType<typeof getDb>, folderId: string, 
   const folder = await db.select().from(files).where(eq(files.id, folderId)).get();
   if (!folder?.isFolder) return;
 
-  const children = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.userId, folder.userId), eq(files.parentId, folderId), isNull(files.deletedAt)))
-    .all();
+  // path 已统一为逻辑路径，可一次性取到整棵子树，再批量更新（避免递归逐条写）
+  const subtree = folder.path
+    ? await db
+        .select({ id: files.id })
+        .from(files)
+        .where(
+          and(
+            eq(files.userId, folder.userId),
+            folder.teamId ? eq(files.teamId, folder.teamId) : isNull(files.teamId),
+            pathPrefixCondition(files.path, folder.path)
+          )
+        )
+        .all()
+    : [];
 
-  for (const child of children) {
-    if (child.isFolder) {
-      await softDeleteFolder(db, child.id, deletedAt, env);
-    }
-    await db.update(files).set({ deletedAt, updatedAt: deletedAt }).where(eq(files.id, child.id));
-    await deleteFileVector(env, child.id);
-    await deleteFileFts(env, child.id);
+  const ids = [...new Set([folderId, ...subtree.map((row) => row.id)])];
+
+  // 分批更新，规避 SQLite 单条语句变量数量限制
+  for (let i = 0; i < ids.length; i += 500) {
+    await db
+      .update(files)
+      .set({ deletedAt, updatedAt: deletedAt })
+      .where(inArray(files.id, ids.slice(i, i + 500)));
+  }
+
+  for (const id of ids) {
+    await deleteFileVector(env, id);
+    await deleteFileFts(env, id);
   }
 }
 
@@ -595,7 +598,7 @@ export async function createFolder(
 
   const folderId = crypto.randomUUID();
   const now = new Date().toISOString();
-  const path = buildFilePath(parentId, name);
+  const path = await buildFilePath(db, userId, parentId, name);
 
   const newFolder = {
     id: folderId,
@@ -641,16 +644,27 @@ export async function restoreFile(
   await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, fileId));
 
   if (file.isFolder) {
-    const folderPrefix = file.path ? pathPrefix(file.path) : '/';
-    const allTrashed = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
-      .all();
+    const subtree = file.path
+      ? await db
+          .select({ id: files.id })
+          .from(files)
+          .where(
+            and(
+              eq(files.userId, userId),
+              file.teamId ? eq(files.teamId, file.teamId) : isNull(files.teamId),
+              isNotNull(files.deletedAt),
+              pathPrefixCondition(files.path, file.path)
+            )
+          )
+          .all()
+      : [];
 
-    const childFiles = allTrashed.filter((f) => f.path && f.path.startsWith(folderPrefix));
-    for (const child of childFiles) {
-      await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, child.id));
+    const ids = subtree.map((row) => row.id);
+    for (let i = 0; i < ids.length; i += 500) {
+      await db
+        .update(files)
+        .set({ deletedAt: null, updatedAt: now })
+        .where(inArray(files.id, ids.slice(i, i + 500)));
     }
   }
 

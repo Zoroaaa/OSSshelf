@@ -20,11 +20,12 @@ import { Hono } from 'hono';
 import { and, eq, isNull, inArray } from 'drizzle-orm';
 import { getDb, files, storageBuckets, telegramFileRefs } from '../db';
 import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
-import { ERROR_CODES, logger } from '@osshelf/shared';
+import { ERROR_CODES, logger, MAX_BUFFERED_TRANSFER_BYTES } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import { getEncryptionKey } from '../lib/crypto';
 import { releaseFileRef } from '../lib/dedup';
-import { s3Get, s3Put, s3Delete, decryptSecret, makeBucketConfigAsync } from '../lib/s3client';
+import { s3Get, s3Put, decryptSecret, makeBucketConfigAsync } from '../lib/s3client';
+import { deleteObjectSafely } from '../lib/storageGC';
 import { tgUploadFile, tgDownloadFile, type TelegramBotConfig } from '../lib/telegramClient';
 import {
   isChunkedFileId,
@@ -406,6 +407,11 @@ async function runMigration(
     }
 
     try {
+      // 迁移按文件整体读取；超过网关内存上限的文件跳过，避免 Worker OOM
+      if (file.size > MAX_BUFFERED_TRANSFER_BYTES) {
+        throw new Error(`文件超过迁移单文件上限 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB`);
+      }
+
       // Step 1: 从来源读取文件内容
       let fileBuffer: ArrayBuffer;
 
@@ -489,7 +495,7 @@ async function runMigration(
 
       // Step 3: 插入新 files 记录（保持原 parentId 或使用 targetFolderId）
       const newParentId = status.targetFolderId ?? file.parentId;
-      const newPath = buildFilePath(newParentId, file.name);
+      const newPath = await buildFilePath(db, userId, newParentId, file.name);
 
       await db.insert(files).values({
         id: newFileId,
@@ -525,10 +531,14 @@ async function runMigration(
                 await tgDeleteChunked(db, srcRef.tgFileId);
               }
               await db.delete(telegramFileRefs).where(eq(telegramFileRefs.fileId, file.id));
-            } else if (srcS3) {
-              await s3Delete(srcS3, file.r2Key);
-            } else if (env.FILES) {
-              await env.FILES.delete(file.r2Key);
+            } else {
+              await deleteObjectSafely(env, db, {
+                userId,
+                bucketId: file.bucketId,
+                parentId: file.parentId,
+                r2Key: file.r2Key,
+                reason: 'migrate-source',
+              });
             }
           }
           // 软删除原文件记录：触发器负责扣减来源桶统计与用户配额

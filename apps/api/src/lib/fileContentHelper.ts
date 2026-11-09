@@ -206,6 +206,47 @@ export async function writeFileContent(
 // 私有辅助函数
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * 打开文件内容流（R2 / S3 / Telegram），用于 ZIP 打包等流式场景。
+ * 返回 null 表示对象不存在；单个文件不可读不会占用 Worker 内存。
+ */
+export async function openFileStream(
+  env: Env,
+  file: InferSelectModel<typeof files>
+): Promise<ReadableStream<Uint8Array> | null> {
+  const db = getDb(env.DB);
+  const encKey = getEncryptionKey(env);
+
+  if (file.bucketId) {
+    const bkt = await db.select().from(storageBuckets).where(eq(storageBuckets.id, file.bucketId)).get();
+    if (bkt?.provider === 'telegram') {
+      const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, file.id)).get();
+      if (!ref) throw new Error(`Telegram 文件引用不存在: ${file.id}`);
+
+      const botToken = await decryptCredential(bkt.accessKeyId, encKey);
+      const tgConfig = { botToken, chatId: bkt.bucketName, apiBase: bkt.endpoint || undefined };
+      if (isChunkedFileId(ref.tgFileId)) {
+        return await tgDownloadChunked(tgConfig, ref.tgFileId, db);
+      }
+      return (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
+    }
+
+    const bucketConfig = await resolveBucketConfig(db, file.userId, encKey, file.bucketId, file.parentId);
+    if (bucketConfig) {
+      const resp = await s3Get(bucketConfig, file.r2Key);
+      if (!resp.ok) throw new Error(`存储读取失败: HTTP ${resp.status}`);
+      return resp.body;
+    }
+  }
+
+  if (env.FILES) {
+    const obj = await env.FILES.get(file.r2Key);
+    return obj?.body ?? null;
+  }
+
+  throw new Error('存储桶未配置');
+}
+
 async function readFromTelegram(
   env: Env,
   db: ReturnType<typeof getDb>,

@@ -18,20 +18,21 @@ import { ERROR_CODES, logger } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
-import { s3Delete, s3Get } from '../lib/s3client';
+import { s3Get } from '../lib/s3client';
+import { deleteObjectSafely } from '../lib/storageGC';
 import {
   buildFilePath,
+  buildDescendantPathUpdate,
   normalizeEntryName,
   normalizeParentId,
   pathPrefix,
-  replacePathPrefix,
-  trimTrailingSlash,
 } from '../lib/pathUtils';
 import { resolveBucketConfig } from '../lib/bucketResolver';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getEncryptionKey } from '../lib/crypto';
 import { releaseFileRef } from '../lib/dedup';
-import { ZipBuilder } from '../lib/zipStream';
+import { createZipStream, assertZipLimits } from '../lib/zipStream';
+import { openFileStream } from '../lib/fileContentHelper';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -226,25 +227,20 @@ app.post('/move', async (c) => {
         continue;
       }
 
-      const newPath = buildFilePath(targetParentId, file.name);
-      await db
+      const newPath = await buildFilePath(db, userId, targetParentId, file.name);
+
+      // 自身更新 + 子树 path 更新放在同一 batch 中，避免只改一半
+      const updateSelf = db
         .update(files)
         .set({ parentId: targetParentId, path: newPath, updatedAt: now })
         .where(eq(files.id, fileId));
-
       if (file.isFolder) {
-        const oldPath = trimTrailingSlash(file.path);
-        const allFiles = await db
-          .select()
-          .from(files)
-          .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
-          .all();
-
-        const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(oldPath + '/'));
-        for (const child of childFiles) {
-          const newChildPath = replacePathPrefix(child.path, oldPath, newPath);
-          await db.update(files).set({ path: newChildPath, updatedAt: now }).where(eq(files.id, child.id));
-        }
+        await db.batch([
+          updateSelf,
+          buildDescendantPathUpdate(db, userId, file.path, newPath, now, file.teamId ?? null),
+        ]);
+      } else {
+        await db.batch([updateSelf]);
       }
 
       batchResult.success++;
@@ -318,22 +314,19 @@ app.post('/rename', async (c) => {
         continue;
       }
 
-      const newPath = buildFilePath(file.parentId, newName);
-      await db.update(files).set({ name: newName, path: newPath, updatedAt: now }).where(eq(files.id, item.fileId));
+      const newPath = await buildFilePath(db, userId, file.parentId, newName);
 
+      const updateSelf = db
+        .update(files)
+        .set({ name: newName, path: newPath, updatedAt: now })
+        .where(eq(files.id, item.fileId));
       if (file.isFolder) {
-        const oldPath = trimTrailingSlash(file.path);
-        const allFiles = await db
-          .select()
-          .from(files)
-          .where(and(eq(files.userId, userId), isNull(files.deletedAt)))
-          .all();
-
-        const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(oldPath + '/'));
-        for (const child of childFiles) {
-          const newChildPath = replacePathPrefix(child.path, oldPath, newPath);
-          await db.update(files).set({ path: newChildPath, updatedAt: now }).where(eq(files.id, child.id));
-        }
+        await db.batch([
+          updateSelf,
+          buildDescendantPathUpdate(db, userId, file.path, newPath, now, file.teamId ?? null),
+        ]);
+      } else {
+        await db.batch([updateSelf]);
       }
 
       batchResult.success++;
@@ -387,12 +380,15 @@ app.post('/permanent-delete', async (c) => {
         continue;
       }
 
+      const idsToDelete: string[] = [];
+
       if (file.isFolder) {
         const subtreePrefix = pathPrefix(file.path);
+        const namespaceCondition = file.teamId ? eq(files.teamId, file.teamId) : isNull(files.teamId);
         const allFiles = await db
           .select()
           .from(files)
-          .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
+          .where(and(eq(files.userId, userId), namespaceCondition, isNotNull(files.deletedAt)))
           .all();
 
         const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(subtreePrefix));
@@ -401,39 +397,37 @@ app.post('/permanent-delete', async (c) => {
           if (!child.isFolder) {
             const { shouldDeleteStorage } = await releaseFileRef(db, child.id);
             if (shouldDeleteStorage) {
-              const bucketConfig = await resolveBucketConfig(db, userId, encKey, child.bucketId, child.parentId);
-              if (bucketConfig) {
-                try {
-                  await s3Delete(bucketConfig, child.r2Key);
-                } catch (error) {
-                  logger.error('BATCH', 'S3删除失败', { r2Key: child.r2Key }, error);
-                }
-              } else if (c.env.FILES) {
-                await c.env.FILES.delete(child.r2Key);
-              }
+              await deleteObjectSafely(c.env, db, {
+                userId,
+                bucketId: child.bucketId,
+                parentId: child.parentId,
+                r2Key: child.r2Key,
+                reason: 'batch-permanent-delete',
+              });
             }
             totalFreed += child.size;
           }
-          await db.delete(files).where(eq(files.id, child.id));
+          idsToDelete.push(child.id);
         }
       } else {
         const { shouldDeleteStorage } = await releaseFileRef(db, fileId);
         if (shouldDeleteStorage) {
-          const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
-          if (bucketConfig) {
-            try {
-              await s3Delete(bucketConfig, file.r2Key);
-            } catch (error) {
-              logger.error('BATCH', 'S3删除失败', { r2Key: file.r2Key }, error);
-            }
-          } else if (c.env.FILES) {
-            await c.env.FILES.delete(file.r2Key);
-          }
+          await deleteObjectSafely(c.env, db, {
+            userId,
+            bucketId: file.bucketId,
+            parentId: file.parentId,
+            r2Key: file.r2Key,
+            reason: 'batch-permanent-delete',
+          });
         }
         totalFreed += file.size;
       }
 
-      await db.delete(files).where(eq(files.id, fileId));
+      idsToDelete.push(fileId);
+      // 单次 SQL 删除整批记录，避免逐条删除留下半删除状态
+      await db
+        .delete(files)
+        .where(and(eq(files.userId, userId), inArray(files.id, idsToDelete)));
       batchResult.success++;
     } catch (error) {
       batchResult.failed++;
@@ -487,10 +481,11 @@ app.post('/restore', async (c) => {
 
       if (file.isFolder) {
         const subtreePrefix = pathPrefix(file.path);
+        const namespaceCondition = file.teamId ? eq(files.teamId, file.teamId) : isNull(files.teamId);
         const allFiles = await db
           .select()
           .from(files)
-          .where(and(eq(files.userId, userId), isNotNull(files.deletedAt)))
+          .where(and(eq(files.userId, userId), namespaceCondition, isNotNull(files.deletedAt)))
           .all();
 
         const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(subtreePrefix));
@@ -527,9 +522,6 @@ app.post('/zip', async (c) => {
 
   const { fileIds, zipName = 'download' } = result.data;
   const db = getDb(c.env.DB);
-  const encKey = getEncryptionKey(c.env);
-
-  const MAX_ZIP_BYTES = 500 * 1024 * 1024;
 
   const fileRecords = await db
     .select()
@@ -539,48 +531,32 @@ app.post('/zip', async (c) => {
     )
     .all();
 
-  const totalBytes = fileRecords.reduce((sum, f) => sum + f.size, 0);
-  if (totalBytes > MAX_ZIP_BYTES) {
+  try {
+    assertZipLimits(fileRecords);
+  } catch (error) {
     return c.json(
       {
         success: false,
         error: {
           code: ERROR_CODES.VALIDATION_ERROR,
-          message: `ZIP 总大小不超过 500MB，当前 ${(totalBytes / 1024 / 1024).toFixed(1)}MB`,
+          message: error instanceof Error ? error.message : 'ZIP 打包参数超出限制',
         },
       },
       400
     );
   }
 
-  const zip = new ZipBuilder();
+  const sources = fileRecords.map((file) => ({
+    name: file.name,
+    size: file.size,
+    modDate: new Date(file.updatedAt),
+    open: () => openFileStream(c.env, file),
+  }));
 
-  for (const file of fileRecords) {
-    try {
-      const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
-      let buf: ArrayBuffer;
-      if (bucketConfig) {
-        const res = await s3Get(bucketConfig, file.r2Key);
-        buf = await res.arrayBuffer();
-      } else if (c.env.FILES) {
-        const obj = await c.env.FILES.get(file.r2Key);
-        if (!obj) continue;
-        buf = await obj.arrayBuffer();
-      } else {
-        continue;
-      }
-      zip.addFile(file.name, buf, new Date(file.updatedAt));
-    } catch {
-      continue;
-    }
-  }
-
-  const zipBytes = zip.finalize();
-  return new Response(zipBytes.buffer as ArrayBuffer, {
+  return new Response(createZipStream(sources), {
     headers: {
       'Content-Type': 'application/zip',
       'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(zipName)}.zip`,
-      'Content-Length': zipBytes.length.toString(),
     },
   });
 });

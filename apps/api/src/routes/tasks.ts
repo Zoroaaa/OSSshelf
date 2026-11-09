@@ -24,7 +24,7 @@ import {
 } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import { getEncryptionKey } from '../lib/crypto';
-import { buildFilePath, normalizeEntryName, normalizeParentId } from '../lib/pathUtils';
+import { buildFilePath, buildTeamFilePath, normalizeEntryName, normalizeParentId } from '../lib/pathUtils';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import {
@@ -43,7 +43,8 @@ import { checkFilePermission } from '../lib/permissionService';
 import { getTeamMembership, teamRoleAllows } from '../lib/teamPolicy';
 import { tgUploadFile, TG_MAX_CHUNKED_FILE_SIZE, type TelegramBotConfig } from '../lib/telegramClient';
 import { TG_CHUNK_SIZE, TG_CHUNK_THRESHOLD } from '../lib/telegramChunked';
-import { decryptSecret, s3Delete } from '../lib/s3client';
+import { decryptSecret } from '../lib/s3client';
+import { deleteObjectSafely } from '../lib/storageGC';
 import { getUserOrFail, encodeFilename } from '../lib/utils';
 import { checkAndClaimDedup } from '../lib/dedup';
 import { enqueueAutoProcessFile } from '../lib/ai/features';
@@ -856,7 +857,9 @@ app.post('/complete', async (c) => {
 
       const tgFileId = uploadedParts[0].etag;
       const fileId = task.r2Key.split('/')[2] || crypto.randomUUID();
-      const path = buildFilePath(task.parentId, task.fileName);
+      const path = task.teamId
+        ? await buildTeamFilePath(db, task.teamId, task.parentId, task.fileName)
+        : await buildFilePath(db, userId, task.parentId, task.fileName);
 
       const existingFile = await db.select().from(files).where(eq(files.id, fileId)).get();
       if (!existingFile) {
@@ -992,7 +995,9 @@ app.post('/complete', async (c) => {
 
       const virtualFileId = `chunked:${groupId}`;
       const fileId = task.r2Key.split('/')[2] || crypto.randomUUID();
-      const path = buildFilePath(task.parentId, task.fileName);
+      const path = task.teamId
+        ? await buildTeamFilePath(db, task.teamId, task.parentId, task.fileName)
+        : await buildFilePath(db, userId, task.parentId, task.fileName);
 
       // 检查是否已写入（幂等）
       const existingFile = await db.select().from(files).where(eq(files.id, fileId)).get();
@@ -1128,7 +1133,9 @@ app.post('/complete', async (c) => {
     // 小文件：文件已通过预签名 PUT 直传到 S3，无需合并步骤
 
     const fileId = crypto.randomUUID();
-    const path = buildFilePath(task.parentId, task.fileName);
+    const path = task.teamId
+      ? await buildTeamFilePath(db, task.teamId, task.parentId, task.fileName)
+      : await buildFilePath(db, userId, task.parentId, task.fileName);
 
     // ── CoW 去重：使用前端上报的 SHA-256 hash ─────────────────────────────
     let finalR2Key = task.r2Key;
@@ -1137,11 +1144,13 @@ app.post('/complete', async (c) => {
       const dedupResult = await checkAndClaimDedup(db, hash, task.bucketId, userId);
       if (dedupResult.isDuplicate && dedupResult.existingR2Key) {
         // 命中去重：删除刚上传的冗余对象，复用现有 r2Key
-        try {
-          await s3Delete(bucketConfig, task.r2Key);
-        } catch (error) {
-          logger.warn('TASKS', '去重删除冗余S3对象失败', { r2Key: task.r2Key }, error);
-        }
+        await deleteObjectSafely(c.env, db, {
+          userId,
+          bucketId: task.bucketId,
+          parentId: task.parentId,
+          r2Key: task.r2Key,
+          reason: 'dedup-redundant-upload',
+        });
         finalR2Key = dedupResult.existingR2Key;
         // 去重命中时 ref_count 已在 checkAndClaimDedup 内递增，新记录从 1 开始
         finalRefCount = 1;

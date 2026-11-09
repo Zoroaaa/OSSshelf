@@ -369,12 +369,20 @@ app.post('/grant', async (c) => {
 
   await grantPermissionForFile(fileId);
 
-  // 文件夹授权：根据用户选择决定是否穿透下级
+  // 文件夹授权：根据用户选择决定是否穿透下级（个人/团队命名空间各自隔离）
   if (file.isFolder && inheritToChildren) {
+    const namespaceCondition = file.teamId ? eq(files.teamId, file.teamId) : isNull(files.teamId);
     const childFiles = await db
       .select({ id: files.id })
       .from(files)
-      .where(and(eq(files.userId, file.userId), isNull(files.deletedAt), pathPrefixCondition(files.path, file.path)))
+      .where(
+        and(
+          eq(files.userId, file.userId),
+          namespaceCondition,
+          isNull(files.deletedAt),
+          pathPrefixCondition(files.path, file.path)
+        )
+      )
       .all();
 
     for (const child of childFiles) {
