@@ -12,6 +12,7 @@
 import type { MiddlewareHandler, Context } from 'hono';
 import { ERROR_CODES, type ErrorCode, logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
+import { isFileNameConflictError } from '../lib/dbErrors';
 
 type AppEnv = { Bindings: Env; Variables: Variables };
 
@@ -72,6 +73,15 @@ export function createErrorResponse(c: Context<AppEnv>, error: AppError | Error 
       },
     };
     return c.json(response, error.httpStatus as 400 | 401 | 403 | 404 | 409 | 410 | 413 | 429 | 500 | 502 | 503 | 507);
+  }
+
+  // 迁移 119：文件命名唯一约束冲突（并发下未预检到的重名）统一按 409 返回，
+  // 避免 WebDAV/分享转存等未单独包装的写入路径冒出 500。
+  if (isFileNameConflictError(error)) {
+    return createErrorResponse(
+      c,
+      new AppError('FILE_ALREADY_EXISTS', { message: '同名文件或文件夹已存在，请重命名后重试' })
+    );
   }
 
   if (error instanceof Error) {
