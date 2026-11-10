@@ -193,6 +193,61 @@ export async function resolveAvailableFileName(
   return `${stem} (${Date.now()})${ext}`.slice(0, MAX_NAME_LENGTH);
 }
 
+/** 迁移 119 中的文件名唯一索引名 */
+const FILE_NAME_UNIQUE_INDEX = 'uniq_files_name_per_parent_active';
+
+function collectErrorText(error: unknown, depth = 0): string {
+  if (!error || depth > 4) return '';
+  if (typeof error === 'string') return error;
+  if (typeof error !== 'object') return String(error);
+  const e = error as { message?: unknown; cause?: unknown };
+  return `${typeof e.message === 'string' ? e.message : ''} ${collectErrorText(e.cause, depth + 1)}`;
+}
+
+/**
+ * 判断是否为「同目录同名」唯一约束冲突（迁移 119）。
+ * D1/SQLite 对表达式索引的报错形如：
+ *   UNIQUE constraint failed: index 'uniq_files_name_per_parent_active'
+ * Drizzle 会把原始错误包在 cause 中，因此需要沿 cause 链取文本。
+ */
+export function isFileNameConflictError(error: unknown): boolean {
+  const text = collectErrorText(error).toLowerCase();
+  return text.includes(FILE_NAME_UNIQUE_INDEX) || /unique constraint failed:\s*files\.name/.test(text);
+}
+
+/**
+ * 落库文件记录：先解析可用文件名，再插入；并发撞到唯一索引时重新解析后缀重试。
+ *
+ * 迁移 119 起数据库对「命名空间 + 父目录 + 文件名」有唯一约束，
+ * 上传场景不允许直接 500，因此这里做有限次重试（默认 5 次）。
+ * 每次重试都会重新查询当前目录的最小可用后缀，不会无限循环。
+ */
+export async function insertFileWithUniqueName(
+  db: DrizzleDb,
+  params: {
+    parentId: string | null | undefined;
+    userId: string;
+    teamId?: string | null;
+    name: string;
+    toValues: (name: string, path: string) => typeof files.$inferInsert;
+    maxAttempts?: number;
+  }
+): Promise<{ name: string; path: string }> {
+  const maxAttempts = params.maxAttempts ?? 5;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const name = await resolveAvailableFileName(db, params);
+    const path = await buildPathUnderParent(db, params.parentId, name, params.userId, params.teamId ?? null);
+    try {
+      await db.insert(files).values(params.toValues(name, path));
+      return { name, path };
+    } catch (error) {
+      if (!isFileNameConflictError(error)) throw error;
+      if (attempt === maxAttempts) break;
+    }
+  }
+  throwAppError('FILE_ALREADY_EXISTS', '同名文件冲突，请重命名后重试');
+}
+
 /** 构造文件夹展示路径（带尾部斜杠），用于搜索结果等展示场景 */
 export async function buildFolderPath(
   db: DrizzleDb,

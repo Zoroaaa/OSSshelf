@@ -24,12 +24,7 @@ import {
 } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import { getEncryptionKey } from '../lib/crypto';
-import {
-  buildPathUnderParent,
-  resolveAvailableFileName,
-  normalizeEntryName,
-  normalizeParentId,
-} from '../lib/pathUtils';
+import { insertFileWithUniqueName, normalizeEntryName, normalizeParentId } from '../lib/pathUtils';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import {
@@ -862,17 +857,15 @@ app.post('/complete', async (c) => {
 
       const tgFileId = uploadedParts[0].etag;
       const fileId = task.r2Key.split('/')[2] || crypto.randomUUID();
-      // 同名自动加后缀：与代理上传、普通分片共用同一套命名规则。
-      const finalName = await resolveAvailableFileName(db, {
-        parentId: task.parentId,
-        userId,
-        teamId: resolvedTeamId,
-        name: task.fileName,
-      });
-      const path = await buildPathUnderParent(db, task.parentId, finalName, userId, resolvedTeamId);
 
+      let finalName: string;
+      let path: string;
       const existingFile = await db.select().from(files).where(eq(files.id, fileId)).get();
-      if (!existingFile) {
+      if (existingFile) {
+        // 幂等重试：沿用已落库的名称/路径，不要重新解析出带后缀的新名字
+        finalName = existingFile.name;
+        path = existingFile.path;
+      } else {
         // ── CoW 去重（TG 小文件）─────────────────────────────────────────
         let finalR2Key = task.r2Key;
         let isDedupHit = false;
@@ -885,25 +878,33 @@ app.post('/complete', async (c) => {
         }
         // ─────────────────────────────────────────────────────────────────
 
-        await db.insert(files).values({
-          id: fileId,
-          userId,
+        const inserted = await insertFileWithUniqueName(db, {
           parentId: task.parentId,
-          name: finalName,
-          path,
-          type: 'file',
-          size: task.fileSize,
-          r2Key: finalR2Key,
-          mimeType: task.mimeType,
-          hash: hash ?? null,
-          refCount: 1,
-          isFolder: false,
-          bucketId: task.bucketId,
+          userId,
           teamId: resolvedTeamId,
-          createdAt: now,
-          updatedAt: now,
-          deletedAt: null,
+          name: task.fileName,
+          toValues: (name, path) => ({
+            id: fileId,
+            userId,
+            parentId: task.parentId,
+            name,
+            path,
+            type: 'file',
+            size: task.fileSize,
+            r2Key: finalR2Key,
+            mimeType: task.mimeType,
+            hash: hash ?? null,
+            refCount: 1,
+            isFolder: false,
+            bucketId: task.bucketId,
+            teamId: resolvedTeamId,
+            createdAt: now,
+            updatedAt: now,
+            deletedAt: null,
+          }),
         });
+        finalName = inserted.name;
+        path = inserted.path;
 
         // 命中去重时不写新的 telegramFileRefs，复用旧记录的 tgFileId
         if (!isDedupHit) {
@@ -1005,17 +1006,15 @@ app.post('/complete', async (c) => {
 
       const virtualFileId = `chunked:${groupId}`;
       const fileId = task.r2Key.split('/')[2] || crypto.randomUUID();
-      const finalName = await resolveAvailableFileName(db, {
-        parentId: task.parentId,
-        userId,
-        teamId: resolvedTeamId,
-        name: task.fileName,
-      });
-      const path = await buildPathUnderParent(db, task.parentId, finalName, userId, resolvedTeamId);
 
+      let finalName: string;
+      let path: string;
       // 检查是否已写入（幂等）
       const existingFile = await db.select().from(files).where(eq(files.id, fileId)).get();
-      if (!existingFile) {
+      if (existingFile) {
+        finalName = existingFile.name;
+        path = existingFile.path;
+      } else {
         // ── CoW 去重（TG 分片）──────────────────────────────────────────
         let finalR2Key = task.r2Key;
         let isDedupHit = false;
@@ -1028,25 +1027,33 @@ app.post('/complete', async (c) => {
         }
         // ─────────────────────────────────────────────────────────────────
 
-        await db.insert(files).values({
-          id: fileId,
-          userId,
+        const inserted = await insertFileWithUniqueName(db, {
           parentId: task.parentId,
-          name: finalName,
-          path,
-          type: 'file',
-          size: task.fileSize,
-          r2Key: finalR2Key,
-          mimeType: task.mimeType,
-          hash: hash ?? null,
-          refCount: 1,
-          isFolder: false,
-          bucketId: task.bucketId,
+          userId,
           teamId: resolvedTeamId,
-          createdAt: now,
-          updatedAt: now,
-          deletedAt: null,
+          name: task.fileName,
+          toValues: (name, path) => ({
+            id: fileId,
+            userId,
+            parentId: task.parentId,
+            name,
+            path,
+            type: 'file',
+            size: task.fileSize,
+            r2Key: finalR2Key,
+            mimeType: task.mimeType,
+            hash: hash ?? null,
+            refCount: 1,
+            isFolder: false,
+            bucketId: task.bucketId,
+            teamId: resolvedTeamId,
+            createdAt: now,
+            updatedAt: now,
+            deletedAt: null,
+          }),
         });
+        finalName = inserted.name;
+        path = inserted.path;
 
         // 命中去重时不写新的 telegramFileRefs（分片记录已在 telegramFileChunks 里，
         // 但 download 路由通过 telegramFileRefs.tgFileId 找旧记录即可）
@@ -1147,13 +1154,6 @@ app.post('/complete', async (c) => {
     // 小文件：文件已通过预签名 PUT 直传到 S3，无需合并步骤
 
     const fileId = crypto.randomUUID();
-    const finalName = await resolveAvailableFileName(db, {
-      parentId: task.parentId,
-      userId,
-      teamId: resolvedTeamId,
-      name: task.fileName,
-    });
-    const path = await buildPathUnderParent(db, task.parentId, finalName, userId, resolvedTeamId);
 
     // ── CoW 去重：使用前端上报的 SHA-256 hash ─────────────────────────────
     let finalR2Key = task.r2Key;
@@ -1176,25 +1176,32 @@ app.post('/complete', async (c) => {
     }
     // ─────────────────────────────────────────────────────────────────────
 
-    await db.insert(files).values({
-      id: fileId,
-      userId,
+    const inserted = await insertFileWithUniqueName(db, {
       parentId: task.parentId,
-      name: finalName,
-      path,
-      type: 'file',
-      size: task.fileSize,
-      r2Key: finalR2Key,
-      mimeType: task.mimeType,
-      hash: hash ?? null,
-      refCount: finalRefCount,
-      isFolder: false,
-      bucketId: task.bucketId,
+      userId,
       teamId: resolvedTeamId,
-      createdAt: now,
-      updatedAt: now,
-      deletedAt: null,
+      name: task.fileName,
+      toValues: (name, path) => ({
+        id: fileId,
+        userId,
+        parentId: task.parentId,
+        name,
+        path,
+        type: 'file',
+        size: task.fileSize,
+        r2Key: finalR2Key,
+        mimeType: task.mimeType,
+        hash: hash ?? null,
+        refCount: finalRefCount,
+        isFolder: false,
+        bucketId: task.bucketId,
+        teamId: resolvedTeamId,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      }),
     });
+    const { name: finalName, path } = inserted;
 
     // 存储统计由 files 触发器统一维护。
 

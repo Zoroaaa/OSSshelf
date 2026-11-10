@@ -12,7 +12,8 @@
 import { Hono, type Context } from 'hono';
 import {
   buildPathUnderParent,
-  resolveAvailableFileName,
+  insertFileWithUniqueName,
+  isFileNameConflictError,
   normalizeEntryName,
   normalizeParentId,
   pathPrefix,
@@ -564,9 +565,6 @@ app.post('/upload', async (c) => {
   const fileId = crypto.randomUUID();
   const now = new Date().toISOString();
   const r2Key = `files/${userId}/${fileId}/${safeFileName}`;
-  // 同名不覆盖也不跳过：自动加后缀，和分片上传任务口径一致。
-  const finalName = await resolveAvailableFileName(db, { parentId, userId, name: safeFileName });
-  const path = await buildPathUnderParent(db, parentId, finalName, userId);
   const finalBucketId = isTelegramBucket ? effectiveBucketId : (bucketConfig?.id ?? null);
 
   // ── CoW 去重：单次读取 buffer，计算 hash，查找可复用对象 ───────────────
@@ -652,23 +650,29 @@ app.post('/upload', async (c) => {
     });
   }
 
-  await db.insert(files).values({
-    id: fileId,
+  // 同名不覆盖也不跳过：自动加后缀；并发撞到唯一索引时由 helper 重新解析后重试。
+  const { name: finalName, path } = await insertFileWithUniqueName(db, {
+    parentId,
     userId,
-    parentId: parentId || null,
-    name: finalName,
-    path,
-    type: 'file',
-    size: uploadFile.size,
-    r2Key: finalR2Key,
-    mimeType: fileMime || null,
-    hash,
-    refCount: 1,
-    isFolder: false,
-    bucketId: finalBucketId,
-    createdAt: now,
-    updatedAt: now,
-    deletedAt: null,
+    name: safeFileName,
+    toValues: (name, path) => ({
+      id: fileId,
+      userId,
+      parentId: parentId || null,
+      name,
+      path,
+      type: 'file',
+      size: uploadFile.size,
+      r2Key: finalR2Key,
+      mimeType: fileMime || null,
+      hash,
+      refCount: 1,
+      isFolder: false,
+      bucketId: finalBucketId,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    }),
   });
 
   await inheritParentPermissions(db, fileId, parentId);
@@ -1242,7 +1246,13 @@ app.post('/', async (c) => {
     updatedAt: now,
     deletedAt: null,
   };
-  await db.insert(files).values(newFolder);
+  try {
+    await db.insert(files).values(newFolder);
+  } catch (error) {
+    // 并发下同名文件夹会撞 119 唯一索引，返回明确冲突而不是 500。
+    if (isFileNameConflictError(error)) throwAppError('FOLDER_ALREADY_EXISTS', '同名文件夹已存在');
+    throw error;
+  }
   await inheritParentPermissions(db, folderId, parentId || null);
 
   let bucketInfo: { id: string; name: string; provider: string } | null = null;
@@ -1411,24 +1421,30 @@ app.post('/create', async (c) => {
     });
   }
 
-  await db.insert(files).values({
-    id: fileId,
-    userId,
-    parentId: parentId || null,
-    name,
-    path,
-    type: 'file',
-    size: fileSize,
-    r2Key: finalR2Key,
-    mimeType: fileMime || null,
-    hash,
-    refCount: 1,
-    isFolder: false,
-    bucketId: effectiveBucketId,
-    createdAt: now,
-    updatedAt: now,
-    deletedAt: null,
-  });
+  try {
+    await db.insert(files).values({
+      id: fileId,
+      userId,
+      parentId: parentId || null,
+      name,
+      path,
+      type: 'file',
+      size: fileSize,
+      r2Key: finalR2Key,
+      mimeType: fileMime || null,
+      hash,
+      refCount: 1,
+      isFolder: false,
+      bucketId: effectiveBucketId,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+  } catch (error) {
+    // 并发下同名文件会撞 119 唯一索引，返回明确冲突而不是 500。
+    if (isFileNameConflictError(error)) throwAppError('FILE_ALREADY_EXISTS', '同名文件已存在');
+    throw error;
+  }
 
   await inheritParentPermissions(db, fileId, parentId || null);
 
