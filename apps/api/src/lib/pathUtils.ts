@@ -19,6 +19,7 @@ import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
 import type { DrizzleDb } from '../db';
 import { files } from '../db/schema';
 import { throwAppError } from '../middleware/error';
+import { isFileNameConflictError } from './dbErrors';
 
 const MAX_NAME_LENGTH = 255;
 
@@ -191,28 +192,6 @@ export async function resolveAvailableFileName(
     if (!(await isTaken(candidate))) return candidate;
   }
   return `${stem} (${Date.now()})${ext}`.slice(0, MAX_NAME_LENGTH);
-}
-
-/** 迁移 119 中的文件名唯一索引名 */
-const FILE_NAME_UNIQUE_INDEX = 'uniq_files_name_per_parent_active';
-
-function collectErrorText(error: unknown, depth = 0): string {
-  if (!error || depth > 4) return '';
-  if (typeof error === 'string') return error;
-  if (typeof error !== 'object') return String(error);
-  const e = error as { message?: unknown; cause?: unknown };
-  return `${typeof e.message === 'string' ? e.message : ''} ${collectErrorText(e.cause, depth + 1)}`;
-}
-
-/**
- * 判断是否为「同目录同名」唯一约束冲突（迁移 119）。
- * D1/SQLite 对表达式索引的报错形如：
- *   UNIQUE constraint failed: index 'uniq_files_name_per_parent_active'
- * Drizzle 会把原始错误包在 cause 中，因此需要沿 cause 链取文本。
- */
-export function isFileNameConflictError(error: unknown): boolean {
-  const text = collectErrorText(error).toLowerCase();
-  return text.includes(FILE_NAME_UNIQUE_INDEX) || /unique constraint failed:\s*files\.name/.test(text);
 }
 
 /**

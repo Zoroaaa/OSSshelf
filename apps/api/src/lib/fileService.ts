@@ -31,12 +31,12 @@ import {
   buildFilePath,
   buildPathUnderParent,
   buildDescendantPathUpdate,
-  isFileNameConflictError,
   normalizeEntryName,
   normalizeParentId,
   pathPrefix,
   pathPrefixCondition,
 } from './pathUtils';
+import { isFileNameConflictError } from './dbErrors';
 
 export interface CreateTextFileInput {
   name: string;

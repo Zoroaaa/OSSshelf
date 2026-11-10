@@ -13,12 +13,12 @@ import { Hono, type Context } from 'hono';
 import {
   buildPathUnderParent,
   insertFileWithUniqueName,
-  isFileNameConflictError,
   normalizeEntryName,
   normalizeParentId,
   pathPrefix,
   pathPrefixCondition,
 } from '../lib/pathUtils';
+import { isFileNameConflictError } from '../lib/dbErrors';
 import { eq, and, isNull, isNotNull, like, or, inArray, sql, count, gt, ne } from 'drizzle-orm';
 import {
   getDb,
