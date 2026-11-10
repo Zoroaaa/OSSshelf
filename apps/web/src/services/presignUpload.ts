@@ -220,6 +220,10 @@ async function singlePresignUpload(
     taskId,
     parts: [{ partNumber: 1, etag: 'direct' }],
     hash: fileHash,
+  }).catch(async (error) => {
+    // 完成阶段失败时任务会停在 pending，主动标记失败，避免任务列表残留。
+    await apiPost('/api/tasks/abort', { taskId }).catch(() => {});
+    throw error;
   });
 
   return result;
@@ -449,9 +453,9 @@ async function multipartUpload(
 
     return result;
   } catch (err) {
-    if (signal?.aborted) {
-      await abort();
-    }
+    // 失败或取消都要清掉服务端任务：否则任务列表会留下永远 pending 的僵尸项，
+    // 分片上传还会残留未合并的 multipart parts。
+    await abort();
     throw err;
   }
 }

@@ -24,7 +24,12 @@ import {
 } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import { getEncryptionKey } from '../lib/crypto';
-import { buildFilePath, buildTeamFilePath, normalizeEntryName, normalizeParentId } from '../lib/pathUtils';
+import {
+  buildPathUnderParent,
+  resolveAvailableFileName,
+  normalizeEntryName,
+  normalizeParentId,
+} from '../lib/pathUtils';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import {
@@ -857,9 +862,14 @@ app.post('/complete', async (c) => {
 
       const tgFileId = uploadedParts[0].etag;
       const fileId = task.r2Key.split('/')[2] || crypto.randomUUID();
-      const path = task.teamId
-        ? await buildTeamFilePath(db, task.teamId, task.parentId, task.fileName)
-        : await buildFilePath(db, userId, task.parentId, task.fileName);
+      // 同名自动加后缀：与代理上传、普通分片共用同一套命名规则。
+      const finalName = await resolveAvailableFileName(db, {
+        parentId: task.parentId,
+        userId,
+        teamId: resolvedTeamId,
+        name: task.fileName,
+      });
+      const path = await buildPathUnderParent(db, task.parentId, finalName, userId, resolvedTeamId);
 
       const existingFile = await db.select().from(files).where(eq(files.id, fileId)).get();
       if (!existingFile) {
@@ -879,7 +889,7 @@ app.post('/complete', async (c) => {
           id: fileId,
           userId,
           parentId: task.parentId,
-          name: task.fileName,
+          name: finalName,
           path,
           type: 'file',
           size: task.fileSize,
@@ -919,7 +929,7 @@ app.post('/complete', async (c) => {
               action: 'file_uploaded',
               resourceType: 'file',
               resourceId: fileId,
-              details: { fileName: task.fileName },
+              details: { fileName: finalName },
             }).catch(() => {})
           );
         }
@@ -933,14 +943,14 @@ app.post('/complete', async (c) => {
 
       await db
         .update(uploadTasks)
-        .set({ status: 'completed', progress: 100, updatedAt: now })
+        .set({ status: 'completed', progress: 100, fileName: finalName, updatedAt: now })
         .where(eq(uploadTasks.id, taskId));
 
       return c.json({
         success: true,
         data: {
           id: fileId,
-          name: task.fileName,
+          name: finalName,
           size: task.fileSize,
           mimeType: task.mimeType,
           path,
@@ -995,9 +1005,13 @@ app.post('/complete', async (c) => {
 
       const virtualFileId = `chunked:${groupId}`;
       const fileId = task.r2Key.split('/')[2] || crypto.randomUUID();
-      const path = task.teamId
-        ? await buildTeamFilePath(db, task.teamId, task.parentId, task.fileName)
-        : await buildFilePath(db, userId, task.parentId, task.fileName);
+      const finalName = await resolveAvailableFileName(db, {
+        parentId: task.parentId,
+        userId,
+        teamId: resolvedTeamId,
+        name: task.fileName,
+      });
+      const path = await buildPathUnderParent(db, task.parentId, finalName, userId, resolvedTeamId);
 
       // 检查是否已写入（幂等）
       const existingFile = await db.select().from(files).where(eq(files.id, fileId)).get();
@@ -1018,7 +1032,7 @@ app.post('/complete', async (c) => {
           id: fileId,
           userId,
           parentId: task.parentId,
-          name: task.fileName,
+          name: finalName,
           path,
           type: 'file',
           size: task.fileSize,
@@ -1059,7 +1073,7 @@ app.post('/complete', async (c) => {
               action: 'file_uploaded',
               resourceType: 'file',
               resourceId: fileId,
-              details: { fileName: task.fileName },
+              details: { fileName: finalName },
             }).catch(() => {})
           );
         }
@@ -1073,14 +1087,14 @@ app.post('/complete', async (c) => {
 
       await db
         .update(uploadTasks)
-        .set({ status: 'completed', progress: 100, updatedAt: now })
+        .set({ status: 'completed', progress: 100, fileName: finalName, updatedAt: now })
         .where(eq(uploadTasks.id, taskId));
 
       return c.json({
         success: true,
         data: {
           id: fileId,
-          name: task.fileName,
+          name: finalName,
           size: task.fileSize,
           mimeType: task.mimeType,
           path,
@@ -1133,9 +1147,13 @@ app.post('/complete', async (c) => {
     // 小文件：文件已通过预签名 PUT 直传到 S3，无需合并步骤
 
     const fileId = crypto.randomUUID();
-    const path = task.teamId
-      ? await buildTeamFilePath(db, task.teamId, task.parentId, task.fileName)
-      : await buildFilePath(db, userId, task.parentId, task.fileName);
+    const finalName = await resolveAvailableFileName(db, {
+      parentId: task.parentId,
+      userId,
+      teamId: resolvedTeamId,
+      name: task.fileName,
+    });
+    const path = await buildPathUnderParent(db, task.parentId, finalName, userId, resolvedTeamId);
 
     // ── CoW 去重：使用前端上报的 SHA-256 hash ─────────────────────────────
     let finalR2Key = task.r2Key;
@@ -1162,7 +1180,7 @@ app.post('/complete', async (c) => {
       id: fileId,
       userId,
       parentId: task.parentId,
-      name: task.fileName,
+      name: finalName,
       path,
       type: 'file',
       size: task.fileSize,
@@ -1189,7 +1207,7 @@ app.post('/complete', async (c) => {
           action: 'file_uploaded',
           resourceType: 'file',
           resourceId: fileId,
-          details: { fileName: task.fileName },
+          details: { fileName: finalName },
         }).catch(() => {})
       );
     }
@@ -1200,13 +1218,16 @@ app.post('/complete', async (c) => {
       })
     );
 
-    await db.update(uploadTasks).set({ status: 'completed', updatedAt: now }).where(eq(uploadTasks.id, taskId));
+    await db
+      .update(uploadTasks)
+      .set({ status: 'completed', fileName: finalName, updatedAt: now })
+      .where(eq(uploadTasks.id, taskId));
 
     return c.json({
       success: true,
       data: {
         id: fileId,
-        name: task.fileName,
+        name: finalName,
         size: task.fileSize,
         mimeType: task.mimeType,
         path,

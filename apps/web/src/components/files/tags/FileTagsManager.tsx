@@ -65,6 +65,8 @@ export function FileTagsManager({ fileId, onTagClick }: FileTagsManagerProps) {
       queryClient.invalidateQueries({ queryKey: ['file-tags', fileId] });
       queryClient.invalidateQueries({ queryKey: ['user-tags'] });
       queryClient.invalidateQueries({ queryKey: ['tag-stats'] });
+      // 列表里的标签列走 file-tags-batch，键名不同，必须单独失效
+      queryClient.invalidateQueries({ queryKey: ['file-tags-batch'] });
     },
     onError: (e: any) =>
       toast({ title: '添加失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
@@ -102,6 +104,8 @@ export function FileTagsManager({ fileId, onTagClick }: FileTagsManagerProps) {
       toast({ title: '标签已移除' });
       queryClient.invalidateQueries({ queryKey: ['file-tags', fileId] });
       queryClient.invalidateQueries({ queryKey: ['tag-stats'] });
+      // 列表里的标签列走 file-tags-batch，键名不同，必须单独失效
+      queryClient.invalidateQueries({ queryKey: ['file-tags-batch'] });
     },
     onError: (e: any) =>
       toast({ title: '移除失败', description: e.response?.data?.error?.message, variant: 'destructive' }),

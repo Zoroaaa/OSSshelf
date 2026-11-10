@@ -10,7 +10,14 @@
  */
 
 import { Hono, type Context } from 'hono';
-import { buildFilePath, normalizeEntryName, normalizeParentId, pathPrefix, pathPrefixCondition } from '../lib/pathUtils';
+import {
+  buildPathUnderParent,
+  resolveAvailableFileName,
+  normalizeEntryName,
+  normalizeParentId,
+  pathPrefix,
+  pathPrefixCondition,
+} from '../lib/pathUtils';
 import { eq, and, isNull, isNotNull, like, or, inArray, sql, count, gt, ne } from 'drizzle-orm';
 import {
   getDb,
@@ -557,7 +564,9 @@ app.post('/upload', async (c) => {
   const fileId = crypto.randomUUID();
   const now = new Date().toISOString();
   const r2Key = `files/${userId}/${fileId}/${safeFileName}`;
-  const path = await buildFilePath(db, userId, parentId, safeFileName);
+  // 同名不覆盖也不跳过：自动加后缀，和分片上传任务口径一致。
+  const finalName = await resolveAvailableFileName(db, { parentId, userId, name: safeFileName });
+  const path = await buildPathUnderParent(db, parentId, finalName, userId);
   const finalBucketId = isTelegramBucket ? effectiveBucketId : (bucketConfig?.id ?? null);
 
   // ── CoW 去重：单次读取 buffer，计算 hash，查找可复用对象 ───────────────
@@ -647,7 +656,7 @@ app.post('/upload', async (c) => {
     id: fileId,
     userId,
     parentId: parentId || null,
-    name: safeFileName,
+    name: finalName,
     path,
     type: 'file',
     size: uploadFile.size,
@@ -671,10 +680,10 @@ app.post('/upload', async (c) => {
     userId,
     type: 'file_uploaded',
     title: '文件上传成功',
-    body: `文件「${safeFileName}」已成功上传`,
+    body: `文件「${finalName}」已成功上传`,
     data: {
       fileId,
-      fileName: safeFileName,
+      fileName: finalName,
       size: uploadFile.size,
       mimeType: fileMime,
       bucketId: finalBucketId,
@@ -685,7 +694,7 @@ app.post('/upload', async (c) => {
   c.executionCtx.waitUntil(
     dispatchWebhook(c.env, userId, 'file.uploaded', {
       fileId,
-      fileName: safeFileName,
+      fileName: finalName,
       size: uploadFile.size,
       mimeType: fileMime,
       bucketId: finalBucketId,
@@ -708,7 +717,7 @@ app.post('/upload', async (c) => {
     success: true,
     data: {
       id: fileId,
-      name: safeFileName,
+      name: finalName,
       size: uploadFile.size,
       mimeType: fileMime,
       path,
@@ -1215,7 +1224,7 @@ app.post('/', async (c) => {
 
   const folderId = crypto.randomUUID();
   const now = new Date().toISOString();
-  const path = await buildFilePath(db, userId, parentId, name);
+  const path = await buildPathUnderParent(db, parentId, name, userId);
   const newFolder = {
     id: folderId,
     userId,
@@ -1330,7 +1339,7 @@ app.post('/create', async (c) => {
   const fileId = crypto.randomUUID();
   const now = new Date().toISOString();
   const r2Key = `files/${userId}/${fileId}/${name}`;
-  const path = await buildFilePath(db, userId, parentId, name);
+  const path = await buildPathUnderParent(db, parentId, name, userId);
   const hash = await computeSha256Hex(fileArrayBuffer);
 
   const dedupResult = await checkAndClaimDedup(db, hash, effectiveBucketId, userId);
@@ -1753,6 +1762,9 @@ app.put('/:id', async (c) => {
   if (name) {
     const renameResult = await serviceRenameFile(c.env, userId, fileId, { name });
     if (!renameResult.success) {
+      if (renameResult.error === '已存在同名文件') {
+        return c.json({ success: false, error: { code: 'FILE_NAME_CONFLICT', message: renameResult.error } }, 409);
+      }
       throwAppError('FILE_NOT_FOUND', renameResult.error);
     }
   }

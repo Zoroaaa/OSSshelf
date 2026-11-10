@@ -29,6 +29,7 @@ import { deleteFileVector } from './ai/vectorIndex';
 import { deleteFileFts, syncFileFts } from './ai/retrieval/fts';
 import {
   buildFilePath,
+  buildPathUnderParent,
   buildDescendantPathUpdate,
   normalizeEntryName,
   normalizeParentId,
@@ -321,13 +322,14 @@ export async function moveFile(
     }
   }
 
-  // 同名冲突检查
+  // 同名冲突检查：与重命名同一口径，按文件所属命名空间判断
   const conflict = await db
     .select()
     .from(files)
     .where(
       and(
-        eq(files.userId, userId),
+        eq(files.userId, file.userId),
+        file.teamId ? eq(files.teamId, file.teamId) : isNull(files.teamId),
         eq(files.name, file.name),
         targetParentId ? eq(files.parentId, targetParentId) : isNull(files.parentId),
         isNull(files.deletedAt)
@@ -340,7 +342,7 @@ export async function moveFile(
   }
 
   const now = new Date().toISOString();
-  const newPath = await buildFilePath(db, userId, targetParentId, file.name);
+  const newPath = await buildPathUnderParent(db, targetParentId, file.name, file.userId, file.teamId ?? null);
 
   const updateSelf = db
     .update(files)
@@ -351,7 +353,7 @@ export async function moveFile(
   if (file.isFolder) {
     await db.batch([
       updateSelf,
-      buildDescendantPathUpdate(db, userId, file.path, newPath, now, file.teamId ?? null),
+      buildDescendantPathUpdate(db, file.userId, file.path, newPath, now, file.teamId ?? null),
     ]);
   } else {
     await db.batch([updateSelf]);
@@ -386,8 +388,22 @@ export async function renameFile(
   const file = await db.select().from(files).where(eq(files.id, fileId)).get();
   if (!file) return { success: false, error: '文件不存在' };
 
+  // 同名冲突检查：按文件所属命名空间（owner + teamId）判断，而不是按调用者。
+  const conflictCondition = and(
+    eq(files.userId, file.userId),
+    file.teamId ? eq(files.teamId, file.teamId) : isNull(files.teamId),
+    eq(files.name, name),
+    file.parentId ? eq(files.parentId, file.parentId) : isNull(files.parentId),
+    isNull(files.deletedAt)
+  );
+  const conflict = await db.select({ id: files.id }).from(files).where(conflictCondition).get();
+  if (conflict && conflict.id !== fileId) {
+    return { success: false, error: '已存在同名文件' };
+  }
+
   const now = new Date().toISOString();
-  const newPath = await buildFilePath(db, userId, file.parentId, name);
+  // 共享/团队文件必须按其自身命名空间计算路径，否则 path 会丢掉父级前缀。
+  const newPath = await buildPathUnderParent(db, file.parentId, name, file.userId, file.teamId ?? null);
 
   const updateSelf = db
     .update(files)
@@ -402,7 +418,7 @@ export async function renameFile(
   if (file.isFolder) {
     await db.batch([
       updateSelf,
-      buildDescendantPathUpdate(db, userId, file.path, newPath, now, file.teamId ?? null),
+      buildDescendantPathUpdate(db, file.userId, file.path, newPath, now, file.teamId ?? null),
     ]);
   } else {
     await db.batch([updateSelf]);
