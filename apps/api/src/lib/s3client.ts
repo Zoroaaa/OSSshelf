@@ -81,7 +81,12 @@ function buildObjectUrl(config: S3BucketConfig, key: string): { url: string; hos
   const endpoint = resolveEndpoint(config.provider, config.endpoint, config.region);
   if (!endpoint) throw new Error(`无法解析存储桶 Endpoint（provider: ${config.provider}）`);
 
-  const encodedKey = key.split('/').map(encodeURIComponent).join('/');
+  // 对象 key 必须用 SigV4 的 UriEncode，URL 与 canonicalUri 共用同一份编码结果，
+  // 避免 ! ' ( ) * 等字符在服务端重算 canonical request 时产生差异。
+  const encodedKey = key
+    .split('/')
+    .map((segment) => awsUriEncode(segment))
+    .join('/');
 
   if (config.pathStyle) {
     const url = `${endpoint}/${config.bucketName}/${encodedKey}`;
@@ -98,6 +103,29 @@ function buildObjectUrl(config: S3BucketConfig, key: string): { url: string; hos
 
 // ── AWS Signature V4 ─────────────────────────────────────────────────────
 const enc = new TextEncoder();
+
+/**
+ * SigV4 规范的 UriEncode：只有 A-Za-z0-9-._~ 不编码。
+ *
+ * 不能用 encodeURIComponent 替代：它不会编码 ! ' ( ) *，而 SigV4 要求编码。
+ * 一旦有未编码字符，签名端算出的 canonical query 与对象存储服务端重算的结果
+ * 不一致，下载会直接返回 SignatureDoesNotMatch。
+ * 典型触发点：response-content-disposition 里的 filename*=UTF-8''（含 ' 和 *）。
+ */
+function awsUriEncode(value: string, encodeSlash = true): string {
+  let out = '';
+  for (const byte of new TextEncoder().encode(value)) {
+    const ch = String.fromCharCode(byte);
+    if (/[A-Za-z0-9\-._~]/.test(ch)) {
+      out += ch;
+    } else if (ch === '/' && !encodeSlash) {
+      out += ch;
+    } else {
+      out += `%${byte.toString(16).toUpperCase().padStart(2, '0')}`;
+    }
+  }
+  return out;
+}
 
 async function sha256Hex(data: string | Uint8Array): Promise<string> {
   const buf = typeof data === 'string' ? enc.encode(data) : data;
@@ -245,7 +273,7 @@ export async function s3PresignUrl(
 
   const sortedQuery = Object.keys(queryParams)
     .sort()
-    .map((k) => `${k}=${encodeURIComponent(queryParams[k])}`)
+    .map((k) => `${k}=${awsUriEncode(queryParams[k])}`)
     .join('&');
 
   const canonicalHeaders = `host:${host}\n`;
