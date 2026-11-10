@@ -724,6 +724,7 @@ app.get('/', async (c) => {
   const userId = c.get('userId')!;
   const parentId = c.req.query('parentId') || null;
   const search = c.req.query('search') || '';
+  const isFolderParam = c.req.query('isFolder');
   const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'name', 'size', 'mimeType'] as const;
   const sortByRaw = c.req.query('sortBy') || 'createdAt';
   const sortBy = ALLOWED_SORT_FIELDS.includes(sortByRaw as any) ? sortByRaw : 'createdAt';
@@ -885,6 +886,10 @@ app.get('/', async (c) => {
   } else {
     // 收藏筛选时，只返回用户自己的收藏文件
     conditions.push(eq(files.userId, userId));
+  }
+
+  if (isFolderParam === 'true' || isFolderParam === 'false') {
+    conditions.push(eq(files.isFolder, isFolderParam === 'true'));
   }
 
   if (search) {

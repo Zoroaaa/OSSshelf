@@ -8,7 +8,6 @@ export { NewFolderDialog } from './NewFolderDialog';
 export { ShareDialog, UploadLinkDialog } from './ShareDialog';
 export { DirectLinkDialog } from './DirectLinkDialog';
 export { RenameDialog } from './RenameDialog';
-export { FolderPickerDialog } from './FolderPickerDialog';
-export { MoveFolderPicker } from './MoveFolderPicker';
+export { FolderPickerDialog, type FolderPickerMode, type FolderSelection } from './FolderPickerDialog';
 export { MigrateBucketDialog } from './MigrateBucketDialog';
 export { FileDetailPanel } from './FileDetailPanel';

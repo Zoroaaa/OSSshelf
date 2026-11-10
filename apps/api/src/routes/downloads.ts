@@ -22,6 +22,7 @@ import { resolveBucketConfig, checkBucketQuota } from '../lib/bucketResolver';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getEncryptionKey } from '../lib/crypto';
 import { buildFilePath, normalizeEntryName, normalizeParentId } from '../lib/pathUtils';
+import { checkFilePermission } from '../lib/permissionService';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -33,6 +34,31 @@ const createTaskSchema = z.object({
   parentId: z.string().nullable().optional(),
   bucketId: z.string().nullable().optional(),
 });
+
+/** 校验目标父目录存在、是文件夹且当前用户可写 */
+async function assertWritableTargetFolder(
+  db: ReturnType<typeof getDb>,
+  parentId: string | null,
+  userId: string,
+  env: Env
+): Promise<void> {
+  if (!parentId) return;
+
+  const parent = await db
+    .select({ isFolder: files.isFolder, deletedAt: files.deletedAt })
+    .from(files)
+    .where(eq(files.id, parentId))
+    .get();
+
+  if (!parent || !parent.isFolder || parent.deletedAt) {
+    throwAppError('FOLDER_NOT_FOUND', '目标文件夹不存在');
+  }
+
+  const { hasAccess } = await checkFilePermission(db, parentId, userId, 'write', env);
+  if (!hasAccess) {
+    throwAppError('FILE_ACCESS_DENIED', '无权写入目标文件夹');
+  }
+}
 
 const updateTaskSchema = z.object({
   fileName: z.string().min(1).max(255).optional(),
@@ -275,13 +301,17 @@ app.post('/create', async (c) => {
   const resolvedFileName = normalizeEntryName(fileName || getFileNameFromUrl(url));
   const safeParentId = normalizeParentId(parentId);
 
+  if (safeParentId) {
+    await assertWritableTargetFolder(db, safeParentId, userId, c.env);
+  }
+
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
   if (!user) {
     throwAppError('USER_NOT_FOUND');
   }
 
   const encKey = getEncryptionKey(c.env);
-  const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, safeParentId);
+  const bucketConfig = await resolveBucketConfig(db, userId, encKey, safeParentId ? null : bucketId, safeParentId);
   if (!bucketConfig) {
     throwAppError('NO_STORAGE_CONFIGURED', '未配置存储桶');
   }
@@ -444,13 +474,17 @@ app.post('/batch', async (c) => {
   const safeParentId = normalizeParentId(parentId);
   const db = getDb(c.env.DB);
 
+  if (safeParentId) {
+    await assertWritableTargetFolder(db, safeParentId, userId, c.env);
+  }
+
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
   if (!user) {
     throwAppError('USER_NOT_FOUND');
   }
 
   const encKey = getEncryptionKey(c.env);
-  const bucketConfig = await resolveBucketConfig(db, userId, encKey, bucketId, safeParentId);
+  const bucketConfig = await resolveBucketConfig(db, userId, encKey, safeParentId ? null : bucketId, safeParentId);
   if (!bucketConfig) {
     throwAppError('NO_STORAGE_CONFIGURED', '未配置存储桶');
   }
@@ -636,7 +670,7 @@ app.post('/:taskId/retry', async (c) => {
   // 重新触发下载任务（与 /create 中的 waitUntil 逻辑相同）
   const encKey = getEncryptionKey(c.env);
   const bucketConfig = task.bucketId
-    ? await resolveBucketConfig(db, userId, encKey, task.bucketId, task.parentId)
+    ? await resolveBucketConfig(db, userId, encKey, task.parentId ? null : task.bucketId, task.parentId)
     : null;
 
   if (bucketConfig) {

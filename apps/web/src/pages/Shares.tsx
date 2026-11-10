@@ -183,10 +183,12 @@ export default function Shares() {
       {/* Step 1: Pick a folder */}
       {showFolderPicker && (
         <FolderPickerDialog
+          mode="upload"
           title="选择目标文件夹"
           confirmLabel="下一步：设置链接"
-          onConfirm={(id, name) => {
-            setUploadFolderMeta({ id, name });
+          onConfirm={(selection) => {
+            if (!selection.id) return;
+            setUploadFolderMeta({ id: selection.id, name: selection.name });
             setShowFolderPicker(false);
           }}
           onCancel={() => setShowFolderPicker(false)}

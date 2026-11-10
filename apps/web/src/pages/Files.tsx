@@ -33,7 +33,6 @@ import { useFolderUpload } from '@/hooks/useFolderUpload';
 import { BreadcrumbNav, type BreadcrumbItem } from '@/components/ui/BreadcrumbNav';
 import { FilePreview } from '@/components/files/FilePreview';
 import { RenameDialog } from '@/components/files/dialogs';
-import { MoveFolderPicker } from '@/components/files/dialogs';
 import { FileTagsManager } from '@/components/files/tags';
 import { FilePermissionManager } from '@/components/files/permissions';
 import { FolderSettings } from '@/components/files/FolderSettings';
@@ -1592,8 +1591,10 @@ export default function Files() {
       {/* Upload link folder picker */}
       {showFolderPicker && (
         <FolderPickerDialog
-          onConfirm={(id, name) => {
-            setUploadLinkFolder({ id, name });
+          mode="upload"
+          onConfirm={(selection) => {
+            if (!selection.id) return;
+            setUploadLinkFolder({ id: selection.id, name: selection.name });
             setShowFolderPicker(false);
           }}
           onCancel={() => setShowFolderPicker(false)}
@@ -1752,13 +1753,14 @@ export default function Files() {
       />
 
       {moveFile && (
-        <MoveFolderPicker
+        <FolderPickerDialog
+          mode="move"
           excludeIds={[moveFile.id]}
           isPending={moveMutation.isPending}
           sourceBucketId={(moveFile as any).bucketId}
-          onConfirm={(targetParentId) =>
+          onConfirm={(selection) =>
             moveMutation.mutate(
-              { id: moveFile.id, targetParentId },
+              { id: moveFile.id, targetParentId: selection.id },
               {
                 onSuccess: () => setMoveFile(null),
                 onError: (error: any) => {
@@ -1767,7 +1769,7 @@ export default function Files() {
                     setCrossBucketMove({
                       fileIds: [moveFile.id],
                       targetBucketId: error.response.data.error.targetBucketId,
-                      targetFolderId: targetParentId ?? undefined,
+                      targetFolderId: selection.id ?? undefined,
                       sourceBucketId: error.response.data.error.sourceBucketId,
                     });
                     setMoveFile(null);
