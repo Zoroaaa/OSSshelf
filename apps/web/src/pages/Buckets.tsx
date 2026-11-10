@@ -343,15 +343,6 @@ function BucketForm({ initial, onSave, onCancel, loading }: BucketFormProps) {
               <span className="text-sm">强制 Path-style URL</span>
               <span className="text-xs text-muted-foreground">（MinIO / B2 等需要）</span>
             </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={form.isDefault || false}
-                onChange={(e) => setForm((f) => ({ ...f, isDefault: e.target.checked }))}
-                className="rounded"
-              />
-              <span className="text-sm">设为默认存储桶</span>
-            </label>
           </div>
         </>
       )}

@@ -56,7 +56,9 @@ export function NewFolderDialog({
             placeholder="输入文件夹名称"
             value={name}
             onChange={(e) => onNameChange(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && name.trim() && onConfirm()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !loading && name.trim()) onConfirm();
+            }}
             autoFocus
           />
         </div>

@@ -63,7 +63,7 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import type { FileItem } from '@osshelf/shared';
-import { cn, decodeFileName, getErrorMessage, runWithConcurrency } from '@/utils';
+import { cn, copyToClipboard, decodeFileName, getErrorMessage, runWithConcurrency } from '@/utils';
 
 import {
   NewFolderDialog,
@@ -105,6 +105,7 @@ export default function Files() {
     selectedFiles,
     selectedFileItems,
     toggleFileSelection,
+    setSelectedFiles,
     clearSelection,
     selectAll,
     sortBy,
@@ -285,6 +286,22 @@ export default function Files() {
     setCurrentPage(1);
   }, [folderId]);
 
+  // 选择只对「当前视图」有效：目录、页码、页大小或搜索条件变化后，
+  // 之前选中的项目已不在视图内，必须清空，避免批量操作作用到不可见文件。
+  const advancedSearchKey = JSON.stringify(advancedConditions);
+  useEffect(() => {
+    clearSelection();
+  }, [
+    folderId,
+    currentPage,
+    pageSize,
+    searchQuery,
+    tagSearchQuery,
+    showAdvancedSearch,
+    advancedSearchKey,
+    clearSelection,
+  ]);
+
   const handlePageSizeChange = (size: 20 | 50 | 100) => {
     setPageSize(size);
     setCurrentPage(1);
@@ -371,15 +388,22 @@ export default function Files() {
   // Upload link creation
   const createUploadLinkMutation = useMutation({
     mutationFn: (params: Parameters<typeof shareApi.createUploadLink>[0]) => shareApi.createUploadLink(params),
-    onSuccess: (res) => {
+    onSuccess: async (res) => {
       const d = res.data.data;
       if (d?.uploadToken) {
         const url = `${window.location.origin}/upload/${d.uploadToken}`;
-        navigator.clipboard.writeText(url).then(() => toast({ title: '上传链接已复制', description: url }));
+        const copied = await copyToClipboard(url);
+        toast({
+          title: copied ? '上传链接已复制' : '上传链接已创建',
+          description: copied ? url : `复制失败，请手动复制：${url}`,
+          variant: copied ? undefined : 'destructive',
+        });
+      } else {
+        toast({ title: '上传链接已创建', description: '未能获取链接，请在分享列表中查看' });
       }
       setUploadLinkFolder(null);
     },
-    onError: () => toast({ title: '创建上传链接失败', variant: 'destructive' }),
+    onError: (e) => toast({ title: '创建上传链接失败', description: getErrorMessage(e), variant: 'destructive' }),
   });
 
   function getEffectiveBucket(): StorageBucket | null {
@@ -437,6 +461,18 @@ export default function Files() {
     bucketId: getEffectiveBucket()?.id ?? null,
     setUploadProgresses,
   });
+
+  // 只读共享目录不允许写入：在拖拽入口直接拦截，避免发出注定 403 的上传请求。
+  const handleDropWithPermissionCheck = useCallback(
+    (e: React.DragEvent) => {
+      if (folderId && currentFolderInfo && !currentFolderInfo.canWrite) {
+        toast({ title: '无法上传', description: '当前文件夹没有写入权限', variant: 'destructive' });
+        return;
+      }
+      handleDrop(e);
+    },
+    [folderId, currentFolderInfo, handleDrop, toast]
+  );
 
   const { uploadFilesWithRelativePath } = useFolderUpload({
     currentFolderId: folderId ?? undefined,
@@ -847,17 +883,19 @@ export default function Files() {
     },
     onNavigateUp: () => {
       const nextId = getNextFileId(displayFiles, 'up');
-      if (nextId) {
-        setFocusedFile(nextId);
-        toggleFileSelection(nextId);
-      }
+      if (!nextId) return;
+      setFocusedFile(nextId);
+      const nextFile = displayFiles.find((f) => f.id === nextId);
+      // 导航是「移动选中」，不是累加选择：同时替换 id 与 item，
+      // 否则后续 F2/Enter 会作用到 selectedFileItems 里的旧文件。
+      if (nextFile) setSelectedFiles([nextId], [nextFile]);
     },
     onNavigateDown: () => {
       const nextId = getNextFileId(displayFiles, 'down');
-      if (nextId) {
-        setFocusedFile(nextId);
-        toggleFileSelection(nextId);
-      }
+      if (!nextId) return;
+      setFocusedFile(nextId);
+      const nextFile = displayFiles.find((f) => f.id === nextId);
+      if (nextFile) setSelectedFiles([nextId], [nextFile]);
     },
     onNewFolder: () => setShowNewFolderDialog(true),
     onUpload: () => fileInputRef.current?.click(),
@@ -888,7 +926,12 @@ export default function Files() {
   );
 
   return (
-    <div className="space-y-6" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+    <div
+      className="space-y-6"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDropWithPermissionCheck}
+    >
       <ContextMenuComponent />
 
       {isDragActive && (
@@ -1470,7 +1513,18 @@ export default function Files() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => batchZipMutation.mutate({ fileIds: selectedFiles })}
+            onClick={() => {
+              // 后端单次最多打包 100 个，超出时会直接 400，此前没有任何提示。
+              if (selectedFiles.length > 100) {
+                toast({
+                  title: '批量下载最多 100 个文件',
+                  description: '请减少选择后重试',
+                  variant: 'destructive',
+                });
+                return;
+              }
+              batchZipMutation.mutate({ fileIds: selectedFiles });
+            }}
             disabled={batchZipMutation.isPending}
           >
             <Download className="h-3.5 w-3.5 mr-1" />
@@ -1790,6 +1844,7 @@ export default function Files() {
           onDownload={handleDownload}
           onShare={(id) => {
             setPreviewFile(null);
+            setShareFileItem({ id, isFolder: false });
             setShareFileId(id);
           }}
           onEdit={() => {

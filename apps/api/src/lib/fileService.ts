@@ -625,6 +625,36 @@ export async function createFolder(
   return { success: true, folderId, folder: newFolder };
 }
 
+/**
+ * 恢复被删除的祖先目录链。
+ * 只恢复目录自身而不恢复祖先时，条目会同时从回收站与文件列表消失（父目录仍是删除态）。
+ */
+async function restoreDeletedAncestors(
+  db: ReturnType<typeof getDb>,
+  ownerId: string,
+  parentId: string | null,
+  now: string
+): Promise<void> {
+  const visited = new Set<string>();
+  let currentId = parentId;
+
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    const parent = await db
+      .select({ id: files.id, parentId: files.parentId, deletedAt: files.deletedAt })
+      .from(files)
+      .where(and(eq(files.id, currentId), eq(files.userId, ownerId)))
+      .get();
+
+    if (!parent) return;
+
+    if (parent.deletedAt) {
+      await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, parent.id));
+    }
+    currentId = parent.parentId;
+  }
+}
+
 export async function restoreFile(
   env: Env,
   userId: string,
@@ -641,6 +671,7 @@ export async function restoreFile(
   if (!file) return { success: false, error: '该文件不在回收站中或不存在' };
 
   const now = new Date().toISOString();
+  await restoreDeletedAncestors(db, file.userId, file.parentId ?? null, now);
   await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, fileId));
 
   if (file.isFolder) {

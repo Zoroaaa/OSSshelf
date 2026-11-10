@@ -20,12 +20,20 @@ interface ShareDialogProps {
   onCancel: () => void;
 }
 
+/** 可选的「正整数」字段：留空合法，填写则必须 >= 1 的整数 */
+const isInvalidPositiveInt = (value: number | '') => value !== '' && (!Number.isInteger(value) || value < 1);
+
 export function ShareDialog({ fileId: _fileId, isFolder, isPending, onConfirm, onCancel }: ShareDialogProps) {
   const [password, setPassword] = useState('');
   const [expiresDays, setExpiresDays] = useState<number | ''>('');
   const [downloadLimit, setDownloadLimit] = useState<number | ''>('');
 
+  const expiresInvalid = isInvalidPositiveInt(expiresDays);
+  const limitInvalid = isInvalidPositiveInt(downloadLimit);
+  const canSubmit = !isPending && !expiresInvalid && !limitInvalid;
+
   const handleConfirm = () => {
+    if (!canSubmit) return;
     const expiresAt = expiresDays ? new Date(Date.now() + Number(expiresDays) * 86400000).toISOString() : undefined;
     onConfirm({
       password: password || undefined,
@@ -60,6 +68,7 @@ export function ShareDialog({ fileId: _fileId, isFolder, isPending, onConfirm, o
               value={expiresDays}
               onChange={(e) => setExpiresDays(e.target.value ? Number(e.target.value) : '')}
             />
+            {expiresInvalid && <p className="text-xs text-destructive">请输入不小于 1 的整数天</p>}
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium">下载次数限制（可选）</label>
@@ -70,13 +79,14 @@ export function ShareDialog({ fileId: _fileId, isFolder, isPending, onConfirm, o
               value={downloadLimit}
               onChange={(e) => setDownloadLimit(e.target.value ? Number(e.target.value) : '')}
             />
+            {limitInvalid && <p className="text-xs text-destructive">请输入不小于 1 的整数</p>}
           </div>
         </div>
         <div className="flex justify-end gap-2 mt-5">
           <Button variant="outline" onClick={onCancel}>
             取消
           </Button>
-          <Button onClick={handleConfirm} disabled={isPending}>
+          <Button onClick={handleConfirm} disabled={!canSubmit}>
             {isPending ? '创建中...' : '创建并复制链接'}
           </Button>
         </div>
@@ -116,7 +126,13 @@ export function UploadLinkDialog({
   const [mimeInput, setMimeInput] = useState('');
   const [advanced, setAdvanced] = useState(false);
 
+  const expiresInvalid = isInvalidPositiveInt(expiresDays);
+  const sizeInvalid = isInvalidPositiveInt(maxSizeMb);
+  const countInvalid = isInvalidPositiveInt(maxCount);
+  const canSubmit = !isPending && !expiresInvalid && !sizeInvalid && !countInvalid;
+
   const handleConfirm = () => {
+    if (!canSubmit) return;
     const expiresAt = expiresDays ? new Date(Date.now() + Number(expiresDays) * 86400000).toISOString() : undefined;
     const allowedMimeTypes = mimeInput.trim()
       ? mimeInput
@@ -159,6 +175,7 @@ export function UploadLinkDialog({
               value={expiresDays}
               onChange={(e) => setExpiresDays(e.target.value ? Number(e.target.value) : '')}
             />
+            {expiresInvalid && <p className="text-xs text-destructive">请输入不小于 1 的整数天</p>}
           </div>
 
           {/* Advanced toggle */}
@@ -182,6 +199,7 @@ export function UploadLinkDialog({
                   value={maxSizeMb}
                   onChange={(e) => setMaxSizeMb(e.target.value ? Number(e.target.value) : '')}
                 />
+                {sizeInvalid && <p className="text-xs text-destructive">请输入不小于 1 的整数</p>}
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">最多上传文件数（可选）</label>
@@ -192,6 +210,7 @@ export function UploadLinkDialog({
                   value={maxCount}
                   onChange={(e) => setMaxCount(e.target.value ? Number(e.target.value) : '')}
                 />
+                {countInvalid && <p className="text-xs text-destructive">请输入不小于 1 的整数</p>}
               </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">允许的文件类型（可选）</label>
@@ -209,7 +228,7 @@ export function UploadLinkDialog({
           <Button variant="outline" onClick={onCancel}>
             取消
           </Button>
-          <Button onClick={handleConfirm} disabled={isPending}>
+          <Button onClick={handleConfirm} disabled={!canSubmit}>
             {isPending ? '创建中...' : '创建上传链接'}
           </Button>
         </div>

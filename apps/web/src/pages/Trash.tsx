@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/Button';
 import { FileIcon } from '@/components/files/FileIcon';
 import { MobileDialog, MobileDialogFooter, MobileDialogAction } from '@/components/ui/MobileDialog';
 import { useToast } from '@/components/ui/useToast';
-import { formatBytes, formatDate, decodeFileName } from '@/utils';
+import { formatBytes, formatDate, decodeFileName, getErrorMessage } from '@/utils';
 import { Trash2, RotateCcw, AlertTriangle, PackageOpen } from 'lucide-react';
 import type { FileItem } from '@osshelf/shared';
 
@@ -63,18 +63,21 @@ export default function Trash() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['trash'] });
       queryClient.invalidateQueries({ queryKey: ['files'] });
+      // 恢复后文件重新计入配额，统计需要同步刷新
+      queryClient.invalidateQueries({ queryKey: ['stats'] });
       toast({ title: '已恢复文件' });
     },
-    onError: () => toast({ title: '恢复失败', variant: 'destructive' }),
+    onError: (e) => toast({ title: '恢复失败', description: getErrorMessage(e), variant: 'destructive' }),
   });
 
   const deleteOneMutation = useMutation({
     mutationFn: (id: string) => filesApi.deleteTrash(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['trash'] });
+      queryClient.invalidateQueries({ queryKey: ['stats'] });
       toast({ title: '已永久删除' });
     },
-    onError: () => toast({ title: '删除失败', variant: 'destructive' }),
+    onError: (e) => toast({ title: '删除失败', description: getErrorMessage(e), variant: 'destructive' }),
   });
 
   const emptyMutation = useMutation({
@@ -82,9 +85,10 @@ export default function Trash() {
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['trash'] });
       queryClient.invalidateQueries({ queryKey: ['files'] });
+      queryClient.invalidateQueries({ queryKey: ['stats'] });
       toast({ title: res.data.data?.message ?? '已清空回收站' });
     },
-    onError: () => toast({ title: '清空失败', variant: 'destructive' }),
+    onError: (e) => toast({ title: '清空失败', description: getErrorMessage(e), variant: 'destructive' }),
   });
 
   const handleEmpty = () => {
