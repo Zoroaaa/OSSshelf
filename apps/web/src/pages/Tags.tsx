@@ -144,6 +144,8 @@ export default function Tags() {
     onSuccess: () => {
       toast({ title: '已移除标签' });
       queryClient.invalidateQueries({ queryKey: ['tag-files'] });
+      queryClient.invalidateQueries({ queryKey: ['file-tags'] });
+      queryClient.invalidateQueries({ queryKey: ['file-tags-batch'] });
       queryClient.invalidateQueries({ queryKey: ['tag-stats'] });
       queryClient.invalidateQueries({ queryKey: ['user-tags'] });
       setSelectedFileIds((prev) => new Set(prev));
@@ -158,6 +160,8 @@ export default function Tags() {
     onSuccess: () => {
       toast({ title: '已移入回收站' });
       queryClient.invalidateQueries({ queryKey: ['tag-files'] });
+      queryClient.invalidateQueries({ queryKey: ['file-tags'] });
+      queryClient.invalidateQueries({ queryKey: ['file-tags-batch'] });
       queryClient.invalidateQueries({ queryKey: ['tag-stats'] });
       queryClient.invalidateQueries({ queryKey: ['user-tags'] });
       setSelectedFileIds((prev) => new Set(prev));
@@ -173,6 +177,8 @@ export default function Tags() {
       const data = res.data.data;
       toast({ title: '批量删除完成', description: `成功 ${data?.success || 0} 个，失败 ${data?.failed || 0} 个` });
       queryClient.invalidateQueries({ queryKey: ['tag-files'] });
+      queryClient.invalidateQueries({ queryKey: ['file-tags'] });
+      queryClient.invalidateQueries({ queryKey: ['file-tags-batch'] });
       queryClient.invalidateQueries({ queryKey: ['tag-stats'] });
       setSelectedFileIds(new Set());
     },
@@ -187,6 +193,8 @@ export default function Tags() {
     onSuccess: () => {
       toast({ title: `已从 ${selectedFileIds.size} 个文件移除标签「${selectedTag}」` });
       queryClient.invalidateQueries({ queryKey: ['tag-files'] });
+      queryClient.invalidateQueries({ queryKey: ['file-tags'] });
+      queryClient.invalidateQueries({ queryKey: ['file-tags-batch'] });
       queryClient.invalidateQueries({ queryKey: ['tag-stats'] });
       queryClient.invalidateQueries({ queryKey: ['user-tags'] });
       setSelectedFileIds(new Set());

@@ -118,6 +118,81 @@ export async function buildTeamFilePath(
   return `${trimTrailingSlash(parent.path)}/${safeName}`;
 }
 
+/**
+ * 按父目录实际所属的命名空间生成路径。
+ * 共享目录里创建/上传的文件，其 parentId 链可能不属于调用者，
+ * 必须用父目录的 owner / teamId 计算，否则 path 会退化成 `/name`。
+ */
+export async function buildPathUnderParent(
+  db: DrizzleDb,
+  parentId: string | null | undefined,
+  name: string,
+  fallbackUserId: string,
+  teamId: string | null = null
+): Promise<string> {
+  const pid = normalizeParentId(parentId);
+  if (!pid) {
+    return teamId ? buildTeamFilePath(db, teamId, null, name) : buildFilePath(db, fallbackUserId, null, name);
+  }
+
+  const parent = await db
+    .select({ userId: files.userId, teamId: files.teamId })
+    .from(files)
+    .where(eq(files.id, pid))
+    .get();
+
+  if (parent?.teamId) return buildTeamFilePath(db, parent.teamId, pid, name);
+  if (parent) return buildFilePath(db, parent.userId, pid, name);
+  return teamId ? buildTeamFilePath(db, teamId, pid, name) : buildFilePath(db, fallbackUserId, pid, name);
+}
+
+/**
+ * 上传落库前解析可用文件名：同目录同名时自动追加 ` (n)` 后缀。
+ *
+ * 数据库没有 (userId, parentId, name) 唯一约束，只能由应用层保证。
+ * 同目录视为同一命名空间（共享目录下不同上传者的同名文件同样冲突）；
+ * 根目录则按 userId + teamId 区分。回收站中的同名文件不参与冲突。
+ */
+export async function resolveAvailableFileName(
+  db: DrizzleDb,
+  params: { parentId: string | null | undefined; userId: string; teamId?: string | null; name: string }
+): Promise<string> {
+  const pid = normalizeParentId(params.parentId);
+  const baseName = normalizeEntryName(params.name);
+  const teamId = params.teamId ?? null;
+
+  const isTaken = async (candidate: string): Promise<boolean> => {
+    const conditions: SQL[] = [
+      eq(files.name, candidate),
+      pid ? eq(files.parentId, pid) : isNull(files.parentId),
+      isNull(files.deletedAt),
+    ];
+    if (teamId) {
+      conditions.push(eq(files.teamId, teamId));
+    } else if (!pid) {
+      conditions.push(eq(files.userId, params.userId), isNull(files.teamId));
+    }
+    const hit = await db
+      .select({ id: files.id })
+      .from(files)
+      .where(and(...conditions))
+      .get();
+    return Boolean(hit);
+  };
+
+  if (!(await isTaken(baseName))) return baseName;
+
+  const dot = baseName.lastIndexOf('.');
+  const stem = dot > 0 ? baseName.slice(0, dot) : baseName;
+  const ext = dot > 0 ? baseName.slice(dot) : '';
+  for (let i = 1; i <= 999; i++) {
+    const candidate = `${stem} (${i})${ext}`;
+    if (candidate.length > MAX_NAME_LENGTH) continue;
+    if (!(await isTaken(candidate))) return candidate;
+  }
+  return `${stem} (${Date.now()})${ext}`.slice(0, MAX_NAME_LENGTH);
+}
+
 /** 构造文件夹展示路径（带尾部斜杠），用于搜索结果等展示场景 */
 export async function buildFolderPath(
   db: DrizzleDb,
