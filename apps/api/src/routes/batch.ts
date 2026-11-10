@@ -33,6 +33,7 @@ import { getEncryptionKey } from '../lib/crypto';
 import { releaseFileRef } from '../lib/dedup';
 import { createZipStream, assertZipLimits } from '../lib/zipStream';
 import { openFileStream } from '../lib/fileContentHelper';
+import { restoreFile } from '../lib/fileService';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -459,41 +460,17 @@ app.post('/restore', async (c) => {
   }
 
   const { fileIds } = result.data;
-  const db = getDb(c.env.DB);
-  const now = new Date().toISOString();
   const batchResult: BatchResult = { success: 0, failed: 0, errors: [] };
 
   for (const fileId of fileIds) {
     try {
-      const file = await db
-        .select()
-        .from(files)
-        .where(and(eq(files.id, fileId), eq(files.userId, userId), isNotNull(files.deletedAt)))
-        .get();
-
-      if (!file) {
+      // 复用单条恢复逻辑：会一并恢复被删除的祖先目录，避免子项成为不可见的孤儿。
+      const restored = await restoreFile(c.env, userId, fileId);
+      if (!restored.success) {
         batchResult.failed++;
-        batchResult.errors.push({ id: fileId, error: '文件不存在或未被删除' });
+        batchResult.errors.push({ id: fileId, error: restored.error });
         continue;
       }
-
-      await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, fileId));
-
-      if (file.isFolder) {
-        const subtreePrefix = pathPrefix(file.path);
-        const namespaceCondition = file.teamId ? eq(files.teamId, file.teamId) : isNull(files.teamId);
-        const allFiles = await db
-          .select()
-          .from(files)
-          .where(and(eq(files.userId, userId), namespaceCondition, isNotNull(files.deletedAt)))
-          .all();
-
-        const childFiles = allFiles.filter((f) => f.path && f.path.startsWith(subtreePrefix));
-        for (const child of childFiles) {
-          await db.update(files).set({ deletedAt: null, updatedAt: now }).where(eq(files.id, child.id));
-        }
-      }
-
       batchResult.success++;
     } catch (error) {
       batchResult.failed++;

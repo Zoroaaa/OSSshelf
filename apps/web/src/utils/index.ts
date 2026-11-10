@@ -64,6 +64,36 @@ export function getErrorMessage(error: unknown, fallback = '操作失败'): stri
 }
 
 /**
+ * 复制文本到剪贴板。
+ * 非安全上下文（http）或权限被拒时 navigator.clipboard 会直接抛错，
+ * 此时回退到 textarea + execCommand，保证复制动作有确定结果，避免静默失败。
+ */
+export async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // 继续走回退方案
+  }
+
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 以固定并发上限执行异步任务。
  * 用于上传等多文件场景，避免一次性并发全部请求导致内存与带宽打满。
  */

@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { shareApi } from '@/services/api';
-import { formatBytes, formatDate } from '@/utils';
+import { formatBytes, formatDate, copyToClipboard, getErrorMessage } from '@/utils';
 import { Button } from '@/components/ui/Button';
 import { FileIcon } from '@/components/files/FileIcon';
 import { UploadLinkDialog } from '@/components/files/dialogs';
@@ -55,30 +55,42 @@ export default function Shares() {
       queryClient.invalidateQueries({ queryKey: ['shares'] });
       toast({ title: '已删除' });
     },
-    onError: () => toast({ title: '删除失败', variant: 'destructive' }),
+    onError: (e) => toast({ title: '删除失败', description: getErrorMessage(e), variant: 'destructive' }),
   });
 
   const createUploadLinkMutation = useMutation({
     mutationFn: (params: Parameters<typeof shareApi.createUploadLink>[0]) => shareApi.createUploadLink(params),
-    onSuccess: (res) => {
+    onSuccess: async (res) => {
       const d = res.data.data;
       if (d?.uploadToken) {
         const url = `${window.location.origin}/upload/${d.uploadToken}`;
-        navigator.clipboard.writeText(url).then(() => toast({ title: '上传链接已复制', description: url }));
+        const copied = await copyToClipboard(url);
+        toast({
+          title: copied ? '上传链接已复制' : '上传链接已创建',
+          description: copied ? url : `复制失败，请手动复制：${url}`,
+          variant: copied ? undefined : 'destructive',
+        });
+      } else {
+        toast({ title: '上传链接已创建', description: '未能获取链接，请刷新列表查看' });
       }
       queryClient.invalidateQueries({ queryKey: ['shares'] });
       setShowFolderPicker(false);
       setUploadFolderMeta(null);
     },
-    onError: () => toast({ title: '创建失败', variant: 'destructive' }),
+    onError: (e) => toast({ title: '创建失败', description: getErrorMessage(e), variant: 'destructive' }),
   });
 
-  const handleCopyLink = (shareId: string, isUploadLink = false, uploadToken?: string) => {
+  const handleCopyLink = async (shareId: string, isUploadLink = false, uploadToken?: string) => {
     const url =
       isUploadLink && uploadToken
         ? `${window.location.origin}/upload/${uploadToken}`
         : `${window.location.origin}/share/${shareId}`;
-    navigator.clipboard.writeText(url).then(() => toast({ title: '链接已复制到剪贴板' }));
+    const copied = await copyToClipboard(url);
+    toast({
+      title: copied ? '链接已复制到剪贴板' : '复制失败',
+      description: copied ? undefined : `请手动复制：${url}`,
+      variant: copied ? undefined : 'destructive',
+    });
   };
 
   const getStatus = (share: any): 'active' | 'expired' | 'exhausted' => {

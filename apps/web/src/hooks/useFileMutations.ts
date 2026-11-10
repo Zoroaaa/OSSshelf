@@ -11,7 +11,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { filesApi, shareApi, batchApi, type StorageBucket } from '@/services/api';
 import { useToast } from '@/components/ui/useToast';
 import { useFileStore } from '@/stores/files';
-import { getErrorMessage } from '@/utils';
+import { getErrorMessage, copyToClipboard } from '@/utils';
 
 // 与后端 TG_MAX_CHUNKED_FILE_SIZE 保持一致（500MB）
 const TG_MAX_FILE_SIZE = 500 * 1024 * 1024;
@@ -102,11 +102,18 @@ export function useFileMutations() {
   const shareMutation = useMutation({
     mutationFn: ({ fileId, password, expiresAt, downloadLimit }: ShareMutationParams) =>
       shareApi.create({ fileId, password, expiresAt, downloadLimit }),
-    onSuccess: (res) => {
+    onSuccess: async (res) => {
       const shareId = res.data.data?.id;
       if (shareId) {
         const url = `${window.location.origin}/share/${shareId}`;
-        navigator.clipboard.writeText(url).then(() => toast({ title: '分享链接已复制', description: url }));
+        const copied = await copyToClipboard(url);
+        toast({
+          title: copied ? '分享链接已复制' : '分享已创建',
+          description: copied ? url : `复制失败，请手动复制：${url}`,
+          variant: copied ? undefined : 'destructive',
+        });
+      } else {
+        toast({ title: '分享已创建', description: '未能获取分享链接，请在分享列表中查看' });
       }
       queryClient.invalidateQueries({ queryKey: ['shares'] });
     },
@@ -114,14 +121,51 @@ export function useFileMutations() {
   });
 
   const batchDeleteMutation = useMutation({
-    mutationFn: (fileIds: string[]) => batchApi.delete(fileIds),
-    onSuccess: (res) => {
+    // 后端单次上限 100，搜索全选可能超过该值，这里分片执行并汇总结果，
+    // 否则整批会因参数校验失败而一个都删不掉。
+    mutationFn: async (fileIds: string[]) => {
+      const result: { success: number; failed: number; errors: Array<{ id: string; error: string }> } = {
+        success: 0,
+        failed: 0,
+        errors: [],
+      };
+      for (let i = 0; i < fileIds.length; i += 100) {
+        const chunk = fileIds.slice(i, i + 100);
+        try {
+          const res = await batchApi.delete(chunk);
+          const data = res.data.data;
+          result.success += data?.success ?? 0;
+          result.failed += data?.failed ?? 0;
+          if (data?.errors?.length) result.errors.push(...data.errors);
+        } catch (e) {
+          result.failed += chunk.length;
+          for (const id of chunk) result.errors.push({ id, error: getErrorMessage(e) });
+        }
+      }
+      return result;
+    },
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['files'] });
       queryClient.invalidateQueries({ queryKey: ['trash'] });
       queryClient.invalidateQueries({ queryKey: ['stats'] });
-      clearSelection();
-      const data = res.data.data;
-      toast({ title: '批量删除完成', description: `成功 ${data?.success || 0} 个，失败 ${data?.failed || 0} 个` });
+
+      if (data.failed === 0) {
+        clearSelection();
+        toast({ title: '批量删除完成', description: `成功 ${data.success} 个` });
+        return;
+      }
+
+      // 仅保留失败项，方便直接重试；已删除的项不再占用选择状态。
+      const failedIds = new Set(data.errors.map((e) => e.id));
+      const state = useFileStore.getState();
+      const remainingIds = state.selectedFiles.filter((id) => failedIds.has(id));
+      const remainingItems = state.selectedFileItems.filter((f) => failedIds.has(f.id));
+      state.setSelectedFiles(remainingIds, remainingItems);
+      toast({
+        title: '批量删除部分失败',
+        description: `成功 ${data.success} 个，失败 ${data.failed} 个，失败项已保留选中`,
+        variant: 'destructive',
+      });
     },
     onError: (e) => toast({ title: '批量删除失败', description: getErrorMessage(e), variant: 'destructive' }),
   });

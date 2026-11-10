@@ -13,7 +13,8 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Link, Copy, Trash2, RefreshCw, ExternalLink, Check, Infinity, Eye, Code, Lightbulb } from 'lucide-react';
 import { directLinkApi, type DirectLinkInfo } from '@/services/api';
-import { decodeFileName } from '@/utils';
+import { decodeFileName, getErrorMessage, copyToClipboard as writeClipboard } from '@/utils';
+import { useToast } from '@/components/ui/useToast';
 
 interface DirectLinkDialogProps {
   fileId: string;
@@ -22,12 +23,17 @@ interface DirectLinkDialogProps {
 }
 
 export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialogProps) {
+  const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [isPending, setIsPending] = useState(false);
   const [directLink, setDirectLink] = useState<DirectLinkInfo | null>(null);
   const [expiresDays, setExpiresDays] = useState<number | ''>(7);
   const [isPermanent, setIsPermanent] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  const expiresInvalid = expiresDays !== '' && (!Number.isInteger(expiresDays) || expiresDays < 1);
+  const reportError = (title: string, error: unknown) =>
+    toast({ title, description: getErrorMessage(error), variant: 'destructive' });
 
   useEffect(() => {
     loadDirectLink();
@@ -51,13 +57,14 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
         }
       }
     } catch (e) {
-      console.error('Failed to load direct link:', e);
+      reportError('加载直链失败', e);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleCreate = async () => {
+    if (expiresInvalid) return;
     setIsPending(true);
     try {
       const expiresAt = isPermanent
@@ -68,16 +75,17 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
       const res = await directLinkApi.create(fileId, expiresAt);
       if (res.data.success && res.data.data) {
         setDirectLink(res.data.data);
+        toast({ title: '直链已创建' });
       }
     } catch (e) {
-      console.error('Failed to create direct link:', e);
+      reportError('创建直链失败', e);
     } finally {
       setIsPending(false);
     }
   };
 
   const handleUpdate = async () => {
-    if (!directLink) return;
+    if (!directLink || expiresInvalid) return;
     setIsPending(true);
     try {
       const expiresAt = isPermanent
@@ -88,9 +96,10 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
       const res = await directLinkApi.update(fileId, expiresAt);
       if (res.data.success && res.data.data) {
         setDirectLink(res.data.data);
+        toast({ title: '直链已更新' });
       }
     } catch (e) {
-      console.error('Failed to update direct link:', e);
+      reportError('更新直链失败', e);
     } finally {
       setIsPending(false);
     }
@@ -105,8 +114,9 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
       setDirectLink(null);
       setIsPermanent(false);
       setExpiresDays(7);
+      toast({ title: '直链已删除' });
     } catch (e) {
-      console.error('Failed to delete direct link:', e);
+      reportError('删除直链失败', e);
     } finally {
       setIsPending(false);
     }
@@ -114,23 +124,23 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
 
   const handleCopy = async () => {
     if (!directLink?.directUrl) return;
-    try {
-      await navigator.clipboard.writeText(directLink.directUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (e) {
-      console.error('Failed to copy:', e);
+    const ok = await writeClipboard(directLink.directUrl);
+    if (!ok) {
+      toast({ title: '复制失败', description: '请手动选中输入框内容复制', variant: 'destructive' });
+      return;
     }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
-  const copyToClipboard = async (text: string, _label: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (e) {
-      console.error('Failed to copy:', e);
+  const copyText = async (text: string, label: string) => {
+    const ok = await writeClipboard(text);
+    if (!ok) {
+      toast({ title: `复制${label}失败`, description: '请手动选中输入框内容复制', variant: 'destructive' });
+      return;
     }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const formatDate = (dateStr: string | null | undefined) => {
@@ -205,7 +215,7 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
                 <Button
                   size="icon"
                   variant="outline"
-                  onClick={() => copyToClipboard(directLinkApi.previewUrl(directLink.token), '预览链接')}
+                  onClick={() => copyText(directLinkApi.previewUrl(directLink.token), '预览链接')}
                   title="复制预览链接"
                 >
                   <Copy className="h-4 w-4" />
@@ -244,7 +254,7 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
                 <Button
                   size="icon"
                   variant="outline"
-                  onClick={() => copyToClipboard(directLinkApi.infoUrl(directLink.token), '信息接口地址')}
+                  onClick={() => copyText(directLinkApi.infoUrl(directLink.token), '信息接口地址')}
                   title="复制信息接口地址"
                 >
                   <Copy className="h-4 w-4" />
@@ -322,10 +332,11 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
                       onChange={(e) => setExpiresDays(e.target.value ? Number(e.target.value) : '')}
                       className="flex-1"
                     />
-                    <Button onClick={handleUpdate} disabled={isPending || !expiresDays}>
+                    <Button onClick={handleUpdate} disabled={isPending || !expiresDays || expiresInvalid}>
                       {isPending ? '更新中...' : '更新'}
                     </Button>
                   </div>
+                  {expiresInvalid && <p className="text-xs text-destructive">请输入不小于 1 的整数天</p>}
                 </div>
               )}
 
@@ -375,6 +386,7 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
                     value={expiresDays}
                     onChange={(e) => setExpiresDays(e.target.value ? Number(e.target.value) : '')}
                   />
+                  {expiresInvalid && <p className="text-xs text-destructive">请输入不小于 1 的整数天</p>}
                 </div>
               )}
             </div>
@@ -383,7 +395,7 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
               <Button variant="outline" onClick={onClose}>
                 取消
               </Button>
-              <Button onClick={handleCreate} disabled={isPending}>
+              <Button onClick={handleCreate} disabled={isPending || expiresInvalid}>
                 {isPending ? '创建中...' : '创建直链'}
               </Button>
             </div>

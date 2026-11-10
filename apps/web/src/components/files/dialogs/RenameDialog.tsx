@@ -46,7 +46,7 @@ export function RenameDialog({ open, currentName, onConfirm, onCancel, isPending
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') handleSubmit();
+            if (e.key === 'Enter' && !isPending) handleSubmit();
             if (e.key === 'Escape') onCancel();
           }}
           autoFocus
