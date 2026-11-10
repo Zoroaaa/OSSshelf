@@ -22,10 +22,11 @@ export {
   DirectLinkDialog,
   RenameDialog,
   FolderPickerDialog,
-  MoveFolderPicker,
   MigrateBucketDialog,
   FILE_TEMPLATES,
   type FileTemplate,
+  type FolderPickerMode,
+  type FolderSelection,
 } from './dialogs';
 
 export { ListItem, GridItem } from './items';

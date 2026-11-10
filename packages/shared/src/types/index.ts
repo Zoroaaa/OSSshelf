@@ -252,6 +252,8 @@ export interface FileListParams extends PaginationParams {
   createdAfter?: string;
   createdBefore?: string;
   starred?: boolean | string;
+  /** 仅返回文件夹（true）或仅返回文件（false），不传则不限制 */
+  isFolder?: boolean | string;
   /** scope='all': 搜索用户全部文件（不限目录层级） */
   scope?: 'all';
 }
