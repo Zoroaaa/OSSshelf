@@ -31,6 +31,7 @@ import {
   buildFilePath,
   buildPathUnderParent,
   buildDescendantPathUpdate,
+  isFileNameConflictError,
   normalizeEntryName,
   normalizeParentId,
   pathPrefix,
@@ -350,13 +351,21 @@ export async function moveFile(
     .where(eq(files.id, fileId));
 
   // 自身与子树 path 同一事务更新，避免中途失败留下半套路径
-  if (file.isFolder) {
-    await db.batch([
-      updateSelf,
-      buildDescendantPathUpdate(db, file.userId, file.path, newPath, now, file.teamId ?? null),
-    ]);
-  } else {
-    await db.batch([updateSelf]);
+  try {
+    if (file.isFolder) {
+      await db.batch([
+        updateSelf,
+        buildDescendantPathUpdate(db, file.userId, file.path, newPath, now, file.teamId ?? null),
+      ]);
+    } else {
+      await db.batch([updateSelf]);
+    }
+  } catch (error) {
+    // 并发下目标目录刚被写入同名项：按业务冲突返回，不要冒成 500。
+    if (isFileNameConflictError(error)) {
+      return { success: false, error: '目标位置已存在同名文件' };
+    }
+    throw error;
   }
 
   logger.info('FileService', '文件移动成功', { fileId, fileName: file.name, targetParentId });
@@ -415,13 +424,21 @@ export async function renameFile(
     .where(eq(files.id, fileId));
 
   // 文件夹重命名必须同步子项 path，否则递归删除/移动按旧前缀匹配不到子项
-  if (file.isFolder) {
-    await db.batch([
-      updateSelf,
-      buildDescendantPathUpdate(db, file.userId, file.path, newPath, now, file.teamId ?? null),
-    ]);
-  } else {
-    await db.batch([updateSelf]);
+  try {
+    if (file.isFolder) {
+      await db.batch([
+        updateSelf,
+        buildDescendantPathUpdate(db, file.userId, file.path, newPath, now, file.teamId ?? null),
+      ]);
+    } else {
+      await db.batch([updateSelf]);
+    }
+  } catch (error) {
+    // 并发重命名撞到同名唯一索引：返回业务冲突，由路由映射为 409。
+    if (isFileNameConflictError(error)) {
+      return { success: false, error: '已存在同名文件' };
+    }
+    throw error;
   }
 
   await syncFileFts(env, fileId);
