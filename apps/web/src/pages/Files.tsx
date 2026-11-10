@@ -788,6 +788,13 @@ export default function Files() {
     batchDeleteMutation.mutate(selectedFiles);
   }, [selectedFiles, batchDeleteMutation]);
 
+  // 批量删除与单条删除同一口径：共享文件需要 admin 权限。
+  // 选择阶段就给出原因，避免用户点下去才收到逐项失败。
+  // 搜索接口不返回 isOwner/accessPermission，缺省时按「未知」处理，不误判为有权限。
+  const undeletableSelectedCount = selectedFileItems.filter(
+    (f) => f.isOwner === false && f.accessPermission !== 'admin'
+  ).length;
+
   const handleSort = useCallback(
     (field: typeof sortBy) => setSort(field, sortBy === field ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'desc'),
     [sortBy, sortOrder, setSort]
@@ -1415,6 +1422,11 @@ export default function Files() {
         <div className="flex items-center gap-3 px-4 py-2.5 bg-primary/10 border border-primary/20 rounded-lg text-sm">
           <CheckCircle2 className="h-4 w-4 text-primary" />
           <span className="font-medium">已选中 {selectedFiles.length} 个</span>
+          {undeletableSelectedCount > 0 && (
+            <span className="text-xs text-destructive">
+              {undeletableSelectedCount} 个共享项目无删除权限（需管理员权限）
+            </span>
+          )}
           <div className="flex-1" />
           <Button variant="outline" size="sm" onClick={clearSelection}>
             <X className="h-3.5 w-3.5 mr-1" />
@@ -1530,7 +1542,13 @@ export default function Files() {
             <Download className="h-3.5 w-3.5 mr-1" />
             批量下载
           </Button>
-          <Button variant="destructive" size="sm" onClick={handleBatchDelete} disabled={batchDeleteMutation.isPending}>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={handleBatchDelete}
+            disabled={batchDeleteMutation.isPending}
+            title={undeletableSelectedCount > 0 ? '无删除权限的项目会被跳过，并在完成后保留选中' : undefined}
+          >
             <Trash2 className="h-3.5 w-3.5 mr-1" />
             批量删除
           </Button>

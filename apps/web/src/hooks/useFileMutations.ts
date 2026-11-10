@@ -163,7 +163,9 @@ export function useFileMutations() {
       state.setSelectedFiles(remainingIds, remainingItems);
       toast({
         title: '批量删除部分失败',
-        description: `成功 ${data.success} 个，失败 ${data.failed} 个，失败项已保留选中`,
+        description: `成功 ${data.success} 个，失败 ${data.failed} 个，失败项已保留选中${
+          data.errors[0] ? `（${data.errors[0].error}）` : ''
+        }`,
         variant: 'destructive',
       });
     },
