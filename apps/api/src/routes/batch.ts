@@ -20,20 +20,15 @@ import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { s3Get } from '../lib/s3client';
 import { deleteObjectSafely } from '../lib/storageGC';
-import {
-  buildFilePath,
-  buildDescendantPathUpdate,
-  normalizeEntryName,
-  normalizeParentId,
-  pathPrefix,
-} from '../lib/pathUtils';
+import { normalizeParentId, pathPrefix } from '../lib/pathUtils';
 import { resolveBucketConfig } from '../lib/bucketResolver';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import { getEncryptionKey } from '../lib/crypto';
 import { releaseFileRef } from '../lib/dedup';
 import { createZipStream, assertZipLimits } from '../lib/zipStream';
 import { openFileStream } from '../lib/fileContentHelper';
-import { restoreFile } from '../lib/fileService';
+import { restoreFile, softDeleteFile, moveFile, renameFile } from '../lib/fileService';
+import { checkFilePermission } from '../lib/permissionService';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -66,18 +61,6 @@ interface BatchResult {
   errors: Array<{ id: string; error: string }>;
 }
 
-async function softDeleteFolder(db: ReturnType<typeof getDb>, folderId: string, now: string) {
-  const children = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.parentId, folderId), isNull(files.deletedAt)))
-    .all();
-  for (const child of children) {
-    if (child.isFolder) await softDeleteFolder(db, child.id, now);
-    await db.update(files).set({ deletedAt: now, updatedAt: now }).where(eq(files.id, child.id));
-  }
-}
-
 app.post('/delete', async (c) => {
   const userId = c.get('userId')!;
   const body = await c.req.json();
@@ -90,28 +73,17 @@ app.post('/delete', async (c) => {
   }
 
   const { fileIds } = result.data;
-  const db = getDb(c.env.DB);
-  const now = new Date().toISOString();
   const batchResult: BatchResult = { success: 0, failed: 0, errors: [] };
 
   for (const fileId of fileIds) {
     try {
-      const file = await db
-        .select()
-        .from(files)
-        .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
-        .get();
-
-      if (!file) {
+      // 与单条删除同一套语义：按文件校验 admin 权限，而不是只看 userId。
+      const deleted = await softDeleteFile(c.env, userId, fileId);
+      if (!deleted.success) {
         batchResult.failed++;
-        batchResult.errors.push({ id: fileId, error: '文件不存在或已被删除' });
+        batchResult.errors.push({ id: fileId, error: deleted.error });
         continue;
       }
-
-      if (file.isFolder) {
-        await softDeleteFolder(db, fileId, now);
-      }
-      await db.update(files).set({ deletedAt: now, updatedAt: now }).where(eq(files.id, fileId));
       batchResult.success++;
     } catch (error) {
       batchResult.failed++;
@@ -147,103 +119,33 @@ app.post('/move', async (c) => {
   // 统一入口：目标父目录先校验/规范化
   const targetParentId = normalizeParentId(rawTargetParentId);
   const db = getDb(c.env.DB);
-  const now = new Date().toISOString();
   const batchResult: BatchResult = { success: 0, failed: 0, errors: [] };
 
   if (targetParentId) {
     const targetFolder = await db
-      .select()
+      .select({ id: files.id })
       .from(files)
-      .where(
-        and(eq(files.id, targetParentId), eq(files.userId, userId), eq(files.isFolder, true), isNull(files.deletedAt))
-      )
+      .where(and(eq(files.id, targetParentId), eq(files.isFolder, true), isNull(files.deletedAt)))
       .get();
     if (!targetFolder) {
       throwAppError('FOLDER_NOT_FOUND', '目标文件夹不存在');
+    }
+    // 与单条移动一致：目标目录要求 write 权限（共享目录同样适用），而不是要求目标必须属于自己。
+    const { hasAccess } = await checkFilePermission(db, targetParentId, userId, 'write', c.env);
+    if (!hasAccess) {
+      throwAppError('FORBIDDEN', '无权向目标目录移动文件');
     }
   }
 
   for (const fileId of fileIds) {
     try {
-      const file = await db
-        .select()
-        .from(files)
-        .where(and(eq(files.id, fileId), eq(files.userId, userId), isNull(files.deletedAt)))
-        .get();
-
-      if (!file) {
+      // 复用单条移动：源文件归属、目标写权限、跨桶与循环移动校验全部一致。
+      const moved = await moveFile(c.env, userId, fileId, { targetParentId });
+      if (!moved.success) {
         batchResult.failed++;
-        batchResult.errors.push({ id: fileId, error: '文件不存在或已被删除' });
+        batchResult.errors.push({ id: fileId, error: moved.error });
         continue;
       }
-
-      // ── 跨桶移动检测 ────────────────────────────────────────
-      if (targetParentId && file.bucketId) {
-        const targetFolder = await db
-          .select({ bucketId: files.bucketId })
-          .from(files)
-          .where(eq(files.id, targetParentId))
-          .get();
-
-        if (targetFolder?.bucketId && targetFolder.bucketId !== file.bucketId) {
-          batchResult.failed++;
-          batchResult.errors.push({
-            id: fileId,
-            error: 'CROSS_BUCKET',
-            sourceBucketId: file.bucketId,
-            targetBucketId: targetFolder.bucketId,
-          } as any);
-          continue;
-        }
-      }
-      // ────────────────────────────────────────────────────────
-
-      if (file.isFolder && targetParentId) {
-        let checkId: string | null = targetParentId;
-        while (checkId) {
-          if (checkId === fileId) {
-            throw new Error('不能将文件夹移动到自身或其子文件夹中');
-          }
-          const parent = await db.select().from(files).where(eq(files.id, checkId)).get();
-          checkId = parent?.parentId ?? null;
-        }
-      }
-
-      const conflict = await db
-        .select()
-        .from(files)
-        .where(
-          and(
-            eq(files.userId, userId),
-            eq(files.name, file.name),
-            targetParentId ? eq(files.parentId, targetParentId) : isNull(files.parentId),
-            isNull(files.deletedAt)
-          )
-        )
-        .get();
-
-      if (conflict && conflict.id !== fileId) {
-        batchResult.failed++;
-        batchResult.errors.push({ id: fileId, error: '目标位置已存在同名文件' });
-        continue;
-      }
-
-      const newPath = await buildFilePath(db, userId, targetParentId, file.name);
-
-      // 自身更新 + 子树 path 更新放在同一 batch 中，避免只改一半
-      const updateSelf = db
-        .update(files)
-        .set({ parentId: targetParentId, path: newPath, updatedAt: now })
-        .where(eq(files.id, fileId));
-      if (file.isFolder) {
-        await db.batch([
-          updateSelf,
-          buildDescendantPathUpdate(db, userId, file.path, newPath, now, file.teamId ?? null),
-        ]);
-      } else {
-        await db.batch([updateSelf]);
-      }
-
       batchResult.success++;
     } catch (error) {
       batchResult.failed++;
@@ -276,60 +178,17 @@ app.post('/rename', async (c) => {
   }
 
   const { items } = result.data;
-  const db = getDb(c.env.DB);
-  const now = new Date().toISOString();
   const batchResult: BatchResult = { success: 0, failed: 0, errors: [] };
 
   for (const item of items) {
     try {
-      const file = await db
-        .select()
-        .from(files)
-        .where(and(eq(files.id, item.fileId), eq(files.userId, userId), isNull(files.deletedAt)))
-        .get();
-
-      if (!file) {
+      // 复用单条重命名：权限（write）、路径与子树同步、全文索引更新保持一致。
+      const renamed = await renameFile(c.env, userId, item.fileId, { name: item.newName });
+      if (!renamed.success) {
         batchResult.failed++;
-        batchResult.errors.push({ id: item.fileId, error: '文件不存在或已被删除' });
+        batchResult.errors.push({ id: item.fileId, error: renamed.error });
         continue;
       }
-
-      const newName = normalizeEntryName(item.newName);
-
-      const conflict = await db
-        .select()
-        .from(files)
-        .where(
-          and(
-            eq(files.userId, userId),
-            eq(files.name, newName),
-            file.parentId ? eq(files.parentId, file.parentId) : isNull(files.parentId),
-            isNull(files.deletedAt)
-          )
-        )
-        .get();
-
-      if (conflict && conflict.id !== item.fileId) {
-        batchResult.failed++;
-        batchResult.errors.push({ id: item.fileId, error: '已存在同名文件' });
-        continue;
-      }
-
-      const newPath = await buildFilePath(db, userId, file.parentId, newName);
-
-      const updateSelf = db
-        .update(files)
-        .set({ name: newName, path: newPath, updatedAt: now })
-        .where(eq(files.id, item.fileId));
-      if (file.isFolder) {
-        await db.batch([
-          updateSelf,
-          buildDescendantPathUpdate(db, userId, file.path, newPath, now, file.teamId ?? null),
-        ]);
-      } else {
-        await db.batch([updateSelf]);
-      }
-
       batchResult.success++;
     } catch (error) {
       batchResult.failed++;
@@ -500,12 +359,21 @@ app.post('/zip', async (c) => {
   const { fileIds, zipName = 'download' } = result.data;
   const db = getDb(c.env.DB);
 
+  // 与单条下载一致：按文件校验 read 权限，而不是只认归属，
+  // 否则共享给自己的文件在批量下载时会被静默丢弃。
+  const permittedFileIds: string[] = [];
+  for (const fileId of fileIds) {
+    const { hasAccess } = await checkFilePermission(db, fileId, userId, 'read', c.env);
+    if (hasAccess) permittedFileIds.push(fileId);
+  }
+  if (permittedFileIds.length === 0) {
+    throwAppError('FILE_ACCESS_DENIED', '没有可下载的文件');
+  }
+
   const fileRecords = await db
     .select()
     .from(files)
-    .where(
-      and(eq(files.userId, userId), isNull(files.deletedAt), eq(files.isFolder, false), inArray(files.id, fileIds))
-    )
+    .where(and(isNull(files.deletedAt), eq(files.isFolder, false), inArray(files.id, permittedFileIds)))
     .all();
 
   try {
