@@ -82,9 +82,11 @@ ENVIRONMENT = "development"
 # JWT_SECRET / CF_API_TOKEN 属于敏感值，禁止写入本文件或提交到仓库：
 #   wrangler secret put JWT_SECRET
 #   wrangler secret put CF_API_TOKEN
-# CORS允许的域名，多个域名用逗号分隔（必填！部署时请修改为你的前端域名）
-# 示例：CORS_ORIGINS = "https://your-frontend.pages.dev,https://your-custom-domain.com"
-CORS_ORIGINS = "https://your-frontend.pages.dev"
+# CORS允许的域名，多个域名用逗号分隔（可选）
+# 前后端同源（同一个 Worker 承载静态资源与 API）时无需配置；
+# 仅当存在外部域名/客户端跨域调用时才需要，示例：
+# CORS_ORIGINS = "https://ossshelf-api.your-subdomain.workers.dev,https://your-custom-domain.com"
+CORS_ORIGINS = ""
 # ── Cron 告警（可选）──────────────────────────────────────────────────────
 # 配置后，每次 cron 执行完成或失败时会向指定 Telegram Chat 发送通知。
 # 生产环境请通过 `wrangler secret put ALERT_TG_BOT_TOKEN` 配置，避免明文写入配置。
@@ -97,7 +99,7 @@ CORS_ORIGINS = "https://your-frontend.pages.dev"
 crons = ["0 3 * * *"]
 
 [env.production]
-vars = { ENVIRONMENT = "production", CORS_ORIGINS = "https://your-frontend.pages.dev" }
+vars = { ENVIRONMENT = "production" }
 # 生产环境密钥（JWT_SECRET / ALERT_TG_BOT_TOKEN）必须通过 secrets 配置：
 #   wrangler secret put JWT_SECRET --env production
 #   wrangler secret put ALERT_TG_BOT_TOKEN --env production

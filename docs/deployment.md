@@ -13,8 +13,8 @@
 - [环境要求](#环境要求)
 - [快速部署](#快速部署)
 - [GitHub Secrets 配置](#github-secrets-配置)
-- [Cloudflare Pages 前端部署](#cloudflare-pages-前端部署)
-- [GitHub Actions 后端部署](#github-actions-后端部署)
+- [Worker 构建与部署](#worker-构建与部署)
+- [GitHub Actions 迁移与部署编排](#github-actions-迁移与部署编排)
 - [邮件服务配置](#邮件服务配置)
 - [存储提供商配置](#存储提供商配置)
 - [自定义域名](#自定义域名)
@@ -29,43 +29,46 @@
 
 ## 部署架构概览
 
-本项目采用现代化的 CI/CD 部署方式：
+前后端合并为**单个 Cloudflare Worker**（`ossshelf-api`）承载：前端静态资源通过 Workers
+静态资源绑定（`[assets]`）发布，API、WebDAV、SSE、Agent Durable Object 走同一 Worker。
+前端与 API 同源，前端默认用相对路径请求 `/api`，不再需要 `VITE_API_URL`。
 
-| 组件       | 部署平台           | 触发方式                      |
-| ---------- | ------------------ | ----------------------------- |
-| 前端 (Web) | Cloudflare Pages   | GitHub 仓库连接，自动构建部署 |
-| 后端 (API) | Cloudflare Workers | GitHub Actions 自动部署       |
+| 组件          | 部署平台                     | 触发方式                                            |
+| ------------- | ---------------------------- | --------------------------------------------------- |
+| 前端静态资源  | Cloudflare Workers `[assets]` | Workers Builds（由 Deploy Hook 触发）               |
+| API / WebDAV  | Cloudflare Workers           | 同上，同一 Worker                                   |
+| D1 迁移       | GitHub Actions               | push 命中 `apps/api/**`、`apps/web/**` 等路径时执行 |
 
 ```
-                         ┌─────────────────────────────────────┐
-                         │           GitHub 仓库                │
-                         │    (push to main 分支触发部署)        │
-                         └─────────────────┬───────────────────┘
-                                           │
-              ┌────────────────────────────┴────────────────────────────┐
-              │                                                         │
-              │                                                         │
-┌─────────────▼─────────────┐                           ┌──────────────▼────────────┐
-│   Cloudflare Pages        │                           │    GitHub Actions          │
-│   (前端自动构建部署)        │                           │    (后端自动部署)           │
-│   触发: push to main      │                           │    触发: apps/api/** 变更   │
-└─────────────┬─────────────┘                           └──────────────┬────────────┘
-              │                                                        │
-              │                                           ┌────────────▼────────────┐
-              │                                           │  Cloudflare Workers     │
-              │                                           │  (API 服务)              │
-              │                                           └────────────┬────────────┘
-              │                                                        │
-              │                                           ┌────────────▼────────────┐
-              │                                           │  D1 / KV / R2           │
-              │                                           │  (Cloudflare 资源)       │
-              │                                           └─────────────────────────┘
-              │
-┌─────────────▼─────────────┐
-│      用户浏览器            │
-│   https://your.pages.dev  │
-└───────────────────────────┘
+                    ┌──────────────────────────────┐
+                    │         GitHub 仓库           │
+                    │      (push to main 分支)      │
+                    └──────────────┬───────────────┘
+                                   │
+                    ┌──────────────▼───────────────┐
+                    │       GitHub Actions          │
+                    │  1. typecheck / 单测          │
+                    │  2. 生成 wrangler.toml        │
+                    │  3. D1 预检 + 迁移            │
+                    │  4. POST Deploy Hook ─────┐   │
+                    └───────────────────────────┼───┘
+                                                │
+                    ┌───────────────────────────▼──────────────┐
+                    │            Workers Builds                │
+                    │  build: pnpm build:web                   │
+                    │  deploy: npx wrangler deploy             │
+                    └───────────────────────────┬──────────────┘
+                                                │
+                    ┌───────────────────────────▼──────────────┐
+                    │   Worker: ossshelf-api                   │
+                    │   ├─ [assets]  apps/web/dist（SPA 回退）  │
+                    │   └─ /api /dav /agents /cron /health      │
+                    │  绑定: D1 / KV / Queue / DO / AI / Vectorize│
+                    └──────────────────────────────────────────┘
 ```
+
+顺序保证：**迁移成功之后才触发部署**，避免新代码跑在旧表结构上。因此 Workers Builds 的
+推送构建必须用「构建监视路径不命中」挡掉（见下文），只保留 Deploy Hook 一条部署入口。
 
 ---
 
@@ -101,20 +104,12 @@
 **升级步骤**
 
 ```bash
-# 1. 拉取最新代码
+# 1. 拉取上游最新代码
 git pull origin main
 
-# 2. 运行数据库迁移（重要！新增 5 张表）
-pnpm db:migrate
-
-# 3. 重新构建前端
-pnpm build:web
-
-# 4. 部署后端
-pnpm deploy:api
-
-# 5. 部署前端
-wrangler pages deploy apps/web/dist --project-name=ossshelf-web
+# 2. 部署
+# push 后由 GitHub Actions 执行 D1 迁移，成功后触发 Workers Builds 构建部署
+git push origin main
 ```
 
 ### v2.6.0 (2026-04-13)
@@ -179,20 +174,12 @@ wrangler pages deploy apps/web/dist --project-name=ossshelf-web
 **升级步骤**
 
 ```bash
-# 1. 拉取最新代码
+# 1. 拉取上游最新代码
 git pull origin main
 
-# 2. 运行数据库迁移（如有新迁移文件）
-pnpm db:migrate
-
-# 3. 重新构建前端
-pnpm build:web
-
-# 4. 部署后端
-pnpm deploy:api
-
-# 5. 部署前端
-wrangler pages deploy apps/web/dist --project-name=ossshelf-web
+# 2. 部署
+# push 后由 GitHub Actions 执行 D1 迁移，成功后触发 Workers Builds 构建部署
+git push origin main
 ```
 
 ### v2.5.0 (2026-04-12)
@@ -495,8 +482,8 @@ git push origin main
 | Cloudflare 账户 | 注册地址：https://dash.cloudflare.com | 免费                     |
 | D1 数据库       | SQLite 数据库                         | 5GB 存储，500万行读取/天 |
 | KV 命名空间     | 键值存储                              | 1GB 存储，10万次读取/天  |
-| Workers         | 无服务器计算                          | 10万次请求/天            |
-| Pages           | 静态托管                              | 无限制                   |
+| Workers         | 无服务器计算（含静态资源）             | 10万次请求/天            |
+| Workers Builds  | 构建与部署（连接 GitHub）              | 按构建分钟计             |
 
 ### GitHub 资源
 
@@ -553,11 +540,14 @@ wrangler r2 bucket create ossshelf-files
 | `CLOUDFLARE_ACCOUNT_ID`      | Cloudflare 账户 ID  | Dashboard 右侧边栏                     |
 | `CLOUDFLARE_D1_DATABASE_ID`  | D1 数据库 ID        | Step 2 创建时获得                      |
 | `CLOUDFLARE_KV_NAMESPACE_ID` | KV 命名空间 ID      | Step 2 创建时获得                      |
-| `JWT_SECRET`                 | JWT 签名密钥        | 生成 32+ 字符随机字符串                |
-| `CORS_ORIGINS`               | CORS 允许域名       | 前端域名，多个用逗号分隔               |
+| `JWT_SECRET`                 | JWT 签名密钥        | 生成 32+ 字符随机字符串（仅首次手工写入 Worker） |
+| `CORS_ORIGINS`               | CORS 允许域名       | Worker 访问域名；同源可留空，多个用逗号分隔 |
+| `PUBLIC_URL`                 | 应用公网地址        | 用于生成直链，同源部署填 Worker 域名 |
+| `CF_BUILDS_DEPLOY_HOOK`      | Workers Builds Deploy Hook | Worker → Settings → Builds → Deploy Hooks 创建后复制 URL |
 | `TRASH_RETENTION_DAYS`       | 回收站保留天数      | 可选，默认 30                          |
 
-> Workers AI 实时模型目录的账户 ID 复用 `CLOUDFLARE_ACCOUNT_ID`（工作流注入为 `CF_ACCOUNT_ID`）；API Token 通过 `wrangler secret put CF_API_TOKEN` 写入 Worker Secret，不再出现在 `[vars]` 中。`CLOUDFLARE_API_TOKEN` 需要额外勾选 `Workers AI:Read`。
+> `CLOUDFLARE_D1_DATABASE_ID` 与 `CLOUDFLARE_KV_NAMESPACE_ID` 由 `scripts/generate-wrangler.mjs` 在 CI 中生成 `wrangler.toml` 时注入，配置文件本身不入库。
+> Workers AI 实时模型目录的账户 ID 复用 `CLOUDFLARE_ACCOUNT_ID`（工作流注入为 `CF_ACCOUNT_ID`）；API Token 通过 `wrangler secret put CF_API_TOKEN` **手工**写入 Worker Secret，流水线不再每次重写。`CLOUDFLARE_API_TOKEN` 需要额外勾选 `Workers AI:Read`。
 
 #### 获取 Cloudflare API Token
 
@@ -569,8 +559,8 @@ wrangler r2 bucket create ossshelf-files
    - Account Resources: Include → Your Account
    - Zone Resources: Include → All zones（或指定域名）
    - 如需 Workers AI 实时模型目录：Account → Workers AI → Read
-6. 创建并复制 Token（填入 `CLOUDFLARE_API_TOKEN`；工作流会通过 `wrangler secret put` 写入 Worker 的 `CF_API_TOKEN`）
-7. 安全建议：模型目录可单独创建仅含 `Workers AI:Read` 的 Token，存入仓库 Secret `CF_API_TOKEN`；工作流会优先使用它，避免把部署 Token 暴露给 Worker
+6. 创建并复制 Token（填入 `CLOUDFLARE_API_TOKEN`；如需 Workers AI 实时模型目录，再手工执行 `wrangler secret put CF_API_TOKEN`）
+7. 安全建议：模型目录可单独创建仅含 `Workers AI:Read` 的 Token，手工写入 Worker Secret `CF_API_TOKEN`，避免把部署 Token 暴露给 Worker
 
 ### Step 4: 运行数据库迁移
 
@@ -645,33 +635,33 @@ wrangler secret put JWT_SECRET --name ossshelf-api
 # 输入 32+ 字符随机密钥，例如: openssl rand -base64 32
 ```
 
-### Step 6: 连接 Cloudflare Pages（前端部署）
+### Step 6: 连接 Workers Builds（构建并部署同一个 Worker）
 
 1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
-2. 进入 Workers & Pages → Create application → Pages → Connect to Git
-3. 选择您的 GitHub 仓库
-4. 配置构建设置：
-   - **项目名称**: `ossshelf-web`（或自定义）
-   - **生产分支**: `main`
-   - **构建命令**: `pnpm install && pnpm build:web`
-   - **构建输出目录**: `apps/web/dist`
-5. 添加环境变量：
-   - `VITE_API_URL`: 您的 API 地址（如 `https://ossshelf-api.your-subdomain.workers.dev`）
-6. 点击「Save and Deploy」
+2. 进入 Workers & Pages → 选择 Worker `ossshelf-api` → Settings → Builds → Connect
+3. 选择您的 GitHub 仓库，生产分支 `main`
+4. 构建设置：
+   - **根目录**: `apps/api`（wrangler 配置所在目录，也是构建与部署命令的运行目录）
+   - **构建命令**: `cd .. && pnpm install --frozen-lockfile && pnpm build:web && node scripts/generate-wrangler.mjs`
+   - **部署命令**: `npx wrangler deploy`
+   - **构建监视路径**: 包含 `__none__`、排除 `*`（挡掉 push 触发的构建，只保留 Deploy Hook 入口）
+   - **构建期环境变量**: `CLOUDFLARE_D1_DATABASE_ID`、`CLOUDFLARE_KV_NAMESPACE_ID`、`PUBLIC_URL`、`CORS_ORIGINS`、`CF_ACCOUNT_ID`
+5. Settings → Builds → Deploy Hooks：创建指向 `main` 的 Hook，URL 写入仓库 Secret `CF_BUILDS_DEPLOY_HOOK`
 
-首次部署后，每次推送到 main 分支都会自动触发前端构建和部署。
+此后每次 push 命中工作流路径，Actions 先跑 D1 预检与迁移，成功后 POST Hook 触发构建部署；
+不再有「push 自动构建」与「迁移」并发抢跑的问题。
 
 ### Step 7: 验证部署
 
 ```bash
-# 测试 API
-curl https://your-api.workers.dev/api/auth/registration-config
+# 测试 API（同源，静态资源与 API 在同一个 Worker 域名下）
+curl https://ossshelf-api.your-subdomain.workers.dev/api/auth/registration-config
 
 # 预期返回：
 # {"success":true,"data":{"open":true,"requireInviteCode":false}}
 
-# 访问前端
-# 打开 https://your-project.pages.dev
+# 前端与 API 同源
+# 打开 https://ossshelf-api.your-subdomain.workers.dev
 ```
 
 ---
@@ -736,120 +726,81 @@ TRASH_RETENTION_DAYS = "${{ secrets.TRASH_RETENTION_DAYS || '30' }}"
 
 ---
 
-## Cloudflare Pages 前端部署
+## Worker 构建与部署
 
-### 自动部署配置
+前端静态资源与 API 由同一个 Worker（`ossshelf-api`）承载，构建与部署统一交给 Workers Builds。
 
-Cloudflare Pages 通过 GitHub 集成实现自动部署：
+### 构建设置
 
-| 触发条件          | 行为                     |
-| ----------------- | ------------------------ |
-| Push 到 main 分支 | 自动构建并部署到生产环境 |
-| Pull Request      | 生成预览部署（可选）     |
+| 配置项           | 值                                                                                       |
+| ---------------- | ---------------------------------------------------------------------------------------- |
+| 根目录           | `apps/api`（wrangler 配置所在目录，构建与部署命令都在此执行）                             |
+| 构建命令         | `cd .. && pnpm install --frozen-lockfile && pnpm build:web && node scripts/generate-wrangler.mjs` |
+| 部署命令         | `npx wrangler deploy`                                                                    |
+| 构建监视路径     | 包含 `__none__`，排除 `*`                                                                |
+| 构建期环境变量   | `CLOUDFLARE_D1_DATABASE_ID`、`CLOUDFLARE_KV_NAMESPACE_ID`、`PUBLIC_URL`、`CORS_ORIGINS`、`CF_ACCOUNT_ID` |
 
-### 构建配置
+`wrangler.toml` 不入库，由 `scripts/generate-wrangler.mjs` 在构建期生成到 `apps/api/wrangler.toml`；
+脚本路径与 cwd 无关，输出位置固定，`npx wrangler deploy` 在 `apps/api` 下读取同一文件。
 
-| 配置项       | 值                               |
-| ------------ | -------------------------------- |
-| 构建命令     | `pnpm install && pnpm build:web` |
-| 输出目录     | `apps/web/dist`                  |
-| Node.js 版本 | 20.x                             |
-| 包管理器     | pnpm                             |
+### 部署入口只有一条
 
-### 环境变量
+| 触发方式                  | 行为                                                    |
+| ------------------------- | ------------------------------------------------------- |
+| push 到 main              | 监视路径全部排除 → 不构建（见下方例外说明）             |
+| Deploy Hook（Actions POST）| 构建并部署，Build history 的 `Triggered by` 标记为 deploy hook |
 
-在 Cloudflare Pages 设置中配置：
+例外：push 含 0 个文件变更、或 ≥3000 文件 / ≥20 commits 时会绕过监视路径强制构建。日常提交不受影响。
 
-| 变量名         | 说明          |
-| -------------- | ------------- |
-| `VITE_API_URL` | 后端 API 地址 |
+### 静态资源路由
 
-**设置路径**: Cloudflare Dashboard → Workers & Pages → 您的项目 → Settings → Environment variables
-
-### 手动触发部署
-
-如需手动触发前端部署：
-
-1. 进入 Cloudflare Dashboard → Workers & Pages → 您的项目
-2. 点击「View details」
-3. 点击「Retry deployment」
-
----
-
-## GitHub Actions 后端部署
-
-### 工作流配置
-
-后端部署由 `.github/workflows/deploy-api.yml` 控制：
-
-```yaml
-name: Deploy API to Cloudflare Workers
-
-on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'apps/api/**'
-      - 'packages/shared/**'
-      - '.github/workflows/deploy-api.yml'
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 8
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build shared package
-        run: pnpm --filter @osshelf/shared build
-
-      - name: Generate wrangler.toml
-        # 动态生成配置文件
-
-      - name: Deploy to Cloudflare Workers
-        run: pnpm deploy:api
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+```toml
+[assets]
+directory = "../web/dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api", "/api/*", "/dav", "/dav/*", "/agents", "/agents/*", "/cron", "/cron/*", "/health"]
 ```
 
-### 触发条件
-
-后端部署在以下情况自动触发：
-
-- `apps/api/` 目录下任何文件变更
-- `packages/shared/` 目录下任何文件变更
-- `.github/workflows/deploy-api.yml` 工作流文件变更
+`/api/*` 不匹配 `/api` 本身，因此裸路径与通配符都要列；否则浏览器直访会被 SPA 回退成 `index.html`。
 
 ### 查看部署状态
 
-1. 进入 GitHub 仓库 → Actions 标签页
-2. 选择「Deploy API to Cloudflare Workers」工作流
-3. 查看运行日志和状态
+1. Dashboard → Workers & Pages → `ossshelf-api` → Deployments → Build history（`Triggered by` 列）
+2. 同页 Version history：Active 版本对应的 commit 即当前线上代码
 
-### 手动触发部署
+---
 
-后端部署支持手动触发：
+## GitHub Actions 迁移与部署编排
 
-1. 进入 GitHub 仓库 → Actions 标签页
-2. 选择「Deploy API to Cloudflare Workers」工作流
-3. 点击「Run workflow」按钮
-4. 选择分支后点击绿色「Run workflow」按钮
+### 职责
+
+工作流 `.github/workflows/deploy-api.yml` **只负责** 质量校验与 D1 迁移，部署通过 Deploy Hook 转交 Workers Builds：
+
+| 步骤                              | 作用                                     |
+| --------------------------------- | ---------------------------------------- |
+| Install / Build shared / Typecheck / 单测 | 校验                          |
+| Generate wrangler.toml            | 用 secrets 生成 `apps/api/wrangler.toml` |
+| Preflight D1 migration state      | 拦截「手工改过但未记录」的 schema 漂移   |
+| Apply D1 migrations               | 迁移到最新                               |
+| Trigger Workers Builds deploy     | POST Hook，失败则整条 run 红且不部署     |
+
+顺序语义：迁移任一步失败都不会发出 Hook，线上代码保持不变；`CF_BUILDS_DEPLOY_HOOK` 缺失时步骤显式报错退出。
+
+Worker secrets（`JWT_SECRET` / `ALERT_TG_BOT_TOKEN` / `CF_API_TOKEN`）跨部署持久存在，
+只在首次部署或轮换时手工执行 `wrangler secret put`（见 Step 5），流水线不再每次重写。
+
+### 触发条件
+
+- `apps/api/**`、`apps/web/**`、`packages/shared/**`、`scripts/**`
+- 根 `package.json`、`pnpm-lock.yaml`、`pnpm-workspace.yaml`
+- `.github/workflows/deploy-api.yml`
+
+纯前端改动同样会走完「迁移预检 → Hook → Builds 部署」。
+
+### 手动触发
+
+1. 进入 GitHub 仓库 → Actions → 「Deploy API to Cloudflare Workers」
+2. 点击「Run workflow」，选择分支后运行（会重跑迁移并再次 POST Hook）
 
 ---
 
@@ -1223,22 +1174,25 @@ zone_name = "your-domain.com"
 
 ### 前端域名配置
 
-1. 进入 Cloudflare Dashboard → Workers & Pages → 您的项目
-2. Settings → Custom domains
-3. 点击「Set up a custom domain」
-4. 输入域名并验证
+前后端已同源，前端不再单独部署，直接给 Worker `ossshelf-api` 绑定自定义域：
+
+1. 进入 Cloudflare Dashboard → Workers & Pages → `ossshelf-api`
+2. Settings → Domains & Routes → Add custom domain
+3. 输入域名并验证（原 Pages 项目的域名需先解绑，避免同一主机名冲突）
+
+> 切换顺序：先在 workers.dev 域名验证新 Worker 可用，再把自定义域从 Pages 解绑并绑到 Worker；
+> 不建议两台同时占用同一主机名。
 
 ### CORS 配置
 
-> **⚠️ 重要 - 部署前必须配置！**
->
-> CORS 允许域名通过环境变量 `CORS_ORIGINS` 配置，**部署前请务必将其设置为您的前端域名，否则前端将无法正常访问 API！**
+> 同源部署（前端与 API 同一个 Worker 域名）时 CORS 不是必需项，留空即可。
+> 仅当你有外部域名/客户端跨域调用 API 时才配置。
 
-如果前端和 API 使用不同域名，需要配置 CORS。通过环境变量 `CORS_ORIGINS` 设置：
+如果存在跨域调用，通过 `CORS_ORIGINS` 设置：
 
 **配置方式**：
 
-1. **GitHub Secrets**（推荐）：添加 `CORS_ORIGINS` Secret
+1. **GitHub Secrets**（推荐）：添加 `CORS_ORIGINS` Secret（CI 写入 `[vars]`）
 2. **wrangler.toml**：在 `[vars]` 中添加 `CORS_ORIGINS` 变量
 
 **配置示例**：
@@ -1246,7 +1200,8 @@ zone_name = "your-domain.com"
 ```toml
 # wrangler.toml
 [vars]
-CORS_ORIGINS = "https://your-frontend.pages.dev,https://your-custom-domain.com"
+# 回滚期可同时保留新旧域名
+CORS_ORIGINS = "https://ossshelf-api.your-subdomain.workers.dev,https://your-custom-domain.com"
 ```
 
 **多个域名**：用逗号分隔，如 `https://a.com,https://b.com`
@@ -1357,14 +1312,15 @@ wrangler d1 export ossshelf-db --output="backup_${DATE}.sql"
 - 检查 `CLOUDFLARE_API_TOKEN` Secret 是否正确
 - 确认 Token 有 Workers 编辑权限
 
-#### 2. 前端部署失败：`Build failed`
+#### 2. Workers Builds 失败：`Build failed`
 
-**原因**: 构建命令或输出目录配置错误
+**原因**: 构建命令、根目录或构建期环境变量配置错误
 
 **解决**:
 
-- 确认构建命令为 `pnpm install && pnpm build:web`
-- 确认输出目录为 `apps/web/dist`
+- 确认根目录为 `apps/api`，构建命令为 `cd .. && pnpm install --frozen-lockfile && pnpm build:web && node scripts/generate-wrangler.mjs`
+- 确认构建期已注入 `CLOUDFLARE_D1_DATABASE_ID`、`CLOUDFLARE_KV_NAMESPACE_ID`（缺失时生成脚本会直接退出）
+- 若报找不到 `apps/web/dist`，说明构建命令里漏了 `pnpm build:web`
 
 #### 3. API 请求失败：`No such binding: DB`
 
@@ -1436,39 +1392,40 @@ curl "https://api.telegram.org/bot<TOKEN>/getMe"
 
 **排查步骤**:
 
-1. 检查 CORS 配置
-2. 确认 `VITE_API_URL` 环境变量正确
-3. 检查浏览器控制台错误
+1. 前后端已同源，前端请求 `/api` 相对路径；若被返回成 HTML，检查 `[assets] run_worker_first` 是否覆盖 `/api` 与 `/api/*`
+2. 检查浏览器控制台与 Network 面板的实际请求地址
+3. 若前端被单独部署到别的域名，才需要配置 `VITE_API_URL` 与 `CORS_ORIGINS`
 
 #### 9. 直链打开失败跳转首页
 
-**原因**: 直链URL指向了前端域名而不是后端API域名，请求被 Cloudflare Pages 的 SPA fallback 捕获并重定向到首页。
+**原因**: 直链域名与 Worker 域名不一致，或 `/api/direct` 未列入 `run_worker_first`，请求被静态资源的 SPA 回退吃掉。
 
 **解决方案**:
 
 **方案一：配置 PUBLIC_URL（推荐）**
 
-在后端配置 `PUBLIC_URL` 环境变量，指向后端API的域名：
+将 `PUBLIC_URL` 指向 Worker 的访问域名：
 
 ```bash
 # GitHub Secrets 中添加
-PUBLIC_URL=https://your-api.workers.dev
+PUBLIC_URL=https://ossshelf-api.your-subdomain.workers.dev
 ```
 
 或在 `wrangler.toml` 中配置：
 
 ```toml
 [vars]
-PUBLIC_URL = "https://your-api.workers.dev"
+PUBLIC_URL = "https://ossshelf-api.your-subdomain.workers.dev"
 ```
 
-**方案二：使用同一域名**
+**方案二：确认 Worker 路由不回退**
 
-如果前端和后端使用同一域名（通过 Cloudflare Pages Functions 或 Service Bindings），项目已内置 `_routes.json` 配置文件，自动排除以下路径不被 SPA fallback 处理：
+同源部署下，`[assets] run_worker_first` 已显式覆盖以下路径，不会再被 SPA 回退：
 
-- `/api/*` - API 接口
-- `/dav/*` - WebDAV 服务
-- `/cron/*` - 定时任务
+- `/api`、`/api/*` - API 接口（裸路径也要列，`/api/*` 不匹配 `/api` 本身）
+- `/dav`、`/dav/*` - WebDAV 服务
+- `/agents`、`/agents/*` - Agent Durable Object
+- `/cron`、`/cron/*` - 定时任务
 - `/health` - 健康检查
 
 **验证直链配置**:
@@ -1572,14 +1529,14 @@ binding = "AI"
 # 添加 Vectorize binding
 [[vectorize]]
 binding = "VECTORIZE"
-index_name = "ossshelf-vectors"
+index_name = "ossshelf-files"
 ```
 
 #### 4. 部署更新
 
 ```bash
-# 重新部署
-pnpm deploy:api
+# push 到 main：Actions 迁移 → Deploy Hook → Workers Builds 构建部署
+git push origin main
 ```
 
 ### AI 功能验证
@@ -1681,20 +1638,19 @@ git pull origin main
 git push origin main
 ```
 
-推送后：
-
-- **前端**: Cloudflare Pages 自动检测并重新构建部署
-- **后端**: 如果 `apps/api/` 有变更，GitHub Actions 自动部署
+推送后由 GitHub Actions 依次执行：质量校验 → 生成 wrangler.toml → D1 预检 → D1 迁移 →
+POST Deploy Hook；Workers Builds 收到 Hook 后执行 `pnpm build:web` 与 `wrangler deploy`，
+前端静态资源与 API 作为同一个 Worker 一起上线。
 
 ### 数据库迁移
 
-如果更新包含数据库迁移：
+迁移由工作流自动执行（`Apply D1 migrations`），本地无需再手工跑一次。手工核对：
 
 ```bash
 # 检查是否有新迁移文件
 ls apps/api/migrations/
 
-# 执行迁移
+# 手工执行（仅本地或紧急兜底）
 pnpm db:migrate
 ```
 
@@ -1714,7 +1670,7 @@ git push origin main
 
 ### 回滚部署
 
-#### 回滚后端
+前端与 API 是同一个 Worker 的同一份版本，回滚一次即可同时生效：
 
 ```bash
 # 查看部署历史
@@ -1724,12 +1680,9 @@ wrangler deployments list
 wrangler rollback --version <version>
 ```
 
-#### 回滚前端
+或 Dashboard → Workers & Pages → `ossshelf-api` → Deployments → Version history 选择版本回退。
 
-1. 进入 Cloudflare Dashboard → Workers & Pages → 您的项目
-2. 点击「View details」
-3. 在部署历史中选择要回滚的版本
-4. 点击「Rollback to this deployment」
+> 注意：代码回滚不会自动回滚 D1 迁移。若该版本依赖已被后续迁移修改的表结构，需评估是否兼容。
 
 ---
 
@@ -1744,8 +1697,9 @@ pnpm dev:web          # 本地开发前端
 pnpm build:api        # 构建 API
 pnpm build:web        # 构建前端
 
-# 部署（通常由 CI/CD 自动执行）
-pnpm deploy:api       # 部署 API
+# 部署（正常流程由 CI 完成：迁移成功后 Deploy Hook 触发 Workers Builds）
+# 手动兜底需先 pnpm build:web，且要求 apps/api/wrangler.toml 已生成
+pnpm deploy:api
 
 # 数据库
 pnpm db:generate      # 生成迁移
@@ -1776,23 +1730,24 @@ pnpm typecheck        # 类型检查
   - [ ] `CLOUDFLARE_ACCOUNT_ID`
   - [ ] `CLOUDFLARE_D1_DATABASE_ID`
   - [ ] `CLOUDFLARE_KV_NAMESPACE_ID`
-  - [ ] `JWT_SECRET`
-  - [ ] `CORS_ORIGINS`
+  - [ ] `CF_BUILDS_DEPLOY_HOOK`
+  - [ ] `PUBLIC_URL`
+  - [ ] `CORS_ORIGINS`（可选，仅跨域调用需要）
+  - [ ] `JWT_SECRET`（仅首次手工 `wrangler secret put`）
   - [ ] `ALERT_TG_BOT_TOKEN`（可选）
   - [ ] `ALERT_TG_CHAT_ID`（可选）
   - [ ] `CF_API_TOKEN`（可选，仅 Workers AI Read）
-- [ ] 运行数据库迁移（包含 v1.4.0 版本控制表）
-- [ ] 设置 JWT_SECRET Secret
-- [ ] 连接 Cloudflare Pages
-- [ ] 配置前端环境变量 `VITE_API_URL`
-- [ ] 验证部署成功
+- [ ] 连接 Workers Builds（根目录、构建命令、监视路径、构建期环境变量）
+- [ ] 创建 Deploy Hook 并写入 `CF_BUILDS_DEPLOY_HOOK`
+- [ ] 验证 workers.dev 域名可访问（SPA 刷新、`/api`、WebDAV）
+- [ ] 切换自定义域（先从 Pages 解绑再绑到 Worker）
 
 ### 更新部署
 
 - [ ] 拉取最新代码
-- [ ] 检查数据库迁移（特别是 v1.4.0 的 `file_versions` 表）
-- [ ] 推送到 GitHub
-- [ ] 验证自动部署成功
+- [ ] 检查是否有新迁移文件
+- [ ] 推送到 GitHub（Actions 迁移成功后自动触发 Builds 部署）
+- [ ] 验证 Actions 与 Builds 均成功
 
 ### v1.4.0 升级检查清单
 

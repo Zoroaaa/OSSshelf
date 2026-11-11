@@ -47,32 +47,8 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
-      - name: Create Vectorize index
-        run: |
-          echo "Checking if Vectorize index exists..."
-          if ! npx wrangler vectorize list 2>/dev/null | grep -q "ossshelf-files"; then
-            echo "Creating Vectorize index..."
-            npx wrangler vectorize create ossshelf-files --dimensions=1024 --metric=cosine
-          else
-            echo "Vectorize index already exists, skipping creation"
-          fi
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Create AI Tasks Queue
-        run: |
-          echo "Checking if AI Tasks Queue exists..."
-          if ! npx wrangler queues list 2>/dev/null | grep -q "ossshelf-ai-tasks"; then
-            echo "Creating AI Tasks Queue..."
-            npx wrangler queues create ossshelf-ai-tasks
-          else
-            echo "AI Tasks Queue already exists, skipping creation"
-          fi
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
+      # Vectorize 索引与 AI 队列属于一次性资源，已在控制台/首次部署时创建，
+      # 不再每次运行都做幂等检查（见 docs/deployment.md「首次部署」）。
       - name: Generate wrangler.toml
         # 与 Workers Builds 共用 scripts/generate-wrangler.mjs，避免两处配置漂移。
         # 该配置包含 [assets]，前端构建产物 apps/web/dist 由同一 Worker 承载。
@@ -104,28 +80,10 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Configure Worker secrets
-        # 必须指定 working-directory，否则 wrangler 在仓库根目录找不到
-        # apps/api/wrangler.toml，会报 "Required Worker name missing"。
-        # 放在 Hook 之前：secret put 会基于当前线上代码推一个版本，
-        # 若放在 Hook 之后，就会在 Builds 部署新代码之后再回推一次旧代码版本。
-        # 代价是构建期间多一条版本记录，不影响最终 Active Deployment。
-        working-directory: apps/api
-        run: |
-          echo "${{ secrets.JWT_SECRET }}" | npx wrangler secret put JWT_SECRET
-          if [ -n "${{ secrets.ALERT_TG_BOT_TOKEN }}" ]; then
-            echo "${{ secrets.ALERT_TG_BOT_TOKEN }}" | npx wrangler secret put ALERT_TG_BOT_TOKEN
-          fi
-          # CF_API_TOKEN 是 Cloudflare API 令牌，禁止写入明文 [vars]
-          if [ -n "${{ secrets.CF_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}" ]; then
-            echo "${{ secrets.CF_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}" | npx wrangler secret put CF_API_TOKEN
-          fi
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
+      # Worker secrets（JWT_SECRET / ALERT_TG_BOT_TOKEN / CF_API_TOKEN）跨部署持久存在，
+      # 只在首次部署或轮换时手工执行 `wrangler secret put`，不再每次流水线重写。
       - name: Trigger Workers Builds deploy
-        # 顺序保证：迁移成功、密钥就位后，才通过 Deploy Hook 触发构建部署。
+        # 顺序保证：迁移成功后，才通过 Deploy Hook 触发构建部署。
         # Workers Builds 侧的推送构建必须用「监视路径不命中」挡掉，否则 push
         # 会与这里的迁移并发抢跑，新代码可能跑在旧 schema 上。
         env:

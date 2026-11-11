@@ -454,12 +454,15 @@ pnpm dev:web  # 前端服务 (http://localhost:5173)
 
 ### 一键部署步骤
 
-```bash
-# Step 1: 创建生产资源
-wrangler d1 create ossshelf-db
-wrangler kv:namespace create KV --preview false
+单个 Worker（`ossshelf-api`）同时承载前端静态资源与 API：前端以同源相对路径请求 `/api`，
+D1 迁移由 GitHub Actions 在部署前执行，迁移成功后通过 Deploy Hook 触发 Workers Builds 构建部署。
 
-# 记录输出的 database_id 和 id，填入 wrangler.toml
+```bash
+# Step 1: 创建生产资源（一次性，之后不再需要重复创建）
+wrangler d1 create ossshelf-db
+wrangler kv:namespace create KV
+wrangler vectorize create ossshelf-files --dimensions=1024 --metric=cosine
+wrangler queues create ossshelf-ai-tasks
 ```
 
 ```bash
@@ -470,9 +473,9 @@ cp apps/api/wrangler.toml.example apps/api/wrangler.toml
 编辑 `apps/api/wrangler.toml`：
 
 ```toml
-name = "ossshelf-api"
+name = "ossshelf-api"          # 不可改名：改名会重建 DO 命名空间
 main = "src/index.ts"
-compatibility_date = "2024-01-01"
+compatibility_date = "2026-05-01"
 compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
@@ -486,28 +489,25 @@ id = "你的KV命名空间ID"  # ← 替换这里
 
 [vars]
 ENVIRONMENT = "production"
-CORS_ORIGINS = "https://your-frontend.pages.dev"  # ← 替换为你的前端域名
+# 前后端同源，填 Worker 的访问域名（自定义域或 *.workers.dev）
+CORS_ORIGINS = "https://ossshelf-api.your-subdomain.workers.dev"
 
 [triggers]
 crons = ["0 3 * * *"]  # 每天凌晨3点清理
 ```
 
 ```bash
-# Step 3: 设置运行时密钥（敏感值禁止写进 wrangler.toml）
+# Step 3: 设置 Worker 密钥（一次性；密钥跨部署持久，不需要每次流水线重写）
+cd apps/api
 wrangler secret put JWT_SECRET
 # 输入 32+ 字符随机字符串，例如: openssl rand -base64 32
 # 可选：Workers AI 实时模型目录（需 Workers AI Read 权限）
 # wrangler secret put CF_API_TOKEN
 
-# Step 4: 运行数据库迁移
-pnpm db:migrate
-
-# Step 5: 部署 API
-pnpm deploy:api
-
-# Step 6: 构建并部署前端
-pnpm build:web
-wrangler pages deploy apps/web/dist --project-name=ossshelf-web
+# Step 4: 首次部署
+# 推送到 main 即可：Actions 先跑 D1 预检与迁移，成功后 POST Deploy Hook，
+# 由 Workers Builds 执行 `pnpm build:web` 后 `wrangler deploy`。
+git push origin main
 ```
 
 ### 部署验证
@@ -727,8 +727,9 @@ pnpm dev:api      # 启动 API 开发服务器
 pnpm build:web    # 构建前端
 pnpm build:api    # 构建 API
 
-# 部署
-pnpm deploy:api   # 部署 API 到 Cloudflare Workers
+# 部署（正常流程：push 到 main，由 Actions 迁移 + Deploy Hook 触发 Workers Builds）
+# 下面仅用于手动兜底，需先 pnpm build:web 生成 apps/web/dist
+pnpm deploy:api
 
 # 数据库
 pnpm db:generate  # 生成数据库迁移
@@ -815,8 +816,8 @@ ls apps/api/migrations/
 pnpm db:migrate
 
 # 5. 重新部署
-pnpm deploy:api
-wrangler pages deploy apps/web/dist --project-name=ossshelf-web
+# 推送后由 Actions 先执行 D1 迁移，成功后触发 Workers Builds 构建部署
+git push origin main
 ```
 
 ---
