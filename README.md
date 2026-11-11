@@ -420,9 +420,9 @@ wrangler login
 wrangler d1 create ossshelf-db
 wrangler kv:namespace create KV
 
-# 4. 配置 wrangler.toml
-cp apps/api/wrangler.toml.example apps/api/wrangler.toml
-# 编辑 wrangler.toml，填入 D1 数据库 ID 和 KV 命名空间 ID
+# 4. 准备本地配置
+# apps/api/wrangler.toml 已入库，本地直接复用；如需连本地库可加 --local
+# 仅当你的账号资源与仓库内 id 不同（例如 fork）时才改 database_id / id
 
 # 5. 运行数据库迁移
 pnpm db:migrate
@@ -454,27 +454,27 @@ pnpm dev:web  # 前端服务 (http://localhost:5173)
 
 ### 一键部署步骤
 
+单个 Worker（`ossshelf`）同时承载前端静态资源与 API：前端以同源相对路径请求 `/api`，
+D1 迁移由 GitHub Actions 在部署前执行，迁移成功后通过 Deploy Hook 触发 Workers Builds 构建部署。
+
 ```bash
-# Step 1: 创建生产资源
+# Step 1: 创建生产资源（一次性，之后不再需要重复创建）
 wrangler d1 create ossshelf-db
-wrangler kv:namespace create KV --preview false
-
-# 记录输出的 database_id 和 id，填入 wrangler.toml
+wrangler kv:namespace create KV
+wrangler vectorize create ossshelf-files --dimensions=1024 --metric=cosine
+wrangler queues create ossshelf-ai-tasks
 ```
 
 ```bash
-# Step 2: 配置 wrangler.toml
-cp apps/api/wrangler.toml.example apps/api/wrangler.toml
+# Step 2: 填写资源标识
+# apps/api/wrangler.toml 已入库，含全部绑定、[vars]、[assets] 与 cron；
+# 只需把 Step 1 得到的 D1 database_id 与 KV id 填进去。
+$EDITOR apps/api/wrangler.toml
 ```
 
-编辑 `apps/api/wrangler.toml`：
+需要改动的只有两处（同名文件也是唯一配置源，CI 与本地部署都用它）：
 
 ```toml
-name = "ossshelf-api"
-main = "src/index.ts"
-compatibility_date = "2024-01-01"
-compatibility_flags = ["nodejs_compat"]
-
 [[d1_databases]]
 binding = "DB"
 database_name = "ossshelf-db"
@@ -483,31 +483,25 @@ database_id = "你的D1数据库ID"  # ← 替换这里
 [[kv_namespaces]]
 binding = "KV"
 id = "你的KV命名空间ID"  # ← 替换这里
-
-[vars]
-ENVIRONMENT = "production"
-CORS_ORIGINS = "https://your-frontend.pages.dev"  # ← 替换为你的前端域名
-
-[triggers]
-crons = ["0 3 * * *"]  # 每天凌晨3点清理
 ```
 
+`[vars]` 里 `PUBLIC_URL`、`CORS_ORIGINS` 默认留空即可：前后端同源时，直链按请求 Origin 生成，
+跨域 CORS 也不需要。要接 Telegram 巡检告警时，把 Chat ID 填到 `ALERT_TG_CHAT_ID`。
+
 ```bash
-# Step 3: 设置运行时密钥（敏感值禁止写进 wrangler.toml）
+# Step 3: 设置 Worker 运行时密钥（一次性；密钥跨部署持久，不进仓库）
+cd apps/api
 wrangler secret put JWT_SECRET
 # 输入 32+ 字符随机字符串，例如: openssl rand -base64 32
 # 可选：Workers AI 实时模型目录（需 Workers AI Read 权限）
 # wrangler secret put CF_API_TOKEN
+# 可选：Telegram 告警 Bot Token
+# wrangler secret put ALERT_TG_BOT_TOKEN
 
-# Step 4: 运行数据库迁移
-pnpm db:migrate
-
-# Step 5: 部署 API
-pnpm deploy:api
-
-# Step 6: 构建并部署前端
-pnpm build:web
-wrangler pages deploy apps/web/dist --project-name=ossshelf-web
+# Step 4: 首次部署
+# 推送到 main 即可：Actions 先跑 D1 预检与迁移，成功后 POST Deploy Hook，
+# 由 Workers Builds 执行 `pnpm build:web` 后 `wrangler deploy`。
+git push origin main
 ```
 
 ### 部署验证
@@ -727,8 +721,9 @@ pnpm dev:api      # 启动 API 开发服务器
 pnpm build:web    # 构建前端
 pnpm build:api    # 构建 API
 
-# 部署
-pnpm deploy:api   # 部署 API 到 Cloudflare Workers
+# 部署（正常流程：push 到 main，由 Actions 迁移 + Deploy Hook 触发 Workers Builds）
+# 下面仅用于手动兜底，需先 pnpm build:web 生成 apps/web/dist
+pnpm deploy:api
 
 # 数据库
 pnpm db:generate  # 生成数据库迁移
@@ -815,8 +810,8 @@ ls apps/api/migrations/
 pnpm db:migrate
 
 # 5. 重新部署
-pnpm deploy:api
-wrangler pages deploy apps/web/dist --project-name=ossshelf-web
+# 推送后由 Actions 先执行 D1 迁移，成功后触发 Workers Builds 构建部署
+git push origin main
 ```
 
 ---

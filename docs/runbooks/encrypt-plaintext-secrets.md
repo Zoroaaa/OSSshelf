@@ -55,24 +55,18 @@ Set-Location "d:\开发项目\OSSshelf"
 # 2) 安装依赖（首次或依赖有更新时）
 pnpm install
 
-# 3) 需要工作目录下存在 wrangler.toml（已被 .gitignore 忽略）
-if (-not (Test-Path "apps\api\wrangler.toml")) {
-  Copy-Item "apps\api\wrangler.toml.example" "apps\api\wrangler.toml"
-}
+# 3) 仓库内已有 apps/api/wrangler.toml（真实 id 已入库），无需生成
+Test-Path "apps\api\wrangler.toml"
 
-# 4) 打开 apps\api\wrangler.toml，把 database_id 改成真实 D1 ID
-#    （Cloudflare 控制台 → D1 → ossshelf-db 可看到；CI 里对应 CLOUDFLARE_D1_DATABASE_ID）
-notepad "apps\api\wrangler.toml"
-
-# 5) 切到 apps/api（必须，脚本按当前目录找 wrangler.toml 和写备份）
+# 4) 切到 apps/api（必须，脚本按当前目录找 wrangler.toml 和写备份）
 Set-Location "d:\开发项目\OSSshelf\apps\api"
 
-# 6) 设置环境变量（只在当前 PowerShell 窗口有效）
+# 5) 设置环境变量（只在当前 PowerShell 窗口有效）
 $env:JWT_SECRET = "与 Worker 运行时完全一致的值"
 $env:CLOUDFLARE_API_TOKEN = "你的 Cloudflare API Token"
 $env:CLOUDFLARE_ACCOUNT_ID = "你的 Account ID"
 
-# 7) 干跑
+# 6) 干跑
 node scripts\encrypt-plaintext-secrets.mjs --remote --dry-run
 ```
 
@@ -80,7 +74,7 @@ Token 权限要求：
 
 - **Account → D1 → Edit**（`wrangler d1 execute` 即使只做 `SELECT` 也要求 Edit 权限）。
 - 不需要 Workers Scripts 权限。
-- 建议单独建一个临时 Token，用完即删；也可以在步骤 6 省略 Token，改用 `npx wrangler login` 走浏览器授权。
+- 建议单独建一个临时 Token，用完即删；也可以在步骤 5 省略 Token，改用 `npx wrangler login` 走浏览器授权。
 
 ---
 

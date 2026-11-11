@@ -137,7 +137,9 @@ app.use(
 
 app.use('*', errorHandler);
 
-app.get('/', (c) => {
+// 根路径的静态资源由 Worker assets 提供 index.html，
+// 因此 API 自身信息挪到 /api，避免被 SPA 回退覆盖。
+app.get('/api', (c) => {
   return c.json({
     name: 'OSSshelf API',
     version: APP_VERSION,

@@ -61,7 +61,7 @@ const Permissions: React.FC = () => {
           权限说明
         </button>
         <a
-          href={`${import.meta.env.VITE_API_URL}/api/docs`}
+          href={`${import.meta.env.VITE_API_URL || ''}/api/docs`}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-1 px-3 py-1.5 text-sm bg-primary/10 text-primary rounded-md hover:bg-primary/20 transition-colors"
@@ -70,7 +70,7 @@ const Permissions: React.FC = () => {
           API 文档
         </a>
         <a
-          href={`${import.meta.env.VITE_API_URL}/api/openapi.json`}
+          href={`${import.meta.env.VITE_API_URL || ''}/api/openapi.json`}
           target="_blank"
           rel="noopener noreferrer"
           title="OpenAPI 3.1.0 JSON — 可导入 Postman / Swagger"

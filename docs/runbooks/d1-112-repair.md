@@ -232,7 +232,7 @@ SELECT name FROM d1_migrations WHERE name LIKE '11%' ORDER BY name;
 
    - `Apply D1 migrations` 应只列出 113、114、115、116（112 已被跳过）；
    - 这 4 个文件全部使用 `IF NOT EXISTS` / `DROP ... IF EXISTS`，重复执行安全；
-   - 之后 `Deploy to Cloudflare Workers` 才会真正上线新代码。
+   - 之后 `Trigger Workers Builds deploy` 才会通过 Deploy Hook 触发构建，真正上线新代码。
 
 4. 部署完成后访问线上环境，检查 AI 设置页能正常列出连接与模型。
 

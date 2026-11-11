@@ -13,7 +13,7 @@ build/
 # Cloudflare
 .wrangler/
 .dev.vars
-wrangler.toml
+# apps/api/wrangler.toml 作为唯一配置源入库，此处不再忽略
 
 # Environment files
 .env
