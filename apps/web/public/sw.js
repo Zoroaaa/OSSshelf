@@ -8,9 +8,9 @@
  * - 系统分享面板（Web Share Target）接管
  */
 
-const CACHE_NAME = 'osshelf-v2';
-const STATIC_CACHE_NAME = 'osshelf-static-v2';
-const DYNAMIC_CACHE_NAME = 'osshelf-dynamic-v2';
+const CACHE_NAME = 'osshelf-v3';
+const STATIC_CACHE_NAME = 'osshelf-static-v3';
+const DYNAMIC_CACHE_NAME = 'osshelf-dynamic-v3';
 
 const STATIC_ASSETS = ['/', '/index.html', '/manifest.json'];
 
