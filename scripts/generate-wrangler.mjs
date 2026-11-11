@@ -4,6 +4,9 @@
  *
  * 生成 apps/api/wrangler.toml。
  *
+ * 输出路径由脚本自身位置推导（<repo>/apps/api/wrangler.toml），与执行时的
+ * cwd 无关；因此既能在仓库根执行，也能在 apps/api 下执行，落点一致。
+ *
  * 为什么需要脚本而不是入库配置：
  * - D1 / KV 的 id 属于环境标识，现在放在部署环境变量里，不写进仓库；
  * - GitHub Actions（迁移后触发部署）与 Workers Builds（执行构建部署）
