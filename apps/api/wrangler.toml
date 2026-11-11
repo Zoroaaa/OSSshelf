@@ -8,8 +8,10 @@
 # 密钥（JWT_SECRET / ALERT_TG_BOT_TOKEN / CF_API_TOKEN）不在此文件，
 # 由 Cloudflare Dashboard 的 Worker Secrets 手工维护。
 #
-# 禁止改 name：改名会重建 Durable Object 命名空间，已有会话数据会失联。
-name = "ossshelf-api"
+# name 已由 ossshelf-api 改为 ossshelf（Cloudflare 侧同步改名）。
+# 注意：Durable Object 命名空间与 Worker 名绑定，旧名下的 Agent 会话数据不在新名下。
+# 再次改名需同样同步 Cloudflare 侧、Deploy Hook 与自定义域名，否则会部署到另一个 Worker。
+name = "ossshelf"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"
 compatibility_flags = ["nodejs_compat"]

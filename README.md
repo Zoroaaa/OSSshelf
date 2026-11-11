@@ -454,7 +454,7 @@ pnpm dev:web  # 前端服务 (http://localhost:5173)
 
 ### 一键部署步骤
 
-单个 Worker（`ossshelf-api`）同时承载前端静态资源与 API：前端以同源相对路径请求 `/api`，
+单个 Worker（`ossshelf`）同时承载前端静态资源与 API：前端以同源相对路径请求 `/api`，
 D1 迁移由 GitHub Actions 在部署前执行，迁移成功后通过 Deploy Hook 触发 Workers Builds 构建部署。
 
 ```bash

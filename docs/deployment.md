@@ -29,7 +29,7 @@
 
 ## 部署架构概览
 
-前后端合并为**单个 Cloudflare Worker**（`ossshelf-api`）承载：前端静态资源通过 Workers
+前后端合并为**单个 Cloudflare Worker**（`ossshelf`）承载：前端静态资源通过 Workers
 静态资源绑定（`[assets]`）发布，API、WebDAV、SSE、Agent Durable Object 走同一 Worker。
 前端与 API 同源，前端默认用相对路径请求 `/api`，不再需要 `VITE_API_URL`。
 
@@ -60,7 +60,7 @@
                     └───────────────────────────┬──────────────┘
                                                 │
                     ┌───────────────────────────▼──────────────┐
-                    │   Worker: ossshelf-api                   │
+                    │   Worker: ossshelf                   │
                     │   ├─ [assets]  apps/web/dist（SPA 回退）  │
                     │   └─ /api /dav /agents /cron /health      │
                     │  绑定: D1 / KV / Queue / DO / AI / Vectorize│
@@ -634,7 +634,7 @@ wrangler secret put ALERT_TG_BOT_TOKEN  # 可选，Telegram 告警
 wrangler secret put CF_API_TOKEN        # 可选，Workers AI 模型目录（仅 Workers AI:Read）
 ```
 
-Dashboard 路径：Workers & Pages → `ossshelf-api` → Settings → Variables and Secrets。
+Dashboard 路径：Workers & Pages → `ossshelf` → Settings → Variables and Secrets。
 
 #### 运行时密钥管理
 
@@ -649,7 +649,7 @@ Dashboard 路径：Workers & Pages → `ossshelf-api` → Settings → Variables
 ### Step 6: 连接 Workers Builds（构建并部署同一个 Worker）
 
 1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
-2. 进入 Workers & Pages → 选择 Worker `ossshelf-api` → Settings → Builds → Connect
+2. 进入 Workers & Pages → 选择 Worker `ossshelf` → Settings → Builds → Connect
 3. 选择您的 GitHub 仓库，生产分支 `main`
 4. 构建设置：
    - **根目录**: `apps/api`（wrangler 配置所在目录，也是构建与部署命令的运行目录）
@@ -666,13 +666,13 @@ Dashboard 路径：Workers & Pages → `ossshelf-api` → Settings → Variables
 
 ```bash
 # 测试 API（同源，静态资源与 API 在同一个 Worker 域名下）
-curl https://ossshelf-api.your-subdomain.workers.dev/api/auth/registration-config
+curl https://ossshelf.your-subdomain.workers.dev/api/auth/registration-config
 
 # 预期返回：
 # {"success":true,"data":{"open":true,"requireInviteCode":false}}
 
 # 前端与 API 同源
-# 打开 https://ossshelf-api.your-subdomain.workers.dev
+# 打开 https://ossshelf.your-subdomain.workers.dev
 ```
 
 ---
@@ -716,7 +716,7 @@ curl https://ossshelf-api.your-subdomain.workers.dev/api/auth/registration-confi
 
 ## Worker 构建与部署
 
-前端静态资源与 API 由同一个 Worker（`ossshelf-api`）承载，构建与部署统一交给 Workers Builds。
+前端静态资源与 API 由同一个 Worker（`ossshelf`）承载，构建与部署统一交给 Workers Builds。
 
 ### 构建设置
 
@@ -754,7 +754,7 @@ run_worker_first = ["/api", "/api/*", "/dav", "/dav/*", "/agents", "/agents/*", 
 
 ### 查看部署状态
 
-1. Dashboard → Workers & Pages → `ossshelf-api` → Deployments → Build history（`Triggered by` 列）
+1. Dashboard → Workers & Pages → `ossshelf` → Deployments → Build history（`Triggered by` 列）
 2. 同页 Version history：Active 版本对应的 commit 即当前线上代码
 
 ---
@@ -1155,7 +1155,7 @@ Resend 免费版限制：
 
 ```bash
 # 添加自定义域名
-wrangler domains add ossshelf-api your-domain.com
+wrangler domains add ossshelf your-domain.com
 
 # 或在 wrangler.toml 中配置
 [[routes]]
@@ -1165,9 +1165,9 @@ zone_name = "your-domain.com"
 
 ### 前端域名配置
 
-前后端已同源，前端不再单独部署，直接给 Worker `ossshelf-api` 绑定自定义域：
+前后端已同源，前端不再单独部署，直接给 Worker `ossshelf` 绑定自定义域：
 
-1. 进入 Cloudflare Dashboard → Workers & Pages → `ossshelf-api`
+1. 进入 Cloudflare Dashboard → Workers & Pages → `ossshelf`
 2. Settings → Domains & Routes → Add custom domain
 3. 输入域名并验证（原 Pages 项目的域名需先解绑，避免同一主机名冲突）
 
@@ -1192,7 +1192,7 @@ zone_name = "your-domain.com"
 # wrangler.toml
 [vars]
 # 回滚期可同时保留新旧域名
-CORS_ORIGINS = "https://ossshelf-api.your-subdomain.workers.dev,https://your-custom-domain.com"
+CORS_ORIGINS = "https://ossshelf.your-subdomain.workers.dev,https://your-custom-domain.com"
 ```
 
 **多个域名**：用逗号分隔，如 `https://a.com,https://b.com`
@@ -1399,14 +1399,14 @@ curl "https://api.telegram.org/bot<TOKEN>/getMe"
 
 ```bash
 # GitHub Secrets 中添加
-PUBLIC_URL=https://ossshelf-api.your-subdomain.workers.dev
+PUBLIC_URL=https://ossshelf.your-subdomain.workers.dev
 ```
 
 或在 `wrangler.toml` 中配置：
 
 ```toml
 [vars]
-PUBLIC_URL = "https://ossshelf-api.your-subdomain.workers.dev"
+PUBLIC_URL = "https://ossshelf.your-subdomain.workers.dev"
 ```
 
 **方案二：确认 Worker 路由不回退**
@@ -1671,7 +1671,7 @@ wrangler deployments list
 wrangler rollback --version <version>
 ```
 
-或 Dashboard → Workers & Pages → `ossshelf-api` → Deployments → Version history 选择版本回退。
+或 Dashboard → Workers & Pages → `ossshelf` → Deployments → Version history 选择版本回退。
 
 > 注意：代码回滚不会自动回滚 D1 迁移。若该版本依赖已被后续迁移修改的表结构，需评估是否兼容。
 
