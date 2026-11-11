@@ -572,11 +572,8 @@ wrangler r2 bucket create ossshelf-files
 # 安装依赖
 pnpm install
 
-# 创建临时 wrangler.toml 用于本地迁移
-cp apps/api/wrangler.toml.example apps/api/wrangler.toml
-# 编辑 wrangler.toml 填入实际的 database_id 和 KV id
-
-# 运行迁移
+# 本地迁移：直接复用仓库内的 apps/api/wrangler.toml，
+# 如需连本地模拟库可加 --local
 pnpm db:migrate
 ```
 

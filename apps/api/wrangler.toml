@@ -96,9 +96,9 @@ CORS_ORIGINS = ""
 TRASH_RETENTION_DAYS = "30"
 
 # ── Cron 告警（可选）──────────────────────────────────────────────────────
-# 需同时具备 Worker Secret ALERT_TG_BOT_TOKEN 与这里的 Chat ID，才会发送告警。
-# 从 Dashboard 获取 Chat ID 后填入（例如 -100xxxxxxxxxx），留空则关闭告警。
-ALERT_TG_CHAT_ID = ""
+# 需同时具备 Worker Secret ALERT_TG_BOT_TOKEN 与这里的 Chat ID，才会发送告警
+# （代码侧 hasTelegramAlert 要求两者都存在）。
+ALERT_TG_CHAT_ID = "-1003360772060"
 # Workers AI 实时模型目录需要账户 ID（可选）
 CF_ACCOUNT_ID = ""
 
