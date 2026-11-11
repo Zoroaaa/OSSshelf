@@ -67,71 +67,18 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Generate wrangler.toml
-        run: |
-          cat > apps/api/wrangler.toml << EOF
-          name = "ossshelf-api"
-          main = "src/index.ts"
-          compatibility_date = "2026-05-01"
-          compatibility_flags = ["nodejs_compat"]
-          upload_source_maps = true
-
-          [ai]
-          binding = "AI"
-
-          [[vectorize]]
-          binding = "VECTORIZE"
-          index_name = "ossshelf-files"
-
-          [[durable_objects.bindings]]
-          name = "OSSShelfAgent"
-          class_name = "OSSShelfAgent"
-
-          [[migrations]]
-          tag = "v1"
-          new_sqlite_classes = ["OSSShelfAgent"]
-
-          [[d1_databases]]
-          binding = "DB"
-          database_name = "ossshelf-db"
-          database_id = "${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}"
-
-          [[kv_namespaces]]
-          binding = "KV"
-          id = "${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}"
-
-          [[queues.producers]]
-          queue = "ossshelf-ai-tasks"
-          binding = "AI_TASKS_QUEUE"
-
-          [[queues.consumers]]
-          queue = "ossshelf-ai-tasks"
-          max_batch_size = 1
-          max_batch_timeout = 5
-          max_retries = 6
-          retry_delay = 60
-          max_concurrency = 10
-
-          [observability]
-          enabled = false
-          head_sampling_rate = 1
-
-          [observability.logs]
-          enabled = true
-          head_sampling_rate = 1
-          persist = true
-          invocation_logs = true
-
-          [vars]
-          ENVIRONMENT = "production"
-          PUBLIC_URL = "${{ secrets.PUBLIC_URL }}"
-          CORS_ORIGINS = "${{ secrets.CORS_ORIGINS }}"
-          TRASH_RETENTION_DAYS = "${{ secrets.TRASH_RETENTION_DAYS || '30' }}"
-          ALERT_TG_CHAT_ID = "${{ secrets.ALERT_TG_CHAT_ID }}"
-          CF_ACCOUNT_ID = "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
-
-          [triggers]
-          crons = ["0 3 * * *"]
-          EOF
+        # 与 Workers Builds 共用 scripts/generate-wrangler.mjs，避免两处配置漂移。
+        # 该配置包含 [assets]，前端构建产物 apps/web/dist 由同一 Worker 承载。
+        run: node scripts/generate-wrangler.mjs
+        env:
+          CLOUDFLARE_D1_DATABASE_ID: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}
+          CLOUDFLARE_KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
+          ENVIRONMENT: production
+          PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
+          CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
+          TRASH_RETENTION_DAYS: ${{ secrets.TRASH_RETENTION_DAYS || '30' }}
+          ALERT_TG_CHAT_ID: ${{ secrets.ALERT_TG_CHAT_ID }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Preflight D1 migration state
         # 比对 d1_migrations 与真实 schema，拦截“控制台手工执行过但未记录”等会直接失败的差异。
@@ -150,11 +97,20 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Deploy to Cloudflare Workers
-        run: pnpm deploy:api
+      - name: Trigger Workers Builds deploy
+        # 顺序保证：迁移成功后，才通过 Deploy Hook 触发 Workers Builds 构建部署。
+        # Workers Builds 侧必须关闭 main 分支的自动部署，否则 push 会与这里的
+        # 迁移并发抢跑，新代码可能跑在旧 schema 上。
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_BUILDS_DEPLOY_HOOK: ${{ secrets.CF_BUILDS_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$CF_BUILDS_DEPLOY_HOOK" ]; then
+            echo "::error::缺少 secrets.CF_BUILDS_DEPLOY_HOOK，无法触发部署（迁移已应用，代码未更新）"
+            exit 1
+          fi
+          curl -fsS -X POST "$CF_BUILDS_DEPLOY_HOOK" \
+            -H "Content-Type: application/json" \
+            -w "\nWorkers Builds deploy triggered: HTTP %{http_code}\n"
 
       - name: Configure Worker secrets
         # 必须指定 working-directory，否则 wrangler 在仓库根目录找不到

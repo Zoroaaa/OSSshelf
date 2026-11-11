@@ -2,6 +2,15 @@ name = "ossshelf-api"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"
 compatibility_flags = ["nodejs_compat"]
+
+# ── 前端静态资源（apps/web 构建产物，由同一 Worker 承载）─────────────────
+# run_worker_first 必须显式列出后端路径，否则浏览器直接访问 /api/... 时
+# 会被 SPA 回退成 index.html；/agents 是 DO WebSocket，/dav 是 WebDAV。
+[assets]
+directory = "../web/dist"
+not_found_handling = "single-page-application"
+# 同时列出裸路径与通配符：/api/* 不匹配 /api 本身，否则 /api 会被 SPA 回退成 HTML
+run_worker_first = ["/api", "/api/*", "/dav", "/dav/*", "/agents", "/agents/*", "/cron", "/cron/*", "/health"]
 # 生产环境上传 sourcemap，便于在 Cloudflare 控制台还原堆栈
 upload_source_maps = true
 
