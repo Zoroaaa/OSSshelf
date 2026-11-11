@@ -538,16 +538,14 @@ wrangler r2 bucket create ossshelf-files
 | ---------------------------- | ------------------- | -------------------------------------- |
 | `CLOUDFLARE_API_TOKEN`       | Cloudflare API 令牌 | [创建教程](#获取-cloudflare-api-token) |
 | `CLOUDFLARE_ACCOUNT_ID`      | Cloudflare 账户 ID  | Dashboard 右侧边栏                     |
-| `CLOUDFLARE_D1_DATABASE_ID`  | D1 数据库 ID        | Step 2 创建时获得                      |
-| `CLOUDFLARE_KV_NAMESPACE_ID` | KV 命名空间 ID      | Step 2 创建时获得                      |
-| `JWT_SECRET`                 | JWT 签名密钥        | 生成 32+ 字符随机字符串（仅首次手工写入 Worker） |
-| `CORS_ORIGINS`               | CORS 允许域名       | Worker 访问域名；同源可留空，多个用逗号分隔 |
-| `PUBLIC_URL`                 | 应用公网地址        | 用于生成直链，同源部署填 Worker 域名 |
 | `CF_BUILDS_DEPLOY_HOOK`      | Workers Builds Deploy Hook | Worker → Settings → Builds → Deploy Hooks 创建后复制 URL |
-| `TRASH_RETENTION_DAYS`       | 回收站保留天数      | 可选，默认 30                          |
 
-> `CLOUDFLARE_D1_DATABASE_ID` 与 `CLOUDFLARE_KV_NAMESPACE_ID` 由 `scripts/generate-wrangler.mjs` 在 CI 中生成 `wrangler.toml` 时注入，配置文件本身不入库。
-> Workers AI 实时模型目录的账户 ID 复用 `CLOUDFLARE_ACCOUNT_ID`（工作流注入为 `CF_ACCOUNT_ID`）；API Token 通过 `wrangler secret put CF_API_TOKEN` **手工**写入 Worker Secret，流水线不再每次重写。`CLOUDFLARE_API_TOKEN` 需要额外勾选 `Workers AI:Read`。
+> 工作流只引用上面三个 Secret；D1 / KV 的 id 已写入仓库内的
+> `apps/api/wrangler.toml`，不再需要 Secret 注入。
+> 运行时密钥（`JWT_SECRET`、`ALERT_TG_BOT_TOKEN`、`CF_API_TOKEN`）在
+> Cloudflare Dashboard 的 Worker → Settings → Variables and Secrets 手工维护，
+> 见 [运行时密钥管理](#运行时密钥管理)。
+> `CLOUDFLARE_API_TOKEN` 需要额外勾选 `Workers AI:Read`（仅当需要实时模型目录）。
 
 #### 获取 Cloudflare API Token
 
@@ -626,14 +624,30 @@ node scripts/preflight-migrations.mjs --plan     # 只静态检查迁移文件�
 - [ ] 部署前 `node scripts/preflight-migrations.mjs --remote` 通过
 - [ ] **不修改已发布（已在生产执行过）的迁移文件**：需要调整 schema 时新增一个迁移，而不是改历史文件
 
-### Step 5: 设置运行时密钥
+### Step 5: 设置运行时密钥（首次部署，手工）
 
-存储桶凭证使用 AES-GCM 加密，加密密钥由 `JWT_SECRET` 派生（SHA-256），**无需单独配置 `ENCRYPTION_KEY`**。只需设置 JWT 密钥：
+存储桶凭证使用 AES-GCM 加密，加密密钥由 `JWT_SECRET` 派生（SHA-256），**无需单独配置 `ENCRYPTION_KEY`**。
+
+运行时密钥全部在 Cloudflare Dashboard 或 wrangler CLI 手工维护，**不进仓库、不走 CI**：
 
 ```bash
-wrangler secret put JWT_SECRET --name ossshelf-api
-# 输入 32+ 字符随机密钥，例如: openssl rand -base64 32
+cd apps/api
+wrangler secret put JWT_SECRET          # 必填，32+ 字符，例如 openssl rand -base64 32
+wrangler secret put ALERT_TG_BOT_TOKEN  # 可选，Telegram 告警
+wrangler secret put CF_API_TOKEN        # 可选，Workers AI 模型目录（仅 Workers AI:Read）
 ```
+
+Dashboard 路径：Workers & Pages → `ossshelf-api` → Settings → Variables and Secrets。
+
+#### 运行时密钥管理
+
+| 场景 | 操作 |
+| --- | --- |
+| 首次部署 | 部署前或部署后执行上表命令；secret 与版本无关，任意时刻写入都会即时生效 |
+| 轮换 `JWT_SECRET` | 注意：该值同时用于派生文件加密密钥，**轮换会导致已存储的存储桶凭证无法解密**，需同步重新录入存储桶配置 |
+| 轮换 `ALERT_TG_BOT_TOKEN` / `CF_API_TOKEN` | 直接执行 `wrangler secret put`，下一次请求即生效，无需重新部署 |
+| 查看已配置的密钥 | Dashboard 只显示名称；CLI 无法读回值，只能覆盖 |
+| 删除密钥 | `wrangler secret delete <NAME>` |
 
 ### Step 6: 连接 Workers Builds（构建并部署同一个 Worker）
 
@@ -642,10 +656,10 @@ wrangler secret put JWT_SECRET --name ossshelf-api
 3. 选择您的 GitHub 仓库，生产分支 `main`
 4. 构建设置：
    - **根目录**: `apps/api`（wrangler 配置所在目录，也是构建与部署命令的运行目录）
-   - **构建命令**: `cd .. && pnpm install --frozen-lockfile && pnpm build:web && node scripts/generate-wrangler.mjs`
+   - **构建命令**: `cd .. && pnpm install --frozen-lockfile && pnpm build:web`
    - **部署命令**: `npx wrangler deploy`
    - **构建监视路径**: 包含 `__none__`、排除 `*`（挡掉 push 触发的构建，只保留 Deploy Hook 入口）
-   - **构建期环境变量**: `CLOUDFLARE_D1_DATABASE_ID`、`CLOUDFLARE_KV_NAMESPACE_ID`、`PUBLIC_URL`、`CORS_ORIGINS`、`CF_ACCOUNT_ID`
+   - **构建期环境变量**: 不需要，绑定与 `[vars]` 全部来自仓库内的 `apps/api/wrangler.toml`
 5. Settings → Builds → Deploy Hooks：创建指向 `main` 的 Hook，URL 写入仓库 Secret `CF_BUILDS_DEPLOY_HOOK`
 
 此后每次 push 命中工作流路径，Actions 先跑 D1 预检与迁移，成功后 POST Hook 触发构建部署；
@@ -668,29 +682,30 @@ curl https://ossshelf-api.your-subdomain.workers.dev/api/auth/registration-confi
 
 ## GitHub Secrets 配置
 
+工作流只使用三个 Secret，其余配置全部来自仓库内的 `apps/api/wrangler.toml`。
+
 ### 必需 Secrets
 
-| Secret 名称                  | 必需 | 说明                                           |
-| ---------------------------- | ---- | ---------------------------------------------- |
-| `CLOUDFLARE_API_TOKEN`       | ✅   | Workers 部署权限                               |
-| `CLOUDFLARE_ACCOUNT_ID`      | ✅   | Cloudflare 账户标识                            |
-| `CLOUDFLARE_D1_DATABASE_ID`  | ✅   | D1 数据库绑定                                  |
-| `CLOUDFLARE_KV_NAMESPACE_ID` | ✅   | KV 命名空间绑定                                |
-| `JWT_SECRET`                 | ✅   | JWT 签名密钥                                   |
-| `CORS_ORIGINS`               | ✅   | CORS 允许域名                                  |
-| `PUBLIC_URL`                 | ⚪   | 应用公网地址，用于生成文件直接访问链接（可选） |
+| Secret 名称             | 说明                            |
+| ----------------------- | ------------------------------- |
+| `CLOUDFLARE_API_TOKEN`  | 执行 D1 预检、迁移与 secret 操作 |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账户标识             |
+| `CF_BUILDS_DEPLOY_HOOK` | 迁移成功后触发 Workers Builds 的 Deploy Hook URL |
 
-> Workers AI 模型目录无需新增必需 Secret：默认复用 `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN`（需 `Workers AI:Read`）。也可额外配置 `CF_API_TOKEN`（仅 `Workers AI:Read`），工作流会优先使用它，并通过 `wrangler secret put` 写入 Worker Secret。
+> 注意：`wrangler.toml` 已入库，D1 / KV id 不再通过 Secret 注入；`JWT_SECRET` 也不在工作流中使用（见下方「运行时密钥」）。
 
-### 可选 Secrets
+### 运行时密钥（不进 GitHub Secrets）
 
-| Secret 名称            | 默认值 | 说明                                          |
-| ---------------------- | ------ | --------------------------------------------- |
-| `TRASH_RETENTION_DAYS` | 30     | 回收站文件保留天数                            |
-| `ALERT_TG_BOT_TOKEN`   | -      | 告警 Telegram Bot Token，用于接收系统告警通知 |
-| `ALERT_TG_CHAT_ID`     | -      | 告警 Telegram Chat ID，指定告警消息发送目标   |
+| 名称                  | 维护位置                          | 说明 |
+| --------------------- | --------------------------------- | ---- |
+| `JWT_SECRET`          | Worker Secrets                    | 必填，JWT 签名 + 文件加密密钥派生 |
+| `ALERT_TG_BOT_TOKEN`  | Worker Secrets                    | 可选，Telegram 告警 |
+| `CF_API_TOKEN`        | Worker Secrets                    | 可选，Workers AI 模型目录 |
+| `ALERT_TG_CHAT_ID`    | `wrangler.toml` 的 `[vars]`       | 可选，告警目标 Chat ID（非密钥） |
 
-#### 配置 Telegram 告警（可选）
+`encrypt-secrets.yml` 工作流仍引用 `JWT_SECRET`（用于一次性密钥加密迁移），保留该 Secret 不要删除。
+
+### 配置 Telegram 告警（可选）
 
 如需接收系统告警通知（如定时任务执行失败、存储异常等），可配置 Telegram Bot：
 
@@ -698,31 +713,7 @@ curl https://ossshelf-api.your-subdomain.workers.dev/api/auth/registration-confi
 2. **获取 Chat ID**：
    - **个人消息**：直接使用你的 User ID（转发任意消息到 [@userinfobot](https://t.me/userinfobot) 获取），需要先向 Bot 发送 `/start`
    - **频道/群组**：创建频道或群组，将 Bot 添加为管理员，转发消息到 [@userinfobot](https://t.me/userinfobot) 获取 Chat ID（以 `-100` 开头）
-3. **配置 Secrets**：将 Token 和 Chat ID 添加到 GitHub Secrets
-
-### 配置示例
-
-GitHub Actions 工作流位于 `.github/workflows/deploy-api.yml`，会自动读取这些 Secrets 并生成 `wrangler.toml`：
-
-```yaml
-# 工作流会生成以下配置
-[[d1_databases]]
-binding = "DB"
-database_name = "ossshelf-db"
-database_id = "${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}"
-
-[[kv_namespaces]]
-binding = "KV"
-id = "${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}"
-
-[vars]
-PUBLIC_URL = "${{ secrets.PUBLIC_URL }}"
-CORS_ORIGINS = "${{ secrets.CORS_ORIGINS }}"
-TRASH_RETENTION_DAYS = "${{ secrets.TRASH_RETENTION_DAYS || '30' }}"
-```
-
-> `JWT_SECRET`、`ALERT_TG_BOT_TOKEN` 与 `CF_API_TOKEN` 属于敏感值，工作流会在部署后通过
-> `wrangler secret put` 写入 Worker Secrets，不再出现在 `[vars]` 中。
+3. **配置**：`wrangler secret put ALERT_TG_BOT_TOKEN`，并把 Chat ID 填入 `apps/api/wrangler.toml` 的 `ALERT_TG_CHAT_ID`
 
 ---
 
@@ -735,13 +726,14 @@ TRASH_RETENTION_DAYS = "${{ secrets.TRASH_RETENTION_DAYS || '30' }}"
 | 配置项           | 值                                                                                       |
 | ---------------- | ---------------------------------------------------------------------------------------- |
 | 根目录           | `apps/api`（wrangler 配置所在目录，构建与部署命令都在此执行）                             |
-| 构建命令         | `cd .. && pnpm install --frozen-lockfile && pnpm build:web && node scripts/generate-wrangler.mjs` |
+| 构建命令         | `cd .. && pnpm install --frozen-lockfile && pnpm build:web`                               |
 | 部署命令         | `npx wrangler deploy`                                                                    |
 | 构建监视路径     | 包含 `__none__`，排除 `*`                                                                |
-| 构建期环境变量   | `CLOUDFLARE_D1_DATABASE_ID`、`CLOUDFLARE_KV_NAMESPACE_ID`、`PUBLIC_URL`、`CORS_ORIGINS`、`CF_ACCOUNT_ID` |
+| 构建期环境变量   | 无需配置                                                                                 |
 
-`wrangler.toml` 不入库，由 `scripts/generate-wrangler.mjs` 在构建期生成到 `apps/api/wrangler.toml`；
-脚本路径与 cwd 无关，输出位置固定，`npx wrangler deploy` 在 `apps/api` 下读取同一文件。
+`wrangler.toml` 已入库（`apps/api/wrangler.toml`），包含全部绑定、`[vars]`、`[assets]` 与 cron，
+是唯一配置源；`npx wrangler deploy` 在 `apps/api` 下直接读取它。D1 / KV 的 id 属于资源标识，
+随文件一起入库；密钥走 Worker Secrets，不入库。
 
 ### 部署入口只有一条
 
@@ -779,10 +771,12 @@ run_worker_first = ["/api", "/api/*", "/dav", "/dav/*", "/agents", "/agents/*", 
 | 步骤                              | 作用                                     |
 | --------------------------------- | ---------------------------------------- |
 | Install / Build shared / Typecheck / 单测 | 校验                          |
-| Generate wrangler.toml            | 用 secrets 生成 `apps/api/wrangler.toml` |
 | Preflight D1 migration state      | 拦截「手工改过但未记录」的 schema 漂移   |
 | Apply D1 migrations               | 迁移到最新                               |
 | Trigger Workers Builds deploy     | POST Hook，失败则整条 run 红且不部署     |
+
+配置不再由工作流生成：`apps/api/wrangler.toml` 入库，工作流只依赖 `CLOUDFLARE_API_TOKEN`、
+`CLOUDFLARE_ACCOUNT_ID`、`CF_BUILDS_DEPLOY_HOOK` 三个 Secret。
 
 顺序语义：迁移任一步失败都不会发出 Hook，线上代码保持不变；`CF_BUILDS_DEPLOY_HOOK` 缺失时步骤显式报错退出。
 
@@ -1314,19 +1308,19 @@ wrangler d1 export ossshelf-db --output="backup_${DATE}.sql"
 
 #### 2. Workers Builds 失败：`Build failed`
 
-**原因**: 构建命令、根目录或构建期环境变量配置错误
+**原因**: 构建命令、根目录或输出目录配置错误
 
 **解决**:
 
-- 确认根目录为 `apps/api`，构建命令为 `cd .. && pnpm install --frozen-lockfile && pnpm build:web && node scripts/generate-wrangler.mjs`
-- 确认构建期已注入 `CLOUDFLARE_D1_DATABASE_ID`、`CLOUDFLARE_KV_NAMESPACE_ID`（缺失时生成脚本会直接退出）
-- 若报找不到 `apps/web/dist`，说明构建命令里漏了 `pnpm build:web`
+- 确认根目录为 `apps/api`，构建命令为 `cd .. && pnpm install --frozen-lockfile && pnpm build:web`
+- 若报找不到 `../web/dist`，说明构建命令里漏了 `pnpm build:web`，或根目录填错
+- 若报 `wrangler.toml` 相关错误，确认仓库里的 `apps/api/wrangler.toml` 未被本地覆盖或排除
 
 #### 3. API 请求失败：`No such binding: DB`
 
 **原因**: D1 数据库绑定配置错误
 
-**解决**: 检查 `CLOUDFLARE_D1_DATABASE_ID` Secret 是否正确
+**解决**: 检查 `apps/api/wrangler.toml` 中 `[[d1_databases]]` 的 `database_id` 是否与账号内实际值一致
 
 ```bash
 # 查看现有数据库
@@ -1723,21 +1717,18 @@ pnpm typecheck        # 类型检查
 ### 首次部署
 
 - [ ] Fork 项目到 GitHub
-- [ ] 创建 Cloudflare D1 数据库
-- [ ] 创建 Cloudflare KV 命名空间
+- [ ] 创建 Cloudflare D1 数据库、KV 命名空间、Vectorize 索引、AI 队列（一次性）
+- [ ] 把 D1 `database_id`、KV `id` 填入仓库内 `apps/api/wrangler.toml`
 - [ ] 配置 GitHub Secrets
   - [ ] `CLOUDFLARE_API_TOKEN`
   - [ ] `CLOUDFLARE_ACCOUNT_ID`
-  - [ ] `CLOUDFLARE_D1_DATABASE_ID`
-  - [ ] `CLOUDFLARE_KV_NAMESPACE_ID`
   - [ ] `CF_BUILDS_DEPLOY_HOOK`
-  - [ ] `PUBLIC_URL`
-  - [ ] `CORS_ORIGINS`（可选，仅跨域调用需要）
-  - [ ] `JWT_SECRET`（仅首次手工 `wrangler secret put`）
+- [ ] 手工写入 Worker Secrets
+  - [ ] `JWT_SECRET`（必填）
   - [ ] `ALERT_TG_BOT_TOKEN`（可选）
-  - [ ] `ALERT_TG_CHAT_ID`（可选）
   - [ ] `CF_API_TOKEN`（可选，仅 Workers AI Read）
-- [ ] 连接 Workers Builds（根目录、构建命令、监视路径、构建期环境变量）
+- [ ] 如需告警，把 Chat ID 填入 `wrangler.toml` 的 `ALERT_TG_CHAT_ID`
+- [ ] 连接 Workers Builds（根目录 `apps/api`、构建命令、监视路径，无需构建期变量）
 - [ ] 创建 Deploy Hook 并写入 `CF_BUILDS_DEPLOY_HOOK`
 - [ ] 验证 workers.dev 域名可访问（SPA 刷新、`/api`、WebDAV）
 - [ ] 切换自定义域（先从 Pages 解绑再绑到 Worker）

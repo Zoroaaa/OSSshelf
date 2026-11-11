@@ -47,22 +47,6 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
-      # Vectorize 索引与 AI 队列属于一次性资源，已在控制台/首次部署时创建，
-      # 不再每次运行都做幂等检查（见 docs/deployment.md「首次部署」）。
-      - name: Generate wrangler.toml
-        # 与 Workers Builds 共用 scripts/generate-wrangler.mjs，避免两处配置漂移。
-        # 该配置包含 [assets]，前端构建产物 apps/web/dist 由同一 Worker 承载。
-        run: node scripts/generate-wrangler.mjs
-        env:
-          CLOUDFLARE_D1_DATABASE_ID: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}
-          CLOUDFLARE_KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
-          ENVIRONMENT: production
-          PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
-          CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
-          TRASH_RETENTION_DAYS: ${{ secrets.TRASH_RETENTION_DAYS || '30' }}
-          ALERT_TG_CHAT_ID: ${{ secrets.ALERT_TG_CHAT_ID }}
-          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
       - name: Preflight D1 migration state
         # 比对 d1_migrations 与真实 schema，拦截“控制台手工执行过但未记录”等会直接失败的差异。
         # 修复指引：docs/runbooks/d1-112-repair.md

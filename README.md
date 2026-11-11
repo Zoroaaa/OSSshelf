@@ -420,9 +420,9 @@ wrangler login
 wrangler d1 create ossshelf-db
 wrangler kv:namespace create KV
 
-# 4. 配置 wrangler.toml
-cp apps/api/wrangler.toml.example apps/api/wrangler.toml
-# 编辑 wrangler.toml，填入 D1 数据库 ID 和 KV 命名空间 ID
+# 4. 准备本地配置
+# apps/api/wrangler.toml 已入库，本地直接复用；如需连本地库可加 --local
+# 仅当你的账号资源与仓库内 id 不同（例如 fork）时才改 database_id / id
 
 # 5. 运行数据库迁移
 pnpm db:migrate
@@ -466,18 +466,15 @@ wrangler queues create ossshelf-ai-tasks
 ```
 
 ```bash
-# Step 2: 配置 wrangler.toml
-cp apps/api/wrangler.toml.example apps/api/wrangler.toml
+# Step 2: 填写资源标识
+# apps/api/wrangler.toml 已入库，含全部绑定、[vars]、[assets] 与 cron；
+# 只需把 Step 1 得到的 D1 database_id 与 KV id 填进去。
+$EDITOR apps/api/wrangler.toml
 ```
 
-编辑 `apps/api/wrangler.toml`：
+需要改动的只有两处（同名文件也是唯一配置源，CI 与本地部署都用它）：
 
 ```toml
-name = "ossshelf-api"          # 不可改名：改名会重建 DO 命名空间
-main = "src/index.ts"
-compatibility_date = "2026-05-01"
-compatibility_flags = ["nodejs_compat"]
-
 [[d1_databases]]
 binding = "DB"
 database_name = "ossshelf-db"
@@ -486,23 +483,20 @@ database_id = "你的D1数据库ID"  # ← 替换这里
 [[kv_namespaces]]
 binding = "KV"
 id = "你的KV命名空间ID"  # ← 替换这里
-
-[vars]
-ENVIRONMENT = "production"
-# 前后端同源，填 Worker 的访问域名（自定义域或 *.workers.dev）
-CORS_ORIGINS = "https://ossshelf-api.your-subdomain.workers.dev"
-
-[triggers]
-crons = ["0 3 * * *"]  # 每天凌晨3点清理
 ```
 
+`[vars]` 里 `PUBLIC_URL`、`CORS_ORIGINS` 默认留空即可：前后端同源时，直链按请求 Origin 生成，
+跨域 CORS 也不需要。要接 Telegram 巡检告警时，把 Chat ID 填到 `ALERT_TG_CHAT_ID`。
+
 ```bash
-# Step 3: 设置 Worker 密钥（一次性；密钥跨部署持久，不需要每次流水线重写）
+# Step 3: 设置 Worker 运行时密钥（一次性；密钥跨部署持久，不进仓库）
 cd apps/api
 wrangler secret put JWT_SECRET
 # 输入 32+ 字符随机字符串，例如: openssl rand -base64 32
 # 可选：Workers AI 实时模型目录（需 Workers AI Read 权限）
 # wrangler secret put CF_API_TOKEN
+# 可选：Telegram 告警 Bot Token
+# wrangler secret put ALERT_TG_BOT_TOKEN
 
 # Step 4: 首次部署
 # 推送到 main 即可：Actions 先跑 D1 预检与迁移，成功后 POST Deploy Hook，
