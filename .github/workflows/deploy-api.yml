@@ -6,7 +6,14 @@ on:
       - main
     paths:
       - 'apps/api/**'
+      # 前端产物由同一个 Worker 承载，纯前端改动也必须走完迁移预检 → Hook → 部署
+      - 'apps/web/**'
       - 'packages/shared/**'
+      # wrangler.toml 由脚本生成，改脚本等于改部署配置
+      - 'scripts/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
       - '.github/workflows/deploy-api.yml'
   workflow_dispatch:
 
@@ -97,25 +104,12 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Trigger Workers Builds deploy
-        # 顺序保证：迁移成功后，才通过 Deploy Hook 触发 Workers Builds 构建部署。
-        # Workers Builds 侧必须关闭 main 分支的自动部署，否则 push 会与这里的
-        # 迁移并发抢跑，新代码可能跑在旧 schema 上。
-        env:
-          CF_BUILDS_DEPLOY_HOOK: ${{ secrets.CF_BUILDS_DEPLOY_HOOK }}
-        run: |
-          if [ -z "$CF_BUILDS_DEPLOY_HOOK" ]; then
-            echo "::error::缺少 secrets.CF_BUILDS_DEPLOY_HOOK，无法触发部署（迁移已应用，代码未更新）"
-            exit 1
-          fi
-          curl -fsS -X POST "$CF_BUILDS_DEPLOY_HOOK" \
-            -H "Content-Type: application/json" \
-            -w "\nWorkers Builds deploy triggered: HTTP %{http_code}\n"
-
       - name: Configure Worker secrets
         # 必须指定 working-directory，否则 wrangler 在仓库根目录找不到
         # apps/api/wrangler.toml，会报 "Required Worker name missing"。
-        # 放在 deploy 之后：首次部署时 Worker 尚不存在，secret put 会失败。
+        # 放在 Hook 之前：secret put 会基于当前线上代码推一个版本，
+        # 若放在 Hook 之后，就会在 Builds 部署新代码之后再回推一次旧代码版本。
+        # 代价是构建期间多一条版本记录，不影响最终 Active Deployment。
         working-directory: apps/api
         run: |
           echo "${{ secrets.JWT_SECRET }}" | npx wrangler secret put JWT_SECRET
@@ -129,3 +123,18 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Trigger Workers Builds deploy
+        # 顺序保证：迁移成功、密钥就位后，才通过 Deploy Hook 触发构建部署。
+        # Workers Builds 侧的推送构建必须用「监视路径不命中」挡掉，否则 push
+        # 会与这里的迁移并发抢跑，新代码可能跑在旧 schema 上。
+        env:
+          CF_BUILDS_DEPLOY_HOOK: ${{ secrets.CF_BUILDS_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$CF_BUILDS_DEPLOY_HOOK" ]; then
+            echo "::error::缺少 secrets.CF_BUILDS_DEPLOY_HOOK，无法触发部署（迁移已应用，代码未更新）"
+            exit 1
+          fi
+          curl -fsS -X POST "$CF_BUILDS_DEPLOY_HOOK" \
+            -H "Content-Type: application/json" \
+            -w "\nWorkers Builds deploy triggered: HTTP %{http_code}\n"
