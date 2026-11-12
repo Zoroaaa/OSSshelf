@@ -68,10 +68,24 @@ interface CleanupResult {
   reconciliation: ReconciliationReport;
 }
 
-async function sendCronAlert(env: Env, message: string): Promise<void> {
-  if (!hasTelegramAlert(env)) return;
+export interface CronAlertResult {
+  sent: boolean;
+  /** 前置条件缺失：Worker Secret 或环境变量未配置 */
+  skipped?: 'missing-credentials';
+  /** Telegram 返回的 description 或网络异常信息 */
+  reason?: string;
+  /** Telegram HTTP 状态码（网络层异常时为空） */
+  status?: number;
+}
+
+export async function sendCronAlert(env: Env, message: string): Promise<CronAlertResult> {
+  if (!hasTelegramAlert(env)) {
+    logger.warn('CLEANUP', 'Telegram告警未发送：缺少 ALERT_TG_BOT_TOKEN 或 ALERT_TG_CHAT_ID');
+    return { sent: false, skipped: 'missing-credentials' };
+  }
+
   try {
-    await fetch(`https://api.telegram.org/bot${env.ALERT_TG_BOT_TOKEN}/sendMessage`, {
+    const response = await fetch(`https://api.telegram.org/bot${env.ALERT_TG_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -80,8 +94,31 @@ async function sendCronAlert(env: Env, message: string): Promise<void> {
         parse_mode: 'HTML',
       }),
     });
+
+    // Telegram 失败时仍返回 4xx/5xx 且 body 为 { ok: false, description }，
+    // fetch 不会抛错，必须显式检查，否则失败会被静默吞掉。
+    let body: { ok?: boolean; description?: string } | null = null;
+    try {
+      body = (await response.json()) as { ok?: boolean; description?: string };
+    } catch {
+      body = null;
+    }
+
+    if (!response.ok || body?.ok !== true) {
+      const description = body?.description ?? '响应体缺少 ok 字段';
+      logger.error('CLEANUP', `Telegram告警发送失败: HTTP ${response.status} ${description}`, {
+        status: response.status,
+        description,
+      });
+      return { sent: false, status: response.status, reason: description };
+    }
+
+    logger.info('CLEANUP', 'Telegram告警已发送');
+    return { sent: true };
   } catch (error) {
-    logger.error('CLEANUP', 'Telegram告警发送失败', {}, error);
+    const reason = error instanceof Error ? error.message : String(error);
+    logger.error('CLEANUP', 'Telegram告警发送异常', {}, error);
+    return { sent: false, reason };
   }
 }
 
@@ -233,13 +270,7 @@ export async function runTrashCleanup(
           ? await db
               .select()
               .from(files)
-              .where(
-                and(
-                  eq(files.userId, file.userId),
-                  namespaceCondition,
-                  pathPrefixCondition(files.path, file.path)
-                )
-              )
+              .where(and(eq(files.userId, file.userId), namespaceCondition, pathPrefixCondition(files.path, file.path)))
               .all()
           : [];
 
