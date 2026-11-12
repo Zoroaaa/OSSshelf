@@ -248,6 +248,9 @@ export const adminApi = {
   storageAudit: () => api.get<ApiResponse<StorageAuditReport>>('/api/admin/storage-audit'),
   storageAuditForce: () => api.post<ApiResponse<StorageAuditReport>>('/api/admin/storage-audit/force'),
 
+  // ── Cron 告警 ──
+  testCronAlert: () => api.post<ApiResponse<{ message: string }>>('/cron/test-alert'),
+
   /** 清理孤立对象 */
   cleanupOrphans: (data: { bucketId: string; keys?: string[]; mode?: 'all' | 'selected' }) =>
     api.post<

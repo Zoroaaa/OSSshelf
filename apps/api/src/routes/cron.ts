@@ -13,7 +13,8 @@ import type { Env, Variables } from '../types/env';
 import { authMiddleware, requireAdmin } from '../middleware/auth';
 import { getEncryptionKey } from '../lib/crypto';
 import { cleanExpiredVersions } from '../lib/versionManager';
-import { runDataCleanup, runSessionCleanup, runShareCleanup, runTrashCleanup } from '../lib/cleanup';
+import { runDataCleanup, runSessionCleanup, runShareCleanup, runTrashCleanup, sendCronAlert } from '../lib/cleanup';
+import { hasTelegramAlert } from '../types/env';
 import { runStorageReconciliation } from '../lib/storageReconciliation';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -117,6 +118,47 @@ app.post('/all', async (c) => {
   await runStep('reconcile', () => runStorageReconciliation(env));
 
   return c.json({ success: true, data: results });
+});
+
+// ── 告警测试（管理员）：走与定时任务完全相同的发送函数 ──────────────────
+app.post('/test-alert', async (c) => {
+  const env = c.env;
+
+  if (!hasTelegramAlert(env)) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'ALERT_NOT_CONFIGURED',
+          message: '告警未配置：缺少 Worker Secret ALERT_TG_BOT_TOKEN 或环境变量 ALERT_TG_CHAT_ID',
+        },
+      },
+      400
+    );
+  }
+
+  const sentAt = new Date().toISOString();
+  const result = await sendCronAlert(
+    env,
+    `🔔 <b>OSSshelf 测试告警</b>\n时间：${sentAt}\n这是一条手动触发的测试消息，收到即表示告警链路正常。`
+  );
+
+  if (!result.sent) {
+    const statusPart = result.status ? `（HTTP ${result.status}）` : '';
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'ALERT_SEND_FAILED',
+          message: `Telegram 发送失败${statusPart}：${result.reason ?? '未知错误'}`,
+        },
+      },
+      502
+    );
+  }
+
+  logger.info('CRON', '手动测试告警已发送');
+  return c.json({ success: true, data: { message: '测试告警已发送，请检查 Telegram 是否收到' } });
 });
 
 export default app;

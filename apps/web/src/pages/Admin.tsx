@@ -46,9 +46,11 @@ import {
   Clock,
   Brain,
   HardDrive,
+  Bell,
+  Send,
 } from 'lucide-react';
 
-type TabKey = 'users' | 'registration' | 'email' | 'stats' | 'audit' | 'ai-trace' | 'storage-audit';
+type TabKey = 'users' | 'registration' | 'email' | 'audit' | 'stats' | 'ai-trace' | 'storage-audit' | 'alerts';
 
 export default function Admin() {
   const { user: currentUser } = useAuthStore();
@@ -83,6 +85,7 @@ export default function Admin() {
     { key: 'stats', label: '系统统计', icon: Server },
     { key: 'ai-trace', label: 'AI 执行日志', icon: Brain },
     { key: 'storage-audit', label: '存储审计', icon: HardDrive },
+    { key: 'alerts', label: '告警测试', icon: Bell },
   ];
 
   return (
@@ -120,7 +123,58 @@ export default function Admin() {
       {activeTab === 'stats' && <StatsTab />}
       {activeTab === 'ai-trace' && <AITraceTab />}
       {activeTab === 'storage-audit' && <StorageAuditTab />}
+      {activeTab === 'alerts' && <AlertTestTab />}
     </div>
+  );
+}
+
+function AlertTestTab() {
+  const { toast } = useToast();
+
+  const testMutation = useMutation({
+    mutationFn: () => adminApi.testCronAlert(),
+    onSuccess: (res) => {
+      toast({
+        title: '测试告警已发送',
+        description: res.data.data?.message ?? '请检查 Telegram 是否收到消息',
+      });
+    },
+    onError: (error: any) => {
+      // 服务端会区分「前置条件缺失」与「Telegram 发送失败」，原样展示
+      toast({
+        title: '测试告警发送失败',
+        description: error.response?.data?.error?.message || '请求失败，请查看 Worker 日志',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Telegram 告警测试</CardTitle>
+        <CardDescription>
+          调用与每日 cron 完全相同的发送链路，向 ALERT_TG_CHAT_ID 对应会话发送一条测试消息。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="text-sm text-muted-foreground space-y-1">
+          <p>
+            依赖 Worker Secret <code className="text-xs bg-muted px-1 py-0.5 rounded">ALERT_TG_BOT_TOKEN</code>{' '}
+            与环境变量 <code className="text-xs bg-muted px-1 py-0.5 rounded">ALERT_TG_CHAT_ID</code>。
+          </p>
+          <p>失败时会展示 Telegram 返回的具体原因，例如 chat not found、not enough rights。</p>
+        </div>
+        <Button onClick={() => testMutation.mutate()} disabled={testMutation.isPending}>
+          {testMutation.isPending ? (
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          ) : (
+            <Send className="h-4 w-4 mr-2" />
+          )}
+          {testMutation.isPending ? '发送中…' : '发送测试告警'}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 
