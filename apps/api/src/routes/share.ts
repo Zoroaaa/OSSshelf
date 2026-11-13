@@ -437,7 +437,12 @@ app.post('/:id', async (c) => {
   }
 
   const { share } = resolved;
-  const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  // 已进入回收站（软删除）的文件不再通过分享对外提供
+  const file = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, share.fileId), isNull(files.deletedAt)))
+    .get();
   if (!file) throwAppError('FILE_NOT_FOUND');
 
   // 文件夹分享：返回一层子文件列表（不递归，支持前端分页浏览）
@@ -544,7 +549,11 @@ app.post('/:id/folder/:folderId', async (c) => {
   }
 
   const { share } = resolved;
-  const rootFolder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  const rootFolder = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, share.fileId), isNull(files.deletedAt)))
+    .get();
   if (!rootFolder?.isFolder) {
     throwAppError('SHARE_FOLDER_NOT_FOUND', '分享文件夹不存在');
   }
@@ -611,7 +620,12 @@ app.get('/:id/preview', async (c) => {
   }
 
   const { share } = resolved;
-  const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  // 已进入回收站（软删除）的文件不再通过分享对外提供
+  const file = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, share.fileId), isNull(files.deletedAt)))
+    .get();
   if (!file) throwAppError('FILE_NOT_FOUND');
 
   if (!isPreviewableMimeType(file.mimeType, file.name)) {
@@ -650,7 +664,12 @@ app.get('/:id/stream', async (c) => {
   }
 
   const { share } = resolved;
-  const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  // 已进入回收站（软删除）的文件不再通过分享对外提供
+  const file = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, share.fileId), isNull(files.deletedAt)))
+    .get();
   if (!file) throwAppError('FILE_NOT_FOUND');
 
   if (!file.mimeType?.startsWith('video/') && !file.mimeType?.startsWith('audio/')) {
@@ -758,7 +777,12 @@ app.get('/:id/raw', async (c) => {
   }
 
   const { share } = resolved;
-  const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  // 已进入回收站（软删除）的文件不再通过分享对外提供
+  const file = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, share.fileId), isNull(files.deletedAt)))
+    .get();
   if (!file) throwAppError('FILE_NOT_FOUND');
 
   const isTextFile =
@@ -812,7 +836,12 @@ app.get('/:id/preview-info', async (c) => {
   }
 
   const { share } = resolved;
-  const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  // 已进入回收站（软删除）的文件不再通过分享对外提供
+  const file = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, share.fileId), isNull(files.deletedAt)))
+    .get();
   if (!file) throwAppError('FILE_NOT_FOUND');
 
   const previewType = getPreviewType(file.mimeType, file.name);
@@ -844,7 +873,11 @@ app.get('/:id/download', async (c) => {
 
   const { share } = resolved;
 
-  const file = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  const file = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, share.fileId), isNull(files.deletedAt)))
+    .get();
   if (!file) throwAppError('FILE_NOT_FOUND');
   if (file.isFolder) {
     return c.json(
@@ -917,7 +950,11 @@ app.get('/:id/zip', async (c) => {
 
   const { share } = resolved;
 
-  const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  const folder = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, share.fileId), isNull(files.deletedAt)))
+    .get();
   if (!folder) throwAppError('FOLDER_NOT_FOUND');
   if (!folder.isFolder) {
     throwAppError('VALIDATION_ERROR', '此分享不是文件夹');
@@ -1016,7 +1053,11 @@ app.get('/:id/file/:fileId/download', async (c) => {
   }
 
   const { share } = resolved;
-  const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  const folder = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, share.fileId), isNull(files.deletedAt)))
+    .get();
   if (!folder?.isFolder) {
     throwAppError('SHARE_FOLDER_NOT_FOUND', '分享文件夹不存在');
   }
@@ -1059,7 +1100,11 @@ app.get('/:id/file/:fileId/preview', async (c) => {
   }
 
   const { share } = resolved;
-  const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  const folder = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, share.fileId), isNull(files.deletedAt)))
+    .get();
   if (!folder?.isFolder) {
     throwAppError('SHARE_FOLDER_NOT_FOUND', '分享文件夹不存在');
   }
@@ -1115,7 +1160,11 @@ app.get('/:id/file/:fileId/stream', async (c) => {
   }
 
   const { share } = resolved;
-  const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  const folder = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, share.fileId), isNull(files.deletedAt)))
+    .get();
   if (!folder?.isFolder) {
     throwAppError('SHARE_FOLDER_NOT_FOUND', '分享文件夹不存在');
   }
@@ -1233,7 +1282,11 @@ app.get('/:id/file/:fileId/raw', async (c) => {
   }
 
   const { share } = resolved;
-  const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  const folder = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, share.fileId), isNull(files.deletedAt)))
+    .get();
   if (!folder?.isFolder) {
     throwAppError('SHARE_FOLDER_NOT_FOUND', '分享文件夹不存在');
   }
@@ -1303,7 +1356,11 @@ app.get('/upload/:token', async (c) => {
   }
 
   const { share } = resolved;
-  const folder = await db.select().from(files).where(eq(files.id, share.fileId)).get();
+  const folder = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, share.fileId), isNull(files.deletedAt)))
+    .get();
   if (!folder) throwAppError('FOLDER_NOT_FOUND', '目标文件夹不存在');
 
   const parsedAllowedMimes: string[] | null = share.uploadAllowedMimeTypes
@@ -1464,7 +1521,7 @@ app.post('/upload/:token', async (c) => {
   const folder = await db
     .select()
     .from(files)
-    .where(and(eq(files.id, share.fileId), eq(files.userId, share.userId)))
+    .where(and(eq(files.id, share.fileId), eq(files.userId, share.userId), isNull(files.deletedAt)))
     .get();
   if (!folder) {
     throwAppError('FOLDER_NOT_FOUND', '目标文件夹不存在');
