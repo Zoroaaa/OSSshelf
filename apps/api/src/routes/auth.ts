@@ -18,6 +18,7 @@ import { JWT_EXPIRY, ERROR_CODES, LOGIN_MAX_ATTEMPTS, LOGIN_LOCKOUT_DURATION } f
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
+import { purgeUser } from '../lib/accountDeletion';
 import { getRegConfig } from '../lib/utils';
 import { throwAppError } from '../middleware/error';
 import { sendNotification } from '../lib/notificationUtils';
@@ -557,19 +558,24 @@ app.delete('/me', authMiddleware, async (c) => {
 
   const authHeader = c.req.header('Authorization');
   const token = authHeader?.slice(7);
+
+  // 顺序：先清理子表引用与投递存储对象，再删用户行；
+  // KV 会话与审计日志必须等删除成功后再动，否则失败时用户被踢下线且留下假审计。
+  await purgeUser(c.env, userId!);
+
   if (token) await c.env.KV.delete(`session:${token}`);
 
   await createAuditLog({
     env: c.env,
-    userId,
+    // 用户行已删除，此处不能再引用该 userId（外键会失败），改为记在 details 里
+    userId: null,
     action: 'user.delete',
     resourceType: 'user',
     resourceId: userId,
+    details: { deletedUserId: userId, targetEmail: user.email, self: true },
     ipAddress: getClientIp(c),
     userAgent: getUserAgent(c),
   });
-
-  await db.delete(users).where(eq(users.id, userId));
 
   return c.json({ success: true, data: { message: '账户已注销' } });
 });
