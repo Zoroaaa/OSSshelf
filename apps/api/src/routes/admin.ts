@@ -32,6 +32,7 @@ import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { hashPassword } from '../lib/crypto';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
+import { purgeUser } from '../lib/accountDeletion';
 import { getRegConfig, type RegConfig } from '../lib/utils';
 import { sendNotification } from '../lib/notificationUtils';
 
@@ -179,7 +180,9 @@ app.delete('/users/:id', async (c) => {
   const user = await db.select().from(users).where(eq(users.id, id)).get();
   if (!user) throwAppError('USER_NOT_FOUND');
 
-  // Cascade: files + buckets + sessions are deleted via DB ON DELETE CASCADE
+  // CASCADE 只覆盖声明了 ON DELETE 的列；其余引用由 purgeUser 逐项清理。
+  await purgeUser(c.env, id);
+
   await createAuditLog({
     env: c.env,
     userId: c.get('userId'),
@@ -190,8 +193,6 @@ app.delete('/users/:id', async (c) => {
     ipAddress: getClientIp(c),
     userAgent: getUserAgent(c),
   });
-
-  await db.delete(users).where(eq(users.id, id));
 
   return c.json({ success: true, data: { message: '用户已删除' } });
 });
