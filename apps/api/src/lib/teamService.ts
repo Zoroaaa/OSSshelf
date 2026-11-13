@@ -195,6 +195,64 @@ export async function updateTeam(
   return { success: true, message: `团队 "${team.name}" 更新成功` };
 }
 
+/**
+ * 转移团队所有权：仅现任 owner 可操作，目标必须是该团队现有成员。
+ * 转移后原 owner 降为 admin（保留管理权），避免团队出现无人可管的状态。
+ * 该能力同时是「注销账户」的前置条件：仍有团队的人必须先转移才能注销。
+ */
+export async function transferTeamOwnership(
+  env: Env,
+  actorId: string,
+  teamId: string,
+  targetUserId: string
+): Promise<{ success: true; message: string } | { success: false; error: string }> {
+  const db = getDb(env.DB);
+
+  const team = await db.select().from(teams).where(eq(teams.id, teamId)).get();
+  if (!team) {
+    return { success: false, error: '团队不存在' };
+  }
+  if (team.ownerId !== actorId) {
+    return { success: false, error: '只有团队所有者可以转移所有权' };
+  }
+  if (targetUserId === actorId) {
+    return { success: false, error: '不能把所有权转移给自己' };
+  }
+
+  const target = await db
+    .select()
+    .from(teamMembers)
+    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, targetUserId)))
+    .get();
+  if (!target) {
+    return { success: false, error: '目标用户不是该团队成员，请先邀请加入' };
+  }
+
+  await db.batch([
+    db.update(teams).set({ ownerId: targetUserId }).where(eq(teams.id, teamId)),
+    db
+      .update(teamMembers)
+      .set({ role: 'owner' })
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, targetUserId))),
+    db
+      .update(teamMembers)
+      .set({ role: 'admin' })
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, actorId))),
+  ]);
+
+  await recordActivity(db, {
+    teamId,
+    userId: actorId,
+    action: 'team_ownership_transferred',
+    resourceType: 'team',
+    resourceId: teamId,
+    details: { from: actorId, to: targetUserId },
+  });
+
+  logger.info('TeamService', '转移团队所有权', { teamId, from: actorId, to: targetUserId });
+  return { success: true, message: `团队 "${team.name}" 所有权已转移` };
+}
+
 export async function deleteTeam(
   env: Env,
   userId: string,

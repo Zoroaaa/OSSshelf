@@ -581,6 +581,8 @@ export const teamsApi = {
     data: { name?: string; description?: string; storageQuota?: number; defaultMemberRole?: string }
   ) => api.put<ApiResponse<{ message: string }>>(`/api/teams/${id}`, data),
   delete: (id: string) => api.delete<ApiResponse<{ message: string }>>(`/api/teams/${id}`),
+  transferOwnership: (id: string, targetUserId: string) =>
+    api.post<ApiResponse<{ message: string }>>(`/api/teams/${id}/transfer`, { targetUserId }),
   getMembers: (id: string) => api.get<ApiResponse<TeamMember[]>>(`/api/teams/${id}/members`),
   addMember: (teamId: string, data: { userId: string; role?: string }) =>
     api.post<ApiResponse<Record<string, unknown>>>(`/api/teams/${teamId}/members`, data),

@@ -134,6 +134,29 @@ const TeamDetail: React.FC<TeamDetailProps> = ({ teamId, onClose }) => {
 
   const isOwner = teamData?.isOwner ?? false;
 
+  const { data: transferCandidates } = useQuery({
+    queryKey: ['team-members', teamId],
+    queryFn: () => teamsApi.getMembers(teamId).then((r) => r.data.data),
+    enabled: isOwner && activeTab === 'settings',
+  });
+
+  const transferMutation = useMutation({
+    mutationFn: (targetUserId: string) => teamsApi.transferOwnership(teamId, targetUserId).then((r) => r.data),
+    onSuccess: () => {
+      toast({ title: '所有权已转移', description: '你已降为团队管理员' });
+      queryClient.invalidateQueries({ queryKey: ['team', teamId] });
+      queryClient.invalidateQueries({ queryKey: ['team-members', teamId] });
+      queryClient.invalidateQueries({ queryKey: ['user-teams'] });
+    },
+    onError: (e: any) => {
+      toast({
+        title: '转移失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      });
+    },
+  });
+
   if (isTeamLoading) {
     return (
       <div className="flex items-center justify-center py-8">
@@ -247,16 +270,23 @@ const TeamDetail: React.FC<TeamDetailProps> = ({ teamId, onClose }) => {
       {activeTab === 'activity' && <TeamActivityFeed teamId={teamId} />}
 
       {activeTab === 'settings' && isOwner && (
-        <SettingsSection
-          teamData={teamData!}
-          onUpdate={(data) => updateMutation.mutate(data)}
-          onDelete={() => {
-            if (!confirm(`确定要删除团队 "${teamData?.name}" 吗？此操作不可撤销。`)) return;
-            deleteMutation.mutate();
-          }}
-          isUpdating={updateMutation.isPending}
-          isDeleting={deleteMutation.isPending}
-        />
+        <>
+          <SettingsSection
+            teamData={teamData!}
+            onUpdate={(data) => updateMutation.mutate(data)}
+            onDelete={() => {
+              if (!confirm(`确定要删除团队 "${teamData?.name}" 吗？此操作不可撤销。`)) return;
+              deleteMutation.mutate();
+            }}
+            isUpdating={updateMutation.isPending}
+            isDeleting={deleteMutation.isPending}
+          />
+          <TransferOwnershipSection
+            members={(transferCandidates ?? []).filter((m) => m.role !== 'owner')}
+            isPending={transferMutation.isPending}
+            onTransfer={(targetUserId) => transferMutation.mutate(targetUserId)}
+          />
+        </>
       )}
     </div>
   );
@@ -514,6 +544,77 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({ teamData, onUpdate, o
           </Button>
         </div>
       </div>
+    </div>
+  );
+};
+
+// ── 转移所有权 Section（仅 owner 可见） ──
+
+interface TransferOwnershipSectionProps {
+  members: TeamMember[];
+  isPending: boolean;
+  onTransfer: (targetUserId: string) => void;
+}
+
+const TransferOwnershipSection: React.FC<TransferOwnershipSectionProps> = ({ members, isPending, onTransfer }) => {
+  const [target, setTarget] = useState('');
+  const [confirming, setConfirming] = useState(false);
+
+  if (members.length === 0) return null;
+
+  return (
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+      <div>
+        <h3 className="text-sm font-medium flex items-center gap-1.5">
+          <Crown className="h-4 w-4 text-amber-500" /> 转移所有权
+        </h3>
+        <p className="text-xs text-muted-foreground mt-1">
+          转移后你将降为管理员。注销账户前必须先把名下所有团队转给他人。
+        </p>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-2">
+        <select
+          value={target}
+          onChange={(e) => {
+            setTarget(e.target.value);
+            setConfirming(false);
+          }}
+          className="flex-1 h-9 rounded-md border bg-background px-3 text-sm"
+        >
+          <option value="">选择接收所有权的成员</option>
+          {members.map((m) => (
+            <option key={m.userId} value={m.userId}>
+              {(m.name || m.email) + (m.role === 'admin' ? '（管理员）' : '')}
+            </option>
+          ))}
+        </select>
+
+        {confirming ? (
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={isPending}
+            onClick={() => {
+              onTransfer(target);
+              setConfirming(false);
+            }}
+          >
+            {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Crown className="h-4 w-4 mr-1" />}
+            确认转移
+          </Button>
+        ) : (
+          <Button size="sm" disabled={!target} onClick={() => setConfirming(true)}>
+            转移所有权
+          </Button>
+        )}
+      </div>
+
+      {confirming && target && (
+        <p className="text-xs text-amber-600 dark:text-amber-400">
+          确认后该团队归 {members.find((m) => m.userId === target)?.name || '该成员'} 所有，此操作立即生效。
+        </p>
+      )}
     </div>
   );
 };
