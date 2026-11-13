@@ -115,7 +115,7 @@ describe('账户注销的引用清理清单', () => {
 });
 
 describe('purgeUser 执行顺序', () => {
-  function createFakeEnv() {
+  function createFakeEnv(ownedTeams: Array<{ id: string; name: string }> = []) {
     const statements: string[] = [];
     const run = async () => ({ success: true, results: [], meta: {} });
     const db = {
@@ -124,7 +124,11 @@ describe('purgeUser 执行顺序', () => {
         return {
           bind: () => ({
             run,
-            all: async () => ({ success: true, results: [], meta: {} }),
+            all: async () => ({
+              success: true,
+              results: sql.includes('FROM teams') ? ownedTeams : [],
+              meta: {},
+            }),
           }),
         };
       },
@@ -155,5 +159,30 @@ describe('purgeUser 执行顺序', () => {
     const { env, statements } = createFakeEnv();
     await purgeUser(env, 'u1');
     expect(statements.some((s) => s.includes('INSERT INTO storage_deletion_queue'))).toBe(false);
+  });
+
+  it('仍是团队 owner 时拒绝注销，并带出未转移团队清单', async () => {
+    const { env, statements } = createFakeEnv([
+      { id: 't1', name: '研发团队' },
+      { id: 't2', name: '设计团队' },
+    ]);
+
+    await expect(purgeUser(env, 'u1')).rejects.toMatchObject({
+      errorCode: 'TEAM_OWNERSHIP_TRANSFER_REQUIRED',
+      details: {
+        teams: [
+          { id: 't1', name: '研发团队' },
+          { id: 't2', name: '设计团队' },
+        ],
+      },
+    });
+    // 未发生任何写操作，用户仍存续
+    expect(statements.some((s) => s.startsWith('DELETE') || s.startsWith('UPDATE'))).toBe(false);
+  });
+
+  it('转移后（无 owner 团队）可正常注销', async () => {
+    const { env, statements } = createFakeEnv([]);
+    await purgeUser(env, 'u1');
+    expect(statements[statements.length - 1]).toBe('DELETE FROM users WHERE id = ?');
   });
 });

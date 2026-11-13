@@ -224,8 +224,16 @@ function UsersTab() {
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
       setDeleteConfirm(null);
     },
-    onError: (e: any) =>
-      toast({ title: '删除失败', description: e.response?.data?.error?.message, variant: 'destructive' }),
+    onError: (e: any) => {
+      const err = e.response?.data?.error;
+      // 仍拥有团队时后端返回 U203，这里直接把原因和下一步操作告知管理员
+      const hint = err?.code === 'U203' ? '。请让该用户先在「团队」页面把所有权转给其他成员' : '';
+      toast({
+        title: '删除失败',
+        description: `${err?.message ?? '操作失败'}${hint}`,
+        variant: 'destructive',
+      });
+    },
   });
 
   const startEdit = (user: AdminUser) => {

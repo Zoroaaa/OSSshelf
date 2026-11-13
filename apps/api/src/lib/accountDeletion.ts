@@ -14,6 +14,7 @@
 
 import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';
+import { AppError } from '../middleware/error';
 
 export type UserRefAction = 'set-null' | 'delete-rows';
 
@@ -166,10 +167,33 @@ async function deleteUserVectors(env: Env, userId: string): Promise<number> {
 }
 
 /**
- * 注销账户：先回收资源、再清理不随级联删除的引用，最后删除用户行。
+ * 注销前置：团队所有权不随用户删除（teams.owner_id 虽是 CASCADE，
+ * 但业务上要求先转移，否则团队资产会被静默销毁）。
+ * 冲突时在 details 里带未转移团队清单，供前端直接展示。
+ */
+async function assertNoOwnedTeams(env: Env, userId: string): Promise<void> {
+  const rows = await env.DB.prepare('SELECT id, name FROM teams WHERE owner_id = ? ORDER BY name')
+    .bind(userId)
+    .all<{ id: string; name: string }>();
+
+  const owned = rows.results ?? [];
+  if (owned.length === 0) return;
+
+  throw new AppError('TEAM_OWNERSHIP_TRANSFER_REQUIRED', {
+    details: { teams: owned },
+    message: `仍有 ${owned.length} 个团队未转移所有权：${owned
+      .map((t) => t.name)
+      .join('、')}。请先在「团队」页把所有权转给其他成员，再注销账户。`,
+  });
+}
+
+/**
+ * 注销账户：先校验团队所有权，再回收资源、清理不随级联删除的引用，最后删除用户行。
  * 调用方必须在返回成功后再删除 KV 会话、写审计日志。
  */
 export async function purgeUser(env: Env, userId: string): Promise<PurgeUserResult> {
+  await assertNoOwnedTeams(env, userId);
+
   const enqueuedObjects = await enqueueStorageObjects(env, userId);
   const deletedVectors = await deleteUserVectors(env, userId);
 

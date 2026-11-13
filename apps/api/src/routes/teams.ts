@@ -24,6 +24,7 @@ import {
   deleteTeam,
   listTeams,
   manageTeamMembers,
+  transferTeamOwnership,
   listTeamMembers,
   mountResourceToTeam,
   unmountResourceFromTeam,
@@ -224,6 +225,46 @@ app.delete('/:id', async (c) => {
 // ═══════════════════════════════════════════════════════════════════════════
 // 成员管理
 // ═══════════════════════════════════════════════════════════════════════════
+
+const transferOwnershipSchema = z.object({
+  targetUserId: z.string().min(1, '目标用户不能为空'),
+});
+
+/** 转移团队所有权（仅 owner） */
+app.post('/:id/transfer', async (c) => {
+  const userId = c.get('userId')!;
+  const teamId = c.req.param('id');
+  const parseResult = transferOwnershipSchema.safeParse(await c.req.json());
+
+  if (!parseResult.success) {
+    return c.json(
+      {
+        success: false,
+        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.issues[0].message },
+      },
+      400
+    );
+  }
+
+  const result = await transferTeamOwnership(c.env, userId, teamId, parseResult.data.targetUserId);
+
+  if (!result.success) {
+    throwAppError('TEAM_UPDATE_FAILED', (result as { success: false; error: string }).error);
+  }
+
+  await createAuditLog({
+    env: c.env,
+    userId,
+    action: 'team.update' as never,
+    resourceType: 'team',
+    resourceId: teamId,
+    details: { transferredTo: parseResult.data.targetUserId },
+    ipAddress: getClientIp(c),
+    userAgent: getUserAgent(c),
+  });
+
+  return c.json({ success: true, data: { message: (result as { success: true; message: string }).message } });
+});
 
 /** 列出团队成员 */
 app.get('/:id/members', async (c) => {

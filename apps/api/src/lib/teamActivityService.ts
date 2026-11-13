@@ -26,6 +26,7 @@ export type TeamAction =
   | 'comment_added'
   | 'team_created'
   | 'team_settings_updated'
+  | 'team_ownership_transferred'
   | 'invite_sent'
   | 'invite_accepted';
 

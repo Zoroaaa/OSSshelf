@@ -198,6 +198,11 @@ export const ERROR_CODES: Record<string, ErrorInfo> = {
   USER_ACCESS_DENIED: { code: 'U200', httpStatus: 403, message: '无权访问此用户信息' },
   CANNOT_DELETE_SELF: { code: 'U201', httpStatus: 400, message: '不能删除自己的账户' },
   CANNOT_MODIFY_ADMIN: { code: 'U202', httpStatus: 403, message: '不能修改管理员账户' },
+  TEAM_OWNERSHIP_TRANSFER_REQUIRED: {
+    code: 'U203',
+    httpStatus: 409,
+    message: '仍拥有团队，需先转移所有权后才能注销',
+  },
 
   // 用户状态 U4xx
   USER_ALREADY_EXISTS: { code: 'U400', httpStatus: 409, message: '用户已存在' },
