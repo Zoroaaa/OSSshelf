@@ -6,11 +6,11 @@
  * - 支持全桶迁移和单文件/文件夹粒度迁移
  * - 单文件模式：自动推断来源桶，展示文件信息
  * - 文件夹模式：显示递归迁移提示
- * - 实时进度轮询（每 2s 刷新）
+ * - 服务端按批次推进，前端循环调用 /run 直到终态并实时展示进度
  */
 
 import { useState, useEffect } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { bucketsApi, migrateApi, filesApi, type StorageBucket, type MigrationStatus } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { formatBytes, decodeFileName } from '@/utils';
@@ -40,8 +40,11 @@ interface Props {
 export function MigrateBucketDialog({ file, defaultSourceId, fileIds: _fileIds, onClose }: Props) {
   const [sourceId, setSourceId] = useState(defaultSourceId ?? '');
   const [targetId, setTargetId] = useState('');
-  const [deleteSource, setDeleteSource] = useState(false);
+  const [deleteSource, setDeleteSource] = useState(true);
   const [migrationId, setMigrationId] = useState<string | null>(null);
+  const [migStatus, setMigStatus] = useState<MigrationStatus | undefined>();
+  const [driveError, setDriveError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   // ── 单文件模式：自动推断来源桶 ──────────────────────────────
   useEffect(() => {
@@ -72,17 +75,31 @@ export function MigrateBucketDialog({ file, defaultSourceId, fileIds: _fileIds, 
   // 过滤掉当前源桶
   const targetBuckets = buckets.filter((b) => b.id !== sourceId);
 
-  // Poll migration status every 2s while running
-  const { data: statusData } = useQuery({
-    queryKey: ['migration', migrationId],
-    queryFn: () => migrateApi.get(migrationId!).then((r) => r.data.data),
-    enabled: !!migrationId,
-    refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      return status === 'running' ? 2000 : false;
-    },
-  });
-  const migStatus: MigrationStatus | undefined = statusData;
+  // 服务端按批次推进，前端循环驱动直到终态
+  useEffect(() => {
+    if (!migrationId) return;
+    let stopped = false;
+    migrateApi
+      .runToCompletion(
+        migrationId,
+        (status) => {
+          if (!stopped) setMigStatus(status);
+        },
+        () => stopped
+      )
+      .then((status) => {
+        if (stopped) return;
+        setMigStatus(status);
+        queryClient.invalidateQueries({ queryKey: ['files'] });
+        queryClient.invalidateQueries({ queryKey: ['buckets'] });
+      })
+      .catch((error) => {
+        if (!stopped) setDriveError(error instanceof Error ? error.message : '迁移执行失败');
+      });
+    return () => {
+      stopped = true;
+    };
+  }, [migrationId, queryClient]);
 
   const startMutation = useMutation({
     mutationFn: () =>
@@ -104,11 +121,39 @@ export function MigrateBucketDialog({ file, defaultSourceId, fileIds: _fileIds, 
   });
 
   const canStart = sourceId && targetId && sourceId !== targetId && !migrationId;
-  const isRunning = migStatus?.status === 'running';
+  const isRunning =
+    !!migrationId &&
+    migStatus?.status !== 'completed' &&
+    migStatus?.status !== 'failed' &&
+    migStatus?.status !== 'cancelled';
   const isDone =
     migStatus?.status === 'completed' || migStatus?.status === 'failed' || migStatus?.status === 'cancelled';
 
-  const pct = migStatus ? Math.round(((migStatus.done + migStatus.failed) / Math.max(1, migStatus.total)) * 100) : 0;
+  const pct = (() => {
+    if (!migStatus) return 0;
+    if (migStatus.phase === 'cleaning' && migStatus.cleanupKeys?.length) {
+      return Math.round(((migStatus.cleanupDone ?? 0) / migStatus.cleanupKeys.length) * 100);
+    }
+    if (migStatus.phase === 'moving' && migStatus.moveIds.length) {
+      return Math.round(((migStatus.moveDone ?? 0) / migStatus.moveIds.length) * 100);
+    }
+    if (migStatus.phase === 'completed') return 100;
+    return Math.round(((migStatus.done + migStatus.failed) / Math.max(1, migStatus.total)) * 100);
+  })();
+
+  const phaseLabel = (() => {
+    if (!migStatus) return '';
+    if (migStatus.phase === 'cleaning') {
+      return `清理来源桶 ${migStatus.cleanupDone ?? 0} / ${migStatus.cleanupKeys?.length ?? 0}`;
+    }
+    if (migStatus.phase === 'moving') {
+      return `移动到目标目录 ${migStatus.moveDone ?? 0} / ${migStatus.moveIds.length}`;
+    }
+    if (migStatus.status === 'running') return '拷贝文件中...';
+    if (migStatus.status === 'completed') return '迁移完成';
+    if (migStatus.status === 'cancelled') return '已取消';
+    return '迁移失败';
+  })();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -202,15 +247,26 @@ export function MigrateBucketDialog({ file, defaultSourceId, fileIds: _fileIds, 
                 onChange={(e) => setDeleteSource(e.target.checked)}
                 className="rounded"
               />
-              <span>迁移后删除来源文件（移动模式）</span>
+              <span>迁移后清理来源桶中的对象（移动模式）</span>
             </label>
 
             {deleteSource && (
               <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-lg px-3 py-2 flex items-start gap-1.5">
                 <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-                移动模式将在迁移成功后删除来源文件，此操作不可逆
+                仅在该文件拷贝并切换成功后才清理来源对象；失败的文件会保留在来源桶
               </p>
             )}
+
+          </div>
+        )}
+
+        {driveError && (
+          <p className="text-xs text-red-500 bg-red-500/10 rounded-lg px-3 py-2">{driveError}</p>
+        )}
+
+        {migrationId && !migStatus && !driveError && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> 正在启动迁移...
           </div>
         )}
 
@@ -218,17 +274,11 @@ export function MigrateBucketDialog({ file, defaultSourceId, fileIds: _fileIds, 
         {migStatus && (
           <div className="space-y-3">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">
-                {isRunning
-                  ? '迁移中...'
-                  : migStatus.status === 'completed'
-                    ? '迁移完成'
-                    : migStatus.status === 'cancelled'
-                      ? '已取消'
-                      : '迁移失败'}
-              </span>
+              <span className="text-muted-foreground">{phaseLabel}</span>
               <span className="font-medium tabular-nums">
-                {migStatus.done + migStatus.failed} / {migStatus.total}
+                {migStatus.phase === 'copying' || migStatus.phase === 'completed'
+                  ? `${migStatus.done + migStatus.failed} / ${migStatus.total}`
+                  : `${pct}%`}
               </span>
             </div>
 

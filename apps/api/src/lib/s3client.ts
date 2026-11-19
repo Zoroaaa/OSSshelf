@@ -574,6 +574,20 @@ export async function s3AbortMultipartUpload(config: S3BucketConfig, key: string
 
 // ── Public API ────────────────────────────────────────────────────────────
 
+/** 将任意 ReadableStream 包装为 Workers 的 FixedLengthStream，使请求带上固定 Content-Length */
+function toFixedLengthStream(source: ReadableStream, length: number): ReadableStream {
+  const FixedLengthStreamCtor = (globalThis as any).FixedLengthStream as
+    | (new (expectedLength: number) => { readable: ReadableStream; writable: WritableStream })
+    | undefined;
+  if (!FixedLengthStreamCtor) return source;
+
+  const fixed = new FixedLengthStreamCtor(length);
+  source.pipeTo(fixed.writable).catch(() => {
+    // 上游读取异常会在 fetch 侧表现为请求体错误，这里无需额外处理
+  });
+  return fixed.readable;
+}
+
 /**
  * Upload an object to an S3-compatible bucket.
  * @param contentLength - Required for streaming bodies; many S3 providers require Content-Length header
@@ -602,10 +616,12 @@ export async function s3Put(
     }
   }
 
-  // 如果提供了 contentLength，必须在签名头和请求头中都包含
-  // AWS Signature V4 要求签名头与实际请求头完全一致
-  // 许多 S3 兼容存储要求必须有 Content-Length 头
-  if (contentLength !== undefined) {
+  const isStreaming = body instanceof ReadableStream;
+
+  // 固定长度请求体（ArrayBuffer/Uint8Array）：签名头与请求头都显式带 content-length。
+  // 流式请求体交给 FixedLengthStream 自动产生 Content-Length，不能手写，
+  // 否则 Workers 可能丢弃该头导致 SigV4 签名校验失败。
+  if (contentLength !== undefined && !isStreaming) {
     extraHeaders['content-length'] = String(contentLength);
   }
 
@@ -623,10 +639,18 @@ export async function s3Put(
     region,
   });
 
+  // Workers 对普通 ReadableStream 请求体会改用 chunked 编码，
+  // 而 S3 兼容存储（B2/R2）要求固定长度。用 FixedLengthStream 包装后请求会带上真实长度，
+  // 且实际字节数与声明不一致时直接报错，避免写入残缺对象。
+  const payload =
+    isStreaming && contentLength !== undefined
+      ? toFixedLengthStream(body as ReadableStream, contentLength)
+      : (body as BodyInit);
+
   const res = await fetch(signed.url, {
     method: 'PUT',
     headers: signed.headers,
-    body: body as BodyInit,
+    body: payload,
   });
 
   if (!res.ok) {

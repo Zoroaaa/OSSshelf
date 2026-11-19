@@ -1774,11 +1774,31 @@ export default function Files() {
                     targetBucketId: crossBucketMove.targetBucketId,
                     fileIds: crossBucketMove.fileIds,
                     targetFolderId: crossBucketMove.targetFolderId,
+                    deleteSource: true,
                   })
-                  .then(() => {
+                  .then((res) => {
+                    const id = res.data.data?.migrationId;
                     toast({ title: '迁移任务已启动' });
                     setCrossBucketMove(null);
-                    refetch();
+                    if (!id) return;
+                    migrateApi
+                      .runToCompletion(id)
+                      .then((status) => {
+                        toast({
+                          title: status.status === 'completed' ? '迁移完成' : '迁移失败',
+                          description:
+                            status.status === 'completed'
+                              ? `${status.done} 个文件已迁移${status.failed ? `，${status.failed} 个失败` : ''}`
+                              : undefined,
+                          variant: status.status === 'completed' ? 'default' : 'destructive',
+                        });
+                        queryClient.invalidateQueries({ queryKey: ['files'] });
+                        queryClient.invalidateQueries({ queryKey: ['buckets'] });
+                        refetch();
+                      })
+                      .catch(() => {
+                        toast({ title: '迁移执行失败', variant: 'destructive' });
+                      });
                   })
                   .catch(() => {
                     toast({ title: '迁移启动失败', variant: 'destructive' });
