@@ -768,9 +768,12 @@ function extractAllXmlTags(xml: string, containerTag: string): string[] {
   return results;
 }
 
-function parseContentsBlock(contentsXml: string): S3ObjectInfo | null {
-  const key = extractXmlTag(contentsXml, 'Key');
-  if (key === null) return null;
+function parseContentsBlock(contentsXml: string, urlEncoded: boolean): S3ObjectInfo | null {
+  const rawKey = extractXmlTag(contentsXml, 'Key');
+  if (rawKey === null) return null;
+  // 只有服务端声明 EncodingType=url 时才是百分号编码；B2 等实现会忽略该参数返回原始 key，
+  // 无条件下解码会把本身含 % 的 key 变成另一条路径（审计里表现为「孤儿 + 丢失」成对出现）。
+  const key = urlEncoded ? decodeURIComponent(rawKey) : rawKey;
 
   const sizeStr = extractXmlTag(contentsXml, 'Size');
   const size = sizeStr !== null ? parseInt(sizeStr, 10) : 0;
@@ -782,7 +785,7 @@ function parseContentsBlock(contentsXml: string): S3ObjectInfo | null {
   const lastModified = extractXmlTag(contentsXml, 'LastModified') || '';
 
   return {
-    key: decodeURIComponent(key),
+    key,
     size,
     etag,
     lastModified,
@@ -797,9 +800,12 @@ function parseListObjectsResponse(xml: string): {
 } {
   const objects: S3ObjectInfo[] = [];
 
+  // 以响应体中的 EncodingType 为准，而不是以请求参数为准
+  const urlEncoded = extractXmlTag(xml, 'EncodingType') === 'url';
+
   const contentsBlocks = extractAllXmlTags(xml, 'Contents');
   for (const block of contentsBlocks) {
-    const parsed = parseContentsBlock(block);
+    const parsed = parseContentsBlock(block, urlEncoded);
     if (parsed) objects.push(parsed);
   }
 
@@ -812,8 +818,8 @@ function parseListObjectsResponse(xml: string): {
   return {
     objects,
     isTruncated,
-    nextContinuationToken: nextToken ? decodeURIComponent(nextToken) : undefined,
-    nextMarker: nextMarker ? decodeURIComponent(nextMarker) : undefined,
+    nextContinuationToken: nextToken ? (urlEncoded ? decodeURIComponent(nextToken) : nextToken) : undefined,
+    nextMarker: nextMarker ? (urlEncoded ? decodeURIComponent(nextMarker) : nextMarker) : undefined,
   };
 }
 
