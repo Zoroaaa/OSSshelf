@@ -23,7 +23,6 @@ import {
   aiChatMessages,
   aiUsageEvents,
   aiMemories,
-  fileVersions,
 } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { ERROR_CODES, logger } from '@osshelf/shared';
@@ -1175,58 +1174,76 @@ app.get('/storage-audit/missing-files/:bucketId', async (c) => {
     return c.json({ success: false, error: { code: 'NOT_FOUND', message: '存储桶不存在' } }, 404);
   }
 
-  const dbFiles = await db
-    .select({
-      id: files.id,
-      name: files.name,
-      r2Key: files.r2Key,
-      size: files.size,
-      parentId: files.parentId,
-      path: files.path,
-      mimeType: files.mimeType,
-      createdAt: files.createdAt,
-    })
-    .from(files)
-    .where(and(eq(files.bucketId, bucketId), isNull(files.deletedAt), eq(files.isFolder, false)))
-    .all();
-
-  const allFileIds = dbFiles.map((f) => f.id);
-
-  const BATCH_SIZE = 100;
-  const allVersions: Map<string, { r2Key: string | null; size: number }> = new Map();
-  if (allFileIds.length > 0) {
-    for (let i = 0; i < allFileIds.length; i += BATCH_SIZE) {
-      const batch = allFileIds.slice(i, i + BATCH_SIZE);
-      const results = await db
-        .select({ fileId: fileVersions.fileId, r2Key: fileVersions.r2Key, size: fileVersions.size })
-        .from(fileVersions)
-        .where(inArray(fileVersions.fileId, batch))
-        .all();
-      for (const v of results) {
-        if (!allVersions.has(v.fileId) || (v.r2Key && !allVersions.get(v.fileId)?.r2Key)) {
-          allVersions.set(v.fileId, { r2Key: v.r2Key, size: v.size });
-        }
-      }
-    }
+  // 以最近一次审计报告的比对结果为准，只返回真正缺失的记录。
+  // 旧实现没有做对象比对，把桶内所有文件都当成「丢失」，数字会非常吓人且完全失真。
+  const report = await getLastAuditReport(c.env.KV);
+  if (!report) {
+    return c.json(
+      { success: false, error: { code: 'AUDIT_REQUIRED', message: '请先执行一次存储审计' } },
+      409
+    );
+  }
+  const bucketResult = report.buckets.find((b) => b.bucketId === bucketId);
+  if (!bucketResult) {
+    return c.json(
+      { success: false, error: { code: 'NOT_FOUND', message: '该存储桶不在最近一次审计结果中' } },
+      404
+    );
   }
 
-  const missingFiles = [];
-  for (const f of dbFiles) {
-    const versionInfo = allVersions.get(f.id);
-    const effectiveR2Key = f.r2Key || versionInfo?.r2Key;
-    if (!effectiveR2Key) continue;
-    missingFiles.push({
-      fileId: f.id,
-      name: f.name,
-      r2Key: effectiveR2Key,
-      size: f.size || versionInfo?.size || 0,
-      parentId: f.parentId,
-      path: f.path,
-      mimeType: f.mimeType,
-      createdAt: f.createdAt,
-      folderPath: null as string | null,
-    });
+  const missingFileIds = [
+    ...new Set(bucketResult.missingFiles.map((m) => m.dbFileId).filter((v): v is string => Boolean(v))),
+  ];
+
+  const BATCH_SIZE = 90;
+  const dbFiles: Array<{
+    id: string;
+    name: string;
+    r2Key: string;
+    size: number;
+    parentId: string | null;
+    path: string | null;
+    mimeType: string | null;
+    createdAt: string;
+  }> = [];
+
+  for (let i = 0; i < missingFileIds.length; i += BATCH_SIZE) {
+    const batch = missingFileIds.slice(i, i + BATCH_SIZE);
+    const rows = await db
+      .select({
+        id: files.id,
+        name: files.name,
+        r2Key: files.r2Key,
+        size: files.size,
+        parentId: files.parentId,
+        path: files.path,
+        mimeType: files.mimeType,
+        createdAt: files.createdAt,
+      })
+      .from(files)
+      .where(
+        and(
+          inArray(files.id, batch),
+          eq(files.bucketId, bucketId),
+          isNull(files.deletedAt),
+          eq(files.isFolder, false)
+        )
+      )
+      .all();
+    dbFiles.push(...rows);
   }
+
+  const missingFiles = dbFiles.map((f) => ({
+    fileId: f.id,
+    name: f.name,
+    r2Key: f.r2Key,
+    size: f.size,
+    parentId: f.parentId,
+    path: f.path,
+    mimeType: f.mimeType,
+    createdAt: f.createdAt,
+    folderPath: null as string | null,
+  }));
 
   function buildFolderPath(
     currentParentId: string | null,
