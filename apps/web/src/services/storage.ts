@@ -188,16 +188,26 @@ export interface MigrationStatus {
   sourceBucketId: string;
   targetBucketId: string;
   targetFolderId: string | null;
-  fileIds: string[];
+  deleteSource: boolean;
+  /** bucket = 整桶迁移；selection = 仅迁移选中项 */
+  scope: 'bucket' | 'selection';
+  /** copying = 拷贝对象；cleaning = 清理来源桶；moving = 移动到目标目录 */
+  phase: 'copying' | 'cleaning' | 'moving' | 'completed';
+  moveIds: string[];
+  cleanupKeys?: string[];
+  cleanupDone?: number;
+  moveDone?: number;
   total: number;
   done: number;
   failed: number;
   results: Array<{
     fileId: string;
     fileName: string;
+    r2Key: string;
+    size: number;
+    mimeType: string | null;
     status: 'pending' | 'done' | 'failed';
     error?: string;
-    newR2Key?: string;
   }>;
   status: 'running' | 'completed' | 'failed' | 'cancelled';
   startedAt: string;
@@ -220,8 +230,29 @@ export const migrateApi = {
       '/api/migrate/start',
       params
     ),
+  /** 执行一个批次（服务端按时间预算推进，前端循环调用直到终态） */
+  run: (migrationId: string) => api.post<ApiResponse<MigrationStatus>>(`/api/migrate/${migrationId}/run`),
   get: (migrationId: string) => api.get<ApiResponse<MigrationStatus>>(`/api/migrate/${migrationId}`),
   cancel: (migrationId: string) => api.post<ApiResponse<{ message: string }>>(`/api/migrate/${migrationId}/cancel`),
+  /** 循环执行批次直到迁移结束；shouldStop 返回 true 时中断（组件卸载等） */
+  runToCompletion: async (
+    migrationId: string,
+    onStatus?: (status: MigrationStatus) => void,
+    shouldStop?: () => boolean
+  ): Promise<MigrationStatus> => {
+    const runOnce = async (): Promise<MigrationStatus> => {
+      const status = (await migrateApi.run(migrationId)).data.data;
+      if (!status) throw new Error('迁移状态获取失败');
+      return status;
+    };
+    let status = await runOnce();
+    onStatus?.(status);
+    while (status.status === 'running' && !shouldStop?.()) {
+      status = await runOnce();
+      onStatus?.(status);
+    }
+    return status;
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
