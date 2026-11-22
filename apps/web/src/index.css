@@ -4,6 +4,7 @@
 
 @layer base {
   :root {
+    color-scheme: light;
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
     --card: 0 0% 100%;
@@ -31,6 +32,7 @@
   }
 
   .dark {
+    color-scheme: dark;
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
     --card: 222.2 84% 4.9%;
@@ -80,10 +82,10 @@
   }
 
   /* B-01/B-02 修复：统一的移动端顶栏/内容区高度变量。
-     顶栏实际高度 = 基线 3.25rem + 安全区 inset-top；底栏 = 3.5rem + inset-bottom。
+     顶栏实际高度 = 基线 3.5rem + 安全区 inset-top；底栏 = 3.5rem + inset-bottom。
      内容区据此计算 padding，避免刘海机/Home 条机型遮挡。 */
   :root {
-    --app-header-h: 3.25rem;
+    --app-header-h: 3.5rem;
     --app-bottom-nav-h: 3.5rem;
   }
 }
@@ -166,7 +168,9 @@
 
 @layer components {
   .mobile-nav {
-    @apply fixed bottom-0 left-0 right-0 z-50 bg-card border-t safe-bottom;
+    /* 底部导航降到 sticky(40)：业务弹窗统一 z-50，
+       避免同为 z-50 时后渲染的底栏盖住弹窗底部按钮（旧弹窗未走 Portal）。 */
+    @apply fixed bottom-0 left-0 right-0 z-sticky bg-card border-t safe-bottom;
   }
 
   .mobile-header {

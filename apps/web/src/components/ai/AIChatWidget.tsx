@@ -16,9 +16,10 @@
  */
 
 import { useSyncExternalStore } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { MessageSquare } from 'lucide-react';
 import { useDialogStack } from '@/lib/dialogStack';
+import { useResponsive } from '@/hooks/useResponsive';
 
 /** 订阅 document.body 的 class 变化，判断是否处于预览全屏（保留兜底信号） */
 function subscribeBodyClass(onChange: () => void) {
@@ -32,11 +33,20 @@ function getPreviewFullscreen() {
 
 export function AIChatWidget() {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const { hasOpenDialog } = useDialogStack();
+  const { isDesktop } = useResponsive();
   const isPreviewFullscreen = useSyncExternalStore(subscribeBodyClass, getPreviewFullscreen, () => false);
 
+  // 已在 AI 对话页时不再显示入口，避免遮挡聊天侧栏与输入区
+  const isAIChatPage = pathname.startsWith('/ai-chat');
+
+  // 文件页在桌面以下宽度使用底部操作栏，AI 入口已放进操作栏；
+  // 若这里再显示悬浮按钮，会压住列表右侧的预览/更多操作。
+  const hideForMobileFiles = pathname.startsWith('/files') && !isDesktop;
+
   // 任意弹窗打开或预览全屏时隐藏，彻底消除遮挡（含平板 768–1023px）
-  if (hasOpenDialog || isPreviewFullscreen) return null;
+  if (hasOpenDialog || isPreviewFullscreen || isAIChatPage || hideForMobileFiles) return null;
 
   return (
     <button

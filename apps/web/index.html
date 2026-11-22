@@ -15,8 +15,9 @@
     <meta name="author" content="OSSshelf" />
 
     <!-- PWA Meta Tags -->
-    <meta name="theme-color" content="#3b82f6" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#1e40af" media="(prefers-color-scheme: dark)" />
+    <!-- 只保留一个 theme-color，由主题 store 动态更新；不再用 media 查询跟随系统，
+         否则用户手动切深色时状态栏配色不会跟着变。 -->
+    <meta name="theme-color" content="#3b82f6" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="OSSshelf" />
@@ -65,26 +66,29 @@
       })();
     </script>
 
-    <!-- Inline Critical CSS -->
+    <!-- Inline Critical CSS：仅用于首屏无样式阶段的底色，变量格式必须与应用一致（HSL 三元组），
+         否则 hsl(var(--x)) 会解析失败导致透明/闪白。 -->
     <style>
       :root {
-        --primary: #3b82f6;
-        --background: #ffffff;
-        --foreground: #0f172a;
+        color-scheme: light;
+        --primary: 221.2 83.2% 53.3%;
+        --background: 0 0% 100%;
+        --foreground: 222.2 84% 4.9%;
       }
 
       /* 主题以 html.dark 为准（与前置脚本一致），不再单纯依赖系统偏好 */
       html.dark {
-        --primary: #60a5fa;
-        --background: #0f172a;
-        --foreground: #f8fafc;
+        color-scheme: dark;
+        --primary: 217.2 91.2% 59.8%;
+        --background: 222.2 84% 4.9%;
+        --foreground: 210 40% 98%;
       }
 
       body {
         margin: 0;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-        background-color: var(--background);
-        color: var(--foreground);
+        background-color: hsl(var(--background));
+        color: hsl(var(--foreground));
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
       }
@@ -107,7 +111,7 @@
         width: 40px;
         height: 40px;
         border: 3px solid rgba(59, 130, 246, 0.2);
-        border-top-color: var(--primary);
+        border-top-color: hsl(var(--primary));
         border-radius: 50%;
         animation: spin 1s linear infinite;
       }
@@ -134,21 +138,7 @@
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>
-
-    <!-- Register Service Worker -->
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', function () {
-          navigator.serviceWorker.register('/sw.js').then(
-            function (registration) {
-              console.log('SW registered: ', registration.scope);
-            },
-            function (error) {
-              console.log('SW registration failed: ', error);
-            }
-          );
-        });
-      }
-    </script>
+    <!-- Service Worker 注册统一在 src/main.tsx 中处理（生产环境才注册），
+         避免此处与入口文件重复注册，也避免开发环境被旧缓存接管。 -->
   </body>
 </html>

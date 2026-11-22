@@ -71,11 +71,18 @@ export function useResponsive(): ResponsiveInfo {
     window.addEventListener('resize', handleResize);
 
     const mediaQuery = window.matchMedia('(orientation: portrait)');
-    mediaQuery.addEventListener('change', handleResize);
-
+    // Safari 13 及更早版本没有 addEventListener，只有已废弃的 addListener
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', handleResize);
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        mediaQuery.removeEventListener('change', handleResize);
+      };
+    }
+    mediaQuery.addListener(handleResize);
     return () => {
       window.removeEventListener('resize', handleResize);
-      mediaQuery.removeEventListener('change', handleResize);
+      mediaQuery.removeListener(handleResize);
     };
   }, []);
 
@@ -95,9 +102,12 @@ export function useMediaQuery(query: string): boolean {
     const handler = (e: MediaQueryListEvent) => setMatches(e.matches);
 
     setMatches(mediaQuery.matches);
-    mediaQuery.addEventListener('change', handler);
-
-    return () => mediaQuery.removeEventListener('change', handler);
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', handler);
+      return () => mediaQuery.removeEventListener('change', handler);
+    }
+    mediaQuery.addListener(handler);
+    return () => mediaQuery.removeListener(handler);
   }, [query]);
 
   return matches;

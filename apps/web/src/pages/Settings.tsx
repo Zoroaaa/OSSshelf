@@ -14,6 +14,7 @@
 import { useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/auth';
+import { useThemeStore, resolveTheme, type Theme } from '@/stores/theme';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { authApi, type EmailPreferences } from '@/services/api';
 import { Button } from '@/components/ui/Button';
@@ -37,9 +38,13 @@ import {
   Loader2,
   Mail,
   RefreshCw,
+  Sun,
+  Moon,
+  Monitor,
+  Palette,
 } from 'lucide-react';
 
-type SettingsTab = 'profile' | 'email' | 'security';
+type SettingsTab = 'profile' | 'email' | 'security' | 'appearance';
 
 function EmailChangeForm() {
   const { toast } = useToast();
@@ -334,6 +339,71 @@ function EmailPreferencesForm() {
   );
 }
 
+const THEME_OPTIONS: { value: Theme; label: string; description: string; icon: typeof Sun }[] = [
+  { value: 'light', label: '浅色', description: '始终使用浅色界面', icon: Sun },
+  { value: 'dark', label: '深色', description: '始终使用深色界面', icon: Moon },
+  { value: 'system', label: '跟随系统', description: '随系统外观自动切换', icon: Monitor },
+];
+
+/** 外观设置：提供显式的三态选择，补齐顶部快捷按钮无法回到「跟随系统」的问题 */
+function AppearanceSettings() {
+  const { theme, setTheme } = useThemeStore();
+  const effective = resolveTheme(theme);
+
+  return (
+    <Card>
+      <CardHeader className="pb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+            <Palette className="h-4 w-4 text-primary" />
+          </div>
+          <div>
+            <CardTitle className="text-base">外观主题</CardTitle>
+            <CardDescription>选择界面配色。当前实际显示：{effective === 'dark' ? '深色' : '浅色'}</CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div role="radiogroup" aria-label="外观主题" className="grid gap-2 sm:grid-cols-3">
+          {THEME_OPTIONS.map((option) => {
+            const Icon = option.icon;
+            const selected = theme === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => setTheme(option.value)}
+                className={cn(
+                  'flex items-start gap-2.5 rounded-xl border p-3 text-left transition-colors',
+                  selected ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border hover:bg-accent/50'
+                )}
+              >
+                <div
+                  className={cn(
+                    'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
+                    selected ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium flex items-center gap-1.5">
+                    {option.label}
+                    {selected && <CheckCircle2 className="h-3.5 w-3.5 text-primary" />}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{option.description}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Settings() {
   const { user, updateUser, logout } = useAuthStore();
   const { toast } = useToast();
@@ -409,15 +479,14 @@ export default function Settings() {
       .writeText(text)
       .then(() => toast({ title: msg }))
       // 剪贴板写入失败（如浏览器权限被拒）时给出反馈，避免静默失败
-      .catch(() =>
-        toast({ title: '复制失败', description: '请检查浏览器剪贴板权限', variant: 'destructive' })
-      );
+      .catch(() => toast({ title: '复制失败', description: '请检查浏览器剪贴板权限', variant: 'destructive' }));
   };
 
   const tabs: { id: SettingsTab; label: string; icon: typeof User }[] = [
     { id: 'profile', label: '个人信息', icon: User },
     { id: 'email', label: '邮箱设置', icon: Mail },
     { id: 'security', label: '安全设置', icon: Shield },
+    { id: 'appearance', label: '外观', icon: Palette },
   ];
 
   return (
@@ -596,7 +665,7 @@ export default function Settings() {
                       <CheckCircle2 className="h-3 w-3" /> 已验证
                     </span>
                   ) : (
-                    <span className="text-xs text-amber-600 flex items-center gap-1">
+                    <span className="text-xs text-amber-600 dark:text-amber-300 flex items-center gap-1">
                       <AlertTriangle className="h-3 w-3" /> 未验证
                     </span>
                   )}
@@ -605,7 +674,7 @@ export default function Settings() {
 
               {!user?.emailVerified && (
                 <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                  <p className="text-sm text-amber-900">
+                  <p className="text-sm text-amber-900 dark:text-amber-100">
                     您的邮箱尚未验证，部分功能受限。
                     <button
                       onClick={() => {
@@ -760,6 +829,8 @@ export default function Settings() {
           </Card>
         </>
       )}
+
+      {activeTab === 'appearance' && <AppearanceSettings />}
     </div>
   );
 }

@@ -45,8 +45,8 @@ export function EmailVerificationBanner() {
         <div className="flex items-center gap-3 flex-1">
           <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0" />
           <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-            <span className="text-sm font-medium text-amber-900">邮箱未验证</span>
-            <span className="text-xs text-amber-700">部分功能受限，请使用6位验证码完成验证</span>
+            <span className="text-sm font-medium text-amber-900 dark:text-amber-100">邮箱未验证</span>
+            <span className="text-xs text-amber-700 dark:text-amber-200">部分功能受限，请使用6位验证码完成验证</span>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -54,7 +54,7 @@ export function EmailVerificationBanner() {
             size="sm"
             variant="outline"
             onClick={() => navigate('/verify-email')}
-            className="border-amber-600 text-amber-900 hover:bg-amber-600/20"
+            className="border-amber-600 text-amber-900 dark:text-amber-100 dark:border-amber-300 hover:bg-amber-600/20"
           >
             去验证
             <ArrowRight className="h-3 w-3 ml-1" />
@@ -64,7 +64,7 @@ export function EmailVerificationBanner() {
             variant="ghost"
             onClick={() => resendMutation.mutate()}
             disabled={resendMutation.isPending}
-            className="text-amber-700 hover:text-amber-900"
+            className="text-amber-700 dark:text-amber-200 hover:text-amber-900 dark:hover:text-amber-100"
           >
             {resendMutation.isPending ? '发送中...' : '重发验证码'}
           </Button>
@@ -72,7 +72,7 @@ export function EmailVerificationBanner() {
             size="sm"
             variant="ghost"
             onClick={() => setClosed(true)}
-            className="text-amber-700 hover:text-amber-900"
+            className="text-amber-700 dark:text-amber-200 hover:text-amber-900 dark:hover:text-amber-100"
           >
             关闭
           </Button>
