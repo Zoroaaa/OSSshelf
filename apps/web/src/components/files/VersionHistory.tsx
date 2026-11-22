@@ -16,6 +16,8 @@ import { getErrorMessage } from '@/utils';
 import { versionsApi, type VersionInfo } from '@/services/api';
 import { formatBytes } from '@/utils';
 import { FileIcon } from './FileIcon';
+import { useDialogRegistration } from '@/lib/dialogStack';
+import { confirmAction } from '@/components/ui/useConfirm';
 
 interface VersionHistoryProps {
   fileId: string;
@@ -26,6 +28,7 @@ interface VersionHistoryProps {
 }
 
 export function VersionHistory({ fileId, fileName, mimeType, onClose, onVersionRestored }: VersionHistoryProps) {
+  useDialogRegistration(true, `version-history-${fileId}`);
   const [versions, setVersions] = useState<VersionInfo[]>([]);
   const [currentVersion, setCurrentVersion] = useState(1);
   const [maxVersions, setMaxVersions] = useState(10);
@@ -67,7 +70,13 @@ export function VersionHistory({ fileId, fileName, mimeType, onClose, onVersionR
   };
 
   const handleRestore = async (version: number) => {
-    if (!confirm(`确定要恢复到版本 ${version} 吗？这将创建一个新版本。`)) return;
+    const ok = await confirmAction({
+      title: '恢复版本',
+      description: `确定要恢复到版本 ${version} 吗？这将创建一个新版本。`,
+      level: 'warn',
+      confirmText: '恢复',
+    });
+    if (!ok) return;
 
     setActionLoading(`restore-${version}`);
     setError(null);
@@ -104,7 +113,13 @@ export function VersionHistory({ fileId, fileName, mimeType, onClose, onVersionR
   };
 
   const handleDelete = async (version: number) => {
-    if (!confirm(`确定要删除版本 ${version} 吗？此操作不可撤销。`)) return;
+    const ok = await confirmAction({
+      title: '删除版本',
+      description: `确定要删除版本 ${version} 吗？此操作不可撤销。`,
+      level: 'danger',
+      confirmText: '删除',
+    });
+    if (!ok) return;
 
     setActionLoading(`delete-${version}`);
     setError(null);
@@ -149,7 +164,7 @@ export function VersionHistory({ fileId, fileName, mimeType, onClose, onVersionR
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50/80 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-popover flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-label="版本历史">
       <div className="bg-card border rounded-lg w-full max-w-2xl max-h-[80vh] shadow-xl flex flex-col">
         <div className="flex items-center justify-between p-4 border-b">
           <div className="flex items-center gap-3">

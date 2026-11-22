@@ -136,6 +136,26 @@ export function SystemConfigPanel({
         return next;
       });
       onUpdate({ key: config.key, value: draft });
+      return;
+    }
+
+    // json 类型与其它类型共用通用文本输入框：失焦时尝试解析，成功才提交，失败给出格式提示
+    if (config.valueType === 'json') {
+      if (draft.trim() === '') {
+        setErrors((prev) => ({ ...prev, [config.key]: '请输入有效 JSON' }));
+        return;
+      }
+      try {
+        const parsed = JSON.parse(draft);
+        setErrors((prev) => {
+          const next = { ...prev };
+          delete next[config.key];
+          return next;
+        });
+        onUpdate({ key: config.key, value: parsed });
+      } catch {
+        setErrors((prev) => ({ ...prev, [config.key]: 'JSON 格式无效，请检查后重试' }));
+      }
     }
   };
 
@@ -271,7 +291,7 @@ export function SystemConfigPanel({
         {config.description && (
           <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{config.description}</p>
         )}
-        <p className="text-[10px] text-muted-foreground/70 mt-0.5 font-mono">{config.key}</p>
+        <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">{config.key}</p>
       </div>
       <div className="flex items-start gap-1.5 sm:max-w-[50%]">
         {renderControl(config)}

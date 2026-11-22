@@ -38,6 +38,7 @@ import { FilePermissionManager } from '@/components/files/permissions';
 import { FolderSettings } from '@/components/files/FolderSettings';
 import { useToast } from '@/components/ui/useToast';
 import { Button } from '@/components/ui/Button';
+import { confirmAction } from '@/components/ui/useConfirm';
 import {
   Upload,
   FolderPlus,
@@ -168,7 +169,7 @@ export default function Files() {
 
   // ── 分页状态 ─────────────────────────────────────────────────────────────
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState<20 | 50 | 100>(20);
+  const [pageSize, setPageSize] = useState<number>(20);
 
   // ── Phase 7: 搜索历史 ────────────────────────────────────────────────────
   const [showSearchHistory, setShowSearchHistory] = useState(false);
@@ -281,10 +282,10 @@ export default function Files() {
   const isSearchActive =
     Boolean(searchQuery) || Boolean(tagSearchQuery) || (showAdvancedSearch && advancedConditions.length > 0);
 
-  // ── 分页：切换文件夹/搜索时重置到第1页 ─────────────────────
+  // ── 分页：切换文件夹/搜索/排序时重置到第1页（C-24）─────────────
   useEffect(() => {
     setCurrentPage(1);
-  }, [folderId]);
+  }, [folderId, searchQuery, tagSearchQuery]);
 
   // 选择只对「当前视图」有效：目录、页码、页大小或搜索条件变化后，
   // 之前选中的项目已不在视图内，必须清空，避免批量操作作用到不可见文件。
@@ -302,7 +303,7 @@ export default function Files() {
     clearSelection,
   ]);
 
-  const handlePageSizeChange = (size: 20 | 50 | 100) => {
+  const handlePageSizeChange = (size: number) => {
     setPageSize(size);
     setCurrentPage(1);
   };
@@ -782,10 +783,15 @@ export default function Files() {
   const [changeFolderBucketTargetId, setChangeFolderBucketTargetId] = useState('');
   const [changingFolderBucket, setChangingFolderBucket] = useState(false);
 
-  const handleBatchDelete = useCallback(() => {
+  const handleBatchDelete = useCallback(async () => {
     if (!selectedFiles.length) return;
-    if (!confirm(`确定将选中的 ${selectedFiles.length} 个项目移入回收站？`)) return;
-    batchDeleteMutation.mutate(selectedFiles);
+    const ok = await confirmAction({
+      title: '批量移入回收站',
+      description: `确定将选中的 ${selectedFiles.length} 个项目移入回收站？`,
+      level: 'warn',
+      confirmText: '移入回收站',
+    });
+    if (ok) batchDeleteMutation.mutate(selectedFiles);
   }, [selectedFiles, batchDeleteMutation]);
 
   // 批量删除与单条删除同一口径：共享文件需要 admin 权限。
@@ -796,7 +802,10 @@ export default function Files() {
   ).length;
 
   const handleSort = useCallback(
-    (field: typeof sortBy) => setSort(field, sortBy === field ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'desc'),
+    (field: typeof sortBy) => {
+      setSort(field, sortBy === field ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'desc');
+      setCurrentPage(1); // C-24：切换排序后重置页码，避免停留在空页
+    },
     [sortBy, sortOrder, setSort]
   );
 
@@ -835,10 +844,14 @@ export default function Files() {
       setChangeFolderBucketTargetId('');
       setChangeFolderBucketFile(file);
     },
-    onDelete: (file: FileItem) => {
-      if (confirm(`将 "${decodeFileName(file.name)}" 移入回收站？`)) {
-        deleteMutation.mutate(file.id);
-      }
+    onDelete: async (file: FileItem) => {
+      const ok = await confirmAction({
+        title: '移入回收站',
+        description: `将「${decodeFileName(file.name)}」移入回收站？`,
+        level: 'warn',
+        confirmText: '移入回收站',
+      });
+      if (ok) deleteMutation.mutate(file.id);
     },
     onStar: async (file: FileItem) => {
       try {
@@ -1063,7 +1076,9 @@ export default function Files() {
           onUploadFolder={() => folderInputRef.current?.click()}
         />
 
-        <div className="hidden md:flex items-center gap-2 flex-wrap">
+        {/* C-03 修复：桌面工具栏与移动底栏(MobileFilesToolbar 为 lg:hidden)统一到 lg 断点，
+            避免 768–1023px 平板区间两套工具条同时出现。 */}
+        <div className="hidden lg:flex items-center gap-2 flex-wrap">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <input

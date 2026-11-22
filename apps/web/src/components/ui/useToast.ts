@@ -1,8 +1,10 @@
 import * as React from 'react';
 import { type ToastActionElement, type ToastProps } from '@/components/ui/Toast';
 
-const TOAST_LIMIT = 1;
-const TOAST_REMOVE_DELAY = 1000000;
+// A-07 修复：原 LIMIT=1 会让新提示静默挤掉旧提示；REMOVE_DELAY=1000000ms(约16分钟)过长。
+// 调整为同时保留 5 条，5 秒后移除，确保多条反馈都能被看到。
+const TOAST_LIMIT = 5;
+const TOAST_REMOVE_DELAY = 5000;
 
 type ToasterToast = ToastProps & {
   id: string;

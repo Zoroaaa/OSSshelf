@@ -11,6 +11,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/useToast';
+import { confirmAction } from '@/components/ui/useConfirm';
 import { teamsApi } from '@/services/collab';
 import { filesApi } from '@/services/core';
 import api from '@/services/api-client';
@@ -148,9 +149,14 @@ const TeamResourceMountDialog: React.FC<TeamResourceMountDialogProps> = ({ teamI
     mountMutation.mutate();
   };
 
-  const handleUnmount = (resourceId: string, fileName: string) => {
-    if (!confirm(`确定要卸载资源 "${fileName}" 吗？`)) return;
-    unmountMutation.mutate(resourceId);
+  const handleUnmount = async (resourceId: string, fileName: string) => {
+    const ok = await confirmAction({
+      title: '卸载资源',
+      description: `确定要卸载资源「${fileName}」吗？`,
+      level: 'warn',
+      confirmText: '卸载',
+    });
+    if (ok) unmountMutation.mutate(resourceId);
   };
 
   if (isLoading) {
@@ -357,7 +363,7 @@ const TeamResourceMountDialog: React.FC<TeamResourceMountDialogProps> = ({ teamI
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="h-8 w-8 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 opacity-0 group-hover:opacity-100 transition-opacity touch-visible"
                     onClick={() => handleUnmount(resource.fileId, resource.fileName)}
                     disabled={unmountMutation.isPending}
                     title="卸载资源"

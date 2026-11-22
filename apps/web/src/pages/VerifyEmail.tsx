@@ -183,7 +183,8 @@ export default function VerifyEmail() {
 
         <div className="space-y-2">
           <label className="text-sm font-medium">验证码</label>
-          <div className="flex gap-2 justify-center">
+          {/* 六位验证码改用等宽网格，保证 320px 窄屏下 6 个输入框都能显示可点 */}
+          <div className="grid grid-cols-6 gap-2">
             {code.map((digit, index) => (
               <Input
                 key={index}
@@ -197,7 +198,7 @@ export default function VerifyEmail() {
                 onChange={(e) => handleCodeChange(index, e.target.value)}
                 onKeyDown={(e) => handleKeyDown(index, e)}
                 onPaste={index === 0 ? handlePaste : undefined}
-                className="w-12 h-14 text-center text-xl font-semibold"
+                className="w-full min-w-0 h-14 text-center text-xl font-semibold"
               />
             ))}
           </div>

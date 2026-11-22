@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
 import { useToast } from '@/components/ui/useToast';
+import { confirmAction } from '@/components/ui/useConfirm';
 import { useResponsive } from '@/hooks/useResponsive';
 import { formatBytes, formatDate } from '@/utils';
 import { cn } from '@/utils';
@@ -38,7 +39,6 @@ import {
   Database,
   FileText,
   FolderOpen,
-  AlertTriangle,
   Loader2,
   ToggleLeft,
   ToggleRight,
@@ -178,6 +178,11 @@ function AlertTestTab() {
   );
 }
 
+// 配额以字节存储，换算为 GB 显示时保留最多两位小数，避免 1.5GB 被四舍五入成 2
+function formatQuotaGB(bytes: number): string {
+  return String(parseFloat((bytes / 1024 ** 3).toFixed(2)));
+}
+
 function UsersTab() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -190,7 +195,6 @@ function UsersTab() {
     storageQuota: string;
     newPassword: string;
   }>({ name: '', role: 'user', storageQuota: '', newPassword: '' });
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['admin', 'users'],
@@ -222,7 +226,6 @@ function UsersTab() {
     onSuccess: () => {
       toast({ title: '用户已删除' });
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
-      setDeleteConfirm(null);
     },
     onError: (e: any) => {
       const err = e.response?.data?.error;
@@ -236,6 +239,18 @@ function UsersTab() {
     },
   });
 
+  // 删除用户改用全局确认弹窗，替代原先手写的覆盖层
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    const ok = await confirmAction({
+      title: '确认删除用户',
+      description: `此操作将永久删除用户「${userName}」及其所有数据，且不可恢复。`,
+      level: 'danger',
+      confirmText: '确认删除',
+    });
+    if (!ok) return;
+    deleteMutation.mutate(userId);
+  };
+
   const startEdit = (user: AdminUser) => {
     setEditingUser(user);
     setEditForm({
@@ -243,7 +258,7 @@ function UsersTab() {
       role: user.role,
       storageQuota:
         user.storageQuota && user.storageQuota < 999999 * 1024 ** 3
-          ? String(Math.round(user.storageQuota / 1024 ** 3))
+          ? formatQuotaGB(user.storageQuota)
           : '',
       newPassword: '',
     });
@@ -251,15 +266,29 @@ function UsersTab() {
 
   const saveEdit = () => {
     if (!editingUser) return;
-    const quotaGB = parseFloat(editForm.storageQuota);
+    const quotaRaw = editForm.storageQuota.trim();
+    let storageQuota: number;
+    if (quotaRaw === '') {
+      // 留空表示不限制，沿用后端约定的哨兵值
+      storageQuota = 999999999 * 1024 ** 3;
+    } else {
+      const quotaGB = parseFloat(quotaRaw);
+      // 非法值（负数、非有限数等）直接提示，不再静默落哨兵值
+      if (!Number.isFinite(quotaGB) || quotaGB < 0) {
+        toast({
+          title: '存储配额无效',
+          description: '请输入大于或等于 0 的有效数字，留空表示不限制',
+          variant: 'destructive',
+        });
+        return;
+      }
+      storageQuota = Math.round(quotaGB * 1024 ** 3);
+    }
     const trimmedPassword = editForm.newPassword.trim();
     const data: Parameters<typeof adminApi.patchUser>[1] = {
       name: editForm.name || undefined,
       role: editForm.role,
-      storageQuota:
-        !isNaN(quotaGB) && editForm.storageQuota.trim() !== ''
-          ? Math.round(quotaGB * 1024 ** 3)
-          : 999999999 * 1024 ** 3,
+      storageQuota,
       newPassword: trimmedPassword || undefined,
     };
     patchMutation.mutate({ id: editingUser.id, data });
@@ -389,7 +418,7 @@ function UsersTab() {
                         variant="ghost"
                         size="icon"
                         className="text-red-500 hover:text-red-600"
-                        onClick={() => setDeleteConfirm(user.id)}
+                        onClick={() => handleDeleteUser(user.id, user.name || user.email)}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -401,37 +430,6 @@ function UsersTab() {
           </div>
         )}
 
-        {deleteConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-            <Card className="w-full max-w-md shadow-xl">
-              <CardHeader>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-red-500/10 flex items-center justify-center">
-                    <AlertTriangle className="h-4 w-4 text-red-500" />
-                  </div>
-                  <CardTitle className="text-base text-red-500">确认删除用户</CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground">此操作将永久删除该用户及其所有数据，且不可恢复。</p>
-                <div className="flex gap-2">
-                  <Button
-                    variant="destructive"
-                    className="flex-1"
-                    onClick={() => deleteMutation.mutate(deleteConfirm)}
-                    disabled={deleteMutation.isPending}
-                  >
-                    {deleteMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                    确认删除
-                  </Button>
-                  <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
-                    取消
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
       </CardContent>
     </Card>
   );

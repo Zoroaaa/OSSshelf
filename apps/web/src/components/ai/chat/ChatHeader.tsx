@@ -121,7 +121,7 @@ export function ChatHeader({
           </button>
 
           {menuOpen && (
-            <div className="absolute right-0 top-9 z-[120] min-w-[176px] rounded-xl border border-border bg-popover py-1.5 shadow-xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="absolute right-0 top-9 z-dropdown min-w-[176px] rounded-xl border border-border bg-popover py-1.5 shadow-popover animate-in fade-in zoom-in-95 duration-150">
               <button
                 type="button"
                 onClick={() => {

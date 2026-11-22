@@ -41,6 +41,8 @@ export function ReasoningSection({ content, isStreaming = false }: ReasoningSect
     <div className="my-2 overflow-hidden rounded-lg border border-border bg-muted/40">
       <button
         type="button"
+        // E-19：向辅助技术暴露展开/收起状态
+        aria-expanded={expanded}
         onClick={() => {
           userToggledRef.current = true;
           setExpanded((value) => !value);

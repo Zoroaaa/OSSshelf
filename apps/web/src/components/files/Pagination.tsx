@@ -1,8 +1,9 @@
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { cn } from '@/utils';
 
-const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
-type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
+// C-15 修复：pageSize 放宽为 number，支持业务页自定义每页条数（如 Tags 页 10 条）。
+type PageSize = number;
 
 interface PaginationProps {
   currentPage: number;
@@ -60,8 +61,9 @@ export function Pagination({
   const endItem = Math.min(currentPage * pageSize, totalItems);
 
   return (
-    <div className="flex items-center justify-between px-2 py-3 text-sm text-muted-foreground">
-      <div className="flex items-center gap-3">
+    // C-16 修复：容器可换行，窄屏不再横向溢出
+    <div className="flex flex-wrap items-center justify-between gap-2 px-2 py-3 text-sm text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-3">
         <span>
           共 <span className="font-medium text-foreground">{totalItems}</span> 条
         </span>
@@ -70,7 +72,7 @@ export function Pagination({
           <select
             value={pageSize}
             onChange={(e) => onPageSizeChange(Number(e.target.value) as PageSize)}
-            className="h-7 w-14 rounded border bg-background px-1.5 text-xs outline-none focus:ring-2 focus:ring-ring"
+            className="h-9 w-16 touch-target-sm rounded border bg-background px-1.5 text-xs outline-none focus:ring-2 focus:ring-ring"
           >
             {PAGE_SIZE_OPTIONS.map((size) => (
               <option key={size} value={size}>
@@ -87,12 +89,14 @@ export function Pagination({
         )}
       </div>
 
-      <nav className="flex items-center gap-1" aria-label="分页导航">
+      {/* C-16 修复：分页区可换行；移动端隐藏首页/末页以精简页码数量 */}
+      <nav className="flex flex-wrap items-center gap-1" aria-label="分页导航">
         <button
           onClick={() => onPageChange(1)}
           disabled={currentPage === 1}
           className={cn(
-            'inline-flex h-7 w-7 items-center justify-center rounded border transition-colors',
+            // C-16 修复：触控目标提升到 36px（touch-target-sm），窄屏隐藏
+            'inline-flex h-9 w-9 touch-target-sm items-center justify-center rounded border transition-colors max-sm:hidden',
             'hover:bg-accent hover:text-accent-foreground',
             'disabled:pointer-events-none disabled:opacity-40'
           )}
@@ -106,7 +110,8 @@ export function Pagination({
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage === 1}
           className={cn(
-            'inline-flex h-7 w-7 items-center justify-center rounded border transition-colors',
+            // C-16 修复：触控目标提升到 36px（touch-target-sm）
+            'inline-flex h-9 w-9 touch-target-sm items-center justify-center rounded border transition-colors',
             'hover:bg-accent hover:text-accent-foreground',
             'disabled:pointer-events-none disabled:opacity-40'
           )}
@@ -116,10 +121,11 @@ export function Pagination({
           <ChevronLeft className="h-3.5 w-3.5" />
         </button>
 
-        <div className="flex items-center gap-0.5">
+        {/* C-16 修复：页码区可换行，按钮触控目标提升到 36px */}
+        <div className="flex flex-wrap items-center gap-0.5">
           {getPageNumbers().map((page, idx) =>
             page === '...' ? (
-              <span key={`ellipsis-${idx}`} className="px-1 text-muted-foreground/60">
+              <span key={`ellipsis-${idx}`} className="px-1 text-muted-foreground">
                 ...
               </span>
             ) : (
@@ -127,7 +133,7 @@ export function Pagination({
                 key={page}
                 onClick={() => onPageChange(page)}
                 className={cn(
-                  'inline-flex h-7 min-w-[28px] items-center justify-center rounded border px-1.5 text-xs transition-colors',
+                  'inline-flex h-9 min-w-9 touch-target-sm items-center justify-center rounded border px-2 text-xs transition-colors',
                   page === currentPage
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'hover:bg-accent hover:text-accent-foreground'
@@ -143,7 +149,8 @@ export function Pagination({
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage === totalPages}
           className={cn(
-            'inline-flex h-7 w-7 items-center justify-center rounded border transition-colors',
+            // C-16 修复：触控目标提升到 36px（touch-target-sm）
+            'inline-flex h-9 w-9 touch-target-sm items-center justify-center rounded border transition-colors',
             'hover:bg-accent hover:text-accent-foreground',
             'disabled:pointer-events-none disabled:opacity-40'
           )}
@@ -157,7 +164,8 @@ export function Pagination({
           onClick={() => onPageChange(totalPages)}
           disabled={currentPage === totalPages}
           className={cn(
-            'inline-flex h-7 w-7 items-center justify-center rounded border transition-colors',
+            // C-16 修复：触控目标提升到 36px（touch-target-sm），窄屏隐藏
+            'inline-flex h-9 w-9 touch-target-sm items-center justify-center rounded border transition-colors max-sm:hidden',
             'hover:bg-accent hover:text-accent-foreground',
             'disabled:pointer-events-none disabled:opacity-40'
           )}

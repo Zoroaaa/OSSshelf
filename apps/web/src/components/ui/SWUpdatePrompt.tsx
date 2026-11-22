@@ -24,7 +24,7 @@ export function SWUpdatePrompt() {
   if (!visible) return null;
 
   return (
-    <div className="fixed bottom-4 left-1/2 z-[60] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-lg border bg-background p-3 shadow-lg">
+    <div className="fixed bottom-4 left-1/2 z-system w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-lg border bg-background p-3 shadow-popover">
       <p className="text-sm font-medium">新版本已就绪</p>
       <p className="mt-1 text-xs text-muted-foreground">刷新页面即可使用最新版本。</p>
       <div className="mt-2 flex justify-end gap-2">

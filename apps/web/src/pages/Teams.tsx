@@ -4,7 +4,7 @@
  * 打开即工作区，支持多团队切换
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { teamsApi } from '@/services/collab';
 import TeamWorkspace from '@/components/teams/TeamWorkspace';
@@ -31,6 +31,27 @@ const Teams: React.FC = () => {
   const [isInviteOpen, setIsInviteOpen] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isMemberOpen, setIsMemberOpen] = useState(false);
+  // D-01 修复：团队切换器改为受控点击，支持触屏与键盘，不再依赖 CSS hover
+  const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
+  const switcherRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isSwitcherOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (switcherRef.current && !switcherRef.current.contains(e.target as Node)) {
+        setIsSwitcherOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsSwitcherOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isSwitcherOpen]);
 
   // 当团队列表加载完成后，自动选中第一个
   const currentTeam = activeTeamId ? allTeams.find((t) => t.id === activeTeamId) : (allTeams[0] ?? null);
@@ -69,39 +90,56 @@ const Teams: React.FC = () => {
         <div className="flex items-center gap-3">
           {/* 团队切换器 */}
           {allTeams.length > 1 ? (
-            <div className="relative group">
+            <div className="relative" ref={switcherRef}>
               <button
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded={isSwitcherOpen}
+                aria-label="切换团队"
+                onClick={() => setIsSwitcherOpen((v) => !v)}
                 className={cn(
-                  'flex items-center gap-2 px-3 py-2 rounded-lg border hover:border-primary/50 transition-colors bg-card'
+                  'flex items-center gap-2 px-3 py-2 rounded-lg border hover:border-primary/50 transition-colors bg-card touch-target-sm'
                 )}
               >
                 <span className="font-semibold">{currentTeam?.name}</span>
                 {currentTeam?.isOwner && (
                   <span className="px-1.5 py-0.5 text-[10px] bg-primary/10 text-primary rounded">所有者</span>
                 )}
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', isSwitcherOpen && 'rotate-180')} />
               </button>
-              {/* 下拉菜单：其他团队列表 */}
-              <div className="absolute top-full left-0 mt-1 w-64 rounded-lg border bg-card shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 py-1 max-h-[320px] overflow-y-auto">
-                <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b">切换团队</div>
-                {allTeams.map((team) => (
-                  <button
-                    key={team.id}
-                    onClick={() => setActiveTeamId(team.id)}
-                    className={cn(
-                      'w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-muted transition-colors',
-                      team.id === currentTeam?.id && 'bg-primary/5 text-primary font-medium'
-                    )}
-                  >
-                    <span className="truncate flex-1">{team.name}</span>
-                    {team.isOwner ? (
-                      <span className="text-[10px] text-muted-foreground">所有者</span>
-                    ) : (
-                      <span className="text-[10px] text-muted-foreground">{team.userRole}</span>
-                    )}
-                  </button>
-                ))}
-              </div>
+              {/* 下拉菜单：其他团队列表（受控点击，支持触屏/键盘） */}
+              {isSwitcherOpen && (
+                <div
+                  role="listbox"
+                  aria-label="团队列表"
+                  className="absolute top-full left-0 mt-1 w-64 rounded-lg border bg-card shadow-overlay z-dropdown py-1 max-h-[320px] overflow-y-auto"
+                >
+                  <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b">切换团队</div>
+                  {allTeams.map((team) => (
+                    <button
+                      key={team.id}
+                      type="button"
+                      role="option"
+                      aria-selected={team.id === currentTeam?.id}
+                      onClick={() => {
+                        setActiveTeamId(team.id);
+                        setIsSwitcherOpen(false);
+                      }}
+                      className={cn(
+                        'w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-muted transition-colors touch-target-sm',
+                        team.id === currentTeam?.id && 'bg-primary/5 text-primary font-medium'
+                      )}
+                    >
+                      <span className="truncate flex-1">{team.name}</span>
+                      {team.isOwner ? (
+                        <span className="text-[10px] text-muted-foreground">所有者</span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">{team.userRole}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex items-center gap-2">

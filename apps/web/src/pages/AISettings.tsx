@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/useToast';
+import { confirmAction } from '@/components/ui/useConfirm';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import {
   CatalogSnapshotCard,
@@ -181,6 +182,9 @@ export function AISettings() {
       queryClient.invalidateQueries({ queryKey: ['ai-provider-catalog'] });
       setShowAddModal(false);
     },
+    // 创建失败时给出反馈，避免静默失败
+    onError: (err) =>
+      toast({ title: err instanceof Error ? err.message : '操作失败', variant: 'destructive' }),
   });
 
   const updateMutation = useMutation({
@@ -192,6 +196,9 @@ export function AISettings() {
       queryClient.invalidateQueries({ queryKey: ['ai-provider-catalog'] });
       setEditingModel(null);
     },
+    // 更新失败时给出反馈
+    onError: (err) =>
+      toast({ title: err instanceof Error ? err.message : '操作失败', variant: 'destructive' }),
   });
 
   const deleteMutation = useMutation({
@@ -201,6 +208,9 @@ export function AISettings() {
       queryClient.invalidateQueries({ queryKey: ['ai-config-status'] });
       queryClient.invalidateQueries({ queryKey: ['ai-provider-catalog'] });
     },
+    // 删除失败时给出反馈
+    onError: (err) =>
+      toast({ title: err instanceof Error ? err.message : '操作失败', variant: 'destructive' }),
   });
 
   const deleteProviderMutation = useMutation({
@@ -243,13 +253,22 @@ export function AISettings() {
       queryClient.invalidateQueries({ queryKey: ['ai-vectors'] });
       setDeletingVectorId(null);
     },
-    onError: () => {
+    onError: (err) => {
       setDeletingVectorId(null);
+      // 向量删除失败时给出反馈
+      toast({ title: err instanceof Error ? err.message : '操作失败', variant: 'destructive' });
     },
   });
 
   const handleDeleteVector = async (fileId: string, fileName: string) => {
-    if (!confirm(`确定要删除文件 "${fileName}" 的向量索引吗？`)) return;
+    // 删除单个向量索引属于可恢复的局部操作，用 warn 级确认
+    const ok = await confirmAction({
+      title: '删除向量索引？',
+      description: `将删除文件「${fileName}」的向量索引，源文件不受影响。`,
+      level: 'warn',
+      confirmText: '删除',
+    });
+    if (!ok) return;
     setDeletingVectorId(fileId);
     deleteVectorMutation.mutate(fileId);
   };
@@ -277,7 +296,14 @@ export function AISettings() {
   const handleDeleteSelectedVectors = async () => {
     const count = selectedVectorIds.size;
     if (count === 0) return;
-    if (!confirm(`确定删除选中的 ${count} 个文件的向量索引吗？源文件不受影响。`)) return;
+    // 批量删除向量索引不影响源文件，warn 级即可
+    const ok = await confirmAction({
+      title: `删除选中的 ${count} 个向量索引？`,
+      description: '将删除选中文件的向量索引，源文件不受影响。',
+      level: 'warn',
+      confirmText: '删除',
+    });
+    if (!ok) return;
 
     setIsVectorBatchDeleting(true);
     try {
@@ -298,7 +324,16 @@ export function AISettings() {
   };
 
   const handleClearAllVectors = async () => {
-    if (!confirm('确定清空向量库？将删除全部文件的向量索引并重置索引状态，源文件不受影响。')) return;
+    // 清空整个向量库影响范围大，用 critical 级并要求输入「清空」二次确认
+    const ok = await confirmAction({
+      title: '清空向量库？',
+      description: '将删除全部文件的向量索引并重置索引状态，源文件不受影响。',
+      level: 'critical',
+      confirmText: '清空向量库',
+      impact: '全部文件的向量索引将被删除，索引状态重置，操作不可恢复（源文件不受影响）。',
+      requireInput: '清空',
+    });
+    if (!ok) return;
 
     setIsVectorBatchDeleting(true);
     try {
@@ -331,7 +366,14 @@ export function AISettings() {
   const handleDeleteSelectedMemories = async () => {
     const count = selectedMemoryIds.size;
     if (count === 0) return;
-    if (!confirm(`确定删除选中的 ${count} 条记忆吗？`)) return;
+    // 批量删除记忆，warn 级确认
+    const ok = await confirmAction({
+      title: `删除选中的 ${count} 条记忆？`,
+      description: '选中的记忆将被永久删除，操作不可恢复。',
+      level: 'warn',
+      confirmText: '删除',
+    });
+    if (!ok) return;
 
     setIsMemoryBatchDeleting(true);
     try {
@@ -351,7 +393,16 @@ export function AISettings() {
   };
 
   const handleClearAllMemories = async () => {
-    if (!confirm('确定清空全部记忆？该操作不可恢复。')) return;
+    // 清空全部记忆不可恢复，critical 级并要求输入「清空」二次确认
+    const ok = await confirmAction({
+      title: '清空全部记忆？',
+      description: '将删除全部记忆数据，该操作不可恢复。',
+      level: 'critical',
+      confirmText: '清空记忆',
+      impact: '全部记忆数据将被永久删除，无法恢复。',
+      requireInput: '清空',
+    });
+    if (!ok) return;
 
     setIsMemoryBatchDeleting(true);
     try {
@@ -411,6 +462,9 @@ export function AISettings() {
     onSuccess: (data) => {
       setTestResult(data);
     },
+    // 测试请求本身失败时给出反馈
+    onError: (err) =>
+      toast({ title: err instanceof Error ? err.message : '操作失败', variant: 'destructive' }),
   });
 
   const { data: featureConfigData } = useQuery({
@@ -431,6 +485,9 @@ export function AISettings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ai-feature-config'] });
     },
+    // 功能配置保存失败时给出反馈
+    onError: (err) =>
+      toast({ title: err instanceof Error ? err.message : '操作失败', variant: 'destructive' }),
   });
 
   const updateSystemConfigMutation = useMutation({
@@ -438,6 +495,9 @@ export function AISettings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ai-system-config'] });
     },
+    // 系统配置更新失败时给出反馈
+    onError: (err) =>
+      toast({ title: err instanceof Error ? err.message : '操作失败', variant: 'destructive' }),
   });
 
   const resetSystemConfigMutation = useMutation({
@@ -445,6 +505,9 @@ export function AISettings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ai-system-config'] });
     },
+    // 系统配置重置失败时给出反馈
+    onError: (err) =>
+      toast({ title: err instanceof Error ? err.message : '操作失败', variant: 'destructive' }),
   });
 
   const { data: memoriesData, isLoading: isLoadingMemories } = useQuery({
@@ -462,8 +525,10 @@ export function AISettings() {
       queryClient.invalidateQueries({ queryKey: ['ai-memories'] });
       setDeletingMemoryId(null);
     },
-    onError: () => {
+    onError: (err) => {
       setDeletingMemoryId(null);
+      // 记忆删除失败时给出反馈
+      toast({ title: err instanceof Error ? err.message : '操作失败', variant: 'destructive' });
     },
   });
 
@@ -477,6 +542,9 @@ export function AISettings() {
       fetchAllTaskStatus();
       fetchStats();
     },
+    // 取消任务失败时给出反馈
+    onError: (err) =>
+      toast({ title: err instanceof Error ? err.message : '操作失败', variant: 'destructive' }),
   });
 
   const rebuildIndexMutation = useMutation({
@@ -485,6 +553,9 @@ export function AISettings() {
       if (response.data.data?.task) setTask(response.data.data.task);
       fetchAllTaskStatus();
     },
+    // 重建索引失败时给出反馈
+    onError: (err) =>
+      toast({ title: err instanceof Error ? err.message : '操作失败', variant: 'destructive' }),
   });
 
   const handleFeatureConfigChange = (feature: string, value: string) => {
@@ -503,6 +574,9 @@ export function AISettings() {
       queryClient.invalidateQueries({ queryKey: ['ai-models'] });
       queryClient.invalidateQueries({ queryKey: ['ai-config-status'] });
     },
+    // 激活失败时给出反馈
+    onError: (err) =>
+      toast({ title: err instanceof Error ? err.message : '操作失败', variant: 'destructive' }),
   });
 
   const quickActivateMutation = useMutation({
@@ -526,6 +600,9 @@ export function AISettings() {
       queryClient.invalidateQueries({ queryKey: ['ai-models'] });
       queryClient.invalidateQueries({ queryKey: ['ai-config-status'] });
     },
+    // 快速激活失败时给出反馈
+    onError: (err) =>
+      toast({ title: err instanceof Error ? err.message : '操作失败', variant: 'destructive' }),
   });
 
   useEffect(() => {
@@ -574,6 +651,12 @@ export function AISettings() {
       if (response.data.success && response.data.data) setSummarizeTask(response.data.data.task);
     } catch (e: any) {
       console.error('Failed to start summarize:', e);
+      // 启动摘要任务失败时给出反馈，避免只打印到控制台
+      toast({
+        title: '启动摘要任务失败',
+        description: e instanceof Error ? e.message : '请稍后重试',
+        variant: 'destructive',
+      });
     } finally {
       setIsStartingSummarize(false);
     }
@@ -586,6 +669,12 @@ export function AISettings() {
       if (response.data.success && response.data.data) setTagsTask(response.data.data.task);
     } catch (e: any) {
       console.error('Failed to start tags:', e);
+      // 启动标签任务失败时给出反馈，避免只打印到控制台
+      toast({
+        title: '启动标签任务失败',
+        description: e instanceof Error ? e.message : '请稍后重试',
+        variant: 'destructive',
+      });
     } finally {
       setIsStartingTags(false);
     }
@@ -601,34 +690,70 @@ export function AISettings() {
 
   const executeStartIndex = async () => {
     setIsStarting(true);
-    setShowConfirmDialog(false);
+    // 确认后关闭弹窗（原先重复调用两次，去重保留一次）
     setShowConfirmDialog(false);
     try {
       const response = await aiApi.indexAll();
       if (response.data.success && response.data.data) setTask(response.data.data.task);
     } catch (e: any) {
       console.error('Failed to start index:', e);
+      // 启动索引任务失败时给出反馈，避免只打印到控制台
+      toast({
+        title: '启动索引任务失败',
+        description: e instanceof Error ? e.message : '请稍后重试',
+        variant: 'destructive',
+      });
     } finally {
       setIsStarting(false);
     }
   };
 
-  const handleCancelTask = (type: 'index' | 'summarize' | 'tags') => {
-    if (!confirm('确定取消当前任务？已处理的部分会保留。')) return;
+  const handleCancelTask = async (type: 'index' | 'summarize' | 'tags') => {
+    // 取消任务为 warn 级：已处理的部分会保留
+    const ok = await confirmAction({
+      title: '取消当前任务？',
+      description: '已处理的部分会保留，未处理部分将停止。',
+      level: 'warn',
+      confirmText: '取消任务',
+    });
+    if (!ok) return;
     cancelTaskMutation.mutate(type);
   };
 
-  const handleRebuildIndex = () => {
-    if (!confirm('重建会清空现有全部索引并重新处理所有文件，可能消耗较多 AI 配额，确定继续？')) return;
+  const handleRebuildIndex = async () => {
+    // 重建索引会清空全量索引并消耗配额，critical 级并要求输入「重建」
+    const ok = await confirmAction({
+      title: '重建全部索引？',
+      description: '将清空现有全部索引并重新处理所有文件，可能消耗较多 AI 配额。',
+      level: 'critical',
+      confirmText: '开始重建',
+      impact: '现有全部索引会被清空后重建，过程中将消耗较多 AI 配额与时间。',
+      requireInput: '重建',
+    });
+    if (!ok) return;
     rebuildIndexMutation.mutate();
   };
 
-  const handleDeleteProvider = (connection: AiProviderConnection) => {
-    if (!confirm(`确定删除供应商「${connection.name}」？`)) return;
+  const handleDeleteProvider = async (connection: AiProviderConnection) => {
+    // 删除供应商连接及可能的模型，属于危险操作，danger 级确认
+    const ok = await confirmAction({
+      title: `删除供应商「${connection.name}」？`,
+      description: '该供应商的连接配置将被删除。',
+      level: 'danger',
+      confirmText: '删除',
+    });
+    if (!ok) return;
 
     let cascade = false;
     if (connection.modelCount > 0) {
-      if (!confirm(`该供应商下还有 ${connection.modelCount} 个模型，是否同时删除这些模型？`)) {
+      // 级联删除模型需再次 danger 级确认；取消则保留供应商不删除（沿用原逻辑）
+      const cascadeOk = await confirmAction({
+        title: `同时删除该供应商下的 ${connection.modelCount} 个模型？`,
+        description: '这些模型配置将一并删除；若取消，本次不会删除供应商。',
+        level: 'danger',
+        confirmText: '同时删除',
+      });
+      if (!cascadeOk) {
         toast({ title: '未删除', description: '请先迁移或删除供应商下的模型', variant: 'destructive' });
         return;
       }
@@ -875,8 +1000,16 @@ export function AISettings() {
                               isExpanded={expandedModelId === model.id}
                               onToggleExpand={() => setExpandedModelId(expandedModelId === model.id ? null : model.id)}
                               onEdit={() => setEditingModel(model)}
-                              onDelete={() => {
-                                if (confirm('确定要删除这个模型吗？')) deleteMutation.mutate(model.id);
+                              onDelete={async () => {
+                                // 删除模型配置为危险操作，danger 级确认
+                                const ok = await confirmAction({
+                                  title: '删除这个模型？',
+                                  description: '模型配置将被删除，已生成的索引数据不受影响。',
+                                  level: 'danger',
+                                  confirmText: '删除',
+                                });
+                                if (!ok) return;
+                                deleteMutation.mutate(model.id);
                               }}
                               onActivate={() => activateMutation.mutate(model.id)}
                               isActivating={activateMutation.isPending}
@@ -1115,14 +1248,20 @@ export function AISettings() {
                         {new Date(m.createdAt).toLocaleDateString()}
                       </span>
                       <button
-                        onClick={() => {
-                          if (confirm('确定要删除这条记忆吗？')) {
-                            setDeletingMemoryId(m.id);
-                            deleteMemoryMutation.mutate(m.id);
-                          }
+                        onClick={async () => {
+                          // 删除单条记忆为危险操作，danger 级确认
+                          const ok = await confirmAction({
+                            title: '删除这条记忆？',
+                            description: '该记忆将被永久删除，操作不可恢复。',
+                            level: 'danger',
+                            confirmText: '删除',
+                          });
+                          if (!ok) return;
+                          setDeletingMemoryId(m.id);
+                          deleteMemoryMutation.mutate(m.id);
                         }}
                         disabled={deletingMemoryId === m.id && deleteMemoryMutation.isPending}
-                        className="flex-shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 hover:text-red-500 transition-all"
+                        className="flex-shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-400 hover:text-red-500 transition-all touch-visible"
                         title="删除记忆"
                       >
                         {deletingMemoryId === m.id && deleteMemoryMutation.isPending ? (

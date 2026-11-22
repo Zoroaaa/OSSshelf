@@ -16,6 +16,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/useToast';
+import { confirmAction } from '@/components/ui/useConfirm';
 import { teamsApi, type WorkspaceFile } from '@/services/collab';
 import api from '@/services/api-client';
 import { getPresignedDownloadUrl, presignUpload } from '@/services/presignUpload';
@@ -224,58 +225,76 @@ const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, userRol
     },
   });
 
-  // ── 删除文件 / 卸载挂载资源 ──
-  const handleRemoveFile = (file: WorkspaceFile) => {
+  // ── 底层移除请求（不含确认与提示，仅执行请求，供单文件与批量操作复用）──
+  // 原实现把确认弹窗放在这一层：批量删除先弹一次总确认，再逐项调用带确认的删除，
+  // 会出现 N+1 个确认框，且中途取消会造成部分删除。这里将确认上移到调用方。
+  const removeFileRaw = async (file: WorkspaceFile) => {
     const isMounted = (file as any).source === 'mounted';
     if (isMounted) {
-      if (confirm(`确定卸载挂载资源「${file.fileName}」？（仅移除挂载，不删除原文件）`)) {
-        unmountMutation.mutate(file.fileId);
-      }
+      // 挂载资源仅卸载挂载，不删除原文件
+      await teamsApi.unmountResource(teamId, file.fileId);
     } else {
-      if (confirm(`确定删除「${file.fileName}」？`)) {
-        deleteMutation.mutate(file.fileId);
-      }
+      const res = await api.delete<{ success: boolean; error?: { message: string } }>(`/api/files/${file.fileId}`);
+      // 后端以 success:false 表达业务失败，需显式抛出以便 Promise.allSettled 统计
+      if (!res.data.success) throw new Error(res.data.error?.message || '删除失败');
     }
   };
 
-  const deleteMutation = useMutation({
-    mutationFn: (fileId: string) =>
-      api.delete<{ success: boolean; error?: { message: string } }>(`/api/files/${fileId}`),
-    onSuccess: (_res, fileId) => {
-      const body = _res.data;
-      if (!body.success) {
-        toast({ title: '删除失败', description: body.error?.message, variant: 'destructive' });
-        return;
-      }
-      toast({ title: '已删除' });
-      setSelectedFileIds((prev) => {
-        const next = new Set(prev);
-        next.delete(fileId);
-        return next;
-      });
-      refetchFiles();
-    },
-    onError: (e: any) => {
-      toast({ title: '删除失败', description: e.response?.data?.error?.message || e.message, variant: 'destructive' });
-    },
-  });
+  // 移除完成后的统一收尾：清理选中状态并刷新列表
+  const afterRemove = (fileIds: string[]) => {
+    setSelectedFileIds((prev) => {
+      const next = new Set(prev);
+      fileIds.forEach((id) => next.delete(id));
+      return next;
+    });
+    refetchFiles();
+  };
 
-  // ── 卸载挂载资源（仅对 source='mounted' 的文件）──
-  const unmountMutation = useMutation({
-    mutationFn: (fileId: string) => teamsApi.unmountResource(teamId, fileId).then((r) => r.data),
-    onSuccess: (_data, fileId) => {
-      toast({ title: '已卸载' });
-      setSelectedFileIds((prev) => {
-        const next = new Set(prev);
-        next.delete(fileId);
-        return next;
+  // ── 单文件删除 / 卸载：先确认，再执行底层移除 ──
+  const handleRemoveFile = async (file: WorkspaceFile) => {
+    const isMounted = (file as any).source === 'mounted';
+    const ok = await confirmAction({
+      title: isMounted ? '卸载挂载资源？' : '删除文件？',
+      description: isMounted
+        ? `确定卸载挂载资源「${file.fileName}」？仅移除挂载，不删除原文件。`
+        : `确定删除「${file.fileName}」？此操作不可撤销。`,
+      level: isMounted ? 'warn' : 'danger',
+    });
+    if (!ok) return;
+    try {
+      await removeFileRaw(file);
+      toast({ title: isMounted ? '已卸载' : '已删除' });
+      afterRemove([file.fileId]);
+    } catch (e: any) {
+      toast({
+        title: isMounted ? '卸载失败' : '删除失败',
+        description: e.response?.data?.error?.message || e.message,
+        variant: 'destructive',
       });
-      refetchFiles();
-    },
-    onError: (e: any) => {
-      toast({ title: '卸载失败', description: e.response?.data?.error?.message || e.message, variant: 'destructive' });
-    },
-  });
+    }
+  };
+
+  // ── 批量删除 / 卸载：整批只弹一次确认，再并发执行并汇总结果 ──
+  const handleBatchRemove = async (targetFiles: WorkspaceFile[]) => {
+    if (targetFiles.length === 0) return;
+    const ok = await confirmAction({
+      title: `批量处理 ${targetFiles.length} 个项目？`,
+      // 明确告知影响范围：挂载资源被卸载、团队文件被删除，避免误操作
+      description: '挂载资源将被卸载，团队文件将被删除，此操作不可撤销。',
+      level: 'danger',
+      confirmText: `确认处理 ${targetFiles.length} 项`,
+    });
+    if (!ok) return;
+    const results = await Promise.allSettled(targetFiles.map((f) => removeFileRaw(f)));
+    const successCount = results.filter((r) => r.status === 'fulfilled').length;
+    const failCount = results.length - successCount;
+    afterRemove(targetFiles.map((f) => f.fileId));
+    if (failCount > 0) {
+      toast({ title: `批量处理完成：成功 ${successCount} 项，失败 ${failCount} 项`, variant: 'destructive' });
+    } else {
+      toast({ title: `已处理 ${successCount} 个项目` });
+    }
+  };
 
   // ── 重命名 ──
   const renameMutation = useMutation({
@@ -380,9 +399,8 @@ const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, userRol
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (selectedFileIds.size > 0 && canManage) {
           const targetFiles = files.filter((f) => selectedFileIds.has(f.fileId));
-          if (confirm(`确定对选中的 ${selectedFileIds.size} 个项目执行操作？（挂载资源将被卸载，团队文件将被删除）`)) {
-            targetFiles.forEach((f) => handleRemoveFile(f));
-          }
+          // 批量删除交由 handleBatchRemove 统一确认并汇总，避免 N+1 确认框
+          handleBatchRemove(targetFiles);
         }
       }
       if (e.key === 'a' && (e.metaKey || e.ctrlKey)) {
@@ -686,13 +704,8 @@ const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, userRol
                   size="sm"
                   onClick={() => {
                     const targetFiles = files.filter((f) => selectedFileIds.has(f.fileId));
-                    if (
-                      confirm(
-                        `确定对选中的 ${selectedFileIds.size} 个项目执行操作？（挂载资源将被卸载，团队文件将被删除）`
-                      )
-                    ) {
-                      targetFiles.forEach((f) => handleRemoveFile(f));
-                    }
+                    // 整批只弹一次确认框，避免逐项确认与中途取消导致的部分删除
+                    handleBatchRemove(targetFiles);
                   }}
                 >
                   <Trash2 className="h-4 w-4 mr-1" /> 删除 ({selectedFileIds.size})
@@ -845,7 +858,7 @@ const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, userRol
                   <div className="col-span-1.5">
                     <PermissionBadge permission={file.permission} />
                   </div>
-                  <div className="col-span-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="col-span-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity touch-visible">
                     {!file.isFolder && (
                       <>
                         <Button
@@ -895,7 +908,7 @@ const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, userRol
                           className="h-7 w-7 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10"
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (confirm(`确定卸载挂载资源「${file.fileName}」？`)) unmountMutation.mutate(file.fileId);
+                            handleRemoveFile(file);
                           }}
                           title="卸载（仅移除挂载，不删除原文件）"
                         >
@@ -908,7 +921,7 @@ const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, userRol
                           className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (confirm(`确定删除「${file.fileName}」？`)) deleteMutation.mutate(file.fileId);
+                            handleRemoveFile(file);
                           }}
                           title="删除"
                         >
@@ -956,7 +969,7 @@ const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, userRol
                   )}
                   <PermissionBadge permission={file.permission} />
                   {/* 操作按钮 */}
-                  <div className="flex items-center justify-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex items-center justify-center gap-1 mt-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity touch-visible">
                     {!file.isFolder && (
                       <>
                         <Button
@@ -1061,7 +1074,7 @@ const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, userRol
       {/* 右键菜单（位置跟随鼠标） */}
       {contextMenuFile && (
         <div
-          className="fixed z-[100] bg-card rounded-lg shadow-xl border py-1 min-w-[160px]"
+          className="fixed z-dropdown bg-card rounded-lg shadow-popover border py-1 min-w-[160px]"
           style={{ left: contextMenuPos.x, top: contextMenuPos.y }}
         >
           <button
@@ -1101,8 +1114,8 @@ const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, userRol
               className="w-full px-3 py-2 text-left text-sm hover:bg-muted flex items-center gap-2 text-amber-600"
               onClick={() => {
                 setContextMenuFile(null);
-                if (confirm(`确定卸载挂载资源「${contextMenuFile.fileName}」？`))
-                  unmountMutation.mutate(contextMenuFile.fileId);
+                // 右键卸载同样走带确认的单文件移除流程
+                handleRemoveFile(contextMenuFile);
               }}
             >
               <Link2Off className="h-4 w-4" /> 卸载资源

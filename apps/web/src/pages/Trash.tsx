@@ -101,7 +101,8 @@ export default function Trash() {
       <div>
         <h1 className="text-xl lg:text-2xl font-bold">回收站</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          {items.length > 0 ? `${items.length} 个文件等待清理` : '回收站是空的'}
+          {/* C-17 修复：展示查询返回的全量 total，而非仅当前页条数 */}
+          {total > 0 ? `${total} 个文件等待清理` : '回收站是空的'}
         </p>
       </div>
 
@@ -204,7 +205,7 @@ function TrashItem({ file, onRestore, onDelete, restorePending, deletePending }:
       <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="md" className="flex-shrink-0 opacity-60" />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium truncate text-muted-foreground">{decodeFileName(file.name)}</p>
-        <p className="text-xs text-muted-foreground/70">
+        <p className="text-xs text-muted-foreground">
           {file.isFolder ? '文件夹' : formatBytes(file.size)}
           {(file as any).deletedAt && <span className="ml-2">· 删除于 {formatDate((file as any).deletedAt)}</span>}
         </p>

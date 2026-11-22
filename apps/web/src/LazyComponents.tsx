@@ -1,10 +1,5 @@
 import { lazy, Suspense } from 'react';
-
-const LoadingSpinner = () => (
-  <div className="flex items-center justify-center min-h-[200px]">
-    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-  </div>
-);
+import { LoadingSpinner } from './components/ui/AsyncState';
 
 export const LazyLogin = lazy(() => import('./pages/Login'));
 export const LazyRegister = lazy(() => import('./pages/Register'));

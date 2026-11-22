@@ -8,6 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/useToast';
+import { confirmAction } from '@/components/ui/useConfirm';
 import { teamsApi, permissionsApi, type TeamMember } from '@/services/collab';
 import { Loader2, X, UserPlus, Trash2, User, Shield, Crown, Pencil, EyeOff, Search } from 'lucide-react';
 import { cn } from '@/utils';
@@ -161,8 +162,13 @@ const TeamMemberDialog: React.FC<TeamMemberDialogProps> = ({ teamId, teamName, o
     addMemberMutation.mutate({ userId: selectedUserId, role: selectedRole });
   };
 
-  const handleRemoveMember = (userId: string, userName: string) => {
-    if (!confirm(`确定要移除成员 "${userName}" 吗？`)) return;
+  const handleRemoveMember = async (userId: string, userName: string) => {
+    const ok = await confirmAction({
+      title: '移除成员？',
+      description: `确定要移除成员「${userName}」吗？移除后该成员将失去团队访问权限。`,
+      level: 'warn',
+    });
+    if (!ok) return;
     removeMemberMutation.mutate(userId);
   };
 

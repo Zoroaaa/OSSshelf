@@ -79,6 +79,8 @@ export function ModelFormModal({
   const [availableModels, setAvailableModels] = useState<AiDiscoveredModel[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  // 模型 ID 的字段级校验错误，避免提交时静默 return
+  const [modelIdError, setModelIdError] = useState('');
 
   const isWorkersAi = !providerId;
 
@@ -113,6 +115,8 @@ export function ModelFormModal({
   );
 
   const handleModelIdChange = (value: string) => {
+    // 用户重新选择/输入时清除上一次的校验错误
+    setModelIdError('');
     setModelId(value);
     const metadata = availableModels.find((item) => item.id === value);
     if (!metadata) return;
@@ -135,7 +139,12 @@ export function ModelFormModal({
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!effectiveModelId) return;
+    // 模型 ID 为空时给出字段级错误提示，不再静默返回
+    if (!effectiveModelId) {
+      setModelIdError('请选择或填写模型 ID');
+      return;
+    }
+    setModelIdError('');
     const payload: CreateAiModelParams = {
       name: name.trim() || undefined,
       provider: isWorkersAi ? 'workers_ai' : undefined,
@@ -229,7 +238,9 @@ export function ModelFormModal({
                       if (item.capabilities.length > 0) setCapabilities(item.capabilities);
                     }
                   }}
-                  className="w-full px-3 py-2 border rounded-lg bg-background text-sm"
+                  className={`w-full px-3 py-2 border rounded-lg bg-background text-sm ${
+                    modelIdError ? 'border-red-500' : ''
+                  }`}
                   required
                 >
                   <option value="">请选择 Workers AI 模型</option>
@@ -249,7 +260,9 @@ export function ModelFormModal({
                     <input
                       value={manualModelId}
                       onChange={(event) => setManualModelId(event.target.value)}
-                      className="w-full px-3 py-2 border rounded-lg bg-background font-mono text-sm"
+                      className={`w-full px-3 py-2 border rounded-lg bg-background font-mono text-sm ${
+                        modelIdError ? 'border-red-500' : ''
+                      }`}
                       placeholder="@cf/deepseek/deepseek-r1"
                     />
                     <p className="mt-1 text-xs text-muted-foreground">
@@ -257,6 +270,8 @@ export function ModelFormModal({
                     </p>
                   </div>
                 )}
+                {/* 字段级校验提示：模型 ID 为空时显示 */}
+                {modelIdError && <p className="mt-1 text-xs text-red-500">{modelIdError}</p>}
               </div>
             ) : (
               <div>
@@ -265,7 +280,9 @@ export function ModelFormModal({
                   value={modelId}
                   onChange={(event) => handleModelIdChange(event.target.value)}
                   list="provider-model-options"
-                  className="w-full px-3 py-2 border rounded-lg bg-background font-mono text-sm"
+                  className={`w-full px-3 py-2 border rounded-lg bg-background font-mono text-sm ${
+                    modelIdError ? 'border-red-500' : ''
+                  }`}
                   placeholder={isLoadingModels ? '正在加载模型列表...' : '选择或手动输入模型 ID'}
                   required
                 />
@@ -279,6 +296,8 @@ export function ModelFormModal({
                 <p className="mt-1 text-xs text-muted-foreground">
                   未拉取到列表时可手动填写；供应商连接会复用同一份 API Key。
                 </p>
+                {/* 字段级校验提示：模型 ID 为空时显示 */}
+                {modelIdError && <p className="mt-1 text-xs text-red-500">{modelIdError}</p>}
               </div>
             )}
 
@@ -530,7 +549,7 @@ export function ModelFormModal({
             </Button>
             <Button
               type="submit"
-              disabled={isLoading || !effectiveModelId || (!isWorkersAi && !providerId)}
+              disabled={isLoading || (!isWorkersAi && !providerId)}
               className="w-full sm:w-auto"
             >
               {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}

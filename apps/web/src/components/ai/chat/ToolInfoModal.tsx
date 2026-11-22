@@ -6,6 +6,7 @@
 import { useEffect } from 'react';
 import { Wrench, X } from 'lucide-react';
 import { CATEGORY_DESC, groupedToolMeta } from './toolMeta';
+import { useDialogRegistration } from '@/lib/dialogStack';
 
 interface ToolInfoModalProps {
   open: boolean;
@@ -15,6 +16,7 @@ interface ToolInfoModalProps {
 const GROUPS = groupedToolMeta();
 
 export function ToolInfoModal({ open, onClose }: ToolInfoModalProps) {
+  useDialogRegistration(open, 'tool-info-modal');
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -30,7 +32,7 @@ export function ToolInfoModal({ open, onClose }: ToolInfoModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-overlay flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div

@@ -12,6 +12,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { authApi } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/useToast';
+import { confirmAction } from '@/components/ui/useConfirm';
 import { useAuthStore } from '@/stores/auth';
 import { formatDate } from '@/utils';
 import { cn } from '@/utils';
@@ -151,10 +152,14 @@ export function DeviceManager() {
                 variant="ghost"
                 size="sm"
                 className="text-red-500 hover:text-red-600 hover:bg-red-500/10"
-                onClick={() => {
-                  if (confirm('确定要注销此设备吗？')) {
-                    deleteMutation.mutate(device.deviceId);
-                  }
+                onClick={async () => {
+                  const ok = await confirmAction({
+                    title: '注销设备',
+                    description: '确定要注销此设备吗？该设备上的登录态将失效。',
+                    level: 'warn',
+                    confirmText: '注销',
+                  });
+                  if (ok) deleteMutation.mutate(device.deviceId);
                 }}
                 disabled={deleteMutation.isPending}
               >

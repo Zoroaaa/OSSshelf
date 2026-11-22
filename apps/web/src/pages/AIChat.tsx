@@ -696,7 +696,7 @@ export function AIChat() {
 
       {contextMenu && (
         <div
-          className="fixed z-[110] min-w-[168px] rounded-xl border border-border bg-popover py-1.5 shadow-xl animate-in fade-in zoom-in-95 duration-150"
+          className="fixed z-dropdown min-w-[168px] rounded-xl border border-border bg-popover py-1.5 shadow-popover animate-in fade-in zoom-in-95 duration-150"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(event) => event.stopPropagation()}
         >

@@ -228,6 +228,8 @@ export function Composer({
             <textarea
               ref={inputRef}
               value={value}
+              // E-16：硬约束输入长度，避免超限内容仍可发送
+              maxLength={maxLength}
               onChange={(event) => {
                 onChange(event.target.value);
                 autoResize(event.target);
@@ -237,6 +239,14 @@ export function Composer({
               placeholder="问我任何关于你的文件的问题…（@ 引用文件，Enter 发送，Shift+Enter 换行）"
               className="min-h-[36px] max-h-44 flex-1 resize-none bg-transparent py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
               rows={1}
+              // E-17：把 @提及下拉作为 combobox 的弹出列表暴露给辅助技术
+              role="combobox"
+              aria-expanded={mentionOpen}
+              aria-controls="mention-listbox"
+              aria-autocomplete="list"
+              aria-activedescendant={
+                mentionOpen && results.length > 0 ? `mention-option-${activeIndex}` : undefined
+              }
             />
 
             <div className="flex flex-shrink-0 items-center pb-0.5">
@@ -296,6 +306,10 @@ export function Composer({
         {mentionOpen && (
           <div
             ref={dropdownRef}
+            // E-17：@提及候选项列表语义
+            id="mention-listbox"
+            role="listbox"
+            aria-label="引用文件候选"
             className="absolute bottom-full left-4 right-4 z-50 mx-auto mb-1 max-w-3xl overflow-hidden rounded-xl border border-border bg-popover shadow-lg"
           >
             <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
@@ -316,6 +330,10 @@ export function Composer({
                   <button
                     key={file.id}
                     type="button"
+                    // E-17：候选项声明为 listbox 的 option，与 textarea 的 aria-activedescendant 对应
+                    id={`mention-option-${index}`}
+                    role="option"
+                    aria-selected={index === activeIndex}
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => selectMention(file)}
                     className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors ${

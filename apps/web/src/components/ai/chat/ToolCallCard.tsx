@@ -113,6 +113,8 @@ export function ToolCallCard({ tc, onFileClick, onConfirmAction, onCancelConfirm
     >
       <button
         type="button"
+        // E-19：向辅助技术暴露展开/收起状态
+        aria-expanded={expanded}
         onClick={() => setExpanded((value) => !value)}
         className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-accent/40"
       >

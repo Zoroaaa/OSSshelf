@@ -17,6 +17,7 @@ import { teamsApi } from '@/services/collab';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/useToast';
+import { confirmAction } from '@/components/ui/useConfirm';
 import { cn } from '@/utils';
 import {
   Plus,
@@ -146,12 +147,22 @@ const GlobalPermissions: React.FC = () => {
           expiresAt: expiresAt || undefined,
         } as any)
       );
-      return Promise.all(grants);
+      // D-26 修复：批量授权改用 allSettled，单项失败不影响其他项
+      const results = await Promise.allSettled(grants);
+      const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+      const failed = results.length - succeeded;
+      return { succeeded, failed };
     },
-    onSuccess: () => {
-      toast({ title: '授权成功' });
+    onSuccess: ({ succeeded, failed }) => {
       queryClient.invalidateQueries({ queryKey: ['global-permissions'] });
-      resetForm();
+      // D-26 修复：汇总成功/失败数，不再只显示首条错误
+      toast({
+        title: failed > 0 ? '授权部分失败' : '授权成功',
+        description: `成功 ${succeeded} 项，失败 ${failed} 项`,
+        variant: failed > 0 ? 'destructive' : undefined,
+      });
+      // 全部成功才重置表单，失败项保留便于重试
+      if (failed === 0) resetForm();
     },
     onError: (e: any) => {
       toast({
@@ -362,6 +373,10 @@ const GlobalPermissions: React.FC = () => {
                           <span className="text-xs opacity-70">{user.email}</span>
                         </button>
                       ))}
+                      {/* D-26 修复：提示搜索结果仅展示前 5 条 */}
+                      {userSearchResults.length > 5 && (
+                        <p className="px-2 py-1 text-xs text-muted-foreground">仅显示前 5 条</p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -656,10 +671,15 @@ const GlobalPermissions: React.FC = () => {
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                            onClick={() => {
-                              if (confirm('确定要撤销此权限吗？')) {
-                                revokeMutation.mutate({ permissionId: perm.id });
-                              }
+                            onClick={async () => {
+                              // D-27 修复：用命令式确认（warn 级）替代原生 confirm
+                              const ok = await confirmAction({
+                                title: '撤销权限',
+                                description: '确定要撤销此权限吗？撤销后该对象将失去对应访问权。',
+                                level: 'warn',
+                              });
+                              if (!ok) return;
+                              revokeMutation.mutate({ permissionId: perm.id });
                             }}
                             disabled={revokeMutation.isPending}
                           >

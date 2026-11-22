@@ -405,7 +405,13 @@ export default function Settings() {
   const pwMatch = newPw && confirmPw && newPw !== confirmPw;
 
   const copyToClipboard = (text: string, msg: string) => {
-    navigator.clipboard.writeText(text).then(() => toast({ title: msg }));
+    navigator.clipboard
+      .writeText(text)
+      .then(() => toast({ title: msg }))
+      // 剪贴板写入失败（如浏览器权限被拒）时给出反馈，避免静默失败
+      .catch(() =>
+        toast({ title: '复制失败', description: '请检查浏览器剪贴板权限', variant: 'destructive' })
+      );
   };
 
   const tabs: { id: SettingsTab; label: string; icon: typeof User }[] = [

@@ -382,6 +382,14 @@ function DownloadSharePage({ shareId }: { shareId: string }) {
                   onClick={() => {
                     if (child.isFolder) {
                       navigateToFolder(child.id, child.name);
+                    } else if (canPreviewFile(child.mimeType)) {
+                      // C-14 修复：文件行点击与操作区“预览”图标行为一致，直接打开预览
+                      setPreviewFile({
+                        id: child.id,
+                        name: child.name,
+                        size: child.size,
+                        mimeType: child.mimeType,
+                      });
                     }
                   }}
                 >

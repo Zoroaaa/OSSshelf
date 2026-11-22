@@ -10,6 +10,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '../ui/Button';
+import { SafeMarkdown } from '../ui/SafeMarkdown';
 
 interface NoteEditorProps {
   initialContent: string;
@@ -56,18 +57,6 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ initialContent, title, onSave, 
     }, 0);
   };
 
-  const renderPreview = (text: string): string => {
-    return text
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.+?)\*/g, '<em>$1</em>')
-      .replace(/`(.+?)`/g, '<code class="bg-gray-200 dark:bg-gray-700 px-1 rounded">$1</code>')
-      .replace(/~~(.+?)~~/g, '<del>$1</del>')
-      .replace(/@([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '<span class="text-blue-500">@$1</span>')
-      .replace(/\n/g, '<br>');
-  };
-
   const toolbarButtons = [
     { label: 'B', title: '粗体', action: () => insertMarkdown('**') },
     { label: 'I', title: '斜体', action: () => insertMarkdown('*') },
@@ -112,10 +101,9 @@ const NoteEditor: React.FC<NoteEditorProps> = ({ initialContent, title, onSave, 
 
         <div className="flex-1 overflow-hidden p-4">
           {showPreview ? (
-            <div
-              className="prose dark:prose-invert max-w-none h-full overflow-y-auto"
-              dangerouslySetInnerHTML={{ __html: renderPreview(content) }}
-            />
+            <div className="h-full overflow-y-auto">
+              <SafeMarkdown content={content} />
+            </div>
           ) : (
             <textarea
               ref={textareaRef}

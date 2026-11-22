@@ -9,6 +9,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/useToast';
+import { confirmAction } from '@/components/ui/useConfirm';
 import { teamsApi, type TeamMember, type TeamResource } from '@/services/collab';
 import TeamActivityFeed from './TeamActivityFeed';
 import TeamInviteRecords from './TeamInviteRecords';
@@ -274,9 +275,14 @@ const TeamDetail: React.FC<TeamDetailProps> = ({ teamId, onClose }) => {
           <SettingsSection
             teamData={teamData!}
             onUpdate={(data) => updateMutation.mutate(data)}
-            onDelete={() => {
-              if (!confirm(`确定要删除团队 "${teamData?.name}" 吗？此操作不可撤销。`)) return;
-              deleteMutation.mutate();
+            onDelete={async () => {
+              const ok = await confirmAction({
+                title: '删除团队',
+                description: `确定要删除团队「${teamData?.name}」吗？此操作不可撤销。`,
+                level: 'danger',
+                confirmText: '删除团队',
+              });
+              if (ok) deleteMutation.mutate();
             }}
             isUpdating={updateMutation.isPending}
             isDeleting={deleteMutation.isPending}
@@ -398,11 +404,15 @@ const ResourcesSection: React.FC<ResourcesSectionProps> = ({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10"
-              onClick={() => {
-                if (confirm(`确定要卸载「${resource.fileName}」吗？团队成员将失去访问权限。`)) {
-                  onUnmount(resource.fileId);
-                }
+              className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive hover:bg-destructive/10 touch-visible"
+              onClick={async () => {
+                const ok = await confirmAction({
+                  title: '卸载资源',
+                  description: `确定要卸载「${resource.fileName}」吗？团队成员将失去访问权限。`,
+                  level: 'warn',
+                  confirmText: '卸载',
+                });
+                if (ok) onUnmount(resource.fileId);
               }}
               title="卸载资源"
             >

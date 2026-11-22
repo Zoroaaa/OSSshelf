@@ -13,6 +13,8 @@ import { createPortal } from 'react-dom';
 import { cn } from '@/utils';
 import { X } from 'lucide-react';
 import { useResponsive } from '@/hooks/useResponsive';
+import { dialogStack } from '@/lib/dialogStack';
+import { Button } from '@/components/ui/Button';
 
 export type MobileDialogMode = 'sheet' | 'fullscreen';
 
@@ -43,18 +45,18 @@ export function MobileDialog({
   const startYRef = useRef(0);
   const contentRef = useRef<HTMLDivElement>(null);
 
+  // A-16/D-04 修复：滚动锁统一交给 dialogStack（引用计数 + 卸载对称清理），
+  // 解决"弹窗在打开状态下随路由跳转被卸载时锁永不释放"以及多弹层互相解锁的问题。
+  const stackIdRef = useRef(`mobile-dialog-${Math.random().toString(36).slice(2)}`);
   useEffect(() => {
     if (open) {
       setIsVisible(true);
       requestAnimationFrame(() => setIsAnimating(true));
-      document.body.style.overflow = 'hidden';
-      return () => {};
+      dialogStack.push(stackIdRef.current);
+      return () => dialogStack.pop(stackIdRef.current);
     } else {
       setIsAnimating(false);
-      const timer = setTimeout(() => {
-        setIsVisible(false);
-        document.body.style.overflow = '';
-      }, 300);
+      const timer = setTimeout(() => setIsVisible(false), 300);
       return () => clearTimeout(timer);
     }
   }, [open]);
@@ -219,21 +221,17 @@ export function MobileDialogAction({
 }: MobileDialogActionProps) {
   const { isMobile } = useResponsive();
 
+  // E-09 修复：复用共享 Button，保持全站按钮语义/圆角/加载态一致。
+  // 保留 default/primary/danger 兼容别名，内部映射到 Button 的 cva 变体。
+  const buttonVariant = variant === 'primary' ? 'default' : variant === 'danger' ? 'destructive' : 'secondary';
   return (
-    <button
+    <Button
+      variant={buttonVariant}
       onClick={onClick}
       disabled={disabled || loading}
-      className={cn(
-        'font-medium rounded-xl transition-colors',
-        isMobile ? 'w-full py-3 text-center' : 'px-4 py-2',
-        variant === 'primary' && 'bg-primary text-primary-foreground hover:bg-primary/90',
-        variant === 'danger' && 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
-        variant === 'default' && 'bg-muted hover:bg-muted/80',
-        (disabled || loading) && 'opacity-50 cursor-not-allowed',
-        className
-      )}
+      className={cn(isMobile && 'w-full', className)}
     >
       {loading ? '处理中...' : children}
-    </button>
+    </Button>
   );
 }

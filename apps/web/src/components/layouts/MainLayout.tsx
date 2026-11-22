@@ -195,9 +195,10 @@ export default function MainLayout() {
       {/* 桌面端侧边栏 */}
       <aside
         className={cn(
-          'hidden lg:flex fixed inset-y-0 left-0 z-40 bg-card border-r flex-col transform transition-all duration-200 ease-in-out',
+          'hidden lg:flex fixed inset-y-0 left-0 z-40 bg-card border-r flex-col transition-[width] duration-200 ease-in-out',
           isCollapsed ? 'w-16' : 'w-64',
-          isHovering && isCollapsed && 'w-64'
+          // B-09 修复：折叠态 hover 展开为浮层，加阴影明确层级，避免误认为内容区可点击
+          isHovering && isCollapsed && 'w-64 shadow-2xl'
         )}
         onMouseEnter={() => setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}
@@ -337,9 +338,9 @@ export default function MainLayout() {
 
       <main
         className={cn(
-          'transition-all duration-200',
-          isCollapsed ? 'lg:pl-16' : 'lg:pl-64',
-          'pt-16 lg:pt-0 pb-20 lg:pb-0 min-h-[calc(100vh-4rem)]'
+          // B-10 修复：仅过渡 padding-left，避免 transition-all 引发的连锁重排抖动
+          'app-main transition-[padding-left] duration-200',
+          isCollapsed ? 'lg:pl-16' : 'lg:pl-64'
         )}
       >
         <div className="p-4 lg:p-6 max-w-[1400px] mx-auto relative">

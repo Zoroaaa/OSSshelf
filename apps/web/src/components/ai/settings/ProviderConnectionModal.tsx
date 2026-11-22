@@ -64,6 +64,8 @@ export function ProviderConnectionModal({ preset, connection, onClose, onSaved }
   const [isSaving, setIsSaving] = useState(false);
   const [testResult, setTestResult] = useState<{ valid: boolean; latencyMs?: number; error?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Base URL 字段级校验错误（保存/测试/拉取列表都会经过 saveConnection 校验）
+  const [endpointError, setEndpointError] = useState<string | null>(null);
 
   const lockedProtocol = (!!preset && preset.id !== 'custom') || !!connection?.presetId;
   const workingConnectionId = workingConnection?.id;
@@ -103,6 +105,19 @@ export function ProviderConnectionModal({ preset, connection, onClose, onSaved }
   };
 
   const saveConnection = async (): Promise<AiProviderConnection> => {
+    // 保存前校验 Base URL：非空且必须以 http:// 或 https:// 开头（参考 WebhookCreateDialog）
+    const trimmedEndpoint = apiEndpoint.trim();
+    const endpointScheme = trimmedEndpoint.toLowerCase();
+    if (!trimmedEndpoint) {
+      setEndpointError('Base URL 不能为空');
+      throw new Error('Base URL 不能为空');
+    }
+    if (!endpointScheme.startsWith('http://') && !endpointScheme.startsWith('https://')) {
+      setEndpointError('Base URL 必须以 http:// 或 https:// 开头');
+      throw new Error('Base URL 必须以 http:// 或 https:// 开头');
+    }
+    setEndpointError(null);
+
     const payload = {
       ...(preset ? { presetId: preset.id } : {}),
       name: name.trim() || preset?.name || connection?.name || '自定义连接',
@@ -270,10 +285,17 @@ export function ProviderConnectionModal({ preset, connection, onClose, onSaved }
               <label className="block text-xs font-medium mb-1">Base URL</label>
               <input
                 value={apiEndpoint}
-                onChange={(event) => setApiEndpoint(event.target.value)}
-                className="w-full px-3 py-2 border rounded-lg bg-background text-sm font-mono"
+                onChange={(event) => {
+                  setApiEndpoint(event.target.value);
+                  setEndpointError(null);
+                }}
+                className={`w-full px-3 py-2 border rounded-lg bg-background text-sm font-mono ${
+                  endpointError ? 'border-red-500' : ''
+                }`}
                 placeholder="https://api.example.com/v1"
               />
+              {/* 字段级错误提示：Base URL 为空或缺少协议时显示 */}
+              {endpointError && <p className="mt-1 text-xs text-red-500">{endpointError}</p>}
               <p className="text-[11px] text-muted-foreground mt-1">
                 填到 /v1 或 /v3 为止，不要包含 /chat/completions。必须是公网可访问的 https 地址。
               </p>

@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { webhooksApi } from '@/services/api';
 import { useToast } from '@/components/ui/useToast';
+import { confirmAction } from '@/components/ui/useConfirm';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils';
 import {
@@ -60,6 +61,14 @@ const WebhookList: React.FC = () => {
       toast({ title: '状态已更新' });
       queryClient.invalidateQueries({ queryKey: ['webhooks'] });
     },
+    // D-09 修复：补充失败反馈，避免切换状态失败时静默无提示
+    onError: (e: any) => {
+      toast({
+        title: '状态更新失败',
+        description: e.response?.data?.error?.message,
+        variant: 'destructive',
+      });
+    },
   });
 
   const testMutation = useMutation({
@@ -78,8 +87,14 @@ const WebhookList: React.FC = () => {
     },
   });
 
-  const handleDelete = (id: string, url: string) => {
-    if (!confirm(`确定要删除此 Webhook 吗？\n${url}`)) return;
+  const handleDelete = async (id: string, url: string) => {
+    // D-27 修复：用命令式确认替代原生 confirm
+    const ok = await confirmAction({
+      title: '删除 Webhook',
+      description: `确定要删除此 Webhook 吗？\n${url}`,
+      level: 'danger',
+    });
+    if (!ok) return;
     deleteMutation.mutate(id);
   };
 
@@ -145,13 +160,14 @@ const WebhookList: React.FC = () => {
               className={cn('bg-card rounded-lg border p-4 transition-colors', !hook.isActive && 'opacity-60')}
             >
               <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  {/* D-13 修复：长回调 URL 窄屏下可截断，父容器 min-w-0 保证 truncate 生效 */}
+                  <div className="flex items-center gap-2 min-w-0">
                     <a
                       href={hook.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="font-medium text-primary hover:underline flex items-center gap-1"
+                      className="font-medium text-primary hover:underline flex items-center gap-1 min-w-0 truncate break-all"
                     >
                       {hook.url}
                       <ExternalLink className="h-3.5 w-3.5" />
@@ -181,6 +197,8 @@ const WebhookList: React.FC = () => {
                     size="sm"
                     onClick={() => handleTest(hook.id)}
                     disabled={testMutation.isPending && testId === hook.id}
+                    aria-label="发送测试事件"
+                    title="发送测试事件"
                   >
                     {testMutation.isPending && testId === hook.id ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -193,6 +211,8 @@ const WebhookList: React.FC = () => {
                     size="sm"
                     onClick={() => handleToggle(hook.id, hook.isActive)}
                     disabled={toggleMutation.isPending}
+                    aria-label={hook.isActive ? '禁用 Webhook' : '启用 Webhook'}
+                    title={hook.isActive ? '禁用 Webhook' : '启用 Webhook'}
                   >
                     {hook.isActive ? (
                       <PowerOff className="h-4 w-4 text-amber-500" />
@@ -206,6 +226,8 @@ const WebhookList: React.FC = () => {
                     className="text-destructive hover:text-destructive"
                     onClick={() => handleDelete(hook.id, hook.url)}
                     disabled={deleteMutation.isPending}
+                    aria-label="删除 Webhook"
+                    title="删除 Webhook"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>

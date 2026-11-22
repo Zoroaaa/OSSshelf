@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '../ui/Button';
 import { useToast } from '../ui/useToast';
+import { confirmAction } from '../ui/useConfirm';
 import ApiKeyCreateDialog from './ApiKeyCreateDialog';
 import ApiKeyShowOnceDialog from './ApiKeyShowOnceDialog';
 import { apiKeysApi, type ApiKey } from '@/services/api';
@@ -46,7 +47,13 @@ const ApiKeyList: React.FC = () => {
   }, [fetchKeys]);
 
   const handleDelete = async (keyId: string, keyName: string) => {
-    if (!confirm(`确定要删除 API Key "${keyName}" 吗？此操作不可撤销。`)) return;
+    // 删除 API Key 不可恢复，使用 danger 级确认
+    const ok = await confirmAction({
+      title: '删除 API Key？',
+      description: `确定要删除 API Key「${keyName}」吗？此操作不可撤销。`,
+      level: 'danger',
+    });
+    if (!ok) return;
 
     try {
       const res = await apiKeysApi.delete(keyId);

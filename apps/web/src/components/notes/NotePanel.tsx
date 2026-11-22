@@ -11,6 +11,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '../ui/Button';
 import { useToast } from '../ui/useToast';
+import { ErrorState } from '../ui/AsyncState';
+import { confirmAction } from '../ui/useConfirm';
 import NoteEditor from './NoteEditor';
 import NoteCard from './NoteCard';
 import { notesApi, type FileNote } from '@/services/api';
@@ -25,6 +27,8 @@ interface NotePanelProps {
 const NotePanel: React.FC<NotePanelProps> = ({ fileId, isOpen, onClose }) => {
   const [notes, setNotes] = useState<FileNote[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  // E-08：单独记录加载失败，避免把失败伪装成「暂无笔记」
+  const [error, setError] = useState<string | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingNote, setEditingNote] = useState<FileNote | null>(null);
   const [replyTo, setReplyTo] = useState<FileNote | null>(null);
@@ -35,13 +39,16 @@ const NotePanel: React.FC<NotePanelProps> = ({ fileId, isOpen, onClose }) => {
   const fetchNotes = useCallback(async () => {
     if (!fileId) return;
     setIsLoading(true);
+    setError(null);
     try {
       const res = await notesApi.list(fileId, 1, 50);
       if (res.data.success && res.data.data) {
         setNotes(res.data.data.notes);
       }
-    } catch (error) {
-      console.error('Failed to fetch notes:', error);
+    } catch (err) {
+      console.error('Failed to fetch notes:', err);
+      // E-08：记录错误态供 UI 显示重试入口
+      setError('加载笔记失败，请稍后重试');
       toast({ title: '加载笔记失败', variant: 'destructive' });
     } finally {
       setIsLoading(false);
@@ -73,7 +80,13 @@ const NotePanel: React.FC<NotePanelProps> = ({ fileId, isOpen, onClose }) => {
   };
 
   const handleDeleteNote = async (noteId: string) => {
-    if (!confirm('确定要删除这条笔记吗？')) return;
+    const ok = await confirmAction({
+      title: '删除笔记',
+      description: '确定要删除这条笔记吗？此操作不可恢复。',
+      level: 'danger',
+      confirmText: '删除',
+    });
+    if (!ok) return;
 
     try {
       const res = await notesApi.delete(fileId, noteId);
@@ -154,7 +167,8 @@ const NotePanel: React.FC<NotePanelProps> = ({ fileId, isOpen, onClose }) => {
   });
 
   return (
-    <div className="fixed inset-y-0 right-0 w-96 bg-white dark:bg-gray-900 shadow-xl z-50 flex flex-col border-l border-gray-200 dark:border-gray-700">
+    // E-30：窄屏占满视口宽度，≥sm 恢复固定侧栏宽度
+    <div className="fixed inset-y-0 right-0 w-full max-w-full bg-white dark:bg-gray-900 shadow-xl z-50 flex flex-col border-l border-gray-200 dark:border-gray-700 sm:w-96">
       <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
         <h2 className="text-lg font-semibold">笔记</h2>
         <div className="flex items-center gap-2">
@@ -174,6 +188,9 @@ const NotePanel: React.FC<NotePanelProps> = ({ fileId, isOpen, onClose }) => {
           <div className="flex items-center justify-center py-8">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
           </div>
+        ) : error ? (
+          // E-08：失败态独立呈现并提供重试，与「暂无笔记」空态明确区分
+          <ErrorState title="加载笔记失败" message={error} onRetry={fetchNotes} />
         ) : notes.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
             <p>暂无笔记</p>
