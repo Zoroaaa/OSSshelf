@@ -643,24 +643,26 @@ curl https://your-api.workers.dev/api/auth/registration-config
 ```
 ossshelf/
 ├── apps/
-│   ├── api/                    # 后端 API 服务
+│   ├── api/                    # 后端：单个 Worker 承载 API / WebDAV / Agent WS
 │   │   ├── src/
-│   │   │   ├── db/             # 数据库连接与 Schema
-│   │   │   ├── lib/            # 核心库（AI、存储、权限等）
-│   │   │   ├── middleware/     # 中间件
-│   │   │   ├── routes/         # API 路由（含 teams.ts / permissions.ts 扩展）
-│   │   │   └── index.ts        # 入口
-│   │   ├── migrations/         # 数据库迁移（按功能模块分类）
-│   │   └── wrangler.toml       # Cloudflare 配置
-│   └── web/                    # 前端应用
+│   │   │   ├── routes/         # HTTP 路由（含 teams.ts / permissions.ts）
+│   │   │   ├── lib/            # 业务编排（文件、AI、存储、权限）
+│   │   │   ├── agents/         # OSSShelfAgent（Durable Object）
+│   │   │   ├── db/             # Drizzle schema 与连接
+│   │   │   ├── middleware/     # 鉴权、限流、错误处理
+│   │   │   └── index.ts        # 入口：中间件、子应用、Cron、队列
+│   │   ├── migrations/         # SQL 迁移（表结构唯一事实源）
+│   │   └── wrangler.toml       # Worker 配置（前端静态资源 + 绑定）
+│   └── web/                    # 前端 SPA
 │       └── src/
-│   │           ├── components/     # UI 组件（含 teams/ / permissions/ 协作组件）
-│           ├── pages/          # 页面组件
-│           ├── hooks/          # 自定义 Hooks
-│           ├── services/       # API 服务
-│           └── stores/         # 状态管理
+│           ├── pages/          # 路由级页面
+│           ├── components/     # 业务组件（files / teams / ai / ui …）
+│           ├── hooks/          # 数据编排与交互
+│           ├── services/       # API 封装
+│           └── stores/         # Zustand：auth / files / theme
 ├── packages/
-│   └── shared/                 # 共享代码（常量、类型等）
+│   └── shared/                 # 共享代码（错误码、类型、logger）
+├── scripts/                    # dev-setup / smoke-test
 └── docs/                       # 文档
 ```
 
@@ -690,10 +692,10 @@ ossshelf/
 | `/api/preview`         | 文件预览                                             |
 | `/api/versions`        | 版本控制                                             |
 | `/api/notes`           | 文件笔记                                             |
-| `/api/api-keys`        | API Keys 管理                                        |
+| `/api/keys`            | API Keys 管理                                        |
 | `/api/groups`          | 用户组管理                                           |
 | `/api/teams`           | 团队空间管理（v3.0.0 新增）                          |
-| `/api/roles/templates` | 角色模板查询（v3.0.0 新增）                          |
+| `/api/permissions/roles/templates` | 角色模板查询（v3.0.0 新增）               |
 | `/api/webhooks`        | Webhook 管理                                         |
 | `/api/ai`              | AI 文件处理功能 (v2.3.0 增强)                        |
 | `/api/ai-config`       | AI 配置管理、系统配置 (v2.3.0 增强)                  |

@@ -39,36 +39,37 @@ OSSshelf 是一个基于 Cloudflare 技术栈构建的现代化对象存储管�
 
 | 技术         | 版本 | 用途         |
 | ------------ | ---- | ------------ |
-| React        | 18.x | UI 框架      |
+| React        | 19.x | UI 框架      |
 | TypeScript   | 5.x  | 类型安全     |
-| Vite         | 5.x  | 构建工具     |
+| Vite         | 6.x  | 构建工具     |
 | Tailwind CSS | 3.x  | 样式框架     |
 | Radix UI     | -    | 无障碍组件库 |
 | React Router | 6.x  | 路由管理     |
 | Zustand      | 4.x  | 状态管理     |
 | React Query  | 5.x  | 数据获取     |
-| Clerk        | -    | 用户认证     |
+
+> 认证为自建 JWT（`apps/api/src/middleware/auth.ts` + `apps/web/src/stores/auth.ts`），未接入 Clerk 等第三方身份服务。
 
 ### 后端
 
-| 技术                  | 版本 | 用途              |
-| --------------------- | ---- | ----------------- |
-| Hono                  | 4.x  | Web 框架          |
-| TypeScript            | 5.x  | 类型安全          |
-| Cloudflare Workers    | -    | Serverless 运行时 |
-| Cloudflare D1         | -    | SQLite 数据库     |
-| Cloudflare R2         | -    | 对象存储          |
-| Cloudflare Vectorize  | -    | 向量数据库        |
-| Cloudflare Workers AI | -    | AI 推理服务       |
+| 技术                  | 版本 | 用途                                       |
+| --------------------- | ---- | ------------------------------------------ |
+| Hono                  | 4.x  | Web 框架                                   |
+| TypeScript            | 5.x  | 类型安全                                   |
+| Cloudflare Workers    | -    | Serverless 运行时                          |
+| Cloudflare D1         | -    | SQLite 数据库                              |
+| 对象存储              | -    | R2 / OSS / S3 等 S3 兼容服务（应用内配置） |
+| Cloudflare Vectorize  | -    | 向量数据库                                 |
+| Cloudflare Workers AI | -    | AI 推理服务                                |
 
 ### 开发工具
 
-| 工具      | 用途          |
-| --------- | ------------- |
-| Turborepo | Monorepo 管理 |
-| ESLint    | 代码检查      |
-| Prettier  | 代码格式化    |
-| Vitest    | 单元测试      |
+| 工具            | 用途          |
+| --------------- | ------------- |
+| pnpm workspaces | Monorepo 管理 |
+| ESLint          | 代码检查      |
+| Prettier        | 代码格式化    |
+| Vitest          | 单元测试      |
 
 ---
 
@@ -77,73 +78,51 @@ OSSshelf 是一个基于 Cloudflare 技术栈构建的现代化对象存储管�
 ```
 OSSshelf/
 ├── apps/
-│   ├── api/                    # 后端 API 服务
+│   ├── api/                          # 后端：单个 Worker 承载 API / WebDAV / Agent WS
 │   │   ├── src/
-│   │   │   ├── index.ts        # 入口文件
-│   │   │   ├── routes/         # API 路由
-│   │   │   │   ├── ai.ts       # AI 相关路由
-│   │   │   │   ├── aiChatRoutes.ts    # AI 对话路由 (v2.3.0)
-│   │   │   │   ├── aiConfigRoutes.ts  # AI 配置路由 (v2.3.0)
-│   │   │   │   ├── files.ts    # 文件管理路由
-│   │   │   │   ├── auth.ts     # 认证路由
-│   │   │   │   └── ...
-│   │   │   ├── lib/            # 核心库
-│   │   │   │   ├── ai/         # AI 模块 (v2.3.0 重点)
-│   │   │   │   │   ├── agentTools/       # 工具集
-│   │   │   │   │   ├── toolAdapter.ts    # 工具 → AI SDK tools (v3.2.0)
-│   │   │   │   │   ├── modelService.ts   # 模型配置读取（D1）
-│   │   │   │   │   ├── modelRuntime.ts   # 统一模型运行时（AI SDK）
-│   │   │   │   │   └── ...
-│   │   │   │   ├── db/         # 数据库操作
-│   │   │   │   │   ├── index.ts
-│   │   │   │   │   └── schema.ts
-│   │   │   │   ├── s3client.ts # S3/R2 客户端
-│   │   │   │   └── ...
-│   │   │   ├── middleware/     # 中间件
-│   │   │   └── utils/          # 工具函数
-│   │   ├── migrations/         # 数据库迁移
-│   │   │   ├── 0001_init.sql
-│   │   │   ├── ...
-│   │   │   └── 0011_ai_confirm_requests.sql  # v2.3.0
-│   │   ├── wrangler.toml       # Cloudflare Workers 配置
-│   │   └── package.json
+│   │   │   ├── index.ts              # 入口：中间件、子应用注册、Cron、队列
+│   │   │   ├── routes/               # HTTP 路由（鉴权、校验、响应）
+│   │   │   ├── lib/                  # 业务编排
+│   │   │   │   ├── ai/               # Agent 运行时、工具、检索、模型、用量
+│   │   │   │   ├── fileService.ts    # 文件、回收站、版本
+│   │   │   │   ├── shareService.ts   # 分享链接
+│   │   │   │   ├── permissionResolver.ts   # 权限解析与缓存
+│   │   │   │   ├── bucketResolver.ts # 存储桶解析
+│   │   │   │   ├── storageGC.ts      # 对象回收与删除队列
+│   │   │   │   └── cleanup.ts        # Cron 清理与存储对账
+│   │   │   ├── agents/               # OSSShelfAgent（Durable Object）与 WS 鉴权
+│   │   │   ├── db/                   # Drizzle schema 与连接
+│   │   │   ├── middleware/           # 鉴权、限流、错误处理
+│   │   │   └── types/                # Env / Variables 等类型
+│   │   ├── migrations/               # SQL 迁移（表结构唯一事实源）
+│   │   │   ├── 010_core.sql
+│   │   │   ├── 060_ai.sql
+│   │   │   └── 119_file_name_unique.sql
+│   │   └── wrangler.toml             # Worker 配置（前端静态资源、D1/KV/Vectorize/Queue）
 │   │
-│   └── web/                    # 前端应用
+│   └── web/                          # 前端 SPA
 │       ├── src/
-│       │   ├── main.tsx        # 入口文件
-│       │   ├── App.tsx         # 应用组件
-│       │   ├── pages/          # 页面组件
-│       │   │   ├── AIChat.tsx  # AI 对话页面 (v2.3.0)
-│       │   │   ├── AISettings.tsx # AI 设置页面 (v2.3.0)
-│       │   │   ├── Files.tsx   # 文件管理页面
-│       │   │   └── ...
-│       │   ├── components/     # 组件
-│       │   │   ├── ai/         # AI 相关组件
-│       │   │   │   ├── chat/   # 对话组件
-│       │   │   │   └── settings/  # 设置组件
-│       │   │   ├── files/      # 文件相关组件
-│       │   │   └── ui/         # 通用 UI 组件
-│       │   ├── hooks/          # 自定义 Hooks
-│       │   ├── stores/         # Zustand 状态
-│       │   ├── services/       # API 服务
-│       │   └── utils/          # 工具函数
-│       ├── vite.config.ts      # Vite 配置
-│       └── package.json
+│       │   ├── main.tsx              # 入口：QueryClient、主题、Service Worker
+│       │   ├── App.tsx               # 路由表
+│       │   ├── pages/                # 路由级页面
+│       │   ├── components/           # 业务组件（files / teams / ai / ui …）
+│       │   ├── hooks/                # 数据编排与交互
+│       │   ├── services/             # API 封装（api-client + 端点函数）
+│       │   ├── stores/               # Zustand：auth / files / theme
+│       │   └── lib/                  # 前端基础设施（dialogStack 等）
+│       └── vite.config.ts
 │
-├── packages/                   # 共享包
-│   └── shared/                 # 共享类型和工具
-│       ├── src/
-│       │   └── constants/
-│       │       └── index.ts    # 共享常量
-│       └── package.json
+├── packages/
+│   └── shared/                       # 前后端共享
+│       └── src/
+│           ├── constants/            # ERROR_CODES、预览类型
+│           ├── types/                # 共享类型
+│           └── utils/                # logger、MIME
 │
-├── docs/                       # 文档
-│   ├── AI_FEATURES.md          # AI 功能说明 (v2.3.0)
-│   ├── API_AI.md               # AI API 文档 (v2.3.0)
-│   └── architecture.md         # 架构文档（本文件）
-│
-├── package.json                # 根 package.json
-├── turbo.json                  # Turborepo 配置
+├── scripts/                          # dev-setup / smoke-test
+├── docs/                             # 架构、部署、API、审计、计划、runbook
+├── AGENTS.md                         # AI agent 协作规范
+├── package.json                      # pnpm workspaces 根
 └── README.md
 ```
 
@@ -834,72 +813,107 @@ DELETE /api/resource/:id      # 删除
 
 ### API 模块
 
-| 模块   | 路径前缀           | 说明                   |
-| ------ | ------------------ | ---------------------- |
-| 认证   | `/api/auth`        | 用户认证、会话管理     |
-| 文件   | `/api/files`       | 文件上传、下载、管理   |
-| 文件夹 | `/api/folders`     | 文件夹管理             |
-| 分享   | `/api/shares`      | 分享链接管理           |
-| AI     | `/api/ai`          | AI 功能                |
-| 用户   | `/api/user`        | 用户配置               |
-| 团队   | `/api/teams`       | 团队管理 (v3.0.0)      |
-| 权限   | `/api/permissions` | 权限管理 (v3.0.0 扩展) |
+以下为 `apps/api/src/index.ts` 实际挂载的前缀（新增模块必须在此登记并同步本节）。
+
+| 模块     | 路径前缀                                                     | 说明                               |
+| -------- | ------------------------------------------------------------ | ---------------------------------- |
+| 认证     | `/api/auth`                                                  | 注册、登录、JWT、设备、邮箱验证    |
+| 文件     | `/api/files`                                                 | 文件与文件夹 CRUD、上传、回收站    |
+| 分享     | `/api/share`                                                 | 分享链接、提取码、过期时间         |
+| 直链     | `/api/direct`                                                | 公开直链                           |
+| 预签名   | `/api/presign`                                               | 直传与分片上传                     |
+| 存储桶   | `/api/buckets`                                               | 多厂商存储配置                     |
+| 上传任务 | `/api/tasks`                                                 | 分片上传任务与进度                 |
+| 离线下载 | `/api/downloads`                                             | URL 离线下载                       |
+| 批量操作 | `/api/batch`                                                 | 批量删除 / 移动 / 复制 / 重命名    |
+| 搜索     | `/api/search`                                                | 关键词、FTS5 全文、语义搜索        |
+| 权限     | `/api/permissions`                                           | 授权、标签、角色模板、审批流       |
+| 用户组   | `/api/groups`                                                | 组成员与批量授权                   |
+| 团队     | `/api/teams`                                                 | 团队空间、成员、资源挂载           |
+| 邀请     | `/api/invite`                                                | 邀请接受与注册                     |
+| 预览     | `/api/preview`                                               | 多格式在线预览                     |
+| 版本     | `/api/versions`                                              | 历史版本与回滚                     |
+| 笔记     | `/api/notes`                                                 | 文件笔记与 @提及                   |
+| API Key  | `/api/keys`                                                  | 程序化访问密钥                     |
+| Webhook  | `/api/webhooks`                                              | 事件订阅                           |
+| AI       | `/api/ai`、`/api/ai-chat`、`/api/ai-config`、`/api/ai/usage` | 能力、对话、配置、用量             |
+| 分析     | `/api/analytics`                                             | 存储分析与活跃度                   |
+| 通知     | `/api/notifications`                                         | 通知中心                           |
+| 管理     | `/api/admin`                                                 | 用户、系统配置、审计、邮件、邀请码 |
+| 迁移     | `/api/migrate`                                               | 跨存储桶迁移                       |
+| Telegram | `/api/telegram`                                              | Bot 集成                           |
+| 文档     | `/api/docs`、`/api/openapi.json`                             | Scalar 交互式文档与 OpenAPI spec   |
+| 健康检查 | `/health`                                                    | 服务探针                           |
+| WebDAV   | `/dav`                                                       | WebDAV 协议入口                    |
+| Agent    | `/agents`                                                    | Durable Object WebSocket           |
+| Cron     | `/cron`                                                      | 定时任务入口                       |
 
 ### 团队管理 API (v3.0.0 新增)
 
 `/api/teams` — 12 个端点：
 
-| 方法   | 路径                                   | 说明         |
-| ------ | -------------------------------------- | ------------ |
-| POST   | `/api/teams`                           | 创建团队     |
-| GET    | `/api/teams`                           | 列出我的团队 |
-| GET    | `/api/teams/:id`                       | 团队详情     |
-| PATCH  | `/api/teams/:id`                       | 更新团队信息 |
-| DELETE | `/api/teams/:id`                       | 解散团队     |
-| POST   | `/api/teams/:id/members`               | 邀请成员     |
-| GET    | `/api/teams/:id/members`               | 成员列表     |
-| PATCH  | `/api/teams/:id/members/:userId`       | 更新成员角色 |
-| DELETE | `/api/teams/:id/members/:userId`       | 移除成员     |
-| POST   | `/api/teams/:id/resources`             | 挂载资源     |
-| GET    | `/api/teams/:id/resources`             | 资源列表     |
-| DELETE | `/api/teams/:id/resources/:resourceId` | 卸载资源     |
+| 方法   | 路径                                        | 说明         |
+| ------ | ------------------------------------------- | ------------ |
+| POST   | `/api/teams`                                | 创建团队     |
+| GET    | `/api/teams`                                | 列出我的团队 |
+| GET    | `/api/teams/:id`                            | 团队详情     |
+| PUT    | `/api/teams/:id`                            | 更新团队信息 |
+| DELETE | `/api/teams/:id`                            | 解散团队     |
+| POST   | `/api/teams/:id/transfer`                   | 转让所有权   |
+| POST   | `/api/teams/:id/members`                    | 邀请成员     |
+| GET    | `/api/teams/:id/members`                    | 成员列表     |
+| PUT    | `/api/teams/:id/members/:memberUserId/role` | 更新成员角色 |
+| DELETE | `/api/teams/:id/members/:memberUserId`      | 移除成员     |
+| POST   | `/api/teams/:id/resources`                  | 挂载资源     |
+| GET    | `/api/teams/:id/resources/list`             | 资源列表     |
+| DELETE | `/api/teams/:id/resources/:fileId`          | 卸载资源     |
+
+> 邀请（`/invites`）、动态（`/activities`）、存储统计（`/storage`）、工作区（`/workspace/*`）等端点未在此展开，完整清单见 `/api/docs` 的 Teams 分组。
 
 ### 权限扩展 API (v3.0.0 新增)
 
 `/api/permissions` — 7 个新端点：
 
-| 方法  | 路径                            | 说明         |
-| ----- | ------------------------------- | ------------ |
-| POST  | `/api/permissions/requests`     | 提交权限申请 |
-| GET   | `/api/permissions/requests`     | 申请列表     |
-| PATCH | `/api/permissions/requests/:id` | 审批权限申请 |
-| POST  | `/api/permissions/batch`        | 批量权限操作 |
-| GET   | `/api/roles/templates`          | 角色模板列表 |
-| POST  | `/api/roles/templates`          | 创建角色模板 |
-| PUT   | `/api/roles/templates/:id`      | 更新角色模板 |
+| 方法 | 路径                                          | 说明         |
+| ---- | --------------------------------------------- | ------------ |
+| POST | `/api/permissions/requests`                   | 提交权限申请 |
+| GET  | `/api/permissions/requests/my`                | 我的申请     |
+| GET  | `/api/permissions/requests/pending`           | 待审批列表   |
+| PUT  | `/api/permissions/requests/:requestId/review` | 审批权限申请 |
+| POST | `/api/permissions/batch-grant`                | 批量授权     |
+| POST | `/api/permissions/batch-revoke`               | 批量取消授权 |
+| GET  | `/api/permissions/roles/templates`            | 角色模板列表 |
 
 ### 响应格式
 
-**成功响应**:
+**成功响应**（列表接口额外带 `pagination`）:
 
 ```json
 {
+  "success": true,
   "data": { ... },
-  "message": "操作成功"
+  "pagination": { "page": 1, "limit": 20, "total": 0, "totalPages": 0 }
 }
 ```
 
-**错误响应**:
+**错误响应**（由 `apps/api/src/middleware/error.ts` 统一产出）:
 
 ```json
 {
+  "success": false,
   "error": {
-    "code": "ERROR_CODE",
-    "message": "错误描述",
-    "details": { ... }
+    "code": "F404",
+    "name": "FILE_NOT_FOUND",
+    "message": "文件不存在",
+    "details": { ... },
+    "requestId": "uuid",
+    "timestamp": "2026-11-22T00:00:00.000Z"
   }
 }
 ```
+
+> `code` 取自 `@osshelf/shared` 的 `ERROR_CODES`（如 `F404`），`name` 是对应的错误码键名（如 `FILE_NOT_FOUND`）。
+> 存量路由中仍有直接 `return c.json({ success: false, error: { code, message } })` 的精简写法（缺 `name` / `requestId` / `timestamp`），新接口统一用 `throwAppError` 走全局错误处理。
 
 ---
 
