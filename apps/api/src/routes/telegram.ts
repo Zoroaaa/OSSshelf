@@ -28,7 +28,7 @@ app.post('/test', async (c) => {
   const result = schema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }

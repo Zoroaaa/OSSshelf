@@ -9,7 +9,7 @@
  * - 请求追踪
  */
 
-import type { MiddlewareHandler, Context } from 'hono';
+import type { MiddlewareHandler, Context, Hono } from 'hono';
 import { ERROR_CODES, type ErrorCode, logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { isFileNameConflictError } from '../lib/dbErrors';
@@ -37,7 +37,8 @@ export class AppError extends Error {
     public readonly errorCode: ErrorCode,
     options?: { details?: unknown; message?: string }
   ) {
-    const errorInfo = ERROR_CODES[errorCode];
+    // 兜底：即便传入未登记的码，也降级为 INTERNAL_ERROR，避免构造阶段读取 undefined.httpStatus 崩溃
+    const errorInfo = ERROR_CODES[errorCode] ?? ERROR_CODES.INTERNAL_ERROR;
     super(options?.message || errorInfo.message);
     this.name = errorCode;
     this.httpStatus = errorInfo.httpStatus;
@@ -59,7 +60,7 @@ export function createErrorResponse(c: Context<AppEnv>, error: AppError | Error 
   const isDev = c.env.ENVIRONMENT === 'development';
 
   if (error instanceof AppError) {
-    const errorInfo = ERROR_CODES[error.errorCode];
+    const errorInfo = ERROR_CODES[error.errorCode] ?? ERROR_CODES.INTERNAL_ERROR;
     const response: ErrorResponse = {
       success: false,
       error: {
@@ -122,6 +123,26 @@ export const errorHandler: MiddlewareHandler<AppEnv> = async (c, next) => {
     return createErrorResponse(c, error);
   }
 };
+
+/**
+ * 给子应用安装统一错误处理。
+ *
+ * 背景（本地冒烟测试发现）：Hono 的 app.route() 挂载的子应用有独立的 onError，
+ * 子应用内 throw 的 AppError 不会冒泡到父应用 app.use('*', errorHandler)，
+ * 而是被 Hono 默认处理器转成纯文本 500（业务状态码与错误码全部丢失）。
+ * 典型表现：GET /api/notes/:fileId 无权限时应为 403，实际返回 500。
+ *
+ * 因此所有通过 app.route() 挂载的子应用都必须显式安装同一套 onError。
+ */
+export function installErrorHandler<T extends Hono<any, any, any>>(app: T): T {
+  app.onError((err, c) => createErrorResponse(c as unknown as Context<AppEnv>, err));
+  return app;
+}
+
+/** 供 Hono onError 直接使用的处理函数（主应用兜底） */
+export function onAppError(err: Error, c: Context<any>): Response {
+  return createErrorResponse(c as unknown as Context<AppEnv>, err);
+}
 
 export function throwAppError(code: ErrorCode, message?: string): never {
   throw new AppError(code, { message });

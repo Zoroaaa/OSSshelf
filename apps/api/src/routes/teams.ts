@@ -99,7 +99,7 @@ app.post('/', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.issues[0].message },
+        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: parseResult.error.issues[0].message },
       },
       400
     );
@@ -111,7 +111,10 @@ app.post('/', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: (result as { success: false; error: string }).error },
+        error: {
+          code: ERROR_CODES.VALIDATION_ERROR.code,
+          message: (result as { success: false; error: string }).error,
+        },
       },
       400
     );
@@ -172,7 +175,7 @@ app.put('/:id', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.issues[0].message },
+        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: parseResult.error.issues[0].message },
       },
       400
     );
@@ -240,7 +243,7 @@ app.post('/:id/transfer', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.issues[0].message },
+        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: parseResult.error.issues[0].message },
       },
       400
     );
@@ -320,7 +323,7 @@ app.post('/:id/members', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.issues[0].message },
+        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: parseResult.error.issues[0].message },
       },
       400
     );
@@ -337,7 +340,7 @@ app.post('/:id/members', async (c) => {
   if ('error' in result && !result.success) {
     if ('alreadyMember' in result && result.alreadyMember) {
       return c.json(
-        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '用户已是团队成员' } },
+        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '用户已是团队成员' } },
         400
       );
     }
@@ -399,7 +402,7 @@ app.put('/:id/members/:memberUserId/role', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.issues[0].message },
+        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: parseResult.error.issues[0].message },
       },
       400
     );
@@ -444,7 +447,7 @@ app.post('/:id/resources', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.issues[0].message },
+        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: parseResult.error.issues[0].message },
       },
       400
     );
@@ -585,7 +588,7 @@ app.post('/:id/invites', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: parseResult.error.issues[0].message },
+        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: parseResult.error.issues[0].message },
       },
       400
     );
@@ -660,7 +663,7 @@ app.get('/:id/invites/all', async (c) => {
 
   // 验证状态参数合法性
   if (status && !['pending', 'accepted', 'expired', 'revoked'].includes(status)) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无效的状态值' } }, 400);
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '无效的状态值' } }, 400);
   }
 
   const invites = await listAllInvites(db, teamId, status);
@@ -767,7 +770,7 @@ app.post('/:id/workspace/folder', async (c) => {
   const result = nameSchema.safeParse(body);
   if (!result.success)
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
 
@@ -783,7 +786,7 @@ app.post('/:id/workspace/folder', async (c) => {
       .from(files)
       .where(and(eq(files.id, parentId), isNull(files.deletedAt)))
       .get();
-    if (!parentFile) throwAppError('NOT_FOUND', '父文件夹不存在');
+    if (!parentFile) throwAppError('FOLDER_NOT_FOUND', '父文件夹不存在');
     const mountedToTeam = await db
       .select()
       .from(teamResources)

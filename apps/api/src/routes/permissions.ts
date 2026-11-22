@@ -231,7 +231,7 @@ app.post('/grant', async (c) => {
   const result = grantPermissionSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -248,15 +248,24 @@ app.post('/grant', async (c) => {
   } = result.data;
 
   if (subjectType === 'user' && !targetUserId) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '用户ID不能为空' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '用户ID不能为空' } },
+      400
+    );
   }
 
   if (subjectType === 'group' && !groupId) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '用户组ID不能为空' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '用户组ID不能为空' } },
+      400
+    );
   }
 
   if (subjectType === 'team' && !teamId) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '团队ID不能为空' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '团队ID不能为空' } },
+      400
+    );
   }
 
   const db = getDb(c.env.DB);
@@ -488,7 +497,7 @@ app.post('/revoke', async (c) => {
   const result = revokePermissionSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -558,7 +567,7 @@ app.post('/tags/create', async (c) => {
   const result = createSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -604,7 +613,7 @@ app.post('/tags/add', async (c) => {
   const result = addTagSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -650,7 +659,7 @@ app.post('/tags/remove', async (c) => {
   const result = removeTagSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -680,7 +689,7 @@ app.post('/tags/batch', async (c) => {
   const result = batchTagsSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -823,7 +832,7 @@ app.put('/tags/rename', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -832,7 +841,7 @@ app.put('/tags/rename', async (c) => {
 
   if (oldName === newName) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '新名称与原名称相同' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '新名称与原名称相同' } },
       400
     );
   }
@@ -920,7 +929,7 @@ app.patch('/:permissionId', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -931,7 +940,7 @@ app.patch('/:permissionId', async (c) => {
   const existingPermission = await db.select().from(filePermissions).where(eq(filePermissions.id, permissionId)).get();
 
   if (!existingPermission) {
-    throwAppError('NOT_FOUND', '权限记录不存在');
+    throwAppError('PERMISSION_NOT_FOUND', '权限记录不存在');
   }
 
   const file = await db
@@ -985,7 +994,7 @@ app.delete('/:permissionId', async (c) => {
   const existingPermission = await db.select().from(filePermissions).where(eq(filePermissions.id, permissionId)).get();
 
   if (!existingPermission) {
-    throwAppError('NOT_FOUND', '权限记录不存在');
+    throwAppError('PERMISSION_NOT_FOUND', '权限记录不存在');
   }
 
   const file = await db
@@ -1055,7 +1064,7 @@ app.post('/requests', async (c) => {
   const result = createPermissionRequestSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -1109,7 +1118,7 @@ app.put('/requests/:requestId/review', async (c) => {
   const result = reviewRequestSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -1142,7 +1151,7 @@ app.post('/batch-grant', async (c) => {
   const result = batchGrantSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -1170,7 +1179,7 @@ app.post('/batch-revoke', async (c) => {
   const result = batchRevokeSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }

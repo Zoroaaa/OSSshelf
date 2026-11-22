@@ -29,7 +29,15 @@ export interface ErrorInfo {
   message: string;
 }
 
-export const ERROR_CODES: Record<string, ErrorInfo> = {
+/**
+ * 统一错误码表。
+ *
+ * 约束：使用 `as const satisfies Record<string, ErrorInfo>`。
+ * - 每一项都必须满足 ErrorInfo 结构（防止漏写 httpStatus/message）；
+ * - 键名集合就是 ErrorCode 联合类型，`throwAppError('未定义的码')` 会直接类型报错，
+ *   避免运行时取不到 ERROR_CODES[code] 而把业务错误降级成 500。
+ */
+export const ERROR_CODES = {
   // ═══════════════════════════════════════════════════════════════
   // 通用错误 G0xx
   // ═══════════════════════════════════════════════════════════════
@@ -38,6 +46,8 @@ export const ERROR_CODES: Record<string, ErrorInfo> = {
   RATE_LIMIT_EXCEEDED: { code: 'G002', httpStatus: 429, message: '请求过于频繁，请稍后重试' },
   INVALID_REQUEST: { code: 'G003', httpStatus: 400, message: '无效的请求' },
   FEATURE_DISABLED: { code: 'G004', httpStatus: 403, message: '该功能已禁用' },
+  NOT_FOUND: { code: 'G404', httpStatus: 404, message: '记录不存在' },
+  CONFLICT: { code: 'G409', httpStatus: 409, message: '资源状态冲突' },
 
   // 通用验证 G1xx
   VALIDATION_ERROR: { code: 'G100', httpStatus: 400, message: '参数验证失败' },
@@ -288,6 +298,42 @@ export const ERROR_CODES: Record<string, ErrorInfo> = {
   AI_TOOL_FAILED: { code: 'I502', httpStatus: 500, message: 'AI 工具执行失败' },
 
   // ═══════════════════════════════════════════════════════════════
+  // 团队 / 用户组 / 邀请模块 TM0xx-TM5xx
+  // ═══════════════════════════════════════════════════════════════
+  TEAM_NOT_FOUND: { code: 'TM000', httpStatus: 404, message: '团队不存在' },
+  TEAM_ACCESS_DENIED: { code: 'TM200', httpStatus: 403, message: '您不是该团队成员' },
+  TEAM_UPDATE_FAILED: { code: 'TM001', httpStatus: 500, message: '更新团队失败' },
+  TEAM_DELETE_FAILED: { code: 'TM002', httpStatus: 500, message: '删除团队失败' },
+  MEMBER_NOT_FOUND: { code: 'TM003', httpStatus: 404, message: '成员不存在' },
+  MEMBER_ADD_FAILED: { code: 'TM004', httpStatus: 500, message: '添加成员失败' },
+  MEMBER_REMOVE_FAILED: { code: 'TM005', httpStatus: 500, message: '移除成员失败' },
+  ROLE_CHANGE_FAILED: { code: 'TM006', httpStatus: 500, message: '修改成员角色失败' },
+  RESOURCE_MOUNT_FAILED: { code: 'TM007', httpStatus: 500, message: '挂载团队资源失败' },
+  RESOURCE_UNMOUNT_FAILED: { code: 'TM008', httpStatus: 500, message: '取消挂载团队资源失败' },
+  WORKSPACE_ERROR: { code: 'TM009', httpStatus: 500, message: '团队工作区操作失败' },
+  INVITE_CREATE_FAILED: { code: 'TM010', httpStatus: 500, message: '创建邀请失败' },
+  INVITE_REVOKE_FAILED: { code: 'TM011', httpStatus: 500, message: '撤销邀请失败' },
+  INVITE_NOT_FOUND: { code: 'TM012', httpStatus: 404, message: '邀请不存在或已失效' },
+  INVITE_ACCEPT_FAILED: { code: 'TM013', httpStatus: 400, message: '接受邀请失败' },
+  GROUP_NOT_FOUND: { code: 'TM100', httpStatus: 404, message: '用户组不存在' },
+  GROUP_ACCESS_DENIED: { code: 'TM101', httpStatus: 403, message: '无权访问该用户组' },
+
+  // ═══════════════════════════════════════════════════════════════
+  // 笔记模块 N0xx-N2xx
+  // ═══════════════════════════════════════════════════════════════
+  NOTE_NOT_FOUND: { code: 'N000', httpStatus: 404, message: '笔记不存在' },
+  NOTE_EDIT_DENIED: { code: 'N200', httpStatus: 403, message: '无权编辑此笔记' },
+  NOTE_DELETE_DENIED: { code: 'N201', httpStatus: 403, message: '无权删除此笔记' },
+  NOTE_PIN_DENIED: { code: 'N202', httpStatus: 403, message: '无权置顶此笔记' },
+
+  // ═══════════════════════════════════════════════════════════════
+  // API Key / Webhook / 迁移 模块
+  // ═══════════════════════════════════════════════════════════════
+  API_KEY_NOT_FOUND: { code: 'K000', httpStatus: 404, message: 'API Key 不存在' },
+  WEBHOOK_NOT_FOUND: { code: 'W000', httpStatus: 404, message: 'Webhook 不存在' },
+  MIGRATION_NOT_FOUND: { code: 'M000', httpStatus: 404, message: '迁移任务不存在或已过期' },
+
+  // ═══════════════════════════════════════════════════════════════
   // Telegram 存储模块 TG0xx-TG5xx
   // ═══════════════════════════════════════════════════════════════
   TG_UPLOAD_FAILED: { code: 'TG00', httpStatus: 502, message: 'Telegram上传失败' },
@@ -297,7 +343,7 @@ export const ERROR_CODES: Record<string, ErrorInfo> = {
   TG_CONFIG_ERROR: { code: 'TG04', httpStatus: 500, message: 'Telegram配置错误' },
   TG_FILE_TOO_LARGE: { code: 'TG05', httpStatus: 413, message: '文件超过Telegram限制（最大2GB）' },
   TG_CHUNKED_DOWNLOAD_FAILED: { code: 'TG06', httpStatus: 502, message: 'Telegram分片下载失败' },
-} as const;
+} as const satisfies Record<string, ErrorInfo>;
 
 export type ErrorCode = keyof typeof ERROR_CODES;
 

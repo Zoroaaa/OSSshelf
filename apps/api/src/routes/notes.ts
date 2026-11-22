@@ -107,7 +107,7 @@ app.post('/:fileId', async (c) => {
   const parsed = createNoteSchema.safeParse(body);
   if (!parsed.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: parsed.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: parsed.error.issues[0].message } },
       400
     );
   }
@@ -207,7 +207,7 @@ app.put('/:fileId/:noteId', async (c) => {
   const parsed = updateNoteSchema.safeParse(body);
   if (!parsed.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: parsed.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: parsed.error.issues[0].message } },
       400
     );
   }

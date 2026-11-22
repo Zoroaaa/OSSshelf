@@ -404,9 +404,7 @@ async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path
   let file = await db
     .select()
     .from(files)
-    .where(
-      and(eq(files.userId, userId), isNull(files.teamId), eq(files.path, normalized), isNull(files.deletedAt))
-    )
+    .where(and(eq(files.userId, userId), isNull(files.teamId), eq(files.path, normalized), isNull(files.deletedAt)))
     .get();
 
   if (!file) {
@@ -414,12 +412,7 @@ async function findFileByPath(db: ReturnType<typeof getDb>, userId: string, path
       .select()
       .from(files)
       .where(
-        and(
-          eq(files.userId, userId),
-          isNull(files.teamId),
-          eq(files.path, normalized + '/'),
-          isNull(files.deletedAt)
-        )
+        and(eq(files.userId, userId), isNull(files.teamId), eq(files.path, normalized + '/'), isNull(files.deletedAt))
       )
       .get();
   }
@@ -874,10 +867,7 @@ async function handleMove(c: AppContext, userId: string, path: string) {
     .where(eq(files.id, file.id));
 
   if (file.isFolder) {
-    await db.batch([
-      updateSelf,
-      buildDescendantPathUpdate(db, userId, oldPath, newPath, now, file.teamId ?? null),
-    ]);
+    await db.batch([updateSelf, buildDescendantPathUpdate(db, userId, oldPath, newPath, now, file.teamId ?? null)]);
   } else {
     await db.batch([updateSelf]);
   }
@@ -918,10 +908,10 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
 
     if (destBucketCfg) {
       if (file.size > MAX_BUFFERED_TRANSFER_BYTES) {
-        return new Response(
-          `Payload Too Large: WebDAV 复制单文件上限 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB`,
-          { status: 413, headers: DAV_BASE_HEADERS }
-        );
+        return new Response(`Payload Too Large: WebDAV 复制单文件上限 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB`, {
+          status: 413,
+          headers: DAV_BASE_HEADERS,
+        });
       }
       let fileContent: ArrayBuffer;
       if (srcBucketCfg) {
@@ -1002,10 +992,10 @@ async function handleCopy(c: AppContext, userId: string, path: string) {
     childFiles.sort((a, b) => relativeDepth(a.path) - relativeDepth(b.path));
 
     if (childFiles.some((child) => !child.isFolder && child.size > MAX_BUFFERED_TRANSFER_BYTES)) {
-      return new Response(
-        `Payload Too Large: WebDAV 复制单文件上限 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB`,
-        { status: 413, headers: DAV_BASE_HEADERS }
-      );
+      return new Response(`Payload Too Large: WebDAV 复制单文件上限 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB`, {
+        status: 413,
+        headers: DAV_BASE_HEADERS,
+      });
     }
 
     await db.insert(files).values({

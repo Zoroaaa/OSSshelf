@@ -79,7 +79,7 @@ app.post('/', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -176,7 +176,7 @@ app.put('/:id', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -323,7 +323,7 @@ app.post('/:id/members', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -360,7 +360,10 @@ app.post('/:id/members', async (c) => {
     .get();
 
   if (existingMembership) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '用户已是组成员' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '用户已是组成员' } },
+      400
+    );
   }
 
   const memberRecordId = crypto.randomUUID();
@@ -474,7 +477,7 @@ app.put('/:id/members/:memberUserId/role', async (c) => {
   const { role } = await c.req.json();
 
   if (!role || !['member', 'admin'].includes(role)) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无效的角色' } }, 400);
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '无效的角色' } }, 400);
   }
 
   const db = getDb(c.env.DB);

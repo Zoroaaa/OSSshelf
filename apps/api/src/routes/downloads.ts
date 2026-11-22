@@ -291,7 +291,7 @@ app.post('/create', async (c) => {
   const result = createTaskSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -465,7 +465,7 @@ app.post('/batch', async (c) => {
   const result = batchCreateSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -568,7 +568,7 @@ app.patch('/:taskId', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -587,7 +587,7 @@ app.patch('/:taskId', async (c) => {
 
   if (task.status !== 'pending') {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能修改待处理的任务' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '只能修改待处理的任务' } },
       400
     );
   }
@@ -629,7 +629,7 @@ app.delete('/:taskId', async (c) => {
 
   if (task.status === 'downloading') {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无法删除正在下载的任务' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '无法删除正在下载的任务' } },
       400
     );
   }
@@ -656,7 +656,7 @@ app.post('/:taskId/retry', async (c) => {
 
   if (task.status !== 'failed') {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能重试失败的任务' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '只能重试失败的任务' } },
       400
     );
   }
@@ -706,7 +706,7 @@ app.post('/:taskId/pause', async (c) => {
 
   if (task.status !== 'downloading' && task.status !== 'pending') {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能暂停下载中或等待中的任务' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '只能暂停下载中或等待中的任务' } },
       400
     );
   }
@@ -739,7 +739,7 @@ app.post('/:taskId/resume', async (c) => {
 
   if (task.status !== 'paused') {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能恢复已暂停的任务' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '只能恢复已暂停的任务' } },
       400
     );
   }

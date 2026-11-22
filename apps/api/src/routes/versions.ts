@@ -47,7 +47,7 @@ app.get('/:fileId/versions', async (c) => {
 
   const { hasAccess } = await checkFilePermission(db, fileId, userId!, 'read', c.env);
   if (!hasAccess) {
-    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权访问此文件' } }, 403);
+    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN.code, message: '无权访问此文件' } }, 403);
   }
 
   if (file.isFolder) {

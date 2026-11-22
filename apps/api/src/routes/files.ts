@@ -366,7 +366,7 @@ app.get('/:id/zip', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.VALIDATION_ERROR,
+          code: ERROR_CODES.VALIDATION_ERROR.code,
           message: `ZIP 打包最多 ${MAX_ZIP_FILES} 个文件，当前 ${entries.length} 个`,
         },
       },
@@ -381,7 +381,7 @@ app.get('/:id/zip', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.VALIDATION_ERROR,
+          code: ERROR_CODES.VALIDATION_ERROR.code,
           message: error instanceof Error ? error.message : 'ZIP 打包参数超出限制',
         },
       },
@@ -445,7 +445,10 @@ app.post('/upload', async (c) => {
   const contentType = c.req.header('Content-Type') || '';
   if (!contentType.includes('multipart/form-data')) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请使用 multipart/form-data 格式上传' } },
+      {
+        success: false,
+        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '请使用 multipart/form-data 格式上传' },
+      },
       400
     );
   }
@@ -457,7 +460,7 @@ app.post('/upload', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.FILE_TOO_LARGE,
+          code: ERROR_CODES.FILE_TOO_LARGE.code,
           message: `代理上传单文件上限 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB，请使用前端分片上传`,
         },
       },
@@ -472,7 +475,7 @@ app.post('/upload', async (c) => {
 
   if (!uploadFile)
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请选择要上传的文件' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '请选择要上传的文件' } },
       400
     );
   if (uploadFile.size > MAX_FILE_SIZE)
@@ -480,7 +483,7 @@ app.post('/upload', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.FILE_TOO_LARGE,
+          code: ERROR_CODES.FILE_TOO_LARGE.code,
           message: `文件大小超过限制（最大 ${MAX_FILE_SIZE / 1024 / 1024 / 1024}GB）`,
         },
       },
@@ -501,7 +504,7 @@ app.post('/upload', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.VALIDATION_ERROR,
+          code: ERROR_CODES.VALIDATION_ERROR.code,
           message: `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
         },
       },
@@ -512,7 +515,10 @@ app.post('/upload', async (c) => {
   if (parentId) {
     const { hasAccess } = await checkFilePermission(db, parentId, userId, 'write', c.env);
     if (!hasAccess) {
-      return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权向此目录上传文件' } }, 403);
+      return c.json(
+        { success: false, error: { code: ERROR_CODES.FORBIDDEN.code, message: '无权向此目录上传文件' } },
+        403
+      );
     }
   }
 
@@ -533,7 +539,7 @@ app.post('/upload', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.FILE_TOO_LARGE,
+          code: ERROR_CODES.FILE_TOO_LARGE.code,
           message: `Telegram 存储桶文件上限 2GB，当前文件 ${(uploadFile.size / 1024 / 1024 / 1024).toFixed(2)}GB`,
         },
       },
@@ -547,7 +553,7 @@ app.post('/upload', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.FILE_TOO_LARGE,
+          code: ERROR_CODES.FILE_TOO_LARGE.code,
           message: `代理上传单文件上限 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB，请使用分片上传`,
         },
       },
@@ -1015,7 +1021,7 @@ app.post('/folders/size', async (c) => {
   const result = schema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -1177,7 +1183,7 @@ app.post('/', async (c) => {
   const result = createFolderSchema.safeParse(body);
   if (!result.success)
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
 
@@ -1217,7 +1223,7 @@ app.post('/', async (c) => {
       .get();
     if (!bucketRow)
       return c.json(
-        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '指定的存储桶不存在或未激活' } },
+        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '指定的存储桶不存在或未激活' } },
         400
       );
     effectiveBucketId = requestedBucketId;
@@ -1270,7 +1276,7 @@ app.post('/create', async (c) => {
   const result = createFileSchema.safeParse(body);
   if (!result.success)
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
 
@@ -1294,7 +1300,7 @@ app.post('/create', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.VALIDATION_ERROR,
+          code: ERROR_CODES.VALIDATION_ERROR.code,
           message: `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
         },
       },
@@ -1305,7 +1311,10 @@ app.post('/create', async (c) => {
   if (parentId) {
     const { hasAccess } = await checkFilePermission(db, parentId, userId, 'write', c.env);
     if (!hasAccess) {
-      return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN, message: '无权向此目录创建文件' } }, 403);
+      return c.json(
+        { success: false, error: { code: ERROR_CODES.FORBIDDEN.code, message: '无权向此目录创建文件' } },
+        403
+      );
     }
   }
 
@@ -1768,7 +1777,7 @@ app.put('/:id', async (c) => {
   const result = updateFileSchema.safeParse(body);
   if (!result.success)
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
 
@@ -1779,7 +1788,7 @@ app.put('/:id', async (c) => {
     const renameResult = await serviceRenameFile(c.env, userId, fileId, { name });
     if (!renameResult.success) {
       if (renameResult.error === '已存在同名文件') {
-        return c.json({ success: false, error: { code: 'FILE_NAME_CONFLICT', message: renameResult.error } }, 409);
+        return c.json({ success: false, error: { code: 'FILE_ALREADY_EXISTS', message: renameResult.error } }, 409);
       }
       throwAppError('FILE_NOT_FOUND', renameResult.error);
     }
@@ -1789,7 +1798,7 @@ app.put('/:id', async (c) => {
     const moveResult = await serviceMoveFile(c.env, userId, fileId, { targetParentId: parentId });
     if (!moveResult.success) {
       const errorMap: Record<string, string> = {
-        目标位置已存在同名文件: 'FILE_NAME_CONFLICT',
+        目标位置已存在同名文件: 'FILE_ALREADY_EXISTS',
         不能将文件夹移动到自身或其子文件夹中: 'CANNOT_MOVE_TO_SUBFOLDER',
         无权向目标目录移动文件: 'FORBIDDEN',
       };
@@ -1797,9 +1806,12 @@ app.put('/:id', async (c) => {
       return c.json(
         {
           success: false,
-          error: { code: ERROR_CODES[errorCode as keyof typeof ERROR_CODES] || errorCode, message: moveResult.error },
+          error: {
+            code: (ERROR_CODES[errorCode as keyof typeof ERROR_CODES] ?? ERROR_CODES.VALIDATION_ERROR).code,
+            message: moveResult.error,
+          },
         },
-        errorCode === 'FORBIDDEN' ? 403 : errorCode === 'FILE_NAME_CONFLICT' ? 409 : 400
+        errorCode === 'FORBIDDEN' ? 403 : errorCode === 'FILE_ALREADY_EXISTS' ? 409 : 400
       );
     }
   }
@@ -1884,7 +1896,7 @@ app.put('/:id/content', async (c) => {
   const result = updateContentSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -2005,7 +2017,7 @@ app.put('/:id/settings', async (c) => {
   const result = updateFolderSettingsSchema.safeParse(body);
   if (!result.success)
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
 
@@ -2046,7 +2058,7 @@ app.post('/:id/move', async (c) => {
   const result = moveFileSchema.safeParse(body);
   if (!result.success)
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
 
@@ -2073,7 +2085,7 @@ app.post('/:id/move', async (c) => {
 
     const errorMap: Record<string, string> = {
       文件不存在或无权访问: 'FILE_NOT_FOUND',
-      目标位置已存在同名文件: 'FILE_NAME_CONFLICT',
+      目标位置已存在同名文件: 'FILE_ALREADY_EXISTS',
       不能将文件夹移动到自身或其子文件夹中: 'CANNOT_MOVE_TO_SUBFOLDER',
       无权向目标目录移动文件: 'FORBIDDEN',
     };
@@ -2081,9 +2093,12 @@ app.post('/:id/move', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES[errorCode as keyof typeof ERROR_CODES] || errorCode, message: moveResult.error },
+        error: {
+          code: (ERROR_CODES[errorCode as keyof typeof ERROR_CODES] ?? ERROR_CODES.VALIDATION_ERROR).code,
+          message: moveResult.error,
+        },
       },
-      errorCode === 'FORBIDDEN' ? 403 : errorCode === 'FILE_NAME_CONFLICT' ? 409 : 400
+      errorCode === 'FORBIDDEN' ? 403 : errorCode === 'FILE_ALREADY_EXISTS' ? 409 : 400
     );
   }
 
@@ -2289,11 +2304,7 @@ app.put('/:id/bucket', async (c) => {
     .select()
     .from(storageBuckets)
     .where(
-      and(
-        eq(storageBuckets.id, targetBucketId),
-        eq(storageBuckets.userId, userId),
-        eq(storageBuckets.isActive, true)
-      )
+      and(eq(storageBuckets.id, targetBucketId), eq(storageBuckets.userId, userId), eq(storageBuckets.isActive, true))
     )
     .get();
   if (!targetBucket) {

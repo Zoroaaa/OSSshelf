@@ -48,7 +48,7 @@ import aiUsageRoutes from './routes/aiUsageRoutes';
 import analyticsRoutes from './routes/analytics';
 import notificationsRoutes from './routes/notifications';
 import { createDocsRoutes } from './routes/docs';
-import { errorHandler } from './middleware/error';
+import { errorHandler, installErrorHandler, onAppError } from './middleware/error';
 import { runAllCleanupTasks } from './lib/cleanup';
 import { processAiTaskMessage, checkAndCompleteTask } from './lib/ai/aiTaskQueue';
 import type { Env, AiTaskMessage } from './types/env';
@@ -136,6 +136,44 @@ app.use(
 );
 
 app.use('*', errorHandler);
+// 主应用自身的 onError 兜底（例如 notFound 之后注册的处理器抛错）
+app.onError(onAppError);
+
+// 子应用错误处理：详见 middleware/error.ts installErrorHandler 注释
+const subApps = [
+  authRoutes,
+  filesRoutes,
+  shareRoutes,
+  bucketsRoutes,
+  presignRoutes,
+  adminRoutes,
+  tasksRoutes,
+  permissionsRoutes,
+  batchRoutes,
+  searchRoutes,
+  downloadsRoutes,
+  previewRoutes,
+  telegramRoutes,
+  migrateRoutes,
+  directLinkRoutes,
+  versionsRoutes,
+  notesRoutes,
+  apiKeysRoutes,
+  groupsRoutes,
+  teamsRoutes,
+  invitePublicRoutes,
+  inviteProtectedRoutes,
+  webhooksRoutes,
+  aiUsageRoutes,
+  aiRoutes,
+  aiConfigRoutes,
+  aiChatRoutes,
+  analyticsRoutes,
+  notificationsRoutes,
+  cronRoutes,
+  webdavRoutes,
+];
+for (const subApp of subApps) installErrorHandler(subApp);
 
 // 根路径的静态资源由 Worker assets 提供 index.html，
 // 因此 API 自身信息挪到 /api，避免被 SPA 回退覆盖。
@@ -181,7 +219,8 @@ app.route('/api/ai-chat', aiChatRoutes);
 app.route('/api/analytics', analyticsRoutes);
 app.route('/api/notifications', notificationsRoutes);
 // 文档路由：必须在所有业务路由之后注册，以便从 app.routes 提取完整路由列表
-app.route('/api', createDocsRoutes(app));
+const docsRoutes = installErrorHandler(createDocsRoutes(app));
+app.route('/api', docsRoutes);
 app.route('/cron', cronRoutes);
 app.route('/dav', webdavRoutes);
 
