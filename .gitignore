@@ -48,3 +48,6 @@ coverage/
 *.tmp
 *.temp
 .cache/
+
+# 项目内部工作记忆（WorkBuddy agent 数据，不入库）
+.workbuddy/

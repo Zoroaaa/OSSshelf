@@ -6,11 +6,20 @@
  * - 根据文件类型选择编辑器
  * - 支持语法高亮
  * - 保存时创建版本快照
+ *
+ * 审查修复：
+ * - P0-01：主容器 z-overlay(50)，注册全局弹窗栈（FAB 自动隐藏）；
+ *          保存确认框 z-popover(60) 替代无效类 z-60，消除保存按钮被遮挡。
+ * - A-20 ：未保存关闭确认改用全局 confirmAction，移除原生 confirm。
+ * - E-03 ：内容加载失败不再直接关闭编辑器，改为内联错误态 + 重试（优雅降级）。
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '../ui/Button';
 import { useToast } from '../ui/useToast';
+import { ErrorState } from '../ui/AsyncState';
+import { confirmAction, useConfirmStore } from '../ui/useConfirm';
+import { useDialogRegistration } from '@/lib/dialogStack';
 import CodeEditor from './CodeEditor';
 import TextEditor from './TextEditor';
 import { fileContentApi } from '@/services/api';
@@ -58,7 +67,6 @@ const LANGUAGE_MAP: Record<string, string> = {
   'text/x-php': 'php',
   'text/x-ruby': 'ruby',
   'text/x-shellscript': 'shell',
-  'application/x-sh': 'shell',
   'application/x-yaml': 'yaml',
   'application/yaml': 'yaml',
   'text/x-yaml': 'yaml',
@@ -70,10 +78,17 @@ const FileEditor: React.FC<FileEditorProps> = ({ fileId, fileName, mimeType, onC
   const [content, setContent] = useState('');
   const [originalContent, setOriginalContent] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [changeSummary, setChangeSummary] = useState('');
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const { toast } = useToast();
+  const confirmOpen = useConfirmStore((s) => s.options !== null);
+
+  // 注册到全局弹窗栈：编辑器打开时 FAB 隐藏、背景滚动锁生效
+  useDialogRegistration(true, `file-editor-${fileId}`);
+  // 保存确认框为嵌套弹窗，单独注册（层级递增）
+  useDialogRegistration(showSaveDialog, `file-editor-save-${fileId}`);
 
   const isEditable = mimeType && (mimeType.startsWith('text/') || EDITABLE_MIME_TYPES.includes(mimeType));
 
@@ -123,6 +138,7 @@ const FileEditor: React.FC<FileEditorProps> = ({ fileId, fileName, mimeType, onC
 
   const fetchContent = useCallback(async () => {
     setIsLoading(true);
+    setLoadError(null);
     try {
       const res = await fileContentApi.getRaw(fileId);
       if (res.data.success && res.data.data) {
@@ -133,21 +149,21 @@ const FileEditor: React.FC<FileEditorProps> = ({ fileId, fileName, mimeType, onC
       }
     } catch (error) {
       console.error('Failed to load file content:', error);
-      toast({ title: '加载文件失败', variant: 'destructive' });
-      onClose();
+      // E-03：失败时保留编辑器并显示错误态 + 重试，不再静默关闭
+      setLoadError(error instanceof Error ? error.message : '加载文件内容失败');
     } finally {
       setIsLoading(false);
     }
-  }, [fileId, toast, onClose]);
+  }, [fileId]);
 
   useEffect(() => {
     if (!isEditable) {
-      toast({ title: '此文件类型不支持编辑', variant: 'destructive' });
-      onClose();
+      setLoadError('此文件类型不支持在线编辑');
+      setIsLoading(false);
       return;
     }
     fetchContent();
-  }, [fileId, isEditable, fetchContent, toast, onClose]);
+  }, [fileId, isEditable, fetchContent]);
 
   const hasChanges = content !== originalContent;
 
@@ -181,22 +197,33 @@ const FileEditor: React.FC<FileEditorProps> = ({ fileId, fileName, mimeType, onC
     }
   };
 
-  const handleClose = () => {
+  const handleClose = useCallback(async () => {
     if (hasChanges) {
-      if (!confirm('有未保存的更改，确定要关闭吗？')) {
-        return;
-      }
+      const ok = await confirmAction({
+        title: '有未保存的更改',
+        description: `文件「${fileName}」有未保存的修改，确定要关闭吗？关闭后更改将丢失。`,
+        level: 'danger',
+        confirmText: '放弃更改并关闭',
+        cancelText: '继续编辑',
+      });
+      if (!ok) return;
     }
     onClose();
-  };
+  }, [hasChanges, fileName, onClose]);
 
-  if (isLoading) {
-    return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
+  // C-02 修复：编辑器自身的 Esc 走 handleClose（含未保存确认），
+  // 外层 FilePreview 在检测到编辑器打开时会放弃自己的 Esc 处理，避免竞争。
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      // 若确认框已打开，Esc 交给确认框自身处理（Radix Dialog），避免打断确认流程
+      if (confirmOpen) return;
+      e.stopPropagation();
+      void handleClose();
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [handleClose, confirmOpen]);
 
   const isCodeFile = [
     'javascript',
@@ -220,18 +247,26 @@ const FileEditor: React.FC<FileEditorProps> = ({ fileId, fileName, mimeType, onC
   ].includes(language);
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex flex-col">
-      <div className="bg-white dark:bg-gray-900 flex-1 flex flex-col max-w-6xl mx-auto w-full my-4 rounded-lg shadow-xl overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+    <div className="fixed inset-0 bg-black/50 z-overlay flex flex-col">
+      <div className="bg-card flex-1 flex flex-col max-w-6xl mx-auto w-full my-4 rounded-lg shadow-overlay overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-muted">
           <div className="flex items-center gap-3">
             <h3 className="font-medium">{fileName}</h3>
             {hasChanges && <span className="text-xs text-orange-500">未保存</span>}
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" onClick={() => setShowSaveDialog(true)} disabled={!hasChanges || isSaving}>
+            <Button
+              size="sm"
+              onClick={() => setShowSaveDialog(true)}
+              disabled={!hasChanges || isSaving || Boolean(loadError)}
+            >
               保存
             </Button>
-            <button onClick={handleClose} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700">
+            <button
+              onClick={handleClose}
+              className="p-2 rounded hover:bg-accent touch-target-sm flex items-center justify-center"
+              aria-label="关闭编辑器"
+            >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -240,7 +275,13 @@ const FileEditor: React.FC<FileEditorProps> = ({ fileId, fileName, mimeType, onC
         </div>
 
         <div className="flex-1 overflow-hidden">
-          {isCodeFile ? (
+          {isLoading ? (
+            <div className="flex h-full items-center justify-center" role="status" aria-live="polite">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+            </div>
+          ) : loadError ? (
+            <ErrorState title="无法编辑此文件" message={loadError} onRetry={isEditable ? fetchContent : undefined} />
+          ) : isCodeFile ? (
             <CodeEditor value={content} onChange={setContent} language={language} />
           ) : (
             <TextEditor value={content} onChange={setContent} />
@@ -249,16 +290,26 @@ const FileEditor: React.FC<FileEditorProps> = ({ fileId, fileName, mimeType, onC
       </div>
 
       {showSaveDialog && (
-        <div className="fixed inset-0 bg-black/30 z-60 flex items-center justify-center">
-          <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl w-full max-w-md p-4">
-            <h4 className="font-medium mb-3">保存更改</h4>
+        <div
+          className="fixed inset-0 bg-black/30 z-popover flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="save-dialog-title"
+        >
+          <div className="bg-card rounded-lg shadow-overlay w-full max-w-md p-4">
+            <h4 id="save-dialog-title" className="font-medium mb-3">
+              保存更改
+            </h4>
             <div className="mb-4">
-              <label className="block text-sm font-medium mb-1">变更说明（可选）</label>
+              <label htmlFor="save-change-summary" className="block text-sm font-medium mb-1">
+                变更说明（可选）
+              </label>
               <input
+                id="save-change-summary"
                 type="text"
                 value={changeSummary}
                 onChange={(e) => setChangeSummary(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-800"
+                className="w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-ring bg-background"
                 placeholder="例如：修复拼写错误"
                 maxLength={500}
               />

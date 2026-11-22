@@ -13,6 +13,7 @@ import type { ViewMode } from '@/stores/files';
 import { ListItem } from './items';
 import { GridItem } from './items';
 import { decodeFileName } from '@/utils';
+import { confirmAction } from '@/components/ui/useConfirm';
 
 interface FileListContainerProps {
   viewMode: ViewMode;
@@ -59,6 +60,17 @@ export function FileListContainer({
   onDirectLink,
   onVersionHistory,
 }: FileListContainerProps) {
+  // C-10 修复：单文件删除确认统一走全局确认服务，替换原生 confirm
+  const handleDeleteWithConfirm = async (file: FileItem) => {
+    const ok = await confirmAction({
+      title: '移入回收站',
+      description: `将「${decodeFileName(file.name)}」移入回收站？`,
+      level: 'warn',
+      confirmText: '移入回收站',
+    });
+    if (ok) onDelete(file);
+  };
+
   if (isLoading) {
     return <div className="text-center py-16 text-muted-foreground">加载中...</div>;
   }
@@ -87,7 +99,7 @@ export function FileListContainer({
             onToggleSelect={onToggleSelect}
             onDownload={onDownload}
             onShare={onShare}
-            onDelete={(f) => confirm(`将 "${decodeFileName(f.name)}" 移入回收站？`) && onDelete(f)}
+            onDelete={handleDeleteWithConfirm}
             onRename={onRename}
             onPreview={onPreview}
             onMove={onMove}
@@ -115,7 +127,7 @@ export function FileListContainer({
           onToggleSelect={onToggleSelect}
           onDownload={onDownload}
           onShare={onShare}
-          onDelete={(f) => confirm(`将 "${decodeFileName(f.name)}" 移入回收站？`) && onDelete(f)}
+          onDelete={handleDeleteWithConfirm}
           onRename={onRename}
           onPreview={onPreview}
           onMove={onMove}

@@ -11,8 +11,13 @@ import React, { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
+// E-14：补齐公式渲染插件，让 $...$ / $$...$$ 不再以原始文本显示
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 import { Check, Copy, ExternalLink, FileText, FolderOpen } from 'lucide-react';
 import { filesApi } from '@/services/api';
+
+import 'katex/dist/katex.min.css';
 
 interface AssistantContentProps {
   content: string;
@@ -241,7 +246,7 @@ function getMarkdownComponents(
         <pre className="overflow-x-auto rounded-lg border border-slate-700/60 bg-slate-900 p-4 text-[13px] leading-relaxed text-slate-100">
           {props.children}
         </pre>
-        <div className="absolute right-2 top-2 opacity-0 transition-opacity group-hover/code:opacity-100">
+        <div className="absolute right-2 top-2 opacity-0 transition-opacity group-hover/code:opacity-100 focus-within:opacity-100 touch-visible">
           <CopyButton text={extractText(props.children)} />
         </div>
       </div>
@@ -373,7 +378,12 @@ export function AssistantContent({ content, onFileClick }: AssistantContentProps
 
   return (
     <div className="max-w-none text-[14px] leading-relaxed text-foreground">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={components}>
+      {/* E-14：沿用 MarkdownPreview 的公式插件配置（strict: false 容忍模型输出的非标准 LaTeX） */}
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[[rehypeKatex, { strict: false }], rehypeHighlight]}
+        components={components}
+      >
         {processedContent}
       </ReactMarkdown>
     </div>

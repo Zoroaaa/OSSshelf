@@ -6,6 +6,7 @@
 import React, { useState, useRef } from 'react';
 import { Button } from '../ui/Button';
 import { useToast } from '../ui/useToast';
+import { confirmAction } from '../ui/useConfirm';
 
 interface ApiKeyShowOnceDialogProps {
   apiKey: string;
@@ -34,10 +35,14 @@ const ApiKeyShowOnceDialog: React.FC<ApiKeyShowOnceDialogProps> = ({ apiKey, onC
     }
   };
 
-  const handleClose = () => {
-    if (confirm('确定要关闭吗？关闭后将无法再次查看完整的 API Key。')) {
-      onClose();
-    }
+  const handleClose = async () => {
+    // 一次性密钥展示的关闭保护，与其他破坏性操作统一为 confirmAction（warn 级）
+    const ok = await confirmAction({
+      title: '关闭密钥展示？',
+      description: '确定要关闭吗？关闭后将无法再次查看完整的 API Key。',
+      level: 'warn',
+    });
+    if (ok) onClose();
   };
 
   return (

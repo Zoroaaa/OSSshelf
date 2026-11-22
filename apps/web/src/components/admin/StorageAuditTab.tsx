@@ -109,7 +109,7 @@ export function StorageAuditTab() {
         <div className="text-center space-y-4">
           <Loader2 className="h-10 w-10 animate-spin text-muted-foreground mx-auto" />
           <p className="text-sm text-muted-foreground">正在扫描所有S3兼容存储桶...</p>
-          <p className="text-xs text-muted-foreground/60">R2使用V2 API / B2使用V1 API</p>
+          <p className="text-xs text-muted-foreground">R2使用V2 API / B2使用V1 API</p>
         </div>
       </div>
     );
@@ -359,7 +359,7 @@ export function StorageAuditTab() {
                           ) : f.path ? (
                             <span className="text-muted-foreground italic">根目录</span>
                           ) : (
-                            <span className="text-muted-foreground/50">—</span>
+                            <span className="text-muted-foreground">—</span>
                           )}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
@@ -458,7 +458,7 @@ function MetricCard({
         {value.toLocaleString()}
       </p>
       <p className="text-xs text-muted-foreground truncate">{label}</p>
-      <p className="text-[11px] text-muted-foreground/70 tabular-nums">{sub}</p>
+      <p className="text-[11px] text-muted-foreground tabular-nums">{sub}</p>
     </div>
   );
 }

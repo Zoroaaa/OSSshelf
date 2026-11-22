@@ -56,7 +56,8 @@ export default function ForgotPassword() {
         <CardHeader className="text-center">
           <div className="flex justify-center mb-3">
             <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center">
-              <Mail className="h-6 w-6 text-white" />
+              {/* 浅绿底上的图标改用深绿色，保证对比度 */}
+              <Mail className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
             </div>
           </div>
           <CardTitle>验证码已发送</CardTitle>

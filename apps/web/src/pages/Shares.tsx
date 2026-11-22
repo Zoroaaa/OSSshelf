@@ -13,6 +13,7 @@ import { FileIcon } from '@/components/files/FileIcon';
 import { UploadLinkDialog } from '@/components/files/dialogs';
 import { FolderPickerDialog } from '@/components/files/dialogs';
 import { useToast } from '@/components/ui/useToast';
+import { confirmAction } from '@/components/ui/useConfirm';
 import {
   Link2,
   Trash2,
@@ -79,6 +80,19 @@ export default function Shares() {
     },
     onError: (e) => toast({ title: '创建失败', description: getErrorMessage(e), variant: 'destructive' }),
   });
+
+  // C-18 修复：并发删除失效链接并汇总成功/失败数，替代逐条 mutate 产生 N 个请求
+  const batchDelete = async (ids: string[]) => {
+    const results = await Promise.allSettled(ids.map((id) => shareApi.delete(id)));
+    const succeeded = results.filter((r) => r.status === 'fulfilled').length;
+    const failed = results.length - succeeded;
+    queryClient.invalidateQueries({ queryKey: ['shares'] });
+    toast({
+      title: failed > 0 ? '部分链接删除失败' : '已删除',
+      description: `成功 ${succeeded} 个，失败 ${failed} 个`,
+      variant: failed > 0 ? 'destructive' : undefined,
+    });
+  };
 
   const handleCopyLink = async (shareId: string, isUploadLink = false, uploadToken?: string) => {
     const url =
@@ -155,11 +169,24 @@ export default function Shares() {
           emptyHint="在文件管理页面右键文件即可创建"
           getStatus={getStatus}
           onCopy={(id) => handleCopyLink(id)}
-          onDelete={(id) => {
-            if (confirm('确定要删除这个分享链接吗？')) deleteMutation.mutate(id);
+          onDelete={async (id) => {
+            // C-10 修复：用命令式确认替代原生 confirm
+            const ok = await confirmAction({
+              title: '删除分享链接',
+              description: '确定要删除这个分享链接吗？此操作不可撤销。',
+              level: 'danger',
+            });
+            if (ok) deleteMutation.mutate(id);
           }}
-          onBulkDelete={(ids) => {
-            if (confirm(`删除 ${ids.length} 个失效链接？`)) ids.forEach((id) => deleteMutation.mutate(id));
+          onBulkDelete={async (ids) => {
+            // C-10 / C-18 修复：命令式确认 + 批量并发删除并汇总结果
+            const ok = await confirmAction({
+              title: '清理失效链接',
+              description: `确定要删除 ${ids.length} 个失效链接吗？此操作不可撤销。`,
+              level: 'danger',
+              confirmText: '清理',
+            });
+            if (ok) await batchDelete(ids);
           }}
           isPending={deleteMutation.isPending}
         />
@@ -181,11 +208,24 @@ export default function Shares() {
             getStatus={getStatus}
             isUploadTab
             onCopy={(id, share) => handleCopyLink(id, true, share?.uploadToken)}
-            onDelete={(id) => {
-              if (confirm('确定要删除这个上传链接吗？')) deleteMutation.mutate(id);
+            onDelete={async (id) => {
+              // C-10 修复：用命令式确认替代原生 confirm
+              const ok = await confirmAction({
+                title: '删除上传链接',
+                description: '确定要删除这个上传链接吗？此操作不可撤销。',
+                level: 'danger',
+              });
+              if (ok) deleteMutation.mutate(id);
             }}
-            onBulkDelete={(ids) => {
-              if (confirm(`删除 ${ids.length} 个失效链接？`)) ids.forEach((id) => deleteMutation.mutate(id));
+            onBulkDelete={async (ids) => {
+              // C-10 / C-18 修复：命令式确认 + 批量并发删除并汇总结果
+              const ok = await confirmAction({
+                title: '清理失效链接',
+                description: `确定要删除 ${ids.length} 个失效链接吗？此操作不可撤销。`,
+                level: 'danger',
+                confirmText: '清理',
+              });
+              if (ok) await batchDelete(ids);
             }}
             isPending={deleteMutation.isPending}
           />

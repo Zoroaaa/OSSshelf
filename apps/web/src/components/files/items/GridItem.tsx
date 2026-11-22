@@ -122,12 +122,14 @@ export function GridItem({
     );
   }
 
+  // C-20 修复：桌面端整卡可点击打开（与移动端一致）；操作区/选择框已 stopPropagation
   return (
     <div
       className={cn(
         'relative bg-card border rounded-xl overflow-hidden cursor-pointer group transition-all hover:shadow-md hover:-translate-y-0.5',
         isSelected && 'ring-2 ring-primary'
       )}
+      onClick={() => onClick(file)}
       onContextMenu={(e) => onContextMenu(e, file)}
     >
       <div className={cn('flex items-center justify-center h-28 relative', !isImage && bg)}>

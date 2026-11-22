@@ -35,6 +35,9 @@ export function DiffPreview({ diff }: DiffPreviewProps) {
         </div>
         {maxLines > 8 && (
           <button
+            type="button"
+            // E-19：向辅助技术暴露展开/收起状态
+            aria-expanded={expanded}
             onClick={() => setExpanded(!expanded)}
             className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
           >
@@ -51,7 +54,8 @@ export function DiffPreview({ diff }: DiffPreviewProps) {
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-px bg-slate-200 dark:bg-slate-700 text-xs font-mono">
+      {/* E-18：窄屏下双栏过窄，改为单栏堆叠，≥sm 再并排 */}
+      <div className="grid grid-cols-1 gap-px bg-slate-200 dark:bg-slate-700 text-xs font-mono sm:grid-cols-2">
         {/* 原始内容 */}
         <div className="bg-white dark:bg-slate-900">
           <div className="px-2 py-1 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-xs font-sans font-medium border-b border-slate-100 dark:border-slate-800">

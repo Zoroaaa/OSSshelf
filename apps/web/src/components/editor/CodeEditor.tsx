@@ -19,20 +19,26 @@ interface CodeEditorProps {
 const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, language }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const highlightRef = useRef<HTMLPreElement>(null);
+  const lineNumbersRef = useRef<HTMLPreElement>(null);
 
-  useEffect(() => {
-    if (textareaRef.current && highlightRef.current) {
-      highlightRef.current.scrollTop = textareaRef.current.scrollTop;
-      highlightRef.current.scrollLeft = textareaRef.current.scrollLeft;
+  // 同步高亮层与行号栏的滚动位置（E-21：原实现遗漏行号容器，滚动后行号与代码错位）
+  const syncScroll = () => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    if (highlightRef.current) {
+      highlightRef.current.scrollTop = ta.scrollTop;
+      highlightRef.current.scrollLeft = ta.scrollLeft;
     }
-  }, [value]);
-
-  const handleScroll = () => {
-    if (textareaRef.current && highlightRef.current) {
-      highlightRef.current.scrollTop = textareaRef.current.scrollTop;
-      highlightRef.current.scrollLeft = textareaRef.current.scrollLeft;
+    if (lineNumbersRef.current) {
+      lineNumbersRef.current.style.transform = `translateY(-${ta.scrollTop}px)`;
     }
   };
+
+  useEffect(() => {
+    syncScroll();
+  }, [value]);
+
+  const handleScroll = syncScroll;
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Tab') {
@@ -290,7 +296,12 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, language }) =>
     };
 
     const kw = keywords[lang] || [];
+    // E-04 修复：先转义，再【最先】处理数字高亮。
+    // 原实现把数字正则放在关键字/字符串 span 插入之后执行，会误匹配 class="text-purple-600"
+    // 中的 600/400 并再次包裹 span，破坏 HTML 属性结构导致高亮错乱。
+    // 现在数字高亮在生成任何 span 之前完成，后续正则不会与之冲突。
     let highlighted = escapeHtml(code);
+    highlighted = highlighted.replace(/\b(\d+\.?\d*)\b/g, '<span class="text-orange-600 dark:text-orange-400">$1</span>');
 
     if (kw.length > 0) {
       const kwRegex = new RegExp(`\\b(${kw.join('|')})\\b`, 'g');
@@ -303,8 +314,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, language }) =>
         '<span class="text-green-600 dark:text-green-400">$1</span>'
       )
       .replace(/(\/\/.*$|#.*$)/gm, '<span class="text-gray-500 dark:text-gray-400">$1</span>')
-      .replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="text-gray-500 dark:text-gray-400">$1</span>')
-      .replace(/\b(\d+\.?\d*)\b/g, '<span class="text-orange-600 dark:text-orange-400">$1</span>');
+      .replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="text-gray-500 dark:text-gray-400">$1</span>');
 
     if (lang === 'html' || lang === 'xml') {
       highlighted = highlighted
@@ -331,7 +341,7 @@ const CodeEditor: React.FC<CodeEditorProps> = ({ value, onChange, language }) =>
   return (
     <div className="relative h-full bg-gray-900 text-gray-100 font-mono text-sm overflow-hidden">
       <div className="absolute top-0 left-0 w-12 h-full bg-gray-800 text-gray-500 text-right pr-2 pt-0 select-none overflow-hidden border-r border-gray-700">
-        <pre className="m-0 p-0 leading-6">{lineNumbers}</pre>
+        <pre ref={lineNumbersRef} className="m-0 p-0 leading-6">{lineNumbers}</pre>
       </div>
 
       <div className="absolute top-0 left-12 right-0 bottom-0 overflow-hidden">

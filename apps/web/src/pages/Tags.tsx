@@ -21,7 +21,7 @@ import { Pagination } from '@/components/files/Pagination';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useToast } from '@/components/ui/useToast';
-import { formatBytes, formatDate } from '@/utils';
+import { formatBytes, formatDate, decodeFileName } from '@/utils';
 import type { FileItem, FileTag } from '@osshelf/shared';
 import {
   Tag,
@@ -63,6 +63,8 @@ export default function Tags() {
 
   // 分页状态
   const [page, setPage] = useState(1);
+  // C-15 修复：每页条数改为受控状态，默认 10，允许通过分页器切换
+  const [filePageSize, setFilePageSize] = useState<number>(TAG_PAGE_SIZE);
 
   // 勾选状态
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
@@ -81,11 +83,11 @@ export default function Tags() {
   });
 
   const { data: tagData, isLoading: filesLoading } = useQuery<PaginatedFilesResponse>({
-    queryKey: ['tag-files', selectedTag, page],
+    queryKey: ['tag-files', selectedTag, page, filePageSize],
     queryFn: () =>
-      filesApi.list({ tags: [selectedTag!].join(',') as any, page, limit: TAG_PAGE_SIZE }).then((r) => ({
+      filesApi.list({ tags: [selectedTag!].join(',') as any, page, limit: filePageSize }).then((r) => ({
         data: (r.data.data as FileItem[]) ?? [],
-        pagination: (r.data as any).pagination ?? { page, limit: TAG_PAGE_SIZE, total: 0, totalPages: 0 },
+        pagination: (r.data as any).pagination ?? { page, limit: filePageSize, total: 0, totalPages: 0 },
       })),
     enabled: !!selectedTag,
     staleTime: 30000,
@@ -328,7 +330,7 @@ export default function Tags() {
                       )}
                     </button>
 
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity touch-visible">
                       {isEditing ? (
                         <>
                           <Button
@@ -546,7 +548,7 @@ export default function Tags() {
                         <div className="flex items-center gap-3">
                           <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="md" />
                           <div className="min-w-0 flex-1">
-                            <p className="font-medium truncate text-sm">{file.name}</p>
+                            <p className="font-medium truncate text-sm">{decodeFileName(file.name)}</p>
                             <div className="text-xs text-muted-foreground mt-0.5 space-y-0.5">
                               <p className="flex items-center gap-1.5 overflow-hidden">
                                 {!file.isFolder && <span className="flex-shrink-0">{formatBytes(file.size)}</span>}
@@ -564,7 +566,7 @@ export default function Tags() {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex-shrink-0 touch-visible">
                         <Button
                           variant="ghost"
                           size="icon"
@@ -612,9 +614,13 @@ export default function Tags() {
                 currentPage={filePagination.page}
                 totalPages={filePagination.totalPages}
                 totalItems={filePagination.total}
-                pageSize={TAG_PAGE_SIZE as 20}
+                pageSize={filePageSize}
                 onPageChange={handlePageChange}
-                onPageSizeChange={() => {}}
+                onPageSizeChange={(size) => {
+                  setFilePageSize(size);
+                  setPage(1);
+                  setSelectedFileIds(new Set());
+                }}
               />
             )}
           </div>

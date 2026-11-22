@@ -203,7 +203,7 @@ export function MessageBubble({
 
         {showActions && (
           <div
-            className={`flex items-center gap-1.5 pt-0.5 ${isUser ? 'justify-end' : 'justify-start'} text-muted-foreground opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100`}
+            className={`flex items-center gap-1.5 pt-0.5 ${isUser ? 'justify-end' : 'justify-start'} text-muted-foreground opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100 touch-visible`}
           >
             <span className="text-[11px] tabular-nums">{formatTime(message.timestamp)}</span>
             <button

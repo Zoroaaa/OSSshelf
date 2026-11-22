@@ -22,7 +22,7 @@ export function PlanProgressBar({ plan }: PlanProgressBarProps) {
       case 'skipped':
         return <Circle className="h-3.5 w-3.5 text-muted-foreground" />;
       default:
-        return <Circle className="h-3.5 w-3.5 text-muted-foreground/60" />;
+        return <Circle className="h-3.5 w-3.5 text-muted-foreground" />;
     }
   };
 
@@ -30,6 +30,8 @@ export function PlanProgressBar({ plan }: PlanProgressBarProps) {
     <div className="my-2 overflow-hidden rounded-lg border border-border bg-card">
       <button
         type="button"
+        // E-19：向辅助技术暴露展开/收起状态
+        aria-expanded={expanded}
         onClick={() => setExpanded((value) => !value)}
         className="flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-accent/40"
       >
@@ -41,7 +43,15 @@ export function PlanProgressBar({ plan }: PlanProgressBarProps) {
           )}
         </span>
         <span className="flex flex-shrink-0 items-center gap-1.5">
-          <span className="h-1.5 w-20 overflow-hidden rounded-full bg-muted">
+          <span
+            // E-20：进度条语义与数值范围（已完成步骤 / 总步骤）
+            role="progressbar"
+            aria-label="计划完成进度"
+            aria-valuemin={0}
+            aria-valuemax={total}
+            aria-valuenow={completed}
+            className="h-1.5 w-20 overflow-hidden rounded-full bg-muted"
+          >
             <span
               className="block h-full rounded-full bg-primary transition-all duration-500"
               style={{ width: `${percent}%` }}

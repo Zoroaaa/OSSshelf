@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/useToast';
+import { confirmAction } from '@/components/ui/useConfirm';
 import { teamsApi, type Team } from '@/services/collab';
 import { Users, Plus, Trash2, UserPlus, Loader2, Settings, FolderOpen, Mountain, Clock } from 'lucide-react';
 import { cn } from '@/utils';
@@ -54,8 +55,14 @@ const TeamList: React.FC<TeamListProps> = ({ className, mode = 'default' }) => {
     },
   });
 
-  const handleDelete = (teamId: string, teamName: string) => {
-    if (!confirm(`确定要删除团队 "${teamName}" 吗？此操作不可撤销。所有成员将被移除，已挂载的资源将被卸载。`)) return;
+  const handleDelete = async (teamId: string, teamName: string) => {
+    // 删除团队影响范围大，使用 danger 级确认
+    const ok = await confirmAction({
+      title: '删除团队？',
+      description: `确定要删除团队「${teamName}」吗？此操作不可撤销，所有成员将被移除，已挂载的资源将被卸载。`,
+      level: 'danger',
+    });
+    if (!ok) return;
     deleteMutation.mutate(teamId);
   };
 

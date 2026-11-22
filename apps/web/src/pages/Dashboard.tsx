@@ -158,10 +158,11 @@ export default function Dashboard() {
               ) : (
                 <div className="divide-y">
                   {(stats?.recentFiles ?? []).map((file) => (
+                    // C-19 修复：携带 ?preview 深链，进入父文件夹后直接预览该文件
                     <div
                       key={file.id}
                       className="flex items-center gap-3 px-4 lg:px-5 py-2.5 lg:py-3 hover:bg-accent/30 cursor-pointer transition-colors active:bg-accent/50"
-                      onClick={() => navigate(`/files${file.parentId ? `/${file.parentId}` : ''}`)}
+                      onClick={() => navigate(`/files${file.parentId ? `/${file.parentId}` : ''}?preview=${file.id}`)}
                     >
                       <FileIcon mimeType={file.mimeType} isFolder={file.isFolder} size="sm" className="flex-shrink-0" />
                       <div className="flex-1 min-w-0">

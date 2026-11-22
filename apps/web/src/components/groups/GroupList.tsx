@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/useToast';
+import { confirmAction } from '@/components/ui/useConfirm';
 import { groupsApi } from '@/services/api';
 import { Users, Plus, Trash2, UserPlus, Loader2 } from 'lucide-react';
 import GroupCreateDialog from './GroupCreateDialog';
@@ -47,8 +48,14 @@ const GroupList: React.FC<GroupListProps> = ({ className }) => {
     },
   });
 
-  const handleDelete = (groupId: string, groupName: string) => {
-    if (!confirm(`确定要删除用户组 "${groupName}" 吗？此操作不可撤销。所有成员将被移除。`)) return;
+  const handleDelete = async (groupId: string, groupName: string) => {
+    // 删除用户组影响范围大，使用 danger 级确认
+    const ok = await confirmAction({
+      title: '删除用户组？',
+      description: `确定要删除用户组「${groupName}」吗？此操作不可撤销，所有成员将被移除。`,
+      level: 'danger',
+    });
+    if (!ok) return;
     deleteMutation.mutate(groupId);
   };
 

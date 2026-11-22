@@ -41,6 +41,30 @@
 
     <title>OSSshelf - 文件管理系统</title>
 
+    <!-- B-05 修复：首屏主题前置脚本。在样式与应用 JS 执行前读取持久化主题，
+         提前设置 html.dark，避免"系统偏好 → 用户偏好"的明暗跳变。 -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('ossshelf-theme');
+          var theme = 'system';
+          if (saved) {
+            var parsed = JSON.parse(saved);
+            theme = (parsed && parsed.state && parsed.state.theme) || 'system';
+          }
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var effective = theme === 'system' ? (prefersDark ? 'dark' : 'light') : theme;
+          if (effective === 'dark') document.documentElement.classList.add('dark');
+          else document.documentElement.classList.remove('dark');
+        } catch (e) {
+          /* 读取失败时回退到系统偏好 */
+          if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.classList.add('dark');
+          }
+        }
+      })();
+    </script>
+
     <!-- Inline Critical CSS -->
     <style>
       :root {
@@ -49,12 +73,11 @@
         --foreground: #0f172a;
       }
 
-      @media (prefers-color-scheme: dark) {
-        :root {
-          --primary: #60a5fa;
-          --background: #0f172a;
-          --foreground: #f8fafc;
-        }
+      /* 主题以 html.dark 为准（与前置脚本一致），不再单纯依赖系统偏好 */
+      html.dark {
+        --primary: #60a5fa;
+        --background: #0f172a;
+        --foreground: #f8fafc;
       }
 
       body {

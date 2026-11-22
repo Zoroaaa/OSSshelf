@@ -15,6 +15,7 @@ import { Link, Copy, Trash2, RefreshCw, ExternalLink, Check, Infinity, Eye, Code
 import { directLinkApi, type DirectLinkInfo } from '@/services/api';
 import { decodeFileName, getErrorMessage, copyToClipboard as writeClipboard } from '@/utils';
 import { useToast } from '@/components/ui/useToast';
+import { confirmAction } from '@/components/ui/useConfirm';
 
 interface DirectLinkDialogProps {
   fileId: string;
@@ -107,7 +108,13 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
 
   const handleDelete = async () => {
     if (!directLink) return;
-    if (!confirm('确定要删除此直链吗？删除后该链接将立即失效。')) return;
+    const ok = await confirmAction({
+      title: '删除直链',
+      description: '确定要删除此直链吗？删除后该链接将立即失效。',
+      level: 'danger',
+      confirmText: '删除',
+    });
+    if (!ok) return;
     setIsPending(true);
     try {
       await directLinkApi.delete(fileId);

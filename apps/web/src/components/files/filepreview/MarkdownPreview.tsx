@@ -3,8 +3,10 @@
  * Markdown预览组件
  */
 
+import { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { ErrorState } from '@/components/ui/AsyncState';
 import rehypeHighlight from 'rehype-highlight';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -23,7 +25,12 @@ interface MarkdownPreviewProps {
   aiSummaryAt: string | null;
   onGenerateSummary: () => void;
   isGeneratingSummary: boolean;
+  /** 可选：内容加载失败时的外部重试入口 */
+  onRetry?: () => void;
 }
+
+// E-08：textContent 长时间为空即视为加载失败，避免永久停留在「加载中...」
+const LOAD_TIMEOUT_MS = 15000;
 
 export function MarkdownPreview({
   textContent,
@@ -34,7 +41,27 @@ export function MarkdownPreview({
   aiSummaryAt,
   onGenerateSummary,
   isGeneratingSummary,
+  onRetry,
 }: MarkdownPreviewProps) {
+  const [timedOut, setTimedOut] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+
+  // E-08：加载超时兜底；内容到达即清除错误态，重试则重新计时
+  useEffect(() => {
+    if (textContent !== null) {
+      setTimedOut(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setTimedOut(true), LOAD_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [textContent, attempt]);
+
+  const handleRetry = () => {
+    setTimedOut(false);
+    setAttempt((value) => value + 1);
+    onRetry?.();
+  };
+
   return (
     <div className="relative w-full h-full">
       <div
@@ -79,6 +106,13 @@ export function MarkdownPreview({
           >
             {textContent}
           </ReactMarkdown>
+        ) : timedOut ? (
+          // E-08：超时后显示错误态与重试入口，不再永久停留在加载中
+          <ErrorState
+            title="内容加载失败"
+            message="文件内容长时间未能加载，请重试"
+            onRetry={handleRetry}
+          />
         ) : (
           <div className="flex items-center justify-center h-full">
             <p className="text-center text-muted-foreground text-sm py-8">加载中...</p>

@@ -34,7 +34,11 @@ export function BreadcrumbNav({ items, className }: BreadcrumbNavProps) {
   };
 
   return (
-    <nav className={cn('flex items-center gap-1 text-sm', className)}>
+    // C-11 修复：窄屏允许横向滚动，避免深层路径把布局撑破
+    <nav
+      aria-label="面包屑"
+      className={cn('flex flex-nowrap items-center gap-1 overflow-x-auto whitespace-nowrap text-sm', className)}
+    >
       <button
         onClick={() => navigate('/files')}
         className={cn(
@@ -50,19 +54,25 @@ export function BreadcrumbNav({ items, className }: BreadcrumbNavProps) {
         const isLast = idx === items.length - 1;
         return (
           <span key={item.id ?? 'root'} className="flex items-center gap-1">
-            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50 flex-shrink-0" />
-            <button
-              onClick={() => !isLast && handleClick(item)}
-              className={cn(
-                'max-w-[160px] truncate transition-colors',
-                isLast
-                  ? 'text-foreground font-medium cursor-default'
-                  : 'text-muted-foreground hover:text-foreground cursor-pointer'
-              )}
-              title={decodeFileName(item.name)}
-            >
-              {decodeFileName(item.name)}
-            </button>
+            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+            {isLast ? (
+              // C-11 修复：末项不可点击，用 span + aria-current 表达当前位置，避免产生无效 Tab 焦点
+              <span
+                aria-current="page"
+                className="max-w-[160px] truncate text-foreground font-medium"
+                title={decodeFileName(item.name)}
+              >
+                {decodeFileName(item.name)}
+              </span>
+            ) : (
+              <button
+                onClick={() => handleClick(item)}
+                className="max-w-[160px] truncate text-muted-foreground transition-colors hover:text-foreground"
+                title={decodeFileName(item.name)}
+              >
+                {decodeFileName(item.name)}
+              </button>
+            )}
           </span>
         );
       })}

@@ -30,12 +30,18 @@ export function NotificationBell({ className, align = 'right', direction = 'down
   useEffect(() => {
     let fallbackInterval: NodeJS.Timeout | null = null;
     let controller: AbortController | null = null;
+    // D-23：用 effect 内的局部标志与 timeout 记录，避免卸载后仍递归重连并 setState
+    // （用局部变量而非 ref，可避免 StrictMode 重复挂载时停止标志残留为 true）
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+    let stopped = false;
 
     const connectSSE = async () => {
+      if (stopped) return;
       try {
         controller = new AbortController();
 
         const response = await notificationsApi.stream({ signal: controller.signal });
+        if (stopped) return;
 
         if (!response.ok) {
           throw new Error(`SSE connection failed: ${response.status}`);
@@ -57,6 +63,7 @@ export function NotificationBell({ className, align = 'right', direction = 'down
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
+          if (stopped) return;
 
           const chunk = new TextDecoder().decode(value);
           buffer += chunk;
@@ -85,15 +92,21 @@ export function NotificationBell({ className, align = 'right', direction = 'down
 
         reader.releaseLock();
       } catch (error) {
+        // 卸载后不再更新状态、也不再安排下一次重连
+        if (stopped) return;
         setIsConnected(false);
-        // 5秒后重连
-        setTimeout(connectSSE, 5000);
+        // 5秒后重连，记录 timeout id 以便 cleanup 清除
+        reconnectTimeout = setTimeout(connectSSE, 5000);
       }
     };
 
     connectSSE();
 
     return () => {
+      stopped = true;
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
       if (controller) {
         controller.abort();
       }

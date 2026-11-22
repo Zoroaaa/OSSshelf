@@ -12,6 +12,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/components/ui/useToast';
+import { confirmAction } from '@/components/ui/useConfirm';
 import api from '@/services/api-client';
 import { Loader2, X, Clock, CheckCircle2, XCircle, Ban, Filter, Mail, User, Calendar, Shield } from 'lucide-react';
 import { cn, formatDate } from '@/utils';
@@ -210,10 +211,14 @@ const TeamInviteRecords: React.FC<TeamInviteRecordsProps> = ({ teamId, teamName,
                           variant="outline"
                           size="sm"
                           className="shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-                          onClick={() => {
-                            if (confirm('确定撤销此邀请？')) {
-                              revokeMutation.mutate(invite.id);
-                            }
+                          onClick={async () => {
+                            // 撤销邀请使用 warn 级确认
+                            const ok = await confirmAction({
+                              title: '撤销邀请？',
+                              description: '确定撤销此邀请？撤销后受邀者将无法再通过该链接加入。',
+                              level: 'warn',
+                            });
+                            if (ok) revokeMutation.mutate(invite.id);
                           }}
                           disabled={revokeMutation.isPending}
                         >

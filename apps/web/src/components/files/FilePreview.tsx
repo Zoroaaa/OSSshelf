@@ -40,6 +40,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { useToast } from '@/components/ui/useToast';
 import { FileIcon } from '@/components/files/FileIcon';
 import { filesApi, previewApi, aiApi } from '@/services/api';
 import { getPresignedPreviewUrl } from '@/services/presignUpload';
@@ -88,6 +89,7 @@ interface FilePreviewProps {
 }
 
 export function FilePreview({ file, token, onClose, onDownload, onShare, onEdit, onVersionHistory }: FilePreviewProps) {
+  const { toast } = useToast();
   const [textContent, setTextContent] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
@@ -138,11 +140,11 @@ export function FilePreview({ file, token, onClose, onDownload, onShare, onEdit,
     } catch (e: any) {
       console.error('Failed to generate summary:', e);
       const message = e?.response?.data?.error?.message || e?.message || '生成摘要失败';
-      alert(message);
+      toast({ title: message, variant: 'destructive' }); // C-28：统一 toast 反馈
     } finally {
       setIsGeneratingSummary(false);
     }
-  }, [file.id]);
+  }, [file.id, toast]);
 
   const handleGenerateTags = useCallback(async () => {
     if (!file.id) return;
@@ -157,11 +159,11 @@ export function FilePreview({ file, token, onClose, onDownload, onShare, onEdit,
     } catch (e: any) {
       console.error('Failed to generate tags:', e);
       const message = e?.response?.data?.error?.message || e?.message || '生成标签失败';
-      alert(message);
+      toast({ title: message, variant: 'destructive' }); // C-28
     } finally {
       setIsGeneratingTags(false);
     }
-  }, [file.id]);
+  }, [file.id, toast]);
 
   const canGenerateSummary = isEditableFile(file.mimeType, file.name);
   const canPreview = isPreviewable(file.mimeType);
@@ -210,8 +212,11 @@ export function FilePreview({ file, token, onClose, onDownload, onShare, onEdit,
     setLoadError(false);
     setTextContent(null);
     setPreviewInfo(null);
-    setZoomLevel(100);
-    setWindowSize('medium');
+    // C-25 修复：文件切换时保留与初始化一致的移动端默认值（zoom=75/windowSize=fullscreen），
+    // 不再无条件重置为桌面默认值 100/medium。
+    const mobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    setZoomLevel(mobile ? 75 : 100);
+    setWindowSize(mobile ? 'fullscreen' : 'medium');
 
     previewApi
       .getInfo(file.id)
@@ -313,11 +318,19 @@ export function FilePreview({ file, token, onClose, onDownload, onShare, onEdit,
     });
   }, []);
 
+  // C-02 修复：用 ref 追踪编辑器/子弹层状态，Esc 时若子层打开则不关闭外层预览，
+  // 交由子层（FileEditor 等）自身的 Esc → 未保存确认处理，避免静默丢失编辑内容。
+  const showEditorRef = useRef(showEditor);
+  useEffect(() => {
+    showEditorRef.current = showEditor;
+  }, [showEditor]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
+      if (e.key !== 'Escape') return;
+      // 子弹层打开时，Esc 交给子弹层处理，不关闭预览
+      if (showEditorRef.current) return;
+      onClose();
     };
     window.addEventListener('keydown', handleKeyDown);
 
@@ -555,7 +568,7 @@ export function FilePreview({ file, token, onClose, onDownload, onShare, onEdit,
                 style={{ fontSize: `${zoomLevel}%` }}
               >
                 {textContent !== null ? (
-                  <pre className="text-sm font-mono whitespace-pre-wrap leading-relaxed text-gray-800 dark:text-gray-200">
+                  <pre className="font-mono whitespace-pre-wrap leading-relaxed text-gray-800 dark:text-gray-200">
                     {textContent}
                   </pre>
                 ) : (

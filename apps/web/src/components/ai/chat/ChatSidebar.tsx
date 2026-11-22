@@ -202,13 +202,13 @@ export function ChatSidebar({
         <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
           {groups.length === 0 ? (
             <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
-              <MessageSquare className="h-6 w-6 text-muted-foreground/60" />
+              <MessageSquare className="h-6 w-6 text-muted-foreground" />
               <p className="text-xs text-muted-foreground">{query ? '没有匹配的会话' : '暂无对话记录'}</p>
             </div>
           ) : (
             groups.map((group) => (
               <div key={group.key} className="mb-2">
-                <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                   {group.label}
                 </p>
                 <div className="space-y-0.5">
@@ -293,7 +293,7 @@ export function ChatSidebar({
                               >
                                 {session.title}
                               </span>
-                              <span className="flex flex-shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                              <span className="flex flex-shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 touch-visible">
                                 <button
                                   type="button"
                                   onClick={(event) => {
