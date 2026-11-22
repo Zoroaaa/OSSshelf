@@ -46,9 +46,8 @@ import {
   type FolderSizeStats,
 } from '../lib/fileService';
 import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
-import { throwAppError } from '../middleware/error';
+import { throwAppError, AppError } from '../middleware/error';
 import {
-  ERROR_CODES,
   MAX_FILE_SIZE,
   MAX_BUFFERED_TRANSFER_BYTES,
   isPreviewableMimeType,
@@ -57,6 +56,7 @@ import {
   isEditableFile,
   MAX_EDITABLE_SIZE,
 } from '@osshelf/shared';
+import type { ErrorCode } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { sendNotification } from '../lib/notificationUtils';
@@ -194,10 +194,7 @@ app.get('/:id/preview', async (c) => {
     if (bkt?.provider === 'telegram') {
       const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, fileId)).get();
       if (!ref) {
-        return c.json(
-          { success: false, error: { code: 'TG_REF_NOT_FOUND', message: '未找到 Telegram 文件引用' } },
-          404
-        );
+        throwAppError('TG_REF_NOT_FOUND', '未找到 Telegram 文件引用');
       }
       const tgConfig = await resolveTgBucketConfig(db, file.bucketId, encKey);
       if (!tgConfig) {
@@ -256,10 +253,7 @@ app.get('/:id/download', async (c) => {
     if (bkt?.provider === 'telegram') {
       const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, fileId)).get();
       if (!ref) {
-        return c.json(
-          { success: false, error: { code: 'TG_REF_NOT_FOUND', message: '未找到 Telegram 文件引用，文件可能已损坏' } },
-          404
-        );
+        throwAppError('TG_REF_NOT_FOUND', '未找到 Telegram 文件引用，文件可能已损坏');
       }
       const tgConfig = await resolveTgBucketConfig(db, file.bucketId, encKey);
       if (!tgConfig) {
@@ -271,10 +265,7 @@ app.get('/:id/download', async (c) => {
           : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
         return new Response(body, { headers: dlHeaders });
       } catch (e: any) {
-        return c.json(
-          { success: false, error: { code: 'TG_DOWNLOAD_FAILED', message: e?.message || 'Telegram 下载失败' } },
-          502
-        );
+        throwAppError('TG_DOWNLOAD_FAILED', e?.message || 'Telegram 下载失败');
       }
     }
   }
@@ -362,31 +353,13 @@ app.get('/:id/zip', async (c) => {
   const MAX_ZIP_FILES = 200;
 
   if (entries.length > MAX_ZIP_FILES) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.VALIDATION_ERROR.code,
-          message: `ZIP 打包最多 ${MAX_ZIP_FILES} 个文件，当前 ${entries.length} 个`,
-        },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', `ZIP 打包最多 ${MAX_ZIP_FILES} 个文件，当前 ${entries.length} 个`);
   }
 
   try {
     assertZipLimits(entries.map((e) => e.file));
   } catch (error) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.VALIDATION_ERROR.code,
-          message: error instanceof Error ? error.message : 'ZIP 打包参数超出限制',
-        },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', error instanceof Error ? error.message : 'ZIP 打包参数超出限制');
   }
 
   // 流式打包：逐个文件按 chunk 透传，不再把整个目录读入 Worker 内存
@@ -444,27 +417,15 @@ app.post('/upload', async (c) => {
   const userId = c.get('userId')!;
   const contentType = c.req.header('Content-Type') || '';
   if (!contentType.includes('multipart/form-data')) {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '请使用 multipart/form-data 格式上传' },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '请使用 multipart/form-data 格式上传');
   }
 
   // 先看 Content-Length，避免超大请求进入 formData() 全量缓冲
   const declaredLength = Number(c.req.header('Content-Length') || '0');
   if (Number.isFinite(declaredLength) && declaredLength > MAX_BUFFERED_TRANSFER_BYTES + 1024 * 1024) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.FILE_TOO_LARGE.code,
-          message: `代理上传单文件上限 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB，请使用前端分片上传`,
-        },
-      },
-      413
+    throwAppError(
+      'FILE_TOO_LARGE',
+      `代理上传单文件上限 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB，请使用前端分片上传`
     );
   }
 
@@ -473,22 +434,9 @@ app.post('/upload', async (c) => {
   const rawParentId = formData.get('parentId') as string | null;
   const requestedBucketId = formData.get('bucketId') as string | null;
 
-  if (!uploadFile)
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '请选择要上传的文件' } },
-      400
-    );
+  if (!uploadFile) throwAppError('VALIDATION_ERROR', '请选择要上传的文件');
   if (uploadFile.size > MAX_FILE_SIZE)
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.FILE_TOO_LARGE.code,
-          message: `文件大小超过限制（最大 ${MAX_FILE_SIZE / 1024 / 1024 / 1024}GB）`,
-        },
-      },
-      400
-    );
+    throwAppError('FILE_TOO_LARGE', `文件大小超过限制（最大 ${MAX_FILE_SIZE / 1024 / 1024 / 1024}GB）`);
 
   const db = getDb(c.env.DB);
 
@@ -500,25 +448,13 @@ app.post('/upload', async (c) => {
   const fileMime = inferMimeType(safeFileName, uploadFile.type);
   const mimeCheck = await checkFolderMimeTypeRestriction(db, parentId, fileMime);
   if (!mimeCheck.allowed) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.VALIDATION_ERROR.code,
-          message: `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
-        },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`);
   }
 
   if (parentId) {
     const { hasAccess } = await checkFilePermission(db, parentId, userId, 'write', c.env);
     if (!hasAccess) {
-      return c.json(
-        { success: false, error: { code: ERROR_CODES.FORBIDDEN.code, message: '无权向此目录上传文件' } },
-        403
-      );
+      throwAppError('FORBIDDEN', '无权向此目录上传文件');
     }
   }
 
@@ -535,29 +471,17 @@ app.post('/upload', async (c) => {
 
   // Telegram 文件大小检查（分片上传最大 2GB；≤50MB 直接上传，>50MB 自动分片）
   if (isTelegramBucket && uploadFile.size > TG_MAX_CHUNKED_FILE_SIZE) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.FILE_TOO_LARGE.code,
-          message: `Telegram 存储桶文件上限 2GB，当前文件 ${(uploadFile.size / 1024 / 1024 / 1024).toFixed(2)}GB`,
-        },
-      },
-      413
+    throwAppError(
+      'FILE_TOO_LARGE',
+      `Telegram 存储桶文件上限 2GB，当前文件 ${(uploadFile.size / 1024 / 1024 / 1024).toFixed(2)}GB`
     );
   }
 
   const user = await db.select().from(users).where(eq(users.id, userId)).get();
   if (uploadFile.size > MAX_BUFFERED_TRANSFER_BYTES) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.FILE_TOO_LARGE.code,
-          message: `代理上传单文件上限 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB，请使用分片上传`,
-        },
-      },
-      413
+    throwAppError(
+      'FILE_TOO_LARGE',
+      `代理上传单文件上限 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB，请使用分片上传`
     );
   }
   if (user && user.storageQuota! < 999999 * 1024 ** 3 && user.storageUsed + uploadFile.size > user.storageQuota!) {
@@ -584,7 +508,7 @@ app.post('/upload', async (c) => {
     if (isTelegramBucket && effectiveBucketId) {
       const tgConfig = await resolveTgBucketConfig(db, effectiveBucketId, encKey);
       if (!tgConfig) {
-        return c.json({ success: false, error: { code: 'TG_CONFIG_ERROR', message: '无法加载 Telegram 配置' } }, 500);
+        throwAppError('TG_CONFIG_ERROR', '无法加载 Telegram 配置');
       }
       let tgFileId: string;
       let tgFileSize: number;
@@ -602,10 +526,7 @@ app.post('/upload', async (c) => {
           tgFileSize = result.fileSize;
         }
       } catch (e: any) {
-        return c.json(
-          { success: false, error: { code: 'TG_UPLOAD_FAILED', message: e?.message || 'Telegram 上传失败' } },
-          502
-        );
+        throwAppError('TG_UPLOAD_FAILED', e?.message || 'Telegram 上传失败');
       }
       await db.insert(telegramFileRefs).values({
         id: crypto.randomUUID(),
@@ -627,23 +548,14 @@ app.post('/upload', async (c) => {
         customMetadata: { userId, originalName: safeFileName },
       });
     } else {
-      return c.json(
-        {
-          success: false,
-          error: { code: 'NO_STORAGE', message: '未配置存储桶，请先在「存储桶管理」中添加至少一个存储桶' },
-        },
-        400
-      );
+      throwAppError('STORAGE_NOT_CONFIGURED', '未配置存储桶，请先在「存储桶管理」中添加至少一个存储桶');
     }
   } else if (isTelegramBucket && effectiveBucketId) {
     // 去重命中 Telegram：为新 fileId 创建指向同一 tgFileId 的引用记录
     const origRef = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.r2Key, finalR2Key)).get();
     if (!origRef) {
       // origRef 缺失说明去重状态不一致，报错而非静默跳过（避免创建无法下载的孤儿记录）
-      return c.json(
-        { success: false, error: { code: 'TG_REF_MISSING', message: 'Telegram 去重引用记录缺失，请重新上传' } },
-        500
-      );
+      throwAppError('TG_REF_MISSING', 'Telegram 去重引用记录缺失，请重新上传');
     }
     await db.insert(telegramFileRefs).values({
       id: crypto.randomUUID(),
@@ -1020,10 +932,7 @@ app.post('/folders/size', async (c) => {
   });
   const result = schema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { folderIds } = result.data;
@@ -1181,11 +1090,7 @@ app.post('/', async (c) => {
   const userId = c.get('userId')!;
   const body = await c.req.json();
   const result = createFolderSchema.safeParse(body);
-  if (!result.success)
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+  if (!result.success) throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
 
   const { name: rawName, parentId: rawParentId, bucketId: requestedBucketId } = result.data;
   const name = normalizeEntryName(rawName);
@@ -1221,11 +1126,7 @@ app.post('/', async (c) => {
         )
       )
       .get();
-    if (!bucketRow)
-      return c.json(
-        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '指定的存储桶不存在或未激活' } },
-        400
-      );
+    if (!bucketRow) throwAppError('VALIDATION_ERROR', '指定的存储桶不存在或未激活');
     effectiveBucketId = requestedBucketId;
   } else {
     const bucketConfig = await resolveBucketConfig(db, userId, encKey, null, parentId);
@@ -1274,11 +1175,7 @@ app.post('/create', async (c) => {
   const userId = c.get('userId')!;
   const body = await c.req.json();
   const result = createFileSchema.safeParse(body);
-  if (!result.success)
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+  if (!result.success) throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
 
   const {
     name: rawName,
@@ -1296,25 +1193,13 @@ app.post('/create', async (c) => {
 
   const mimeCheck = await checkFolderMimeTypeRestriction(db, parentId, fileMime);
   if (!mimeCheck.allowed) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.VALIDATION_ERROR.code,
-          message: `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
-        },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`);
   }
 
   if (parentId) {
     const { hasAccess } = await checkFilePermission(db, parentId, userId, 'write', c.env);
     if (!hasAccess) {
-      return c.json(
-        { success: false, error: { code: ERROR_CODES.FORBIDDEN.code, message: '无权向此目录创建文件' } },
-        403
-      );
+      throwAppError('FORBIDDEN', '无权向此目录创建文件');
     }
   }
 
@@ -1368,7 +1253,7 @@ app.post('/create', async (c) => {
     if (isTelegramBucket && effectiveBucketId) {
       const tgConfig = await resolveTgBucketConfig(db, effectiveBucketId, encKey);
       if (!tgConfig) {
-        return c.json({ success: false, error: { code: 'TG_CONFIG_ERROR', message: '无法加载 Telegram 配置' } }, 500);
+        throwAppError('TG_CONFIG_ERROR', '无法加载 Telegram 配置');
       }
       let tgFileId: string;
       let tgFileSize: number;
@@ -1378,10 +1263,7 @@ app.post('/create', async (c) => {
         tgFileId = result.fileId;
         tgFileSize = result.fileSize;
       } catch (e: any) {
-        return c.json(
-          { success: false, error: { code: 'TG_UPLOAD_FAILED', message: e?.message || 'Telegram 上传失败' } },
-          502
-        );
+        throwAppError('TG_UPLOAD_FAILED', e?.message || 'Telegram 上传失败');
       }
       await db.insert(telegramFileRefs).values({
         id: crypto.randomUUID(),
@@ -1403,21 +1285,12 @@ app.post('/create', async (c) => {
         customMetadata: { userId, originalName: name },
       });
     } else {
-      return c.json(
-        {
-          success: false,
-          error: { code: 'NO_STORAGE', message: '未配置存储桶，请先在「存储桶管理」中添加至少一个存储桶' },
-        },
-        400
-      );
+      throwAppError('STORAGE_NOT_CONFIGURED', '未配置存储桶，请先在「存储桶管理」中添加至少一个存储桶');
     }
   } else if (isTelegramBucket && effectiveBucketId) {
     const origRef = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.r2Key, finalR2Key)).get();
     if (!origRef) {
-      return c.json(
-        { success: false, error: { code: 'TG_REF_MISSING', message: 'Telegram 去重引用记录缺失，请重新上传' } },
-        500
-      );
+      throwAppError('TG_REF_MISSING', 'Telegram 去重引用记录缺失，请重新上传');
     }
     await db.insert(telegramFileRefs).values({
       id: crypto.randomUUID(),
@@ -1775,11 +1648,7 @@ app.put('/:id', async (c) => {
   const fileId = c.req.param('id');
   const body = await c.req.json();
   const result = updateFileSchema.safeParse(body);
-  if (!result.success)
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+  if (!result.success) throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
 
   const name = result.data.name ? normalizeEntryName(result.data.name) : undefined;
   const parentId = result.data.parentId !== undefined ? normalizeParentId(result.data.parentId) : undefined;
@@ -1788,7 +1657,7 @@ app.put('/:id', async (c) => {
     const renameResult = await serviceRenameFile(c.env, userId, fileId, { name });
     if (!renameResult.success) {
       if (renameResult.error === '已存在同名文件') {
-        return c.json({ success: false, error: { code: 'FILE_ALREADY_EXISTS', message: renameResult.error } }, 409);
+        throwAppError('FILE_ALREADY_EXISTS', renameResult.error);
       }
       throwAppError('FILE_NOT_FOUND', renameResult.error);
     }
@@ -1797,22 +1666,13 @@ app.put('/:id', async (c) => {
   if (parentId !== undefined) {
     const moveResult = await serviceMoveFile(c.env, userId, fileId, { targetParentId: parentId });
     if (!moveResult.success) {
-      const errorMap: Record<string, string> = {
+      const errorMap: Record<string, ErrorCode> = {
         目标位置已存在同名文件: 'FILE_ALREADY_EXISTS',
         不能将文件夹移动到自身或其子文件夹中: 'CANNOT_MOVE_TO_SUBFOLDER',
         无权向目标目录移动文件: 'FORBIDDEN',
       };
-      const errorCode = errorMap[moveResult.error] ?? 'VALIDATION_ERROR';
-      return c.json(
-        {
-          success: false,
-          error: {
-            code: (ERROR_CODES[errorCode as keyof typeof ERROR_CODES] ?? ERROR_CODES.VALIDATION_ERROR).code,
-            message: moveResult.error,
-          },
-        },
-        errorCode === 'FORBIDDEN' ? 403 : errorCode === 'FILE_ALREADY_EXISTS' ? 409 : 400
-      );
+      // 错误码自带 HTTP 状态（403/409/400），无需再按码名推断
+      throwAppError(errorMap[moveResult.error] ?? 'VALIDATION_ERROR', moveResult.error);
     }
   }
 
@@ -1835,24 +1695,12 @@ app.get('/:id/raw', async (c) => {
   if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '无法获取文件夹内容');
 
   if (!isEditableFile(file.mimeType, file.name)) {
-    return c.json(
-      {
-        success: false,
-        error: { code: 'FILE_NOT_EDITABLE', message: '此文件类型不支持在线编辑' },
-      },
-      400
-    );
+    throwAppError('FILE_NOT_EDITABLE', '此文件类型不支持在线编辑');
   }
 
   const maxEditableSize = MAX_EDITABLE_SIZE;
   if (file.size > maxEditableSize) {
-    return c.json(
-      {
-        success: false,
-        error: { code: 'FILE_TOO_LARGE', message: '文件过大，不支持在线编辑（最大 1MB）' },
-      },
-      400
-    );
+    throwAppError('FILE_EDIT_TOO_LARGE', '文件过大，不支持在线编辑（最大 1MB）');
   }
 
   const encKey = getEncryptionKey(c.env);
@@ -1895,10 +1743,7 @@ app.put('/:id/content', async (c) => {
   const body = await c.req.json();
   const result = updateContentSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { content, changeSummary } = result.data;
@@ -1914,13 +1759,7 @@ app.put('/:id/content', async (c) => {
   if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '无法修改文件夹内容');
 
   if (!isEditableFile(file.mimeType, file.name)) {
-    return c.json(
-      {
-        success: false,
-        error: { code: 'FILE_NOT_EDITABLE', message: '此文件类型不支持在线编辑' },
-      },
-      400
-    );
+    throwAppError('FILE_NOT_EDITABLE', '此文件类型不支持在线编辑');
   }
 
   const contentBuffer = new TextEncoder().encode(content);
@@ -1929,13 +1768,7 @@ app.put('/:id/content', async (c) => {
 
   const maxEditableSize = MAX_EDITABLE_SIZE;
   if (newSize > maxEditableSize) {
-    return c.json(
-      {
-        success: false,
-        error: { code: 'FILE_TOO_LARGE', message: '内容过大，不支持在线编辑（最大 1MB）' },
-      },
-      400
-    );
+    throwAppError('FILE_EDIT_TOO_LARGE', '内容过大，不支持在线编辑（最大 1MB）');
   }
 
   const newHash = await computeSha256Hex(contentArrayBuffer);
@@ -2015,11 +1848,7 @@ app.put('/:id/settings', async (c) => {
   const fileId = c.req.param('id');
   const body = await c.req.json();
   const result = updateFolderSettingsSchema.safeParse(body);
-  if (!result.success)
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+  if (!result.success) throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
 
   const db = getDb(c.env.DB);
   const file = await db
@@ -2056,11 +1885,7 @@ app.post('/:id/move', async (c) => {
   const fileId = c.req.param('id');
   const body = await c.req.json();
   const result = moveFileSchema.safeParse(body);
-  if (!result.success)
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+  if (!result.success) throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
 
   const { targetParentId } = result.data;
   const moveResult = await serviceMoveFile(c.env, userId, fileId, { targetParentId });
@@ -2068,38 +1893,21 @@ app.post('/:id/move', async (c) => {
   if (!moveResult.success) {
     // ── 跨桶移动特殊处理 ──────────────────────────────────────
     if (moveResult.error === 'CROSS_BUCKET') {
-      return c.json(
-        {
-          success: false,
-          error: {
-            code: 'CROSS_BUCKET',
-            message: '目标文件夹位于不同存储桶，需要迁移文件内容',
-            sourceBucketId: moveResult.sourceBucketId,
-            targetBucketId: moveResult.targetBucketId,
-          },
-        },
-        409
-      );
+      throw new AppError('CROSS_BUCKET', {
+        message: '目标文件夹位于不同存储桶，需要迁移文件内容',
+        details: { sourceBucketId: moveResult.sourceBucketId, targetBucketId: moveResult.targetBucketId },
+      });
     }
     // ─────────────────────────────────────────────────────────
 
-    const errorMap: Record<string, string> = {
+    const errorMap: Record<string, ErrorCode> = {
       文件不存在或无权访问: 'FILE_NOT_FOUND',
       目标位置已存在同名文件: 'FILE_ALREADY_EXISTS',
       不能将文件夹移动到自身或其子文件夹中: 'CANNOT_MOVE_TO_SUBFOLDER',
       无权向目标目录移动文件: 'FORBIDDEN',
     };
-    const errorCode = errorMap[moveResult.error] ?? 'VALIDATION_ERROR';
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: (ERROR_CODES[errorCode as keyof typeof ERROR_CODES] ?? ERROR_CODES.VALIDATION_ERROR).code,
-          message: moveResult.error,
-        },
-      },
-      errorCode === 'FORBIDDEN' ? 403 : errorCode === 'FILE_ALREADY_EXISTS' ? 409 : 400
-    );
+    // 错误码自带 HTTP 状态（403/409/400），无需再按码名推断
+    throwAppError(errorMap[moveResult.error] ?? 'VALIDATION_ERROR', moveResult.error);
   }
 
   return c.json({ success: true, data: { message: '移动成功' } });
@@ -2283,7 +2091,7 @@ app.put('/:id/bucket', async (c) => {
 
   const targetBucketId = body?.bucketId as string | undefined;
   if (!targetBucketId) {
-    return c.json({ success: false, error: { code: 'VALIDATION_ERROR', message: '缺少 targetBucketId' } }, 400);
+    throwAppError('VALIDATION_ERROR', '缺少 targetBucketId');
   }
 
   // 验证文件夹存在且是文件夹
@@ -2308,7 +2116,7 @@ app.put('/:id/bucket', async (c) => {
     )
     .get();
   if (!targetBucket) {
-    return c.json({ success: false, error: { code: 'BUCKET_NOT_FOUND', message: '目标存储桶不存在或已停用' } }, 404);
+    throwAppError('BUCKET_NOT_FOUND', '目标存储桶不存在或已停用');
   }
 
   // ── 换桶护栏：只改元数据不会迁移物理对象 ──────────────────────────────
@@ -2331,17 +2139,10 @@ app.put('/:id/bucket', async (c) => {
 
   const inheritedCount = Number(inheritedFiles?.count ?? 0);
   if (inheritedCount > 0) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: 'BUCKET_SWITCH_REQUIRES_MIGRATION',
-          message: `该文件夹下有 ${inheritedCount} 个文件依赖继承存储桶，换桶不会迁移已有数据，请先迁移文件或逐个指定存储桶`,
-          inheritedFiles: inheritedCount,
-        },
-      },
-      409
-    );
+    throw new AppError('BUCKET_SWITCH_REQUIRES_MIGRATION', {
+      message: `该文件夹下有 ${inheritedCount} 个文件依赖继承存储桶，换桶不会迁移已有数据，请先迁移文件或逐个指定存储桶`,
+      details: { inheritedFiles: inheritedCount },
+    });
   }
 
   const now = new Date().toISOString();

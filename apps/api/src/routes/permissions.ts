@@ -25,7 +25,7 @@ import {
   roleTemplates,
 } from '../db';
 import { authMiddleware, denyApiKeyAuth } from '../middleware/auth';
-import { ERROR_CODES, logger } from '@osshelf/shared';
+import { logger } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import { pathPrefixCondition } from '../lib/pathUtils';
 import { teamRoleAllows } from '../lib/teamPolicy';
@@ -230,10 +230,7 @@ app.post('/grant', async (c) => {
   const body = await c.req.json();
   const result = grantPermissionSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const {
@@ -248,24 +245,15 @@ app.post('/grant', async (c) => {
   } = result.data;
 
   if (subjectType === 'user' && !targetUserId) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '用户ID不能为空' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '用户ID不能为空');
   }
 
   if (subjectType === 'group' && !groupId) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '用户组ID不能为空' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '用户组ID不能为空');
   }
 
   if (subjectType === 'team' && !teamId) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '团队ID不能为空' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '团队ID不能为空');
   }
 
   const db = getDb(c.env.DB);
@@ -496,10 +484,7 @@ app.post('/revoke', async (c) => {
   const body = await c.req.json();
   const result = revokePermissionSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { fileId, userId: targetUserId, groupId, teamId } = result.data;
@@ -566,10 +551,7 @@ app.post('/tags/create', async (c) => {
   });
   const result = createSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { name, color } = result.data;
@@ -582,7 +564,7 @@ app.post('/tags/create', async (c) => {
     .where(and(eq(fileTags.userId, userId), eq(fileTags.name, name)))
     .get();
   if (existing) {
-    return c.json({ success: false, error: { code: 'TAG_EXISTS', message: '标签名称已存在' } }, 409);
+    throwAppError('TAG_EXISTS', '标签名称已存在');
   }
 
   const tagId = crypto.randomUUID();
@@ -612,10 +594,7 @@ app.post('/tags/add', async (c) => {
   const body = await c.req.json();
   const result = addTagSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { fileId, name, color } = result.data;
@@ -658,10 +637,7 @@ app.post('/tags/remove', async (c) => {
   const body = await c.req.json();
   const result = removeTagSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { fileId, tagName } = result.data;
@@ -688,10 +664,7 @@ app.post('/tags/batch', async (c) => {
   const body = await c.req.json();
   const result = batchTagsSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { fileIds } = result.data;
@@ -831,19 +804,13 @@ app.put('/tags/rename', async (c) => {
   const result = renameTagSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { oldName, newName } = result.data;
 
   if (oldName === newName) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '新名称与原名称相同' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '新名称与原名称相同');
   }
 
   const db = getDb(c.env.DB);
@@ -856,7 +823,7 @@ app.put('/tags/rename', async (c) => {
     .get();
 
   if (existing) {
-    return c.json({ success: false, error: { code: 'TAG_EXISTS', message: `标签 "${newName}" 已存在` } }, 409);
+    throwAppError('TAG_EXISTS', `标签 "${newName}" 已存在`);
   }
 
   // 批量更新
@@ -928,10 +895,7 @@ app.patch('/:permissionId', async (c) => {
   const result = updatePermissionSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { permission, expiresAt } = result.data;
@@ -1063,10 +1027,7 @@ app.post('/requests', async (c) => {
   const body = await c.req.json();
   const result = createPermissionRequestSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   try {
@@ -1117,10 +1078,7 @@ app.put('/requests/:requestId/review', async (c) => {
   const body = await c.req.json();
   const result = reviewRequestSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   try {
@@ -1150,10 +1108,7 @@ app.post('/batch-grant', async (c) => {
   const body = await c.req.json();
   const result = batchGrantSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   try {
@@ -1178,10 +1133,7 @@ app.post('/batch-revoke', async (c) => {
   const body = await c.req.json();
   const result = batchRevokeSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   try {

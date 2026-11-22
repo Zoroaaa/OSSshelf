@@ -23,7 +23,6 @@ import { getDb, files, storageBuckets, telegramFileRefs } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { checkFilePermission } from './permissions';
 import {
-  ERROR_CODES,
   CODE_HIGHLIGHT_EXTENSIONS,
   ALL_OFFICE_MIME_TYPES,
   EPUB_MIME_TYPES,
@@ -225,10 +224,8 @@ app.get('/:id/raw', async (c) => {
   if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '文件夹无法预览');
 
   if (file.size > MAX_PREVIEW_SIZE) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.FILE_TOO_LARGE.code, message: '文件过大，无法在线预览' } },
-      400
-    );
+    // 这是「已有文件太大无法预览」，不是请求体过大，413 语义不贴切，保留 400
+    throwAppError('PREVIEW_TOO_LARGE', '文件过大，无法在线预览');
   }
 
   // ── Telegram 桶预览路径 ───────────────────────────────────────────────
@@ -237,10 +234,7 @@ app.get('/:id/raw', async (c) => {
     if (bkt?.provider === 'telegram') {
       const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, fileId)).get();
       if (!ref) {
-        return c.json(
-          { success: false, error: { code: 'TG_REF_NOT_FOUND', message: '未找到 Telegram 文件引用' } },
-          404
-        );
+        throwAppError('TG_REF_NOT_FOUND', '未找到 Telegram 文件引用');
       }
       const tgConfig = await resolveTgBucketConfig(db, file.bucketId, encKey);
       if (!tgConfig) {
@@ -282,7 +276,7 @@ app.get('/:id/raw', async (c) => {
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
   if (!bucketConfig) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶未配置' } }, 500);
+    throwAppError('NO_STORAGE_CONFIGURED', '存储桶未配置');
   }
 
   const s3Res = await s3Get(bucketConfig, file.r2Key);
@@ -335,10 +329,7 @@ app.get('/:id/stream', async (c) => {
 
   const { type } = isPreviewable(file.mimeType, file.name);
   if (!['image', 'video', 'audio', 'pdf'].includes(type)) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '该文件类型不支持流式预览' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '该文件类型不支持流式预览');
   }
 
   const range = c.req.header('Range');
@@ -349,10 +340,7 @@ app.get('/:id/stream', async (c) => {
     if (bkt?.provider === 'telegram') {
       const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, fileId)).get();
       if (!ref) {
-        return c.json(
-          { success: false, error: { code: 'TG_REF_NOT_FOUND', message: '未找到 Telegram 文件引用' } },
-          404
-        );
+        throwAppError('TG_REF_NOT_FOUND', '未找到 Telegram 文件引用');
       }
       const tgConfig = await resolveTgBucketConfig(db, file.bucketId, encKey);
       if (!tgConfig) {
@@ -397,7 +385,7 @@ app.get('/:id/stream', async (c) => {
   // ── S3/R2/OSS 等标准存储路径 ───────────────────────────────────
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
   if (!bucketConfig) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶未配置' } }, 500);
+    throwAppError('NO_STORAGE_CONFIGURED', '存储桶未配置');
   }
 
   const rangeHeader = range ? `bytes=${range.replace(/bytes=/, '')}` : undefined;
@@ -455,10 +443,7 @@ app.get('/:id/thumbnail', async (c) => {
   if (!file) throwAppError('FILE_NOT_FOUND');
 
   if (!file.mimeType?.startsWith('image/')) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '只支持图片文件生成缩略图' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '只支持图片文件生成缩略图');
   }
 
   // ── Telegram 桶预览路径 ───────────────────────────────────────────────
@@ -467,10 +452,7 @@ app.get('/:id/thumbnail', async (c) => {
     if (bkt?.provider === 'telegram') {
       const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, fileId)).get();
       if (!ref) {
-        return c.json(
-          { success: false, error: { code: 'TG_REF_NOT_FOUND', message: '未找到 Telegram 文件引用' } },
-          404
-        );
+        throwAppError('TG_REF_NOT_FOUND', '未找到 Telegram 文件引用');
       }
       const tgConfig = await resolveTgBucketConfig(db, file.bucketId, encKey);
       if (!tgConfig) {
@@ -496,7 +478,7 @@ app.get('/:id/thumbnail', async (c) => {
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
   if (!bucketConfig) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶未配置' } }, 500);
+    throwAppError('NO_STORAGE_CONFIGURED', '存储桶未配置');
   }
 
   const s3Res = await s3Get(bucketConfig, file.r2Key);

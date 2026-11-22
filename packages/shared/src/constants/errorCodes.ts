@@ -73,12 +73,17 @@ export const ERROR_CODES = {
   PASSWORD_TOO_WEAK: { code: 'A103', httpStatus: 400, message: '密码强度不足' },
   INVALID_NAME: { code: 'A104', httpStatus: 400, message: '用户名格式无效' },
   NAME_TOO_LONG: { code: 'A105', httpStatus: 400, message: '用户名过长' },
+  INVITE_CODE_REQUIRED: { code: 'A106', httpStatus: 400, message: '需要邀请码才能注册' },
+  INVITE_CODE_INVALID: { code: 'A107', httpStatus: 400, message: '邀请码无效或已过期' },
+  INVITE_CODE_USED: { code: 'A108', httpStatus: 400, message: '邀请码已被使用' },
 
   // 认证权限 A2xx
   LOGIN_LOCKED: { code: 'A200', httpStatus: 403, message: '账户已锁定，请稍后重试' },
   DEVICE_LIMIT_EXCEEDED: { code: 'A201', httpStatus: 403, message: '登录设备数量已达上限' },
   ACCOUNT_DISABLED: { code: 'A202', httpStatus: 403, message: '账户已被禁用' },
   ADMIN_REQUIRED: { code: 'A203', httpStatus: 403, message: '需要管理员权限' },
+  // 注册开关关闭：前端据此展示「注册已关闭」而不是通用失败
+  REGISTRATION_CLOSED: { code: 'A204', httpStatus: 403, message: '注册已关闭，请联系管理员' },
 
   // 认证状态 A4xx
   EMAIL_ALREADY_REGISTERED: { code: 'A400', httpStatus: 409, message: '该邮箱已被注册' },
@@ -140,6 +145,16 @@ export const ERROR_CODES = {
   BUCKET_QUOTA_EXCEEDED: { code: 'F504', httpStatus: 507, message: '存储桶配额已满' },
   NO_STORAGE_CONFIGURED: { code: 'F505', httpStatus: 500, message: '未配置存储桶' },
   PRESIGN_URL_FAILED: { code: 'F506', httpStatus: 500, message: '生成预签名URL失败' },
+  // 「用户还没配桶」是前置条件缺失（400），与 F505「服务端没有可用配置」（500）区分开
+  STORAGE_NOT_CONFIGURED: { code: 'F507', httpStatus: 400, message: '未配置存储桶，请先在存储桶管理中添加' },
+  STORAGE_FETCH_FAILED: { code: 'F508', httpStatus: 502, message: '从存储读取文件失败' },
+  STORAGE_AUDIT_FAILED: { code: 'F509', httpStatus: 500, message: '存储审计失败' },
+  STORAGE_AUDIT_NEEDED: { code: 'F510', httpStatus: 400, message: '请先执行审计获取孤儿文件列表' },
+  STORAGE_AUDIT_REQUIRED: { code: 'F511', httpStatus: 409, message: '请先执行一次存储审计' },
+  FILE_NOT_EDITABLE: { code: 'F512', httpStatus: 400, message: '该文件不支持在线编辑' },
+  PREVIEW_TOO_LARGE: { code: 'F513', httpStatus: 400, message: '文件过大，无法预览' },
+  FILE_EDIT_TOO_LARGE: { code: 'F515', httpStatus: 400, message: '文件过大，无法在线编辑' },
+  S3_ERROR: { code: 'F514', httpStatus: 500, message: '对象存储操作失败' },
 
   // ═══════════════════════════════════════════════════════════════
   // 分享模块 S0xx-S5xx
@@ -190,8 +205,13 @@ export const ERROR_CODES = {
 
   // 存储桶状态 B4xx
   BUCKET_ALREADY_EXISTS: { code: 'B400', httpStatus: 409, message: '存储桶已存在' },
-  BUCKET_IN_USE: { code: 'B401', httpStatus: 400, message: '存储桶正在使用中，无法删除' },
+  BUCKET_IN_USE: { code: 'B401', httpStatus: 409, message: '存储桶正在使用中，无法删除' },
   DEFAULT_BUCKET_EXISTS: { code: 'B402', httpStatus: 400, message: '已存在默认存储桶' },
+  BUCKET_IS_DEFAULT: { code: 'B403', httpStatus: 409, message: '默认存储桶不能删除' },
+  BUCKET_LAST_ACTIVE: { code: 'B404', httpStatus: 409, message: '至少需要保留一个可用存储桶' },
+  BUCKET_CONFIG_ERROR: { code: 'B405', httpStatus: 500, message: '存储桶配置异常' },
+  BUCKET_SWITCH_REQUIRES_MIGRATION: { code: 'B406', httpStatus: 409, message: '切换存储桶前需要完成迁移' },
+  CROSS_BUCKET: { code: 'B407', httpStatus: 409, message: '跨存储桶操作需要先迁移' },
 
   // ═══════════════════════════════════════════════════════════════
   // 用户模块 U0xx-U5xx
@@ -254,6 +274,7 @@ export const ERROR_CODES = {
   // 权限状态 P4xx
   PERMISSION_ALREADY_EXISTS: { code: 'P400', httpStatus: 409, message: '权限已存在' },
   CANNOT_MODIFY_OWNER_PERMISSION: { code: 'P401', httpStatus: 400, message: '不能修改所有者权限' },
+  TAG_EXISTS: { code: 'P402', httpStatus: 409, message: '标签已存在' },
 
   // ═══════════════════════════════════════════════════════════════
   // 版本控制模块 V0xx-V5xx
@@ -272,6 +293,7 @@ export const ERROR_CODES = {
   // 版本状态 V4xx
   VERSION_LIMIT_EXCEEDED: { code: 'V400', httpStatus: 400, message: '版本数量已达上限' },
   CANNOT_DELETE_CURRENT_VERSION: { code: 'V401', httpStatus: 400, message: '不能删除当前版本' },
+  VERSION_CLEANUP_FAILED: { code: 'V402', httpStatus: 500, message: '清理历史版本失败' },
 
   // ═══════════════════════════════════════════════════════════════
   // AI 模块 I0xx-I5xx
@@ -296,6 +318,7 @@ export const ERROR_CODES = {
   AI_TIMEOUT: { code: 'I500', httpStatus: 504, message: 'AI 模型响应超时' },
   AI_UPSTREAM_ERROR: { code: 'I501', httpStatus: 502, message: 'AI 上游服务异常' },
   AI_TOOL_FAILED: { code: 'I502', httpStatus: 500, message: 'AI 工具执行失败' },
+  DUPLICATE_MODEL: { code: 'I503', httpStatus: 409, message: '模型已存在' },
 
   // ═══════════════════════════════════════════════════════════════
   // 团队 / 用户组 / 邀请模块 TM0xx-TM5xx
@@ -343,6 +366,14 @@ export const ERROR_CODES = {
   TG_CONFIG_ERROR: { code: 'TG04', httpStatus: 500, message: 'Telegram配置错误' },
   TG_FILE_TOO_LARGE: { code: 'TG05', httpStatus: 413, message: '文件超过Telegram限制（最大2GB）' },
   TG_CHUNKED_DOWNLOAD_FAILED: { code: 'TG06', httpStatus: 502, message: 'Telegram分片下载失败' },
+  TG_REF_MISSING: { code: 'TG07', httpStatus: 500, message: 'Telegram 文件引用缺失' },
+  TG_BUCKET_NOT_FOUND: { code: 'TG08', httpStatus: 404, message: '找不到 Telegram 存储桶' },
+
+  // ═══════════════════════════════════════════════════════════════
+  // 系统 / 告警 X0xx
+  // ═══════════════════════════════════════════════════════════════
+  ALERT_NOT_CONFIGURED: { code: 'X001', httpStatus: 400, message: '告警未配置' },
+  ALERT_SEND_FAILED: { code: 'X002', httpStatus: 502, message: '告警发送失败' },
 } as const satisfies Record<string, ErrorInfo>;
 
 export type ErrorCode = keyof typeof ERROR_CODES;

@@ -13,7 +13,6 @@ import { eq, and, desc } from 'drizzle-orm';
 import { getDb, webhooks } from '../db';
 import { authMiddleware } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
-import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
@@ -66,23 +65,14 @@ app.post('/', async (c) => {
   const result = createWebhookSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { url, events, secret } = result.data;
 
   const invalidEvents = events.filter((e) => e !== '*' && !VALID_EVENTS.includes(e as WebhookEvent));
   if (invalidEvents.length > 0) {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: `无效的事件类型: ${invalidEvents.join(', ')}` },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', `无效的事件类型: ${invalidEvents.join(', ')}`);
   }
 
   const webhookSecret = secret || generateSecret();
@@ -183,30 +173,18 @@ app.put('/:id', async (c) => {
 
   if (body.url !== undefined) {
     if (!z.string().url().safeParse(body.url).success) {
-      return c.json(
-        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '请输入有效的 URL' } },
-        400
-      );
+      throwAppError('VALIDATION_ERROR', '请输入有效的 URL');
     }
     updateData.url = body.url;
   }
 
   if (body.events !== undefined) {
     if (!Array.isArray(body.events) || body.events.length === 0) {
-      return c.json(
-        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '至少选择一个事件' } },
-        400
-      );
+      throwAppError('VALIDATION_ERROR', '至少选择一个事件');
     }
     const invalidEvents = body.events.filter((e: string) => e !== '*' && !VALID_EVENTS.includes(e as WebhookEvent));
     if (invalidEvents.length > 0) {
-      return c.json(
-        {
-          success: false,
-          error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: `无效的事件类型: ${invalidEvents.join(', ')}` },
-        },
-        400
-      );
+      throwAppError('VALIDATION_ERROR', `无效的事件类型: ${invalidEvents.join(', ')}`);
     }
     updateData.events = JSON.stringify(body.events);
   }

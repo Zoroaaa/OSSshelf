@@ -13,7 +13,6 @@ import { eq, and, desc } from 'drizzle-orm';
 import { getDb, apiKeys } from '../db';
 import { authMiddleware, denyApiKeyAuth } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
-import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { sendNotification } from '../lib/notificationUtils';
@@ -72,31 +71,19 @@ app.post('/', async (c) => {
   const body = await c.req.json();
   const result = createApiKeySchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { name, scopes, expiresAt } = result.data;
 
   const invalidScopes = scopes.filter((s) => !VALID_SCOPES.includes(s));
   if (invalidScopes.length > 0) {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: `无效的权限: ${invalidScopes.join(', ')}` },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', `无效的权限: ${invalidScopes.join(', ')}`);
   }
 
   const user = c.get('user');
   if (scopes.includes('api_keys:read') && user?.role !== 'admin') {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.FORBIDDEN.code, message: '只有管理员可以授予 api_keys:read 权限' } },
-      403
-    );
+    throwAppError('FORBIDDEN', '只有管理员可以授予 api_keys:read 权限');
   }
 
   const rawKey = generateApiKey();
@@ -154,10 +141,7 @@ app.patch('/:id', async (c) => {
   const body = await c.req.json();
   const result = updateApiKeySchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { name, scopes, isActive } = result.data;
@@ -176,24 +160,12 @@ app.patch('/:id', async (c) => {
   if (scopes) {
     const invalidScopes = scopes.filter((s) => !VALID_SCOPES.includes(s));
     if (invalidScopes.length > 0) {
-      return c.json(
-        {
-          success: false,
-          error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: `无效的权限: ${invalidScopes.join(', ')}` },
-        },
-        400
-      );
+      throwAppError('VALIDATION_ERROR', `无效的权限: ${invalidScopes.join(', ')}`);
     }
 
     const user = c.get('user');
     if (scopes.includes('api_keys:read') && user?.role !== 'admin') {
-      return c.json(
-        {
-          success: false,
-          error: { code: ERROR_CODES.FORBIDDEN.code, message: '只有管理员可以授予 api_keys:read 权限' },
-        },
-        403
-      );
+      throwAppError('FORBIDDEN', '只有管理员可以授予 api_keys:read 权限');
     }
   }
 

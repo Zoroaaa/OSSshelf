@@ -16,11 +16,12 @@ import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
 import { getDb, files, fileTags, storageBuckets, searchHistory } from '../db';
 import type { DrizzleDb } from '../db';
 import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
-import { ERROR_CODES, logger } from '@osshelf/shared';
+import { logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { buildFolderPath } from '../lib/pathUtils';
 import { searchSimilarFiles, isAIConfigured } from '../lib/ai/vectorIndex';
+import { throwAppError } from '../middleware/error';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -116,10 +117,7 @@ app.get('/', async (c) => {
 
   const result = searchSchema.safeParse(params);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const searchParams = result.data;
@@ -388,10 +386,7 @@ app.post('/advanced', async (c) => {
   const result = advancedSearchSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { conditions: searchConditions, logic, sortBy, sortOrder, page, limit } = result.data;

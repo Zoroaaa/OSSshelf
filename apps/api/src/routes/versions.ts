@@ -15,7 +15,7 @@ import { eq, and, desc, sql, ne } from 'drizzle-orm';
 import { getDb, files, fileVersions } from '../db';
 import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
-import { ERROR_CODES, logger } from '@osshelf/shared';
+import { logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { checkFilePermission } from './permissions';
 import { z } from 'zod';
@@ -47,7 +47,7 @@ app.get('/:fileId/versions', async (c) => {
 
   const { hasAccess } = await checkFilePermission(db, fileId, userId!, 'read', c.env);
   if (!hasAccess) {
-    return c.json({ success: false, error: { code: ERROR_CODES.FORBIDDEN.code, message: '无权访问此文件' } }, 403);
+    throwAppError('FORBIDDEN', '无权访问此文件');
   }
 
   if (file.isFolder) {

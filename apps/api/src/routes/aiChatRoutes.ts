@@ -18,7 +18,8 @@ import { completeText } from '../lib/ai/modelRuntime';
 import { buildAgentInstanceName, issueWsTicket, WS_TICKET_TTL_MS } from '../agents/auth';
 import type { OSSShelfAgent } from '../agents/OSSShelfAgent';
 import type { Env, Variables } from '../types/env';
-import { ERROR_CODES, logger } from '@osshelf/shared';
+import { logger } from '@osshelf/shared';
+import { AppError, throwAppError } from '../middleware/error';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
@@ -40,10 +41,7 @@ app.post('/ws-ticket', async (c) => {
   const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : '';
 
   if (!sessionId) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '缺少 sessionId' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '缺少 sessionId');
   }
 
   const db = getDb(c.env.DB);
@@ -54,7 +52,7 @@ app.post('/ws-ticket', async (c) => {
     .get();
 
   if (!session) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '会话不存在' } }, 404);
+    throwAppError('NOT_FOUND', '会话不存在');
   }
 
   const ticket = await issueWsTicket(c.env, userId, sessionId);
@@ -143,10 +141,7 @@ app.get('/sessions', async (c) => {
     });
   } catch (error) {
     logger.error('AI Chat', 'Failed to get sessions', { userId }, error);
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message: '获取会话列表失败' }, data: [] },
-      500
-    );
+    throwAppError('INTERNAL_ERROR', '获取会话列表失败');
   }
 });
 
@@ -167,10 +162,7 @@ app.post('/sessions', async (c) => {
       .get();
 
     if (existing) {
-      return c.json(
-        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '会话 ID 已存在' } },
-        409
-      );
+      throwAppError('CONFLICT', '会话 ID 已存在');
     }
 
     const newSession = {
@@ -186,8 +178,9 @@ app.post('/sessions', async (c) => {
 
     return c.json({ success: true, data: newSession });
   } catch (error) {
+    if (error instanceof AppError) throw error;
     logger.error('AI Chat', 'Failed to create session', { userId }, error);
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message: '创建会话失败' } }, 500);
+    throwAppError('INTERNAL_ERROR', '创建会话失败');
   }
 });
 
@@ -198,7 +191,7 @@ app.put('/sessions/:sessionId', async (c) => {
   const title = typeof body?.title === 'string' ? body.title.trim() : '';
 
   if (!title) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '标题不能为空' } }, 400);
+    throwAppError('VALIDATION_ERROR', '标题不能为空');
   }
 
   try {
@@ -210,7 +203,7 @@ app.put('/sessions/:sessionId', async (c) => {
       .get();
 
     if (!existing) {
-      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '会话不存在' } }, 404);
+      throwAppError('NOT_FOUND', '会话不存在');
     }
 
     await db
@@ -220,8 +213,9 @@ app.put('/sessions/:sessionId', async (c) => {
 
     return c.json({ success: true, data: { id: sessionId, title } });
   } catch (error) {
+    if (error instanceof AppError) throw error;
     logger.error('AI Chat', 'Failed to update session', { userId, sessionId }, error);
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message: '更新会话失败' } }, 500);
+    throwAppError('INTERNAL_ERROR', '更新会话失败');
   }
 });
 
@@ -241,7 +235,7 @@ app.post('/sessions/:sessionId/title', async (c) => {
     .get();
 
   if (!session) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '会话不存在' } }, 404);
+    throwAppError('NOT_FOUND', '会话不存在');
   }
 
   try {
@@ -306,7 +300,7 @@ app.get('/sessions/:sessionId/export', async (c) => {
     .get();
 
   if (!session) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '会话不存在' } }, 404);
+    throwAppError('NOT_FOUND', '会话不存在');
   }
 
   const rows = await db
@@ -389,7 +383,7 @@ app.delete('/sessions', async (c) => {
     await db.delete(aiChatSessions).where(eq(aiChatSessions.userId, userId));
   } catch (error) {
     logger.error('AI Chat', 'Failed to clear sessions', { userId }, error);
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message: '清空会话失败' } }, 500);
+    throwAppError('INTERNAL_ERROR', '清空会话失败');
   }
 
   // ai_usage_events 保留：计费与审计口径
@@ -408,7 +402,7 @@ app.delete('/sessions/:sessionId', async (c) => {
     .get();
 
   if (!existing) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '会话不存在' } }, 404);
+    throwAppError('NOT_FOUND', '会话不存在');
   }
 
   try {
@@ -431,7 +425,7 @@ app.delete('/sessions/:sessionId', async (c) => {
     return c.json({ success: true, data: { message: '会话已删除' } });
   } catch (error) {
     logger.error('AI Chat', 'Failed to delete session', { userId, sessionId }, error);
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message: '删除会话失败' } }, 500);
+    throwAppError('INTERNAL_ERROR', '删除会话失败');
   }
 });
 
@@ -449,10 +443,7 @@ app.get('/memories', async (c) => {
     return c.json({ success: true, data: result });
   } catch (error) {
     logger.error('AI Chat', 'List memories failed', { userId }, error);
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message: '获取记忆列表失败' } },
-      500
-    );
+    throwAppError('INTERNAL_ERROR', '获取记忆列表失败');
   }
 });
 
@@ -463,10 +454,7 @@ app.post('/memories/batch-delete', async (c) => {
   const ids = rawIds.filter((id): id is string => typeof id === 'string' && id.length > 0).slice(0, 200);
 
   if (ids.length === 0) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '请提供记忆ID列表' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '请提供记忆ID列表');
   }
 
   try {
@@ -475,10 +463,7 @@ app.post('/memories/batch-delete', async (c) => {
     return c.json({ success: true, data: { deleted } });
   } catch (error) {
     logger.error('AI Chat', 'Batch delete memories failed', { userId, count: ids.length }, error);
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message: '批量删除记忆失败' } },
-      500
-    );
+    throwAppError('INTERNAL_ERROR', '批量删除记忆失败');
   }
 });
 
@@ -491,7 +476,7 @@ app.delete('/memories', async (c) => {
     return c.json({ success: true, data: { deleted } });
   } catch (error) {
     logger.error('AI Chat', 'Delete all memories failed', { userId }, error);
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message: '清空记忆失败' } }, 500);
+    throwAppError('INTERNAL_ERROR', '清空记忆失败');
   }
 });
 
@@ -503,12 +488,13 @@ app.delete('/memories/:id', async (c) => {
     const memory = new AgentMemory(c.env);
     const success = await memory.deleteMemory(memoryId, userId);
     if (!success) {
-      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '记忆不存在' } }, 404);
+      throwAppError('NOT_FOUND', '记忆不存在');
     }
     return c.json({ success: true });
   } catch (error) {
+    if (error instanceof AppError) throw error;
     logger.error('AI Chat', 'Delete memory failed', { userId, memoryId }, error);
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message: '删除记忆失败' } }, 500);
+    throwAppError('INTERNAL_ERROR', '删除记忆失败');
   }
 });
 

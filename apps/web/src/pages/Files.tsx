@@ -63,6 +63,7 @@ import {
   Wand2,
   MessageSquare,
 } from 'lucide-react';
+import { ERROR_CODES } from '@osshelf/shared';
 import type { FileItem } from '@osshelf/shared';
 import { cn, copyToClipboard, decodeFileName, getErrorMessage, runWithConcurrency } from '@/utils';
 
@@ -1873,13 +1874,13 @@ export default function Files() {
               {
                 onSuccess: () => setMoveFile(null),
                 onError: (error: any) => {
-                  // 检查是否为跨桶移动错误
-                  if (error?.response?.data?.error?.code === 'CROSS_BUCKET') {
+                  // 检查是否为跨桶移动错误；补充字段统一放在 error.details 里
+                  if (error?.response?.data?.error?.code === ERROR_CODES.CROSS_BUCKET.code) {
                     setCrossBucketMove({
                       fileIds: [moveFile.id],
-                      targetBucketId: error.response.data.error.targetBucketId,
+                      targetBucketId: error.response.data.error.details?.targetBucketId,
                       targetFolderId: selection.id ?? undefined,
-                      sourceBucketId: error.response.data.error.sourceBucketId,
+                      sourceBucketId: error.response.data.error.details?.sourceBucketId,
                     });
                     setMoveFile(null);
                   }

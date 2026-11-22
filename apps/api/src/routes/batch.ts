@@ -14,7 +14,7 @@ import { Hono } from 'hono';
 import { eq, and, isNull, isNotNull, inArray } from 'drizzle-orm';
 import { getDb, files } from '../db';
 import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
-import { ERROR_CODES, logger } from '@osshelf/shared';
+import { logger } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
@@ -66,10 +66,7 @@ app.post('/delete', async (c) => {
   const body = await c.req.json();
   const result = batchDeleteSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { fileIds } = result.data;
@@ -109,10 +106,7 @@ app.post('/move', async (c) => {
   const body = await c.req.json();
   const result = batchMoveSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { fileIds, targetParentId: rawTargetParentId } = result.data;
@@ -171,10 +165,7 @@ app.post('/rename', async (c) => {
   const body = await c.req.json();
   const result = batchRenameSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { items } = result.data;
@@ -214,10 +205,7 @@ app.post('/permanent-delete', async (c) => {
   const body = await c.req.json();
   const result = batchDeleteSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { fileIds } = result.data;
@@ -310,10 +298,7 @@ app.post('/restore', async (c) => {
   const body = await c.req.json();
   const result = batchDeleteSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { fileIds } = result.data;
@@ -348,10 +333,7 @@ app.post('/zip', async (c) => {
   const body = await c.req.json();
   const result = batchZipSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { fileIds, zipName = 'download' } = result.data;
@@ -377,16 +359,7 @@ app.post('/zip', async (c) => {
   try {
     assertZipLimits(fileRecords);
   } catch (error) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.VALIDATION_ERROR.code,
-          message: error instanceof Error ? error.message : 'ZIP 打包参数超出限制',
-        },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', error instanceof Error ? error.message : 'ZIP 打包参数超出限制');
   }
 
   const sources = fileRecords.map((file) => ({

@@ -25,8 +25,8 @@ import {
   aiMemories,
 } from '../db';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES, logger } from '@osshelf/shared';
-import { throwAppError } from '../middleware/error';
+import { logger } from '@osshelf/shared';
+import { AppError, throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { hashPassword } from '../lib/crypto';
@@ -127,10 +127,7 @@ app.patch('/users/:id', async (c) => {
   const body = await c.req.json();
   const result = patchUserSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const db = getDb(c.env.DB);
@@ -169,10 +166,7 @@ app.delete('/users/:id', async (c) => {
   const id = c.req.param('id');
 
   if (id === adminId) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '不能删除自己的账户' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '不能删除自己的账户');
   }
 
   const db = getDb(c.env.DB);
@@ -225,10 +219,7 @@ app.put('/registration', async (c) => {
   const body = await c.req.json();
   const result = registrationSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const current = await getRegConfig(c.env.KV);
@@ -494,10 +485,7 @@ app.put('/email/config', async (c) => {
   const result = emailConfigSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { apiKey, fromAddress, fromName } = result.data;
@@ -521,10 +509,7 @@ app.post('/email/test', async (c) => {
   const result = emailTestSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const userId = c.get('userId')!;
@@ -539,7 +524,7 @@ app.post('/email/test', async (c) => {
 
   const configStr = await c.env.KV.get('config:resend');
   if (!configStr) {
-    return c.json({ success: false, error: { code: 'EMAIL_NOT_CONFIGURED', message: '邮件服务未配置' } }, 500);
+    throwAppError('EMAIL_NOT_CONFIGURED', '邮件服务未配置');
   }
 
   const config = JSON.parse(configStr) as { apiKey: string; fromAddress: string; fromName: string };
@@ -568,10 +553,7 @@ app.post('/email/test', async (c) => {
     if (!res.ok) {
       const error = await res.text();
       logger.error('ADMIN', 'Resend API错误', { status: res.status, error });
-      return c.json(
-        { success: false, error: { code: 'EMAIL_SEND_FAILED', message: `邮件发送失败: ${res.status}` } },
-        500
-      );
+      throwAppError('EMAIL_SEND_FAILED', `邮件发送失败: ${res.status}`);
     }
 
     await createAuditLog({
@@ -586,8 +568,9 @@ app.post('/email/test', async (c) => {
 
     return c.json({ success: true, data: { message: `测试邮件已发送到 ${to}` } });
   } catch (error) {
+    if (error instanceof AppError) throw error;
     logger.error('ADMIN', '邮件测试失败', {}, error);
-    return c.json({ success: false, error: { code: 'EMAIL_SEND_FAILED', message: '邮件发送失败' } }, 500);
+    throwAppError('EMAIL_SEND_FAILED', '邮件发送失败');
   }
 });
 
@@ -596,17 +579,14 @@ app.post('/email/broadcast', async (c) => {
   const result = emailBroadcastSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { subject, body: emailBody, userFilter } = result.data;
 
   const configStr = await c.env.KV.get('config:resend');
   if (!configStr) {
-    return c.json({ success: false, error: { code: 'EMAIL_NOT_CONFIGURED', message: '邮件服务未配置' } }, 500);
+    throwAppError('EMAIL_NOT_CONFIGURED', '邮件服务未配置');
   }
 
   const config = JSON.parse(configStr) as { apiKey: string; fromAddress: string; fromName: string };
@@ -822,7 +802,7 @@ app.get('/ai/traces/:traceId', async (c) => {
 
   const session = await db.select().from(aiChatSessions).where(eq(aiChatSessions.id, sessionId)).get();
   if (!session) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '执行记录不存在' } }, 404);
+    throwAppError('NOT_FOUND', '执行记录不存在');
   }
 
   const messages = await db
@@ -949,13 +929,7 @@ app.get('/storage-audit', async (c) => {
     return c.json({ success: true, data: report });
   } catch (error) {
     logger.error('STORAGE_AUDIT', '存储审计执行失败', {}, error);
-    return c.json(
-      {
-        success: false,
-        error: { code: 'AUDIT_FAILED', message: `存储审计执行失败: ${(error as Error).message}` },
-      },
-      500
-    );
+    throwAppError('STORAGE_AUDIT_FAILED', `存储审计执行失败: ${(error as Error).message}`);
   }
 });
 
@@ -1052,13 +1026,7 @@ app.post('/storage-audit/force', async (c) => {
     return c.json({ success: true, data: report });
   } catch (error) {
     logger.error('STORAGE_AUDIT', '强制存储审计执行失败', {}, error);
-    return c.json(
-      {
-        success: false,
-        error: { code: 'AUDIT_FAILED', message: `存储审计执行失败: ${(error as Error).message}` },
-      },
-      500
-    );
+    throwAppError('STORAGE_AUDIT_FAILED', `存储审计执行失败: ${(error as Error).message}`);
   }
 });
 
@@ -1077,13 +1045,13 @@ app.post('/storage-audit/cleanup-orphans', async (c) => {
   };
 
   if (!body.bucketId) {
-    return c.json({ success: false, error: { code: 'BAD_REQUEST', message: '缺少 bucketId' } }, 400);
+    throwAppError('INVALID_REQUEST', '缺少 bucketId');
   }
 
   const db = getDb(c.env.DB);
   const bucket = await db.select().from(storageBuckets).where(eq(storageBuckets.id, body.bucketId)).get();
   if (!bucket) {
-    return c.json({ success: false, error: { code: 'NOT_FOUND', message: '存储桶不存在' } }, 404);
+    throwAppError('NOT_FOUND', '存储桶不存在');
   }
 
   const encKey = getEncryptionKey(c.env);
@@ -1091,13 +1059,7 @@ app.post('/storage-audit/cleanup-orphans', async (c) => {
   try {
     config = await makeBucketConfigAsync(bucket, encKey, db);
   } catch (error) {
-    return c.json(
-      {
-        success: false,
-        error: { code: 'BUCKET_CONFIG_ERROR', message: `无法解析存储桶配置: ${(error as Error).message}` },
-      },
-      500
-    );
+    throwAppError('BUCKET_CONFIG_ERROR', `无法解析存储桶配置: ${(error as Error).message}`);
   }
 
   let keysToDelete: string[] = [];
@@ -1108,7 +1070,7 @@ app.post('/storage-audit/cleanup-orphans', async (c) => {
     const report = await performStorageAudit({ DB: c.env.DB, KV: c.env.KV, JWT_SECRET: c.env.JWT_SECRET });
     const bucketResult = report.buckets.find((b) => b.bucketId === body.bucketId);
     if (!bucketResult || !bucketResult.connected) {
-      return c.json({ success: false, error: { code: 'AUDIT_NEEDED', message: '请先执行审计获取孤儿文件列表' } }, 400);
+      throwAppError('STORAGE_AUDIT_NEEDED', '请先执行审计获取孤儿文件列表');
     }
     keysToDelete = bucketResult.orphanFiles.map((f) => f.r2Key);
   }
@@ -1171,18 +1133,18 @@ app.get('/storage-audit/missing-files/:bucketId', async (c) => {
 
   const bucket = await db.select().from(storageBuckets).where(eq(storageBuckets.id, bucketId)).get();
   if (!bucket) {
-    return c.json({ success: false, error: { code: 'NOT_FOUND', message: '存储桶不存在' } }, 404);
+    throwAppError('NOT_FOUND', '存储桶不存在');
   }
 
   // 以最近一次审计报告的比对结果为准，只返回真正缺失的记录。
   // 旧实现没有做对象比对，把桶内所有文件都当成「丢失」，数字会非常吓人且完全失真。
   const report = await getLastAuditReport(c.env.KV);
   if (!report) {
-    return c.json({ success: false, error: { code: 'AUDIT_REQUIRED', message: '请先执行一次存储审计' } }, 409);
+    throwAppError('STORAGE_AUDIT_REQUIRED', '请先执行一次存储审计');
   }
   const bucketResult = report.buckets.find((b) => b.bucketId === bucketId);
   if (!bucketResult) {
-    return c.json({ success: false, error: { code: 'NOT_FOUND', message: '该存储桶不在最近一次审计结果中' } }, 404);
+    throwAppError('NOT_FOUND', '该存储桶不在最近一次审计结果中');
   }
 
   const missingFileIds = [
