@@ -13,7 +13,6 @@ import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, teamMembers, teamResources, files, users } from '../db';
 import { authMiddleware, denyApiKeyAuth } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
-import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
@@ -96,28 +95,13 @@ app.post('/', async (c) => {
   const parseResult = createTeamSchema.safeParse(body);
 
   if (!parseResult.success) {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: parseResult.error.issues[0].message },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', parseResult.error.issues[0].message);
   }
 
   const result = await createTeam(c.env, userId, parseResult.data);
 
   if (!result.success) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.VALIDATION_ERROR.code,
-          message: (result as { success: false; error: string }).error,
-        },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', (result as { success: false; error: string }).error);
   }
 
   const successResult = result as { success: true; teamId: string; message: string };
@@ -172,13 +156,7 @@ app.put('/:id', async (c) => {
   const parseResult = updateTeamSchema.safeParse(body);
 
   if (!parseResult.success) {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: parseResult.error.issues[0].message },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', parseResult.error.issues[0].message);
   }
 
   const result = await updateTeam(c.env, userId, teamId, parseResult.data);
@@ -240,13 +218,7 @@ app.post('/:id/transfer', async (c) => {
   const parseResult = transferOwnershipSchema.safeParse(await c.req.json());
 
   if (!parseResult.success) {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: parseResult.error.issues[0].message },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', parseResult.error.issues[0].message);
   }
 
   const result = await transferTeamOwnership(c.env, userId, teamId, parseResult.data.targetUserId);
@@ -320,13 +292,7 @@ app.post('/:id/members', async (c) => {
   const parseResult = addMemberSchema.safeParse(body);
 
   if (!parseResult.success) {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: parseResult.error.issues[0].message },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', parseResult.error.issues[0].message);
   }
 
   const { userId: targetUserId, role } = parseResult.data;
@@ -339,10 +305,7 @@ app.post('/:id/members', async (c) => {
 
   if ('error' in result && !result.success) {
     if ('alreadyMember' in result && result.alreadyMember) {
-      return c.json(
-        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '用户已是团队成员' } },
-        400
-      );
+      throwAppError('VALIDATION_ERROR', '用户已是团队成员');
     }
     throwAppError('MEMBER_ADD_FAILED', (result as { success: false; error: string }).error);
   }
@@ -399,13 +362,7 @@ app.put('/:id/members/:memberUserId/role', async (c) => {
   const parseResult = changeRoleSchema.safeParse(body);
 
   if (!parseResult.success) {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: parseResult.error.issues[0].message },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', parseResult.error.issues[0].message);
   }
 
   const result = await manageTeamMembers(c.env, userId, teamId, {
@@ -444,13 +401,7 @@ app.post('/:id/resources', async (c) => {
   const parseResult = mountResourceSchema.safeParse(body);
 
   if (!parseResult.success) {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: parseResult.error.issues[0].message },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', parseResult.error.issues[0].message);
   }
 
   const result = await mountResourceToTeam(c.env, userId, teamId, parseResult.data.fileId, {
@@ -585,13 +536,7 @@ app.post('/:id/invites', async (c) => {
   });
   const parseResult = createInviteSchema.safeParse(body);
   if (!parseResult.success) {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: parseResult.error.issues[0].message },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', parseResult.error.issues[0].message);
   }
 
   // 从请求头构建真实 baseUrl（优先 Origin，其次 Host）
@@ -663,7 +608,7 @@ app.get('/:id/invites/all', async (c) => {
 
   // 验证状态参数合法性
   if (status && !['pending', 'accepted', 'expired', 'revoked'].includes(status)) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '无效的状态值' } }, 400);
+    throwAppError('VALIDATION_ERROR', '无效的状态值');
   }
 
   const invites = await listAllInvites(db, teamId, status);
@@ -768,11 +713,7 @@ app.post('/:id/workspace/folder', async (c) => {
 
   const nameSchema = z.object({ name: z.string().min(1).max(255), parentId: z.string().nullable().optional() });
   const result = nameSchema.safeParse(body);
-  if (!result.success)
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+  if (!result.success) throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
 
   const { name: rawName, parentId: rawParentId } = result.data;
   // 统一入口：文件夹名 / 父目录先校验、规范化（团队路径使用 /teams/<teamId>/ 命名空间）

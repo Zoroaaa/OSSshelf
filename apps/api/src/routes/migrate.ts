@@ -30,7 +30,7 @@ import { Hono } from 'hono';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { getDb, files, fileVersions, storageBuckets, telegramFileRefs } from '../db';
 import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
-import { ERROR_CODES, logger, MAX_BUFFERED_TRANSFER_BYTES } from '@osshelf/shared';
+import { logger, MAX_BUFFERED_TRANSFER_BYTES } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import { getEncryptionKey } from '../lib/crypto';
 import { s3Get, s3Put, decryptSecret, makeBucketConfigAsync } from '../lib/s3client';
@@ -228,10 +228,7 @@ app.post('/start', async (c) => {
   const body = await c.req.json();
   const result = startMigrateSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const {
@@ -253,29 +250,17 @@ app.post('/start', async (c) => {
       .where(and(eq(files.id, fileIds[0]), eq(files.userId, userId), isNull(files.deletedAt)))
       .get();
     if (!sample?.bucketId) {
-      return c.json(
-        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '无法从指定文件推断来源存储桶' } },
-        400
-      );
+      throwAppError('VALIDATION_ERROR', '无法从指定文件推断来源存储桶');
     }
     sourceBucketId = sample.bucketId;
   }
 
   if (!sourceBucketId) {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '必须提供 sourceBucketId 或 fileIds' },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '必须提供 sourceBucketId 或 fileIds');
   }
 
   if (sourceBucketId === targetBucketId) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '来源和目标存储桶不能相同' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '来源和目标存储桶不能相同');
   }
 
   // 两个桶都必须属于当前用户且激活
@@ -305,13 +290,7 @@ app.post('/start', async (c) => {
     srcBucket.bucketName === tgtBucket.bucketName &&
     (srcBucket.endpoint ?? '') === (tgtBucket.endpoint ?? '')
   ) {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '来源和目标指向同一个物理存储桶，无需迁移' },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '来源和目标指向同一个物理存储桶，无需迁移');
   }
 
   // 目标目录必须是当前用户未删除的文件夹
@@ -324,10 +303,7 @@ app.post('/start', async (c) => {
       )
       .get();
     if (!folder) {
-      return c.json(
-        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '目标文件夹不存在或无权访问' } },
-        400
-      );
+      throwAppError('VALIDATION_ERROR', '目标文件夹不存在或无权访问');
     }
   }
 
@@ -340,10 +316,7 @@ app.post('/start', async (c) => {
 
   const rows = await loadFileRows(db, userId, sourceBucketId, candidateIds);
   if (rows.length === 0) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '没有找到可迁移的文件' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '没有找到可迁移的文件');
   }
 
   const now = new Date().toISOString();
@@ -434,13 +407,7 @@ app.post('/:migrationId/cancel', async (c) => {
 
   const status: MigrationStatus = JSON.parse(raw);
   if (status.status !== 'running') {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: `任务状态为 ${status.status}，无法取消` },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', `任务状态为 ${status.status}，无法取消`);
   }
 
   status.status = 'cancelled';

@@ -36,7 +36,7 @@ import { openFileStream } from '../lib/fileContentHelper';
 import { encodeFilename } from '../lib/utils';
 import { buildFilePath, buildTeamFilePath, normalizeEntryName } from '../lib/pathUtils';
 import { sliceReadableStream } from '../lib/streamUtils';
-import { throwAppError } from '../middleware/error';
+import { throwAppError, throwApiError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createNotification } from '../lib/notificationUtils';
@@ -293,10 +293,7 @@ app.post('/', authMiddleware, requireApiKeyScope('shares:read', 'shares:write'),
   const body = await c.req.json();
   const result = createShareSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { fileId, password, expiresAt, downloadLimit } = result.data;
@@ -309,7 +306,7 @@ app.post('/', authMiddleware, requireApiKeyScope('shares:read', 'shares:write'),
   if (!serviceResult.success) {
     if (serviceResult.error === '无权分享此文件') throwAppError('FILE_ACCESS_DENIED', serviceResult.error);
     if (serviceResult.error === '文件不存在') throwAppError('FILE_NOT_FOUND');
-    return c.json({ success: false, error: serviceResult.error }, 400);
+    throwAppError('INVALID_REQUEST', serviceResult.error);
   }
 
   c.executionCtx.waitUntil(
@@ -385,10 +382,7 @@ app.post('/upload-link', authMiddleware, requireApiKeyScope('shares:read', 'shar
   const body = await c.req.json();
   const result = createUploadLinkSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { folderId, password, expiresAt, maxUploadSize, allowedMimeTypes, maxUploadCount } = result.data;
@@ -438,7 +432,7 @@ app.post('/:id', async (c) => {
 
   const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
-    return c.json({ success: false, error: resolved.error }, resolved.status);
+    throwApiError(resolved.error!);
   }
 
   const { share } = resolved;
@@ -550,7 +544,7 @@ app.post('/:id/folder/:folderId', async (c) => {
 
   const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
-    return c.json({ success: false, error: resolved.error }, resolved.status);
+    throwApiError(resolved.error!);
   }
 
   const { share } = resolved;
@@ -621,7 +615,7 @@ app.get('/:id/preview', async (c) => {
 
   const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
-    return c.json({ success: false, error: resolved.error }, resolved.status);
+    throwApiError(resolved.error!);
   }
 
   const { share } = resolved;
@@ -634,17 +628,12 @@ app.get('/:id/preview', async (c) => {
   if (!file) throwAppError('FILE_NOT_FOUND');
 
   if (!isPreviewableMimeType(file.mimeType, file.name)) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '该文件类型不支持预览' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '该文件类型不支持预览');
   }
 
   if (file.size > MAX_PREVIEW_SIZE && !file.mimeType?.startsWith('video/') && !file.mimeType?.startsWith('audio/')) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.FILE_TOO_LARGE.code, message: '文件过大，请下载后查看' } },
-      400
-    );
+    // 这是「已有文件太大无法预览」，不是请求体过大，413 语义不贴切，保留 400
+    throwAppError('PREVIEW_TOO_LARGE', '文件过大，请下载后查看');
   }
 
   try {
@@ -665,7 +654,7 @@ app.get('/:id/stream', async (c) => {
 
   const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
-    return c.json({ success: false, error: resolved.error }, resolved.status);
+    throwApiError(resolved.error!);
   }
 
   const { share } = resolved;
@@ -678,10 +667,7 @@ app.get('/:id/stream', async (c) => {
   if (!file) throwAppError('FILE_NOT_FOUND');
 
   if (!file.mimeType?.startsWith('video/') && !file.mimeType?.startsWith('audio/')) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '仅支持视频/音频流式预览' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '仅支持视频/音频流式预览');
   }
 
   const encKey = getEncryptionKey(c.env);
@@ -778,7 +764,7 @@ app.get('/:id/raw', async (c) => {
 
   const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
-    return c.json({ success: false, error: resolved.error }, resolved.status);
+    throwApiError(resolved.error!);
   }
 
   const { share } = resolved;
@@ -798,17 +784,12 @@ app.get('/:id/raw', async (c) => {
     file.mimeType === 'application/typescript';
 
   if (!isTextFile) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '仅支持文本文件预览' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '仅支持文本文件预览');
   }
 
   if (file.size > MAX_PREVIEW_SIZE) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.FILE_TOO_LARGE.code, message: '文件过大，请下载后查看' } },
-      400
-    );
+    // 这是「已有文件太大无法预览」，不是请求体过大，413 语义不贴切，保留 400
+    throwAppError('PREVIEW_TOO_LARGE', '文件过大，请下载后查看');
   }
 
   const encKey = getEncryptionKey(c.env);
@@ -837,7 +818,7 @@ app.get('/:id/preview-info', async (c) => {
 
   const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
-    return c.json({ success: false, error: resolved.error }, resolved.status);
+    throwApiError(resolved.error!);
   }
 
   const { share } = resolved;
@@ -873,7 +854,7 @@ app.get('/:id/download', async (c) => {
 
   const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
-    return c.json({ success: false, error: resolved.error }, resolved.status);
+    throwApiError(resolved.error!);
   }
 
   const { share } = resolved;
@@ -885,10 +866,7 @@ app.get('/:id/download', async (c) => {
     .get();
   if (!file) throwAppError('FILE_NOT_FOUND');
   if (file.isFolder) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '文件夹请使用 /zip 端点下载' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '文件夹请使用 /zip 端点下载');
   }
 
   const atomicIncrement = await db
@@ -897,10 +875,7 @@ app.get('/:id/download', async (c) => {
     .where(and(eq(shares.id, shareId), sql`(download_limit IS NULL OR download_count < download_limit)`))
     .run();
   if (atomicIncrement.meta.changes === 0) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.SHARE_DOWNLOAD_LIMIT_EXCEEDED.code, message: '下载次数已达上限' } },
-      403
-    );
+    throwAppError('SHARE_DOWNLOAD_LIMIT_EXCEEDED', '下载次数已达上限');
   }
 
   try {
@@ -950,7 +925,7 @@ app.get('/:id/zip', async (c) => {
 
   const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
-    return c.json({ success: false, error: resolved.error }, resolved.status);
+    throwApiError(resolved.error!);
   }
 
   const { share } = resolved;
@@ -987,30 +962,12 @@ app.get('/:id/zip', async (c) => {
   // 安全限制：单次 ZIP 最多 200 个文件（总量受 ZIP32 4GB 上限约束）
   const MAX_ZIP_FILES = 200;
   if (entries.length > MAX_ZIP_FILES) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.VALIDATION_ERROR.code,
-          message: `ZIP 打包最多 ${MAX_ZIP_FILES} 个文件，当前 ${entries.length} 个`,
-        },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', `ZIP 打包最多 ${MAX_ZIP_FILES} 个文件，当前 ${entries.length} 个`);
   }
   try {
     assertZipLimits(entries.map((e) => e.file));
   } catch (error) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.VALIDATION_ERROR.code,
-          message: error instanceof Error ? error.message : 'ZIP 打包参数超出限制',
-        },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', error instanceof Error ? error.message : 'ZIP 打包参数超出限制');
   }
 
   // 更新下载计数（整个 ZIP 算一次下载）— 原子操作，防止超额下载
@@ -1020,10 +977,7 @@ app.get('/:id/zip', async (c) => {
     .where(and(eq(shares.id, shareId), sql`(download_limit IS NULL OR download_count < download_limit)`))
     .run();
   if (atomicIncrement.meta.changes === 0) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.SHARE_DOWNLOAD_LIMIT_EXCEEDED.code, message: '下载次数已达上限' } },
-      403
-    );
+    throwAppError('SHARE_DOWNLOAD_LIMIT_EXCEEDED', '下载次数已达上限');
   }
 
   // 流式打包：文件内容不进入 Worker 内存
@@ -1054,7 +1008,7 @@ app.get('/:id/file/:fileId/download', async (c) => {
 
   const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
-    return c.json({ success: false, error: resolved.error }, resolved.status);
+    throwApiError(resolved.error!);
   }
 
   const { share } = resolved;
@@ -1101,7 +1055,7 @@ app.get('/:id/file/:fileId/preview', async (c) => {
 
   const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
-    return c.json({ success: false, error: resolved.error }, resolved.status);
+    throwApiError(resolved.error!);
   }
 
   const { share } = resolved;
@@ -1124,10 +1078,7 @@ app.get('/:id/file/:fileId/preview', async (c) => {
   }
 
   if (!isPreviewableMimeType(childFile.mimeType, childFile.name)) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '该文件类型不支持预览' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '该文件类型不支持预览');
   }
 
   if (
@@ -1135,10 +1086,8 @@ app.get('/:id/file/:fileId/preview', async (c) => {
     !childFile.mimeType?.startsWith('video/') &&
     !childFile.mimeType?.startsWith('audio/')
   ) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.FILE_TOO_LARGE.code, message: '文件过大，请下载后查看' } },
-      400
-    );
+    // 这是「已有文件太大无法预览」，不是请求体过大，413 语义不贴切，保留 400
+    throwAppError('PREVIEW_TOO_LARGE', '文件过大，请下载后查看');
   }
 
   try {
@@ -1147,7 +1096,7 @@ app.get('/:id/file/:fileId/preview', async (c) => {
       headers: { 'Content-Type': childFile.mimeType!, 'Cache-Control': 'private, max-age=300' },
     });
   } catch (e: any) {
-    return c.json({ success: false, error: { code: 'FETCH_FAILED', message: e?.message } }, 502);
+    throwAppError('STORAGE_FETCH_FAILED', e?.message);
   }
 });
 
@@ -1161,7 +1110,7 @@ app.get('/:id/file/:fileId/stream', async (c) => {
 
   const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
-    return c.json({ success: false, error: resolved.error }, resolved.status);
+    throwApiError(resolved.error!);
   }
 
   const { share } = resolved;
@@ -1269,7 +1218,7 @@ app.get('/:id/file/:fileId/stream', async (c) => {
       },
     });
   } catch (e: any) {
-    return c.json({ success: false, error: { code: 'FETCH_FAILED', message: e?.message } }, 502);
+    throwAppError('STORAGE_FETCH_FAILED', e?.message);
   }
 });
 
@@ -1283,7 +1232,7 @@ app.get('/:id/file/:fileId/raw', async (c) => {
 
   const resolved = await resolveDownloadShare(db, shareId, password, c.env);
   if ('error' in resolved) {
-    return c.json({ success: false, error: resolved.error }, resolved.status);
+    throwApiError(resolved.error!);
   }
 
   const { share } = resolved;
@@ -1313,17 +1262,12 @@ app.get('/:id/file/:fileId/raw', async (c) => {
     childFile.mimeType === 'application/typescript';
 
   if (!isTextFile) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '仅支持文本文件预览' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '仅支持文本文件预览');
   }
 
   if (childFile.size > MAX_PREVIEW_SIZE) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.FILE_TOO_LARGE.code, message: '文件过大，请下载后查看' } },
-      400
-    );
+    // 这是「已有文件太大无法预览」，不是请求体过大，413 语义不贴切，保留 400
+    throwAppError('PREVIEW_TOO_LARGE', '文件过大，请下载后查看');
   }
 
   const encKey = getEncryptionKey(c.env);
@@ -1340,7 +1284,7 @@ app.get('/:id/file/:fileId/raw', async (c) => {
     }
     return c.json({ success: true, data: { content: text, mimeType: childFile.mimeType } });
   } catch (e: any) {
-    return c.json({ success: false, error: { code: 'FETCH_FAILED', message: e?.message } }, 502);
+    throwAppError('STORAGE_FETCH_FAILED', e?.message);
   }
 });
 
@@ -1357,7 +1301,7 @@ app.get('/upload/:token', async (c) => {
 
   const resolved = await resolveUploadShare(db, token, password, c.env);
   if ('error' in resolved) {
-    return c.json({ success: false, error: resolved.error }, resolved.status);
+    throwApiError(resolved.error!);
   }
 
   const { share } = resolved;
@@ -1394,28 +1338,13 @@ app.post('/upload/:token', async (c) => {
   const token = c.req.param('token');
   const contentType = c.req.header('Content-Type') || '';
   if (!contentType.includes('multipart/form-data')) {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '请使用 multipart/form-data 格式上传' },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '请使用 multipart/form-data 格式上传');
   }
 
   // 先看 Content-Length，避免超大请求进入 formData() 全量缓冲
   const declaredLength = Number(c.req.header('Content-Length') || '0');
   if (Number.isFinite(declaredLength) && declaredLength > MAX_BUFFERED_TRANSFER_BYTES + 1024 * 1024) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.FILE_TOO_LARGE.code,
-          message: `单次上传上限 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB`,
-        },
-      },
-      413
-    );
+    throwAppError('FILE_TOO_LARGE', `单次上传上限 ${MAX_BUFFERED_TRANSFER_BYTES / 1024 / 1024}MB`);
   }
 
   const formData = await c.req.formData();
@@ -1448,13 +1377,7 @@ app.post('/upload/:token', async (c) => {
     .get();
 
   if ((failedAttempts?.cnt ?? 0) >= 10) {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.RATE_LIMIT_EXCEEDED.code, message: '密码错误次数过多，请稍后再试' },
-      },
-      429
-    );
+    throwAppError('RATE_LIMIT_EXCEEDED', '密码错误次数过多，请稍后再试');
   }
 
   const resolved = await resolveUploadShare(db, token, password ?? undefined, c.env);
@@ -1469,7 +1392,7 @@ app.post('/upload/:token', async (c) => {
         createdAt: new Date().toISOString(),
       });
     }
-    return c.json({ success: false, error: resolved.error }, resolved.status);
+    throwApiError(resolved.error!);
   }
 
   const { share } = resolved;
@@ -1477,16 +1400,7 @@ app.post('/upload/:token', async (c) => {
   // 检查文件大小（同时受网关内存硬上限约束，避免 Worker OOM）
   const maxSize = Math.min(share.maxUploadSize ?? MAX_FILE_SIZE, MAX_BUFFERED_TRANSFER_BYTES);
   if (uploadFile.size > maxSize) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.FILE_TOO_LARGE.code,
-          message: `文件大小超过限制（此链接最大 ${(maxSize / 1024 / 1024).toFixed(0)}MB）`,
-        },
-      },
-      413
-    );
+    throwAppError('FILE_TOO_LARGE', `文件大小超过限制（此链接最大 ${(maxSize / 1024 / 1024).toFixed(0)}MB）`);
   }
 
   // 检查 MIME 类型（优先使用上传链接自身的限制，其次继承文件夹限制）
@@ -1500,31 +1414,13 @@ app.post('/upload/:token', async (c) => {
       m.endsWith('/*') ? fileMime.startsWith(m.slice(0, -1)) : m === fileMime
     );
     if (!allowed) {
-      return c.json(
-        {
-          success: false,
-          error: {
-            code: ERROR_CODES.VALIDATION_ERROR.code,
-            message: `此上传链接仅允许上传以下类型的文件: ${parsedLinkMimes.join(', ')}`,
-          },
-        },
-        400
-      );
+      throwAppError('VALIDATION_ERROR', `此上传链接仅允许上传以下类型的文件: ${parsedLinkMimes.join(', ')}`);
     }
   } else {
     // 继承文件夹 allowedMimeTypes 限制
     const mimeCheck = await checkFolderMimeTypeRestriction(db, share.fileId, fileMime);
     if (!mimeCheck.allowed) {
-      return c.json(
-        {
-          success: false,
-          error: {
-            code: ERROR_CODES.VALIDATION_ERROR.code,
-            message: `目标文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
-          },
-        },
-        400
-      );
+      throwAppError('VALIDATION_ERROR', `目标文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`);
     }
   }
 
@@ -1575,16 +1471,8 @@ app.post('/upload/:token', async (c) => {
     .returning({ uploadCount: shares.uploadCount });
 
   if (reservation.length === 0) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.VALIDATION_ERROR.code,
-          message: `此上传链接最多允许上传 ${share.maxUploadCount} 个文件，已达上限`,
-        },
-      },
-      403
-    );
+    // 上传次数达上限用专用码（S005/403），不要退化成参数错误（G100/400）
+    throwAppError('SHARE_UPLOAD_LIMIT_EXCEEDED', `此上传链接最多允许上传 ${share.maxUploadCount} 个文件，已达上限`);
   }
   const newUploadCount = reservation[0].uploadCount;
 

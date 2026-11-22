@@ -14,7 +14,6 @@ import { eq, and, inArray } from 'drizzle-orm';
 import { getDb, uploadTasks, storageBuckets, files, telegramFileRefs, telegramFileChunks } from '../db';
 import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
 import {
-  ERROR_CODES,
   MAX_FILE_SIZE,
   UPLOAD_TASK_EXPIRY,
   MULTIPART_THRESHOLD,
@@ -22,7 +21,7 @@ import {
   inferMimeType,
   logger,
 } from '@osshelf/shared';
-import { throwAppError } from '../middleware/error';
+import { AppError, throwAppError } from '../middleware/error';
 import { getEncryptionKey } from '../lib/crypto';
 import { insertFileWithUniqueName, normalizeEntryName, normalizeParentId } from '../lib/pathUtils';
 import type { Env, Variables } from '../types/env';
@@ -89,10 +88,7 @@ app.post('/create', async (c) => {
   const body = await c.req.json();
   const result = createTaskSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const {
@@ -134,16 +130,7 @@ app.post('/create', async (c) => {
 
   const mimeCheck = await checkFolderMimeTypeRestriction(db, parentId, mimeType);
   if (!mimeCheck.allowed) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.VALIDATION_ERROR.code,
-          message: `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
-        },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`);
   }
 
   const user = await getUserOrFail(db, userId);
@@ -153,22 +140,16 @@ app.post('/create', async (c) => {
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, requestedBucketId, parentId);
   if (!bucketConfig) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '未配置存储桶' } }, 400);
+    throwAppError('STORAGE_NOT_CONFIGURED', '未配置存储桶');
   }
 
   // ── Telegram 桶：返回特殊标记，让前端走代理上传路径 ──────────────────
   if (bucketConfig.provider === 'telegram') {
     // 分片上传支持最大 2GB（Telegram Bot API 真实上限），前端每片 20MB
     if (fileSize > TG_MAX_CHUNKED_FILE_SIZE) {
-      return c.json(
-        {
-          success: false,
-          error: {
-            code: ERROR_CODES.FILE_TOO_LARGE.code,
-            message: `Telegram 存储桶文件上限 2GB，当前文件 ${(fileSize / 1024 / 1024 / 1024).toFixed(2)}GB`,
-          },
-        },
-        413
+      throwAppError(
+        'FILE_TOO_LARGE',
+        `Telegram 存储桶文件上限 2GB，当前文件 ${(fileSize / 1024 / 1024 / 1024).toFixed(2)}GB`
       );
     }
 
@@ -439,10 +420,7 @@ app.post('/part', async (c) => {
   const body = await c.req.json();
   const result = uploadPartSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { taskId, partNumber } = result.data;
@@ -468,21 +446,12 @@ app.post('/part', async (c) => {
   }
 
   if (task.uploadId === 'telegram' || task.uploadId?.startsWith('telegram-chunked:')) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.VALIDATION_ERROR.code,
-          message: 'Telegram 存储桶请使用 /api/tasks/telegram-part 端点上传分片',
-        },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', 'Telegram 存储桶请使用 /api/tasks/telegram-part 端点上传分片');
   }
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, task.bucketId, null);
   if (!bucketConfig) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶配置不存在' } }, 400);
+    throwAppError('STORAGE_NOT_CONFIGURED', '存储桶配置不存在');
   }
 
   const partUrl = await s3PresignUploadPart(bucketConfig, task.r2Key, task.uploadId, partNumber, UPLOAD_EXPIRY);
@@ -501,10 +470,7 @@ app.post('/part-done', async (c) => {
   const body = await c.req.json();
   const result = partDoneSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { taskId, partNumber, etag } = result.data;
@@ -554,13 +520,7 @@ app.post('/part-proxy', async (c) => {
   const contentType = c.req.header('Content-Type') || '';
 
   if (!contentType.includes('multipart/form-data')) {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '请使用 multipart/form-data 格式' },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '请使用 multipart/form-data 格式');
   }
 
   const formData = await c.req.formData();
@@ -591,7 +551,7 @@ app.post('/part-proxy', async (c) => {
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, task.bucketId, null);
   if (!bucketConfig) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶配置不存在' } }, 400);
+    throwAppError('STORAGE_NOT_CONFIGURED', '存储桶配置不存在');
   }
 
   const chunkBuffer = await chunk.arrayBuffer();
@@ -627,13 +587,7 @@ app.post('/telegram-part', async (c) => {
   const contentType = c.req.header('Content-Type') || '';
 
   if (!contentType.includes('multipart/form-data')) {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '请使用 multipart/form-data 格式' },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '请使用 multipart/form-data 格式');
   }
 
   const formData = await c.req.formData();
@@ -642,13 +596,7 @@ app.post('/telegram-part', async (c) => {
   const chunk = formData.get('chunk') as File | null;
 
   if (!taskId || !partNumberStr || !chunk) {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '缺少 taskId、partNumber 或 chunk' },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '缺少 taskId、partNumber 或 chunk');
   }
 
   const partNumber = parseInt(partNumberStr, 10);
@@ -670,10 +618,7 @@ app.post('/telegram-part', async (c) => {
   }
 
   if (!task.uploadId || (task.uploadId !== 'telegram' && !task.uploadId.startsWith('telegram-chunked:'))) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '非 Telegram 上传任务' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '非 Telegram 上传任务');
   }
   if (new Date(task.expiresAt) < new Date()) {
     throwAppError('TASK_EXPIRED', '上传任务已过期');
@@ -686,7 +631,7 @@ app.post('/telegram-part', async (c) => {
     .get();
 
   if (!bucket || bucket.provider !== 'telegram') {
-    return c.json({ success: false, error: { code: 'TG_CONFIG_ERROR', message: '找不到 Telegram 存储桶' } }, 404);
+    throwAppError('TG_BUCKET_NOT_FOUND', '找不到 Telegram 存储桶');
   }
 
   const botToken = await decryptSecret(bucket.accessKeyId, encKey);
@@ -711,10 +656,7 @@ app.post('/telegram-part', async (c) => {
         .update(uploadTasks)
         .set({ status: 'failed', errorMessage: e?.message || 'Telegram 上传失败', updatedAt: now })
         .where(eq(uploadTasks.id, taskId));
-      return c.json(
-        { success: false, error: { code: 'TG_UPLOAD_ERROR', message: e?.message || 'Telegram 上传失败' } },
-        500
-      );
+      throwAppError('TG_UPLOAD_FAILED', e?.message || 'Telegram 上传失败');
     }
 
     await db
@@ -744,10 +686,7 @@ app.post('/telegram-part', async (c) => {
       .update(uploadTasks)
       .set({ status: 'failed', errorMessage: e?.message || 'Telegram 上传分片失败', updatedAt: now })
       .where(eq(uploadTasks.id, taskId));
-    return c.json(
-      { success: false, error: { code: 'TG_UPLOAD_ERROR', message: e?.message || 'Telegram 上传分片失败' } },
-      500
-    );
+    throwAppError('TG_UPLOAD_FAILED', e?.message || 'Telegram 上传分片失败');
   }
 
   // 用 Drizzle insert，避免 (db as any).run() 的 API 兼容问题
@@ -786,10 +725,7 @@ app.post('/complete', async (c) => {
   const body = await c.req.json();
   const result = completeTaskSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { taskId, parts, hash } = result.data;
@@ -817,14 +753,11 @@ app.post('/complete', async (c) => {
 
     const bucketConfig = await resolveBucketConfig(db, userId, encKey, task.bucketId, task.parentId);
     if (!bucketConfig) {
-      return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶配置不存在' } }, 400);
+      throwAppError('STORAGE_NOT_CONFIGURED', '存储桶配置不存在');
     }
 
     if (!task.bucketId) {
-      return c.json(
-        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '任务缺少存储桶ID' } },
-        400
-      );
+      throwAppError('VALIDATION_ERROR', '任务缺少存储桶ID');
     }
 
     const isSmallFile = !task.uploadId || task.uploadId === '';
@@ -858,10 +791,7 @@ app.post('/complete', async (c) => {
       })();
 
       if (uploadedParts.length === 0) {
-        return c.json(
-          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '文件尚未上传完成' } },
-          400
-        );
+        throwAppError('VALIDATION_ERROR', '文件尚未上传完成');
       }
 
       const tgFileId = uploadedParts[0].etag;
@@ -984,31 +914,16 @@ app.post('/complete', async (c) => {
       })();
 
       if (uploadedParts.length !== task.totalParts) {
-        return c.json(
-          {
-            success: false,
-            error: {
-              code: ERROR_CODES.VALIDATION_ERROR.code,
-              message: `分片未全部完成：已上传 ${uploadedParts.length}/${task.totalParts} 片`,
-            },
-          },
-          400
-        );
+        throwAppError('VALIDATION_ERROR', `分片未全部完成：已上传 ${uploadedParts.length}/${task.totalParts} 片`);
       }
 
       // 从 DB 二次确认分片记录完整性
       const chunkRows = await db.select().from(telegramFileChunks).where(eq(telegramFileChunks.groupId, groupId)).all();
 
       if (chunkRows.length !== task.totalParts) {
-        return c.json(
-          {
-            success: false,
-            error: {
-              code: ERROR_CODES.VALIDATION_ERROR.code,
-              message: `Telegram 分片记录不完整：数据库中找到 ${chunkRows.length}/${task.totalParts} 片，请重试`,
-            },
-          },
-          400
+        throwAppError(
+          'VALIDATION_ERROR',
+          `Telegram 分片记录不完整：数据库中找到 ${chunkRows.length}/${task.totalParts} 片，请重试`
         );
       }
       // ──────────────────────────────────────────────────────────────────
@@ -1124,23 +1039,11 @@ app.post('/complete', async (c) => {
       // 大文件：校验分片数量、etag 完整性并合并
       const hasEmptyEtag = parts.some((p) => !p.etag || p.etag.trim() === '');
       if (hasEmptyEtag) {
-        return c.json(
-          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '所有分片的 etag 不能为空' } },
-          400
-        );
+        throwAppError('VALIDATION_ERROR', '所有分片的 etag 不能为空');
       }
       if (parts.length !== task.totalParts) {
         logger.warn('TASKS', '分片数量不匹配', { expected: task.totalParts, got: parts.length });
-        return c.json(
-          {
-            success: false,
-            error: {
-              code: ERROR_CODES.VALIDATION_ERROR.code,
-              message: `分片数量不匹配：期望 ${task.totalParts} 个，实际 ${parts.length} 个`,
-            },
-          },
-          400
-        );
+        throwAppError('VALIDATION_ERROR', `分片数量不匹配：期望 ${task.totalParts} 个，实际 ${parts.length} 个`);
       }
 
       try {
@@ -1148,16 +1051,7 @@ app.post('/complete', async (c) => {
       } catch (s3Error: any) {
         logger.error('TASKS', 'S3分片上传完成失败', { r2Key: task.r2Key }, s3Error);
         await db.update(uploadTasks).set({ status: 'failed', updatedAt: now }).where(eq(uploadTasks.id, taskId));
-        return c.json(
-          {
-            success: false,
-            error: {
-              code: 'S3_ERROR',
-              message: `合并分片失败: ${s3Error.message || '未知错误'}`,
-            },
-          },
-          500
-        );
+        throwAppError('S3_ERROR', `合并分片失败: ${s3Error.message || '未知错误'}`);
       }
     }
     // 小文件：文件已通过预签名 PUT 直传到 S3，无需合并步骤
@@ -1252,17 +1146,9 @@ app.post('/complete', async (c) => {
       },
     });
   } catch (error: any) {
+    if (error instanceof AppError) throw error;
     logger.error('TASKS', '完成上传任务失败', { taskId }, error);
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: ERROR_CODES.INTERNAL_ERROR.code,
-          message: error.message || '上传完成失败',
-        },
-      },
-      500
-    );
+    throwAppError('INTERNAL_ERROR', error.message || '上传完成失败');
   }
 });
 
@@ -1289,10 +1175,7 @@ app.post('/abort', async (c) => {
   }
 
   if (task.status === 'completed') {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '任务已完成，无法中止' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '任务已完成，无法中止');
   }
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, task.bucketId, null);
@@ -1375,7 +1258,7 @@ app.get('/:taskId', async (c) => {
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, task.bucketId, null);
   if (!bucketConfig) {
-    return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶配置不存在' } }, 400);
+    throwAppError('STORAGE_NOT_CONFIGURED', '存储桶配置不存在');
   }
 
   let storedParts: Array<{ partNumber: number; etag: string }> = [];
@@ -1452,10 +1335,7 @@ app.post('/:taskId/pause', async (c) => {
   }
 
   if (task.status !== 'uploading' && task.status !== 'pending') {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '只能暂停上传中或等待中的任务' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '只能暂停上传中或等待中的任务');
   }
 
   await db
@@ -1485,17 +1365,11 @@ app.post('/:taskId/retry', async (c) => {
   }
 
   if (task.status !== 'failed') {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '只能重试失败的任务' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '只能重试失败的任务');
   }
 
   if (new Date(task.expiresAt) < new Date()) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.TASK_EXPIRED.code, message: '任务已过期，请重新上传' } },
-      410
-    );
+    throwAppError('TASK_EXPIRED', '任务已过期，请重新上传');
   }
 
   const uploadedParts: Array<{ partNumber: number; etag: string }> = (() => {
@@ -1544,10 +1418,7 @@ app.post('/:taskId/resume', async (c) => {
   }
 
   if (task.status !== 'paused') {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '只能恢复已暂停的任务' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '只能恢复已暂停的任务');
   }
 
   if (new Date(task.expiresAt) < new Date()) {

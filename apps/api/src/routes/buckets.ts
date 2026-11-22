@@ -13,7 +13,6 @@ import { Hono } from 'hono';
 import { eq, and, isNull, sql } from 'drizzle-orm';
 import { getDb, storageBuckets, files, storageDeletionQueue } from '../db';
 import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
-import { ERROR_CODES } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
@@ -192,13 +191,7 @@ app.post('/', async (c) => {
   const result = createBucketSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const data = result.data;
@@ -291,13 +284,7 @@ app.put('/:id', async (c) => {
   const result = updateBucketSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json(
-      {
-        success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message },
-      },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const db = getDb(c.env.DB);
@@ -401,13 +388,7 @@ app.post('/:id/toggle', async (c) => {
   // 停用护栏：停用后解析链会跳过该桶，仍指向它的文件将无法读取
   if (!newIsActive) {
     if (bucket.isDefault) {
-      return c.json(
-        {
-          success: false,
-          error: { code: 'BUCKET_IS_DEFAULT', message: '默认存储桶不能停用，请先将其他存储桶设为默认' },
-        },
-        409
-      );
+      throwAppError('BUCKET_IS_DEFAULT', '默认存储桶不能停用，请先将其他存储桶设为默认');
     }
 
     const usage = await inspectBucketUsage(db, userId, id);
@@ -418,30 +399,18 @@ app.post('/:id/toggle', async (c) => {
       .all();
 
     if (usage.explicitFiles > 0 || usage.inheritedFiles > 0 || usage.pendingDeletions > 0) {
-      return c.json(
-        {
-          success: false,
-          error: {
-            code: 'BUCKET_IN_USE',
-            message: `该存储桶仍被 ${usage.explicitFiles} 个文件显式引用、${usage.inheritedFiles} 个文件继承引用${
-              usage.pendingDeletions > 0 ? `，并有 ${usage.pendingDeletions} 个待补偿删除任务` : ''
-            }，停用会导致这些文件无法访问`,
-          },
-        },
-        409
+      throwAppError(
+        'BUCKET_IN_USE',
+        `该存储桶仍被 ${usage.explicitFiles} 个文件显式引用、${usage.inheritedFiles} 个文件继承引用${
+          usage.pendingDeletions > 0 ? `，并有 ${usage.pendingDeletions} 个待补偿删除任务` : ''
+        }，停用会导致这些文件无法访问`
       );
     }
 
     if (usage.unresolvedFiles > 0 && otherActive.filter((b) => b.id !== id).length === 0) {
-      return c.json(
-        {
-          success: false,
-          error: {
-            code: 'BUCKET_LAST_ACTIVE',
-            message: `仍有 ${usage.unresolvedFiles} 个文件依赖默认/兜底解析，不能停用最后一个活跃存储桶`,
-          },
-        },
-        409
+      throwAppError(
+        'BUCKET_LAST_ACTIVE',
+        `仍有 ${usage.unresolvedFiles} 个文件依赖默认/兜底解析，不能停用最后一个活跃存储桶`
       );
     }
   }
@@ -489,13 +458,8 @@ app.post('/:id/test', async (c) => {
         },
       });
     } catch (err: any) {
-      return c.json(
-        {
-          success: false,
-          error: { code: 'CONNECTION_FAILED', message: err.message || 'Telegram 连接失败' },
-        },
-        200
-      );
+      // 连接失败必须是错误状态；返回 200 会让通用拦截器与会话统计把失败当成功
+      throwAppError('BUCKET_CONNECTION_FAILED', String(err.message || 'Telegram 连接失败'));
     }
   }
 
@@ -531,17 +495,11 @@ app.delete('/:id', async (c) => {
   const usage = await inspectBucketUsage(db, userId, id);
 
   if (usage.explicitFiles > 0 || usage.inheritedFiles > 0 || usage.pendingDeletions > 0) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: 'BUCKET_IN_USE',
-          message: `该存储桶仍被 ${usage.explicitFiles} 个文件直接引用（含回收站）、${usage.inheritedFiles} 个文件继承引用${
-            usage.pendingDeletions > 0 ? `，并有 ${usage.pendingDeletions} 个待补偿删除任务` : ''
-          }，请先迁移或彻底删除相关文件`,
-        },
-      },
-      409
+    throwAppError(
+      'BUCKET_IN_USE',
+      `该存储桶仍被 ${usage.explicitFiles} 个文件直接引用（含回收站）、${usage.inheritedFiles} 个文件继承引用${
+        usage.pendingDeletions > 0 ? `，并有 ${usage.pendingDeletions} 个待补偿删除任务` : ''
+      }，请先迁移或彻底删除相关文件`
     );
   }
 
@@ -556,15 +514,9 @@ app.delete('/:id', async (c) => {
       .get();
 
     if (bucket.isDefault || !activeDefault) {
-      return c.json(
-        {
-          success: false,
-          error: {
-            code: 'BUCKET_IN_USE',
-            message: `仍有 ${usage.unresolvedFiles} 个文件依赖默认/兜底解析落到该桶，删除配置会导致这些文件无法访问`,
-          },
-        },
-        409
+      throwAppError(
+        'BUCKET_IN_USE',
+        `仍有 ${usage.unresolvedFiles} 个文件依赖默认/兜底解析落到该桶，删除配置会导致这些文件无法访问`
       );
     }
   }

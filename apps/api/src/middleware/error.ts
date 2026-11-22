@@ -67,7 +67,9 @@ export function createErrorResponse(c: Context<AppEnv>, error: AppError | Error 
         code: errorInfo.code,
         name: error.errorCode,
         message: error.message,
-        details: isDev ? error.details : undefined,
+        // AppError 的 details 是业务方显式给出的结构化信息（如跨桶移动的 bucketId），
+        // 生产环境也要返回；未捕获异常的 details / stack 仍然只在开发环境暴露。
+        details: error.details,
         stack: isDev ? error.stack : undefined,
         requestId,
         timestamp,
@@ -146,4 +148,29 @@ export function onAppError(err: Error, c: Context<any>): Response {
 
 export function throwAppError(code: ErrorCode, message?: string): never {
   throw new AppError(code, { message });
+}
+
+/** code 字符串（如 'F404'）→ 错误码键名（如 'FILE_NOT_FOUND'），用于反查 */
+const CODE_TO_KEY = new Map<string, ErrorCode>(
+  (Object.entries(ERROR_CODES) as [ErrorCode, { code: string }][]).map(([key, info]) => [info.code, key])
+);
+
+/**
+ * 抛出「已经算好 code/message 的」业务错误。
+ *
+ * 场景：service 或解析函数返回 `{ code, message }` 后由路由透传，
+ * 这类响应缺少 name / requestId / timestamp，且绕过了全局错误处理。
+ * 这里按 code 反查键名后交给 AppError，保证 HTTP 状态与 code 都不变。
+ *
+ * 未知 code（未在 ERROR_CODES 登记）降级为 INTERNAL_ERROR，避免静默返回非法结构。
+ */
+export function throwApiError(error: { code: string; message: string; details?: unknown }): never {
+  const key = CODE_TO_KEY.get(error.code);
+  if (!key) {
+    throw new AppError('INTERNAL_ERROR', {
+      message: error.message,
+      details: { originalCode: error.code, ...(error.details ? { originalDetails: error.details } : {}) },
+    });
+  }
+  throw new AppError(key, { message: error.message, details: error.details });
 }

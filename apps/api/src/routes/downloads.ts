@@ -13,7 +13,7 @@ import { Hono } from 'hono';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { getDb, downloadTasks, users, files } from '../db';
 import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
-import { ERROR_CODES, MAX_BUFFERED_TRANSFER_BYTES } from '@osshelf/shared';
+import { MAX_BUFFERED_TRANSFER_BYTES } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
@@ -290,10 +290,7 @@ app.post('/create', async (c) => {
   const body = await c.req.json();
   const result = createTaskSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { url, fileName, parentId, bucketId } = result.data;
@@ -464,10 +461,7 @@ app.post('/batch', async (c) => {
   const body = await c.req.json();
   const result = batchCreateSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { urls, parentId, bucketId } = result.data;
@@ -567,10 +561,7 @@ app.patch('/:taskId', async (c) => {
   const result = updateTaskSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const db = getDb(c.env.DB);
@@ -586,10 +577,7 @@ app.patch('/:taskId', async (c) => {
   }
 
   if (task.status !== 'pending') {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '只能修改待处理的任务' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '只能修改待处理的任务');
   }
 
   const now = new Date().toISOString();
@@ -628,10 +616,7 @@ app.delete('/:taskId', async (c) => {
   }
 
   if (task.status === 'downloading') {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '无法删除正在下载的任务' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '无法删除正在下载的任务');
   }
 
   await db.delete(downloadTasks).where(eq(downloadTasks.id, taskId));
@@ -655,10 +640,7 @@ app.post('/:taskId/retry', async (c) => {
   }
 
   if (task.status !== 'failed') {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '只能重试失败的任务' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '只能重试失败的任务');
   }
 
   const now = new Date().toISOString();
@@ -705,10 +687,7 @@ app.post('/:taskId/pause', async (c) => {
   }
 
   if (task.status !== 'downloading' && task.status !== 'pending') {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '只能暂停下载中或等待中的任务' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '只能暂停下载中或等待中的任务');
   }
 
   await db
@@ -738,10 +717,7 @@ app.post('/:taskId/resume', async (c) => {
   }
 
   if (task.status !== 'paused') {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '只能恢复已暂停的任务' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '只能恢复已暂停的任务');
   }
 
   await db

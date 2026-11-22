@@ -13,6 +13,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth';
 import { authApi } from '@/services/api';
+import { ERROR_CODES } from '@osshelf/shared';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/Card';
@@ -55,19 +56,19 @@ export default function Register() {
     },
     onError: (error: any) => {
       const code = error.response?.data?.error?.code;
-      if (code === 'REGISTRATION_CLOSED') {
+      if (code === ERROR_CODES.REGISTRATION_CLOSED.code) {
         setRegError('closed');
         return;
       }
-      if (code === 'INVITE_CODE_REQUIRED') {
+      if (code === ERROR_CODES.INVITE_CODE_REQUIRED.code) {
         setRegError('invite_required');
         return;
       }
-      if (code === 'INVITE_CODE_INVALID') {
+      if (code === ERROR_CODES.INVITE_CODE_INVALID.code) {
         setRegError('invite_invalid');
         return;
       }
-      if (code === 'INVITE_CODE_USED') {
+      if (code === ERROR_CODES.INVITE_CODE_USED.code) {
         setRegError('invite_used');
         return;
       }

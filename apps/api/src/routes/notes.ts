@@ -11,7 +11,7 @@ import { eq, and, desc, isNull, sql } from 'drizzle-orm';
 import { getDb, files, users, fileNotes } from '../db';
 import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
-import { ERROR_CODES, logger } from '@osshelf/shared';
+import { logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createNotification, getUserInfo } from '../lib/notificationUtils';
@@ -106,10 +106,7 @@ app.post('/:fileId', async (c) => {
   const body = await c.req.json();
   const parsed = createNoteSchema.safeParse(body);
   if (!parsed.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: parsed.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', parsed.error.issues[0].message);
   }
 
   const { content, parentId } = parsed.data;
@@ -118,7 +115,7 @@ app.post('/:fileId', async (c) => {
   if (!result.success) {
     if (result.error === '无权访问此文件') throwAppError('FILE_ACCESS_DENIED', result.error);
     if (result.error === '文件不存在') throwAppError('FILE_NOT_FOUND');
-    return c.json({ success: false, error: result.error }, 400);
+    throwAppError('INVALID_REQUEST', result.error);
   }
 
   // 发送提及通知
@@ -206,10 +203,7 @@ app.put('/:fileId/:noteId', async (c) => {
   const body = await c.req.json();
   const parsed = updateNoteSchema.safeParse(body);
   if (!parsed.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: parsed.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', parsed.error.issues[0].message);
   }
 
   const result = await serviceUpdateNote(c.env, userId, fileId, noteId, { content: parsed.data.content });
@@ -217,7 +211,7 @@ app.put('/:fileId/:noteId', async (c) => {
     if (result.error === '笔记不存在' || result.error === '无权编辑此笔记') {
       throwAppError(result.error === '无权编辑此笔记' ? 'NOTE_EDIT_DENIED' : 'NOTE_NOT_FOUND', result.error);
     }
-    return c.json({ success: false, error: result.error }, 400);
+    throwAppError('INVALID_REQUEST', result.error);
   }
 
   return c.json({

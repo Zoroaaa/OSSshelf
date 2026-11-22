@@ -13,6 +13,7 @@ import { Hono } from 'hono';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { getDb, notifications } from '../db';
 import { authMiddleware } from '../middleware/auth';
+import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -86,9 +87,7 @@ app.put('/:id/read', async (c) => {
     .where(and(eq(notifications.id, notificationId), eq(notifications.userId, userId)))
     .get();
 
-  if (!notification) {
-    return c.json({ success: false, error: { code: 'NOT_FOUND', message: '通知不存在' } }, 404);
-  }
+  if (!notification) throwAppError('NOT_FOUND', '通知不存在');
 
   await db.update(notifications).set({ isRead: true }).where(eq(notifications.id, notificationId));
 
@@ -127,9 +126,7 @@ app.delete('/:id', async (c) => {
     .where(and(eq(notifications.id, notificationId), eq(notifications.userId, userId)))
     .get();
 
-  if (!notification) {
-    return c.json({ success: false, error: { code: 'NOT_FOUND', message: '通知不存在' } }, 404);
-  }
+  if (!notification) throwAppError('NOT_FOUND', '通知不存在');
 
   await db.delete(notifications).where(eq(notifications.id, notificationId));
 

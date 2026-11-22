@@ -14,7 +14,7 @@ import { getDb, users, loginAttempts, userDevices, files, storageBuckets, emailT
 import { eq, and, gt, desc, isNull, isNotNull } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth';
 import { signJWT, hashPassword, verifyPassword } from '../lib/crypto';
-import { JWT_EXPIRY, ERROR_CODES, LOGIN_MAX_ATTEMPTS, LOGIN_LOCKOUT_DURATION } from '@osshelf/shared';
+import { JWT_EXPIRY, LOGIN_MAX_ATTEMPTS, LOGIN_LOCKOUT_DURATION } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
@@ -196,16 +196,16 @@ app.post('/register', async (c) => {
 
   if (!isFirstUser) {
     if (!regConfig.open) {
-      throwAppError('FEATURE_DISABLED', '注册已关闭，请联系管理员');
+      throwAppError('REGISTRATION_CLOSED');
     }
     if (regConfig.requireInviteCode) {
       if (!inviteCode) {
-        throwAppError('VALIDATION_ERROR', '需要邀请码才能注册');
+        throwAppError('INVITE_CODE_REQUIRED');
       }
       const codeKey = `${INVITE_PREFIX}${inviteCode.toUpperCase()}`;
       const codeMeta = await c.env.KV.get(codeKey);
       if (!codeMeta) {
-        throwAppError('VALIDATION_ERROR', '邀请码无效或已过期');
+        throwAppError('INVITE_CODE_INVALID');
       }
       let meta: { usedBy: string | null } = { usedBy: null };
       try {
@@ -214,7 +214,7 @@ app.post('/register', async (c) => {
         /* ignore */
       }
       if (meta.usedBy) {
-        throwAppError('VALIDATION_ERROR', '邀请码已被使用');
+        throwAppError('INVITE_CODE_USED');
       }
     }
   }
@@ -316,10 +316,7 @@ app.post('/login', async (c) => {
   const result = loginSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { email, password, deviceId: providedDeviceId, deviceName } = result.data;
@@ -461,10 +458,7 @@ app.patch('/me', authMiddleware, async (c) => {
   const result = updateProfileSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { name, currentPassword, newPassword } = result.data;
@@ -539,10 +533,7 @@ app.delete('/me', authMiddleware, async (c) => {
   const result = deleteAccountSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const db = getDb(c.env.DB);

@@ -16,6 +16,7 @@ import { cleanExpiredVersions } from '../lib/versionManager';
 import { runDataCleanup, runSessionCleanup, runShareCleanup, runTrashCleanup, sendCronAlert } from '../lib/cleanup';
 import { hasTelegramAlert } from '../types/env';
 import { runStorageReconciliation } from '../lib/storageReconciliation';
+import { throwAppError } from '../middleware/error';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -72,13 +73,7 @@ app.post('/version-cleanup', async (c) => {
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     logger.error('CRON', '版本清理失败', {}, error);
-    return c.json(
-      {
-        success: false,
-        error: { code: 'VERSION_CLEANUP_FAILED', message: msg },
-      },
-      500
-    );
+    throwAppError('VERSION_CLEANUP_FAILED', msg);
   }
 });
 
@@ -125,15 +120,9 @@ app.post('/test-alert', async (c) => {
   const env = c.env;
 
   if (!hasTelegramAlert(env)) {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: 'ALERT_NOT_CONFIGURED',
-          message: '告警未配置：缺少 Worker Secret ALERT_TG_BOT_TOKEN 或环境变量 ALERT_TG_CHAT_ID',
-        },
-      },
-      400
+    throwAppError(
+      'ALERT_NOT_CONFIGURED',
+      '告警未配置：缺少 Worker Secret ALERT_TG_BOT_TOKEN 或环境变量 ALERT_TG_CHAT_ID'
     );
   }
 
@@ -145,16 +134,7 @@ app.post('/test-alert', async (c) => {
 
   if (!result.sent) {
     const statusPart = result.status ? `（HTTP ${result.status}）` : '';
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: 'ALERT_SEND_FAILED',
-          message: `Telegram 发送失败${statusPart}：${result.reason ?? '未知错误'}`,
-        },
-      },
-      502
-    );
+    throwAppError('ALERT_SEND_FAILED', `Telegram 发送失败${statusPart}：${result.reason ?? '未知错误'}`);
   }
 
   logger.info('CRON', '手动测试告警已发送');

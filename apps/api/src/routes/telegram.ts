@@ -9,8 +9,8 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { tgTestConnection } from '../lib/telegramClient';
 import { authMiddleware } from '../middleware/auth';
-import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
+import { throwAppError } from '../middleware/error';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', authMiddleware);
@@ -27,10 +27,7 @@ app.post('/test', async (c) => {
 
   const result = schema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const tgResult = await tgTestConnection({

@@ -12,7 +12,6 @@ import { Hono } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files, storageBuckets, telegramFileRefs } from '../db';
 import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
-import { ERROR_CODES } from '@osshelf/shared';
 import { getEncryptionKey } from '../lib/crypto';
 import { s3Get } from '../lib/s3client';
 import { resolveBucketConfig } from '../lib/bucketResolver';
@@ -86,10 +85,7 @@ app.post('/', authMiddleware, requireApiKeyScope('files:read', 'files:write'), a
   const body = await c.req.json();
   const result = createDirectLinkSchema.safeParse(body);
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { fileId, expiresAt } = result.data;
@@ -104,10 +100,7 @@ app.post('/', authMiddleware, requireApiKeyScope('files:read', 'files:write'), a
   if (!file) throwAppError('FILE_NOT_FOUND');
 
   if (file.isFolder) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '文件夹不支持创建直链' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '文件夹不支持创建直链');
   }
 
   const token = file.directLinkToken || crypto.randomUUID();
@@ -299,10 +292,7 @@ app.get('/:token/preview', async (c) => {
     if (bkt?.provider === 'telegram') {
       const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, file.id)).get();
       if (!ref) {
-        return c.json(
-          { success: false, error: { code: 'TG_REF_NOT_FOUND', message: '未找到 Telegram 文件引用' } },
-          404
-        );
+        throwAppError('TG_REF_NOT_FOUND', '未找到 Telegram 文件引用');
       }
       const botToken = await decryptSecret(bkt.accessKeyId, encKey);
       const tgConfig: TelegramBotConfig = {
@@ -316,7 +306,7 @@ app.get('/:token/preview', async (c) => {
           : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
         return new Response(body, { headers: pvHeaders });
       } catch (e: any) {
-        return c.json({ success: false, error: { code: 'TG_DOWNLOAD_FAILED', message: e?.message } }, 502);
+        throwAppError('TG_DOWNLOAD_FAILED', e?.message);
       }
     }
   }
@@ -333,7 +323,7 @@ app.get('/:token/preview', async (c) => {
     return new Response(obj.body, { headers: pvHeaders });
   }
 
-  return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶未配置' } }, 500);
+  throwAppError('NO_STORAGE_CONFIGURED', '存储桶未配置');
 });
 
 /**
@@ -366,7 +356,7 @@ app.get('/:token', async (c) => {
   const dlRateKey = `directlink_rate:${token}:${clientIp}`;
   const dlRateCount = await c.env.KV.get(dlRateKey);
   if (dlRateCount && parseInt(dlRateCount) >= 60) {
-    return c.json({ success: false, error: { code: 'RATE_LIMIT_EXCEEDED', message: '下载频率过高，请稍后再试' } }, 429);
+    throwAppError('RATE_LIMIT_EXCEEDED', '下载频率过高，请稍后再试');
   }
   const prevDl = await c.env.KV.get(dlRateKey);
   await c.env.KV.put(dlRateKey, String(parseInt(prevDl || '0') + 1), { expirationTtl: 60 });
@@ -384,10 +374,7 @@ app.get('/:token', async (c) => {
     if (bkt?.provider === 'telegram') {
       const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, file.id)).get();
       if (!ref) {
-        return c.json(
-          { success: false, error: { code: 'TG_REF_NOT_FOUND', message: '未找到 Telegram 文件引用，文件可能已损坏' } },
-          404
-        );
+        throwAppError('TG_REF_NOT_FOUND', '未找到 Telegram 文件引用，文件可能已损坏');
       }
       const botToken = await decryptSecret(bkt.accessKeyId, encKey);
       const tgConfig: TelegramBotConfig = {
@@ -401,10 +388,7 @@ app.get('/:token', async (c) => {
           : (await tgDownloadFile(tgConfig, ref.tgFileId)).body;
         return new Response(body, { headers: dlHeaders });
       } catch (e: any) {
-        return c.json(
-          { success: false, error: { code: 'TG_DOWNLOAD_FAILED', message: e?.message || 'Telegram 下载失败' } },
-          502
-        );
+        throwAppError('TG_DOWNLOAD_FAILED', e?.message || 'Telegram 下载失败');
       }
     }
   }
@@ -421,7 +405,7 @@ app.get('/:token', async (c) => {
     return new Response(obj.body, { headers: dlHeaders });
   }
 
-  return c.json({ success: false, error: { code: 'NO_STORAGE', message: '存储桶未配置' } }, 500);
+  throwAppError('NO_STORAGE_CONFIGURED', '存储桶未配置');
 });
 
 export default app;

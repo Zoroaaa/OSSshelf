@@ -13,7 +13,6 @@ import { eq, and, desc, sql } from 'drizzle-orm';
 import { getDb, userGroups, groupMembers, users, filePermissions, files } from '../db';
 import { authMiddleware, denyApiKeyAuth } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
-import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
@@ -78,10 +77,7 @@ app.post('/', async (c) => {
   const result = createGroupSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { name, description } = result.data;
@@ -175,10 +171,7 @@ app.put('/:id', async (c) => {
   const result = updateGroupSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const db = getDb(c.env.DB);
@@ -322,10 +315,7 @@ app.post('/:id/members', async (c) => {
   const result = addMemberSchema.safeParse(body);
 
   if (!result.success) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', result.error.issues[0].message);
   }
 
   const { userId: targetUserId, role } = result.data;
@@ -360,10 +350,7 @@ app.post('/:id/members', async (c) => {
     .get();
 
   if (existingMembership) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '用户已是组成员' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '用户已是组成员');
   }
 
   const memberRecordId = crypto.randomUUID();
@@ -477,7 +464,7 @@ app.put('/:id/members/:memberUserId/role', async (c) => {
   const { role } = await c.req.json();
 
   if (!role || !['member', 'admin'].includes(role)) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '无效的角色' } }, 400);
+    throwAppError('VALIDATION_ERROR', '无效的角色');
   }
 
   const db = getDb(c.env.DB);

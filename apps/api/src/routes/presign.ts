@@ -18,7 +18,7 @@ import { Hono } from 'hono';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getDb, files } from '../db';
 import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
-import { ERROR_CODES, isPreviewableMimeType } from '@osshelf/shared';
+import { isPreviewableMimeType } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import { getEncryptionKey } from '../lib/crypto';
 import type { Env, Variables } from '../types/env';
@@ -109,10 +109,7 @@ app.get('/preview/:id', async (c) => {
   if (file.isFolder) throwAppError('FOLDER_VERSION_NOT_SUPPORTED', '文件夹无法预览');
 
   if (!isPreviewableMimeType(file.mimeType, file.name)) {
-    return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '该文件类型不支持预览' } },
-      400
-    );
+    throwAppError('VALIDATION_ERROR', '该文件类型不支持预览');
   }
 
   const bucketConfig = await resolveBucketConfig(db, userId, encKey, file.bucketId, file.parentId);
