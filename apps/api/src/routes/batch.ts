@@ -67,7 +67,7 @@ app.post('/delete', async (c) => {
   const result = batchDeleteSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -110,7 +110,7 @@ app.post('/move', async (c) => {
   const result = batchMoveSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -172,7 +172,7 @@ app.post('/rename', async (c) => {
   const result = batchRenameSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -215,7 +215,7 @@ app.post('/permanent-delete', async (c) => {
   const result = batchDeleteSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -285,9 +285,7 @@ app.post('/permanent-delete', async (c) => {
 
       idsToDelete.push(fileId);
       // 单次 SQL 删除整批记录，避免逐条删除留下半删除状态
-      await db
-        .delete(files)
-        .where(and(eq(files.userId, userId), inArray(files.id, idsToDelete)));
+      await db.delete(files).where(and(eq(files.userId, userId), inArray(files.id, idsToDelete)));
       batchResult.success++;
     } catch (error) {
       batchResult.failed++;
@@ -313,7 +311,7 @@ app.post('/restore', async (c) => {
   const result = batchDeleteSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -351,7 +349,7 @@ app.post('/zip', async (c) => {
   const result = batchZipSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -383,7 +381,7 @@ app.post('/zip', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.VALIDATION_ERROR,
+          code: ERROR_CODES.VALIDATION_ERROR.code,
           message: error instanceof Error ? error.message : 'ZIP 打包参数超出限制',
         },
       },

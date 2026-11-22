@@ -37,12 +37,7 @@ import { s3Get, s3Put, decryptSecret, makeBucketConfigAsync } from '../lib/s3cli
 import { deleteObjectSafely } from '../lib/storageGC';
 import { moveFile as serviceMoveFile } from '../lib/fileService';
 import { tgUploadFile, tgDownloadFile, type TelegramBotConfig } from '../lib/telegramClient';
-import {
-  isChunkedFileId,
-  tgDownloadChunked,
-  needsChunking,
-  tgUploadChunked,
-} from '../lib/telegramChunked';
+import { isChunkedFileId, tgDownloadChunked, needsChunking, tgUploadChunked } from '../lib/telegramChunked';
 import { encodeFilename } from '../lib/utils';
 import { normalizeParentId } from '../lib/pathUtils';
 import type { Env, Variables } from '../types/env';
@@ -165,12 +160,7 @@ async function collectFileIds(
 }
 
 /** 读取待迁移的文件记录（含回收站，它们同样持有物理对象引用） */
-async function loadFileRows(
-  db: ReturnType<typeof getDb>,
-  userId: string,
-  bucketId: string,
-  ids: string[] | null
-) {
+async function loadFileRows(db: ReturnType<typeof getDb>, userId: string, bucketId: string, ids: string[] | null) {
   if (!ids) {
     return db
       .select()
@@ -193,16 +183,13 @@ async function loadFileRows(
 }
 
 /** 过滤出用户选中的顶层项（父级不在选中集合内） */
-async function resolveTopLevelIds(
-  db: ReturnType<typeof getDb>,
-  userId: string,
-  ids: string[]
-): Promise<string[]> {
+async function resolveTopLevelIds(db: ReturnType<typeof getDb>, userId: string, ids: string[]): Promise<string[]> {
   const requested = new Set(ids);
   const topLevel: string[] = [];
 
   for (const id of ids) {
-    let cursor = (await db.select({ parentId: files.parentId }).from(files).where(eq(files.id, id)).get())?.parentId ?? null;
+    let cursor =
+      (await db.select({ parentId: files.parentId }).from(files).where(eq(files.id, id)).get())?.parentId ?? null;
     const seen = new Set<string>();
     let isDescendant = false;
     while (cursor && !seen.has(cursor)) {
@@ -211,7 +198,8 @@ async function resolveTopLevelIds(
         isDescendant = true;
         break;
       }
-      cursor = (await db.select({ parentId: files.parentId }).from(files).where(eq(files.id, cursor)).get())?.parentId ?? null;
+      cursor =
+        (await db.select({ parentId: files.parentId }).from(files).where(eq(files.id, cursor)).get())?.parentId ?? null;
     }
     if (!isDescendant) topLevel.push(id);
   }
@@ -241,7 +229,7 @@ app.post('/start', async (c) => {
   const result = startMigrateSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -266,7 +254,7 @@ app.post('/start', async (c) => {
       .get();
     if (!sample?.bucketId) {
       return c.json(
-        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '无法从指定文件推断来源存储桶' } },
+        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '无法从指定文件推断来源存储桶' } },
         400
       );
     }
@@ -275,14 +263,17 @@ app.post('/start', async (c) => {
 
   if (!sourceBucketId) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '必须提供 sourceBucketId 或 fileIds' } },
+      {
+        success: false,
+        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '必须提供 sourceBucketId 或 fileIds' },
+      },
       400
     );
   }
 
   if (sourceBucketId === targetBucketId) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '来源和目标存储桶不能相同' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '来源和目标存储桶不能相同' } },
       400
     );
   }
@@ -317,7 +308,7 @@ app.post('/start', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: '来源和目标指向同一个物理存储桶，无需迁移' },
+        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '来源和目标指向同一个物理存储桶，无需迁移' },
       },
       400
     );
@@ -334,7 +325,7 @@ app.post('/start', async (c) => {
       .get();
     if (!folder) {
       return c.json(
-        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '目标文件夹不存在或无权访问' } },
+        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '目标文件夹不存在或无权访问' } },
         400
       );
     }
@@ -350,7 +341,7 @@ app.post('/start', async (c) => {
   const rows = await loadFileRows(db, userId, sourceBucketId, candidateIds);
   if (rows.length === 0) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '没有找到可迁移的文件' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '没有找到可迁移的文件' } },
       400
     );
   }
@@ -446,7 +437,7 @@ app.post('/:migrationId/cancel', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: `任务状态为 ${status.status}，无法取消` },
+        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: `任务状态为 ${status.status}，无法取消` },
       },
       400
     );
@@ -599,11 +590,7 @@ async function copyEntry(ctx: RuntimeContext, entry: MigrationEntry): Promise<vo
   if (ctx.tgtBucket.provider === 'telegram') {
     try {
       // 重入保护：已切换成功则直接标记完成，避免重复上传
-      const current = await db
-        .select({ bucketId: files.bucketId })
-        .from(files)
-        .where(eq(files.id, entry.fileId))
-        .get();
+      const current = await db.select({ bucketId: files.bucketId }).from(files).where(eq(files.id, entry.fileId)).get();
       if (current?.bucketId === status.targetBucketId) {
         entry.status = 'done';
         status.done++;
@@ -645,7 +632,10 @@ async function copyEntry(ctx: RuntimeContext, entry: MigrationEntry): Promise<vo
 
     await copyObjectSameKey(ctx, entry);
     // 历史版本对象使用独立 key，必须一并拷贝到目标桶，否则切换后版本下载会 404
-    await copyVersionObjects(ctx, group.map((item) => item.fileId));
+    await copyVersionObjects(
+      ctx,
+      group.map((item) => item.fileId)
+    );
     const now = new Date().toISOString();
     await db
       .update(files)
@@ -673,11 +663,7 @@ async function openSourceStream(
 
   if (srcBucket.provider === 'telegram') {
     if (!srcTg) throw new Error('来源 Telegram 配置无效');
-    const ref = await db
-      .select()
-      .from(telegramFileRefs)
-      .where(eq(telegramFileRefs.fileId, entry.fileId))
-      .get();
+    const ref = await db.select().from(telegramFileRefs).where(eq(telegramFileRefs.fileId, entry.fileId)).get();
     if (!ref) throw new Error('找不到 Telegram 文件引用');
 
     if (isChunkedFileId(ref.tgFileId)) {

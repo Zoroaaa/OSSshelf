@@ -206,7 +206,7 @@ app.post('/providers', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.VALIDATION_ERROR,
+          code: ERROR_CODES.VALIDATION_ERROR.code,
           message: `${firstError.path.join('.') || 'unknown'}: ${firstError.message}`,
         },
       },
@@ -235,7 +235,7 @@ app.put('/providers/:providerId', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.VALIDATION_ERROR,
+          code: ERROR_CODES.VALIDATION_ERROR.code,
           message: `${firstError.path.join('.') || 'unknown'}: ${firstError.message}`,
         },
       },
@@ -287,7 +287,7 @@ app.post('/providers/:providerId/test', async (c) => {
   const provider = await getProviderConnection(c.env, userId, providerId);
 
   if (!provider) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '供应商不存在' } }, 404);
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '供应商不存在' } }, 404);
   }
 
   const result = await testProviderConnection(c.env, provider);
@@ -300,7 +300,7 @@ app.post('/providers/:providerId/discover', async (c) => {
   const provider = await getProviderConnection(c.env, userId, providerId);
 
   if (!provider) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '供应商不存在' } }, 404);
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '供应商不存在' } }, 404);
   }
 
   try {
@@ -320,7 +320,7 @@ app.get('/providers/:providerId/models', async (c) => {
   const provider = await getProviderConnection(c.env, userId, providerId);
 
   if (!provider) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '供应商不存在' } }, 404);
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '供应商不存在' } }, 404);
   }
 
   try {
@@ -344,13 +344,13 @@ app.post('/providers/:providerId/models', async (c) => {
   const provider = await getProviderConnection(c.env, userId, providerId);
 
   if (!provider) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '供应商不存在' } }, 404);
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '供应商不存在' } }, 404);
   }
 
   const parsed = await parseBody(c, importModelsSchema);
   if (!parsed.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请选择要导入的模型' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '请选择要导入的模型' } },
       400
     );
   }
@@ -446,7 +446,7 @@ app.post('/models', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.VALIDATION_ERROR,
+          code: ERROR_CODES.VALIDATION_ERROR.code,
           message: `${firstError.path.join('.') || 'unknown'}: ${firstError.message}`,
         },
       },
@@ -459,7 +459,7 @@ app.post('/models', async (c) => {
 
   if (!isWorkersAi && !data.providerId) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '外部模型必须选择供应商连接' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '外部模型必须选择供应商连接' } },
       400
     );
   }
@@ -469,13 +469,13 @@ app.post('/models', async (c) => {
     const providerId = data.providerId;
     if (!providerId) {
       return c.json(
-        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '外部模型必须选择供应商连接' } },
+        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '外部模型必须选择供应商连接' } },
         400
       );
     }
     providerRow = await getProviderConnection(c.env, userId, providerId);
     if (!providerRow) {
-      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '供应商不存在' } }, 404);
+      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '供应商不存在' } }, 404);
     }
   }
 
@@ -487,7 +487,7 @@ app.post('/models', async (c) => {
         {
           success: false,
           error: {
-            code: ERROR_CODES.VALIDATION_ERROR,
+            code: ERROR_CODES.VALIDATION_ERROR.code,
             message: `模型 ID「${modelId}」不是 Cloudflare 可识别的格式，请填写 ${MODEL_ID_FORMAT_HINT}`,
           },
         },
@@ -575,7 +575,7 @@ app.post('/models', async (c) => {
     });
   } catch (error) {
     logger.error('AI', 'Failed to create model', { userId }, error);
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '创建模型失败' } }, 500);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message: '创建模型失败' } }, 500);
   }
 });
 
@@ -590,7 +590,7 @@ app.put('/models/:modelId', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.VALIDATION_ERROR,
+          code: ERROR_CODES.VALIDATION_ERROR.code,
           message: `${firstError.path.join('.') || 'unknown'}: ${firstError.message}`,
         },
       },
@@ -608,7 +608,7 @@ app.put('/models/:modelId', async (c) => {
     .get();
 
   if (!existingModel) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '模型不存在' } }, 404);
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '模型不存在' } }, 404);
   }
 
   const nextProviderId = data.providerId !== undefined ? data.providerId : existingModel.providerId;
@@ -618,7 +618,7 @@ app.put('/models/:modelId', async (c) => {
   if (nextProviderId) {
     providerRow = await getProviderConnection(c.env, userId, nextProviderId);
     if (!providerRow) {
-      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '供应商不存在' } }, 404);
+      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '供应商不存在' } }, 404);
     }
   }
 
@@ -630,7 +630,7 @@ app.put('/models/:modelId', async (c) => {
         {
           success: false,
           error: {
-            code: ERROR_CODES.VALIDATION_ERROR,
+            code: ERROR_CODES.VALIDATION_ERROR.code,
             message: `模型 ID「${nextModelId}」不是 Cloudflare 可识别的格式，请填写 ${MODEL_ID_FORMAT_HINT}`,
           },
         },
@@ -720,7 +720,7 @@ app.put('/models/:modelId', async (c) => {
     });
   } catch (error) {
     logger.error('AI', 'Failed to update model', { userId, modelId }, error);
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '更新模型失败' } }, 500);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message: '更新模型失败' } }, 500);
   }
 });
 
@@ -736,7 +736,7 @@ app.delete('/models/:modelId', async (c) => {
     .get();
 
   if (!existingModel) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '模型不存在' } }, 404);
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '模型不存在' } }, 404);
   }
 
   try {
@@ -747,7 +747,7 @@ app.delete('/models/:modelId', async (c) => {
     return c.json({ success: true, data: { message: '模型已删除' } });
   } catch (error) {
     logger.error('AI', 'Failed to delete model', { userId, modelId }, error);
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '删除模型失败' } }, 500);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message: '删除模型失败' } }, 500);
   }
 });
 
@@ -763,7 +763,7 @@ app.post('/models/:modelId/activate', async (c) => {
     .get();
 
   if (!modelToActivate) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '模型不存在' } }, 404);
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '模型不存在' } }, 404);
   }
 
   let repairedModelId: string | undefined;
@@ -774,7 +774,7 @@ app.post('/models/:modelId/activate', async (c) => {
         {
           success: false,
           error: {
-            code: ERROR_CODES.VALIDATION_ERROR,
+            code: ERROR_CODES.VALIDATION_ERROR.code,
             message: `模型「${modelToActivate.name}」的 modelId「${modelToActivate.modelId}」不是 Cloudflare 可识别的模型 ID，请先编辑为 ${MODEL_ID_FORMAT_HINT}`,
           },
         },
@@ -809,7 +809,7 @@ app.post('/models/:modelId/activate', async (c) => {
     return c.json({ success: true, data: { message: '模型已激活', activeModelId: modelId } });
   } catch (error) {
     logger.error('AI', 'Failed to activate model', { userId, modelId }, error);
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '激活模型失败' } }, 500);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message: '激活模型失败' } }, 500);
   }
 });
 
@@ -871,7 +871,7 @@ app.get('/feature-config', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.INTERNAL_ERROR, message: '获取配置失败' },
+        error: { code: ERROR_CODES.INTERNAL_ERROR.code, message: '获取配置失败' },
       },
       500
     );
@@ -908,19 +908,22 @@ app.put('/feature-config', async (c) => {
     if (summary.startsWith('@cf/')) {
       const result = validateWorkersAiModel(summary, 'chat');
       if (!result.valid) {
-        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error } }, 400);
+        return c.json(
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error } },
+          400
+        );
       }
     } else {
       const m = await getModelById(c.env, userId, summary);
       if (!m) {
         return c.json(
-          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '摘要模型不存在' } },
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '摘要模型不存在' } },
           400
         );
       }
       if (!m.capabilities?.includes('chat')) {
         return c.json(
-          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该模型不支持 chat 能力' } },
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '该模型不支持 chat 能力' } },
           400
         );
       }
@@ -931,13 +934,16 @@ app.put('/feature-config', async (c) => {
     if (imageCaption.startsWith('@cf/')) {
       const result = validateWorkersAiModel(imageCaption, 'vision');
       if (!result.valid) {
-        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error } }, 400);
+        return c.json(
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error } },
+          400
+        );
       }
     } else {
       const m = await getModelById(c.env, userId, imageCaption);
       if (!m) {
         return c.json(
-          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '图片描述模型不存在' } },
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '图片描述模型不存在' } },
           400
         );
       }
@@ -946,7 +952,7 @@ app.put('/feature-config', async (c) => {
           {
             success: false,
             error: {
-              code: ERROR_CODES.VALIDATION_ERROR,
+              code: ERROR_CODES.VALIDATION_ERROR.code,
               message: '该模型不支持 vision 能力（需要多模态模型如 GPT-4o）',
             },
           },
@@ -960,19 +966,22 @@ app.put('/feature-config', async (c) => {
     if (imageTag.startsWith('@cf/')) {
       const result = validateWorkersAiModel(imageTag, 'vision');
       if (!result.valid) {
-        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error } }, 400);
+        return c.json(
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error } },
+          400
+        );
       }
     } else {
       const m = await getModelById(c.env, userId, imageTag);
       if (!m) {
         return c.json(
-          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '图片标签模型不存在' } },
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '图片标签模型不存在' } },
           400
         );
       }
       if (!m.capabilities?.includes('vision')) {
         return c.json(
-          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该模型不支持 vision 能力' } },
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '该模型不支持 vision 能力' } },
           400
         );
       }
@@ -983,19 +992,22 @@ app.put('/feature-config', async (c) => {
     if (rename.startsWith('@cf/')) {
       const result = validateWorkersAiModel(rename, 'chat');
       if (!result.valid) {
-        return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error } }, 400);
+        return c.json(
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error } },
+          400
+        );
       }
     } else {
       const m = await getModelById(c.env, userId, rename);
       if (!m) {
         return c.json(
-          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '重命名模型不存在' } },
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '重命名模型不存在' } },
           400
         );
       }
       if (!m.capabilities?.includes('chat')) {
         return c.json(
-          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该模型不支持 chat 能力' } },
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '该模型不支持 chat 能力' } },
           400
         );
       }
@@ -1025,7 +1037,7 @@ app.put('/feature-config', async (c) => {
     });
   } catch (error) {
     logger.error('AI Config', 'Failed to save feature config', { userId }, error);
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '保存配置失败' } }, 500);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message: '保存配置失败' } }, 500);
   }
 });
 
@@ -1044,7 +1056,7 @@ app.post('/test', async (c) => {
       // 测试已保存的模型（modelId 是数据库记录 ID 或模型标识）
       const config = await getModelById(c.env, userId, body.modelId);
       if (!config) {
-        return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '模型不存在' } }, 404);
+        return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '模型不存在' } }, 404);
       }
       testConfig = config;
 
@@ -1053,7 +1065,7 @@ app.post('/test', async (c) => {
         return c.json(
           {
             success: false,
-            error: { code: ERROR_CODES.VALIDATION_ERROR, message: validation.error || '配置无效' },
+            error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: validation.error || '配置无效' },
             data: { valid: false, error: validation.error },
           },
           400
@@ -1063,7 +1075,7 @@ app.post('/test', async (c) => {
       // 保存前测试：用供应商连接 + 模型 ID 组装临时配置
       const providerRow = await getProviderConnection(c.env, userId, body.providerId);
       if (!providerRow) {
-        return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '供应商不存在' } }, 404);
+        return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '供应商不存在' } }, 404);
       }
 
       const preset = getProviderPreset(providerRow.presetId);
@@ -1104,7 +1116,7 @@ app.post('/test', async (c) => {
       return c.json(
         {
           success: false,
-          error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请提供 modelId，或 providerId + modelId' },
+          error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '请提供 modelId，或 providerId + modelId' },
         },
         400
       );
@@ -1117,7 +1129,7 @@ app.post('/test', async (c) => {
           {
             success: false,
             error: {
-              code: ERROR_CODES.VALIDATION_ERROR,
+              code: ERROR_CODES.VALIDATION_ERROR.code,
               message: `模型 ID「${testConfig.modelId}」不是 Cloudflare 可识别的格式，请填写 ${MODEL_ID_FORMAT_HINT}`,
             },
           },
@@ -1169,7 +1181,7 @@ app.post('/test', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.INTERNAL_ERROR,
+          code: ERROR_CODES.INTERNAL_ERROR.code,
           message: `模型测试失败: ${errorMessage}`,
         },
         data: {
@@ -1197,7 +1209,10 @@ app.get('/system-config', requireAdmin(), async (c) => {
     });
   } catch (error) {
     logger.error('AI Config', 'Failed to get system config', { error: String(error) });
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '获取系统配置失败' } }, 500);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message: '获取系统配置失败' } },
+      500
+    );
   }
 });
 
@@ -1212,13 +1227,16 @@ app.put('/system-config/:key', requireAdmin(), async (c) => {
     const config = (await getAllAiConfigs(c.env)).find((item) => item.key === key);
 
     if (!config) {
-      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '配置项不存在' } }, 404);
+      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '配置项不存在' } }, 404);
     }
 
     const validation = validateAiConfigValue(config, value);
     if (!validation.valid) {
       return c.json(
-        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: validation.error || '配置值无效' } },
+        {
+          success: false,
+          error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: validation.error || '配置值无效' },
+        },
         400
       );
     }
@@ -1226,7 +1244,10 @@ app.put('/system-config/:key', requireAdmin(), async (c) => {
     const success = await updateAiConfig(c.env, key, value as string | number | boolean | object | null);
 
     if (!success) {
-      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '配置项不存在或不可编辑' } }, 404);
+      return c.json(
+        { success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '配置项不存在或不可编辑' } },
+        404
+      );
     }
 
     return c.json({
@@ -1235,7 +1256,7 @@ app.put('/system-config/:key', requireAdmin(), async (c) => {
     });
   } catch (error) {
     logger.error('AI Config', 'Failed to update system config', { key, error: String(error) });
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '更新配置失败' } }, 500);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message: '更新配置失败' } }, 500);
   }
 });
 
@@ -1247,7 +1268,7 @@ app.post('/system-config/:key/reset', requireAdmin(), async (c) => {
     const success = await resetAiConfigToDefault(c.env, key);
 
     if (!success) {
-      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '配置项不存在' } }, 404);
+      return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '配置项不存在' } }, 404);
     }
 
     return c.json({
@@ -1256,7 +1277,7 @@ app.post('/system-config/:key/reset', requireAdmin(), async (c) => {
     });
   } catch (error) {
     logger.error('AI Config', 'Failed to reset system config', { key, error: String(error) });
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: '重置配置失败' } }, 500);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message: '重置配置失败' } }, 500);
   }
 });
 

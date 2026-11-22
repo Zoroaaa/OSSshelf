@@ -39,7 +39,7 @@ publicApp.get('/:token', async (c) => {
   // 速率限制：防止暴力探测邀请 token
   const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
   if (!checkRateLimit(ip)) {
-    throwAppError('RATE_LIMITED', '请求过于频繁，请稍后再试');
+    throwAppError('RATE_LIMIT_EXCEEDED', '请求过于频繁，请稍后再试');
   }
 
   const token = c.req.param('token');

@@ -90,7 +90,7 @@ app.post('/create', async (c) => {
   const result = createTaskSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -138,7 +138,7 @@ app.post('/create', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.VALIDATION_ERROR,
+          code: ERROR_CODES.VALIDATION_ERROR.code,
           message: `此文件夹仅允许上传以下类型的文件: ${mimeCheck.allowedTypes?.join(', ')}`,
         },
       },
@@ -164,7 +164,7 @@ app.post('/create', async (c) => {
         {
           success: false,
           error: {
-            code: ERROR_CODES.FILE_TOO_LARGE,
+            code: ERROR_CODES.FILE_TOO_LARGE.code,
             message: `Telegram 存储桶文件上限 2GB，当前文件 ${(fileSize / 1024 / 1024 / 1024).toFixed(2)}GB`,
           },
         },
@@ -440,7 +440,7 @@ app.post('/part', async (c) => {
   const result = uploadPartSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -472,7 +472,7 @@ app.post('/part', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.VALIDATION_ERROR,
+          code: ERROR_CODES.VALIDATION_ERROR.code,
           message: 'Telegram 存储桶请使用 /api/tasks/telegram-part 端点上传分片',
         },
       },
@@ -502,7 +502,7 @@ app.post('/part-done', async (c) => {
   const result = partDoneSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -555,7 +555,10 @@ app.post('/part-proxy', async (c) => {
 
   if (!contentType.includes('multipart/form-data')) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请使用 multipart/form-data 格式' } },
+      {
+        success: false,
+        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '请使用 multipart/form-data 格式' },
+      },
       400
     );
   }
@@ -625,7 +628,10 @@ app.post('/telegram-part', async (c) => {
 
   if (!contentType.includes('multipart/form-data')) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请使用 multipart/form-data 格式' } },
+      {
+        success: false,
+        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '请使用 multipart/form-data 格式' },
+      },
       400
     );
   }
@@ -637,7 +643,10 @@ app.post('/telegram-part', async (c) => {
 
   if (!taskId || !partNumberStr || !chunk) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少 taskId、partNumber 或 chunk' } },
+      {
+        success: false,
+        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '缺少 taskId、partNumber 或 chunk' },
+      },
       400
     );
   }
@@ -662,7 +671,7 @@ app.post('/telegram-part', async (c) => {
 
   if (!task.uploadId || (task.uploadId !== 'telegram' && !task.uploadId.startsWith('telegram-chunked:'))) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '非 Telegram 上传任务' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '非 Telegram 上传任务' } },
       400
     );
   }
@@ -778,7 +787,7 @@ app.post('/complete', async (c) => {
   const result = completeTaskSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -813,7 +822,7 @@ app.post('/complete', async (c) => {
 
     if (!task.bucketId) {
       return c.json(
-        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '任务缺少存储桶ID' } },
+        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '任务缺少存储桶ID' } },
         400
       );
     }
@@ -850,7 +859,7 @@ app.post('/complete', async (c) => {
 
       if (uploadedParts.length === 0) {
         return c.json(
-          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '文件尚未上传完成' } },
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '文件尚未上传完成' } },
           400
         );
       }
@@ -979,7 +988,7 @@ app.post('/complete', async (c) => {
           {
             success: false,
             error: {
-              code: ERROR_CODES.VALIDATION_ERROR,
+              code: ERROR_CODES.VALIDATION_ERROR.code,
               message: `分片未全部完成：已上传 ${uploadedParts.length}/${task.totalParts} 片`,
             },
           },
@@ -995,7 +1004,7 @@ app.post('/complete', async (c) => {
           {
             success: false,
             error: {
-              code: ERROR_CODES.VALIDATION_ERROR,
+              code: ERROR_CODES.VALIDATION_ERROR.code,
               message: `Telegram 分片记录不完整：数据库中找到 ${chunkRows.length}/${task.totalParts} 片，请重试`,
             },
           },
@@ -1116,7 +1125,7 @@ app.post('/complete', async (c) => {
       const hasEmptyEtag = parts.some((p) => !p.etag || p.etag.trim() === '');
       if (hasEmptyEtag) {
         return c.json(
-          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '所有分片的 etag 不能为空' } },
+          { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '所有分片的 etag 不能为空' } },
           400
         );
       }
@@ -1126,7 +1135,7 @@ app.post('/complete', async (c) => {
           {
             success: false,
             error: {
-              code: ERROR_CODES.VALIDATION_ERROR,
+              code: ERROR_CODES.VALIDATION_ERROR.code,
               message: `分片数量不匹配：期望 ${task.totalParts} 个，实际 ${parts.length} 个`,
             },
           },
@@ -1248,7 +1257,7 @@ app.post('/complete', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.INTERNAL_ERROR,
+          code: ERROR_CODES.INTERNAL_ERROR.code,
           message: error.message || '上传完成失败',
         },
       },
@@ -1281,7 +1290,7 @@ app.post('/abort', async (c) => {
 
   if (task.status === 'completed') {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '任务已完成，无法中止' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '任务已完成，无法中止' } },
       400
     );
   }
@@ -1444,7 +1453,7 @@ app.post('/:taskId/pause', async (c) => {
 
   if (task.status !== 'uploading' && task.status !== 'pending') {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能暂停上传中或等待中的任务' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '只能暂停上传中或等待中的任务' } },
       400
     );
   }
@@ -1477,14 +1486,14 @@ app.post('/:taskId/retry', async (c) => {
 
   if (task.status !== 'failed') {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能重试失败的任务' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '只能重试失败的任务' } },
       400
     );
   }
 
   if (new Date(task.expiresAt) < new Date()) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.TASK_EXPIRED, message: '任务已过期，请重新上传' } },
+      { success: false, error: { code: ERROR_CODES.TASK_EXPIRED.code, message: '任务已过期，请重新上传' } },
       410
     );
   }
@@ -1536,7 +1545,7 @@ app.post('/:taskId/resume', async (c) => {
 
   if (task.status !== 'paused') {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只能恢复已暂停的任务' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '只能恢复已暂停的任务' } },
       400
     );
   }

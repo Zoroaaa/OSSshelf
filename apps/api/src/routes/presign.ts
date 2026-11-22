@@ -110,7 +110,7 @@ app.get('/preview/:id', async (c) => {
 
   if (!isPreviewableMimeType(file.mimeType, file.name)) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该文件类型不支持预览' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '该文件类型不支持预览' } },
       400
     );
   }

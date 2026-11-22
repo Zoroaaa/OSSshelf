@@ -317,7 +317,7 @@ app.post('/login', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -462,7 +462,7 @@ app.patch('/me', authMiddleware, async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -540,7 +540,7 @@ app.delete('/me', authMiddleware, async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -829,15 +829,15 @@ app.post('/verify-code', async (c) => {
     .get();
 
   if (!tokenRecord) {
-    throwAppError('EMAIL_CODE_INVALID', '验证码无效或错误');
+    throwAppError('EMAIL_TOKEN_INVALID', '验证码无效或错误');
   }
 
   if (tokenRecord.usedAt) {
-    throwAppError('EMAIL_CODE_USED', '验证码已使用');
+    throwAppError('EMAIL_TOKEN_USED', '验证码已使用');
   }
 
   if (new Date(tokenRecord.expiresAt) < new Date(now)) {
-    throwAppError('EMAIL_CODE_EXPIRED', '验证码已过期，请重新获取');
+    throwAppError('EMAIL_TOKEN_EXPIRED', '验证码已过期，请重新获取');
   }
 
   await db.update(emailTokens).set({ usedAt: now }).where(eq(emailTokens.id, tokenRecord.id));
@@ -1040,15 +1040,15 @@ app.post('/reset-password', async (c) => {
     .get();
 
   if (!tokenRecord) {
-    throwAppError('EMAIL_CODE_INVALID', '验证码无效或错误');
+    throwAppError('EMAIL_TOKEN_INVALID', '验证码无效或错误');
   }
 
   if (tokenRecord.usedAt) {
-    throwAppError('EMAIL_CODE_USED', '验证码已使用');
+    throwAppError('EMAIL_TOKEN_USED', '验证码已使用');
   }
 
   if (new Date(tokenRecord.expiresAt) < new Date(now)) {
-    throwAppError('EMAIL_CODE_EXPIRED', '验证码已过期，请重新获取');
+    throwAppError('EMAIL_TOKEN_EXPIRED', '验证码已过期，请重新获取');
   }
 
   const passwordHash = await hashPassword(newPassword);

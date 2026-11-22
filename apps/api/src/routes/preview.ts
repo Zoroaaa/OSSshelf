@@ -226,7 +226,7 @@ app.get('/:id/raw', async (c) => {
 
   if (file.size > MAX_PREVIEW_SIZE) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.FILE_TOO_LARGE, message: '文件过大，无法在线预览' } },
+      { success: false, error: { code: ERROR_CODES.FILE_TOO_LARGE.code, message: '文件过大，无法在线预览' } },
       400
     );
   }
@@ -336,7 +336,7 @@ app.get('/:id/stream', async (c) => {
   const { type } = isPreviewable(file.mimeType, file.name);
   if (!['image', 'video', 'audio', 'pdf'].includes(type)) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '该文件类型不支持流式预览' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '该文件类型不支持流式预览' } },
       400
     );
   }
@@ -456,7 +456,7 @@ app.get('/:id/thumbnail', async (c) => {
 
   if (!file.mimeType?.startsWith('image/')) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '只支持图片文件生成缩略图' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '只支持图片文件生成缩略图' } },
       400
     );
   }

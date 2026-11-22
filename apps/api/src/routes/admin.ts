@@ -128,7 +128,7 @@ app.patch('/users/:id', async (c) => {
   const result = patchUserSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -170,7 +170,7 @@ app.delete('/users/:id', async (c) => {
 
   if (id === adminId) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '不能删除自己的账户' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '不能删除自己的账户' } },
       400
     );
   }
@@ -226,7 +226,7 @@ app.put('/registration', async (c) => {
   const result = registrationSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -495,7 +495,7 @@ app.put('/email/config', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -522,7 +522,7 @@ app.post('/email/test', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -597,7 +597,7 @@ app.post('/email/broadcast', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -822,7 +822,7 @@ app.get('/ai/traces/:traceId', async (c) => {
 
   const session = await db.select().from(aiChatSessions).where(eq(aiChatSessions.id, sessionId)).get();
   if (!session) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '执行记录不存在' } }, 404);
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '执行记录不存在' } }, 404);
   }
 
   const messages = await db
@@ -1178,17 +1178,11 @@ app.get('/storage-audit/missing-files/:bucketId', async (c) => {
   // 旧实现没有做对象比对，把桶内所有文件都当成「丢失」，数字会非常吓人且完全失真。
   const report = await getLastAuditReport(c.env.KV);
   if (!report) {
-    return c.json(
-      { success: false, error: { code: 'AUDIT_REQUIRED', message: '请先执行一次存储审计' } },
-      409
-    );
+    return c.json({ success: false, error: { code: 'AUDIT_REQUIRED', message: '请先执行一次存储审计' } }, 409);
   }
   const bucketResult = report.buckets.find((b) => b.bucketId === bucketId);
   if (!bucketResult) {
-    return c.json(
-      { success: false, error: { code: 'NOT_FOUND', message: '该存储桶不在最近一次审计结果中' } },
-      404
-    );
+    return c.json({ success: false, error: { code: 'NOT_FOUND', message: '该存储桶不在最近一次审计结果中' } }, 404);
   }
 
   const missingFileIds = [
@@ -1222,12 +1216,7 @@ app.get('/storage-audit/missing-files/:bucketId', async (c) => {
       })
       .from(files)
       .where(
-        and(
-          inArray(files.id, batch),
-          eq(files.bucketId, bucketId),
-          isNull(files.deletedAt),
-          eq(files.isFolder, false)
-        )
+        and(inArray(files.id, batch), eq(files.bucketId, bucketId), isNull(files.deletedAt), eq(files.isFolder, false))
       )
       .all();
     dbFiles.push(...rows);

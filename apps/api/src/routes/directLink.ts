@@ -87,7 +87,7 @@ app.post('/', authMiddleware, requireApiKeyScope('files:read', 'files:write'), a
   const result = createDirectLinkSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -105,7 +105,7 @@ app.post('/', authMiddleware, requireApiKeyScope('files:read', 'files:write'), a
 
   if (file.isFolder) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '文件夹不支持创建直链' } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '文件夹不支持创建直链' } },
       400
     );
   }

@@ -67,7 +67,7 @@ app.post('/', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -79,7 +79,7 @@ app.post('/', async (c) => {
     return c.json(
       {
         success: false,
-        error: { code: ERROR_CODES.VALIDATION_ERROR, message: `无效的事件类型: ${invalidEvents.join(', ')}` },
+        error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: `无效的事件类型: ${invalidEvents.join(', ')}` },
       },
       400
     );
@@ -184,7 +184,7 @@ app.put('/:id', async (c) => {
   if (body.url !== undefined) {
     if (!z.string().url().safeParse(body.url).success) {
       return c.json(
-        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请输入有效的 URL' } },
+        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '请输入有效的 URL' } },
         400
       );
     }
@@ -194,7 +194,7 @@ app.put('/:id', async (c) => {
   if (body.events !== undefined) {
     if (!Array.isArray(body.events) || body.events.length === 0) {
       return c.json(
-        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '至少选择一个事件' } },
+        { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '至少选择一个事件' } },
         400
       );
     }
@@ -203,7 +203,7 @@ app.put('/:id', async (c) => {
       return c.json(
         {
           success: false,
-          error: { code: ERROR_CODES.VALIDATION_ERROR, message: `无效的事件类型: ${invalidEvents.join(', ')}` },
+          error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: `无效的事件类型: ${invalidEvents.join(', ')}` },
         },
         400
       );

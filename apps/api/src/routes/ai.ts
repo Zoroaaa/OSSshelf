@@ -87,7 +87,7 @@ app.post('/index/all', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.INTERNAL_ERROR,
+          code: ERROR_CODES.INTERNAL_ERROR.code,
           message: 'AI 任务队列未配置，请联系管理员',
         },
       },
@@ -102,7 +102,7 @@ app.post('/index/all', async (c) => {
     return c.json({
       success: false,
       error: {
-        code: ERROR_CODES.CONFLICT,
+        code: ERROR_CODES.CONFLICT.code,
         message: '已有索引任务正在运行，请等待完成',
       },
     });
@@ -147,7 +147,7 @@ app.post('/index/all', async (c) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : '启动任务失败';
     await markTaskFailed(c.env, task.id, message);
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message } }, 500);
   }
 });
 
@@ -156,7 +156,7 @@ app.post('/index/rebuild', async (c) => {
 
   if (!c.env.AI_TASKS_QUEUE) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message: 'AI 任务队列未配置，请联系管理员' } },
+      { success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message: 'AI 任务队列未配置，请联系管理员' } },
       503
     );
   }
@@ -165,7 +165,7 @@ app.post('/index/rebuild', async (c) => {
 
   const existingTask = await getLatestTaskByUserType(c.env, userId, 'index');
   if (existingTask && existingTask.status === 'running') {
-    return c.json({ success: false, error: { code: ERROR_CODES.CONFLICT, message: '已有索引任务正在运行' } }, 409);
+    return c.json({ success: false, error: { code: ERROR_CODES.CONFLICT.code, message: '已有索引任务正在运行' } }, 409);
   }
 
   const db = getDb(c.env.DB);
@@ -192,7 +192,7 @@ app.post('/index/rebuild', async (c) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : '启动重建任务失败';
     await markTaskFailed(c.env, task.id, message);
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message } }, 500);
   }
 
   // 入队成功后再清标记：入队失败时保留原索引状态，避免全库永久显示未索引。
@@ -227,7 +227,7 @@ app.get('/tasks/failed-items', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '50', 10) || 50, 1), 200);
 
   if (!taskId) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '缺少任务ID' } }, 400);
+    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '缺少任务ID' } }, 400);
   }
 
   const db = getDb(c.env.DB);
@@ -238,7 +238,7 @@ app.get('/tasks/failed-items', async (c) => {
     .get();
 
   if (!task) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '任务不存在' } }, 404);
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '任务不存在' } }, 404);
   }
 
   const items = await db
@@ -305,7 +305,7 @@ app.post('/summarize/batch', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.INTERNAL_ERROR,
+          code: ERROR_CODES.INTERNAL_ERROR.code,
           message: 'AI 任务队列未配置，请联系管理员',
         },
       },
@@ -320,7 +320,7 @@ app.post('/summarize/batch', async (c) => {
     return c.json({
       success: false,
       error: {
-        code: ERROR_CODES.CONFLICT,
+        code: ERROR_CODES.CONFLICT.code,
         message: '已有摘要生成任务正在运行，请等待完成',
       },
     });
@@ -361,7 +361,7 @@ app.post('/summarize/batch', async (c) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : '启动任务失败';
     await markTaskFailed(c.env, task.id, message);
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message } }, 500);
   }
 });
 
@@ -383,7 +383,7 @@ app.post('/tags/batch', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.INTERNAL_ERROR,
+          code: ERROR_CODES.INTERNAL_ERROR.code,
           message: 'AI 任务队列未配置，请联系管理员',
         },
       },
@@ -398,7 +398,7 @@ app.post('/tags/batch', async (c) => {
     return c.json({
       success: false,
       error: {
-        code: ERROR_CODES.CONFLICT,
+        code: ERROR_CODES.CONFLICT.code,
         message: '已有标签生成任务正在运行，请等待完成',
       },
     });
@@ -445,7 +445,7 @@ app.post('/tags/batch', async (c) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : '启动任务失败';
     await markTaskFailed(c.env, task.id, message);
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message } }, 500);
   }
 });
 
@@ -492,7 +492,7 @@ app.post('/process-selected', async (c) => {
       {
         success: false,
         error: {
-          code: ERROR_CODES.INTERNAL_ERROR,
+          code: ERROR_CODES.INTERNAL_ERROR.code,
           message: 'AI 任务队列未配置，请联系管理员',
         },
       },
@@ -504,7 +504,7 @@ app.post('/process-selected', async (c) => {
   const result = processSelectedSchema.safeParse(body);
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -583,7 +583,7 @@ app.post('/process-selected', async (c) => {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : '启动任务失败';
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message } }, 500);
   }
 });
 
@@ -700,7 +700,10 @@ app.post('/index/vectors/batch-delete', async (c) => {
   const fileIds = rawIds.filter((id): id is string => typeof id === 'string' && id.length > 0).slice(0, 200);
 
   if (fileIds.length === 0) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '请提供文件ID列表' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '请提供文件ID列表' } },
+      400
+    );
   }
 
   const db = getDb(c.env.DB);
@@ -779,7 +782,7 @@ app.get('/index/sample/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '文件不存在' } }, 404);
   }
 
   const chunks = await db
@@ -842,7 +845,7 @@ app.delete('/index/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '文件不存在' } }, 404);
   }
 
   await deleteFileVector(c.env, fileId);
@@ -859,7 +862,7 @@ app.post('/search', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -888,7 +891,7 @@ app.post('/summarize/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '文件不存在' } }, 404);
   }
 
   try {
@@ -909,7 +912,7 @@ app.post('/summarize/:fileId', async (c) => {
     return c.json({ success: true, data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : '生成摘要失败';
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message } }, 500);
   }
 });
 
@@ -925,11 +928,14 @@ app.post('/tags/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '文件不存在' } }, 404);
   }
 
   if (!file.mimeType?.startsWith('image/')) {
-    return c.json({ success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: '仅支持图片文件' } }, 400);
+    return c.json(
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: '仅支持图片文件' } },
+      400
+    );
   }
 
   try {
@@ -950,7 +956,7 @@ app.post('/tags/:fileId', async (c) => {
     return c.json({ success: true, data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : '生成标签失败';
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message } }, 500);
   }
 });
 
@@ -966,7 +972,7 @@ app.post('/rename-suggest/:fileId', async (c) => {
     .get();
 
   if (!file) {
-    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND, message: '文件不存在' } }, 404);
+    return c.json({ success: false, error: { code: ERROR_CODES.NOT_FOUND.code, message: '文件不存在' } }, 404);
   }
 
   try {
@@ -974,7 +980,7 @@ app.post('/rename-suggest/:fileId', async (c) => {
     return c.json({ success: true, data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : '生成重命名建议失败';
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message } }, 500);
   }
 });
 
@@ -991,7 +997,7 @@ app.post('/name-suggest', async (c) => {
 
   if (!result.success) {
     return c.json(
-      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR, message: result.error.issues[0].message } },
+      { success: false, error: { code: ERROR_CODES.VALIDATION_ERROR.code, message: result.error.issues[0].message } },
       400
     );
   }
@@ -1003,7 +1009,7 @@ app.post('/name-suggest', async (c) => {
     return c.json({ success: true, data: suggestions });
   } catch (error) {
     const message = error instanceof Error ? error.message : '生成命名建议失败';
-    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR, message } }, 500);
+    return c.json({ success: false, error: { code: ERROR_CODES.INTERNAL_ERROR.code, message } }, 500);
   }
 });
 
