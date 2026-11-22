@@ -10,7 +10,8 @@
  *
  * 唯一性保证:
  * - 不存在 v1 冗余副本，所有文档来源于实际运行的业务路由
- * - 新增任何路由后只需在 metadata 中补充说明（可选），spec 自动更新
+ * - 只有登记了 routeMetadata 的路由才会出现在文档中（其余视为内部路由跳过），
+ *   新增对外接口必须同步补一条元数据，否则文档里看不到
  */
 
 import { Hono } from 'hono';
@@ -42,12 +43,11 @@ const routeMetadata: Record<string, RouteMeta> = {
   'patch /auth/me': { summary: '更新用户信息', tags: ['Auth'] },
   'delete /auth/me': { summary: '注销账户', tags: ['Auth'] },
   'post /auth/logout': { summary: '用户登出', tags: ['Auth'] },
-  'post /auth/refresh': { summary: '刷新 JWT Token', tags: ['Auth'] },
   'get  /auth/devices': { summary: '获取已登录设备列表', tags: ['Auth'] },
   'delete /auth/devices/:id': { summary: '注销设备', tags: ['Auth'] },
   'post /auth/forgot-password': { summary: '申请密码重置', tags: ['Auth'], auth: false },
   'post /auth/reset-password': { summary: '重置密码', tags: ['Auth'], auth: false },
-  'post /auth/verify-email': { summary: '验证邮箱', tags: ['Auth'] },
+  'post /auth/verify-code': { summary: '验证邮箱验证码', tags: ['Auth'] },
   'post /auth/resend-verification': { summary: '重发验证邮件', tags: ['Auth'] },
   'get  /auth/stats': { summary: '获取用户统计信息', tags: ['Auth'] },
 
@@ -92,7 +92,7 @@ const routeMetadata: Record<string, RouteMeta> = {
 
   // ── Search ──────────────────────────────────────────
   'get  /search': { summary: '搜索文件', tags: ['Search'] },
-  'post /search': { summary: '高级搜索（多条件组合）', tags: ['Search'] },
+  'post /search/advanced': { summary: '高级搜索（多条件组合）', tags: ['Search'] },
 
   // ── Batch ───────────────────────────────────────────
   'post /batch/delete': { summary: '批量删除', tags: ['Batch'] },
@@ -116,7 +116,7 @@ const routeMetadata: Record<string, RouteMeta> = {
   'put  /permissions/requests/:id/review': { summary: '审批权限申请 (v3.0)', tags: ['Permissions'] },
   'post /permissions/batch-grant': { summary: '批量授权 (v3.0)', tags: ['Permissions'] },
   'post /permissions/batch-revoke': { summary: '批量撤销 (v3.0)', tags: ['Permissions'] },
-  'get  /roles/templates': { summary: '获取角色模板列表 (v3.0)', tags: ['Permissions'] },
+  'get  /permissions/roles/templates': { summary: '获取角色模板列表 (v3.0)', tags: ['Permissions'] },
 
   // ── Groups ──────────────────────────────────────────
   'get  /groups': { summary: '获取用户组列表', tags: ['Groups'] },
@@ -162,15 +162,14 @@ const routeMetadata: Record<string, RouteMeta> = {
   'get  /preview/:fileId/thumbnail': { summary: '获取缩略图', tags: ['Preview'] },
 
   // ── Versions ────────────────────────────────────────
-  'get  /versions/file/:fileId': { summary: '获取文件版本列表', tags: ['Versions'] },
-  'post /versions/create': { summary: '创建新版本', tags: ['Versions'] },
-  'get  /versions/:versionId': { summary: '获取版本内容', tags: ['Versions'] },
-  'delete /versions/:versionId': { summary: '删除版本', tags: ['Versions'] },
+  'get  /versions/:fileId/versions': { summary: '获取文件版本列表', tags: ['Versions'] },
+  'get  /versions/:fileId/versions/:version': { summary: '获取版本内容', tags: ['Versions'] },
+  'delete /versions/:fileId/versions/:version': { summary: '删除版本', tags: ['Versions'] },
 
   // ── Notes ───────────────────────────────────────────
-  'get  /notes/file/:fileId': { summary: '获取文件笔记列表', tags: ['Notes'] },
-  'post /notes': { summary: '创建笔记', tags: ['Notes'] },
-  'delete /notes/:noteId': { summary: '删除笔记', tags: ['Notes'] },
+  'get  /notes/:fileId': { summary: '获取文件笔记列表', tags: ['Notes'] },
+  'post /notes/:fileId': { summary: '创建笔记', tags: ['Notes'] },
+  'delete /notes/:fileId/:noteId': { summary: '删除笔记', tags: ['Notes'] },
 
   // ── API Keys ────────────────────────────────────────
   'get  /keys': { summary: '获取 API Key 列表', tags: ['ApiKeys'] },
@@ -181,7 +180,6 @@ const routeMetadata: Record<string, RouteMeta> = {
   'get  /analytics/storage-breakdown': { summary: '获取存储空间分布', tags: ['Analytics'] },
   'get  /analytics/activity-heatmap': { summary: '获取活跃度热力图', tags: ['Analytics'] },
   'get  /analytics/large-files': { summary: '大文件排行', tags: ['Analytics'] },
-  'get  /analytics/type-distribution': { summary: '文件类型分布', tags: ['Analytics'] },
 
   // ── Notifications ───────────────────────────────────
   'get  /notifications': { summary: '获取通知列表', tags: ['Notifications'] },
@@ -192,15 +190,14 @@ const routeMetadata: Record<string, RouteMeta> = {
   'patch /admin/users/:userId': { summary: '更新用户（需 admin 角色）', tags: ['Admin'] },
   'delete /admin/users/:userId': { summary: '删除用户（需 admin 角色）', tags: ['Admin'] },
   'get  /admin/stats': { summary: '获取系统统计', tags: ['Admin'] },
-  'post /admin/invite-code': { summary: '生成邀请码', tags: ['Admin'] },
-  'get  /admin/audit-log': { summary: '审计日志', tags: ['Admin'] },
-  'post /admin/mail/config': { summary: '配置邮件服务', tags: ['Admin'] },
-  'post /admin/mail/test': { summary: '发送测试邮件', tags: ['Admin'] },
-  'post /admin/mail/broadcast': { summary: '群发系统公告', tags: ['Admin'] },
-  'get  /admin/mail/status': { summary: '查询邮件服务状态', tags: ['Admin'] },
+  'post /admin/registration/codes': { summary: '生成注册邀请码', tags: ['Admin'] },
+  'get  /admin/audit-logs': { summary: '审计日志', tags: ['Admin'] },
+  'put  /admin/email/config': { summary: '配置邮件服务', tags: ['Admin'] },
+  'post /admin/email/test': { summary: '发送测试邮件', tags: ['Admin'] },
+  'post /admin/email/broadcast': { summary: '群发系统公告', tags: ['Admin'] },
+  'get  /admin/email/config': { summary: '查询邮件服务状态', tags: ['Admin'] },
 
   // ── AI ──────────────────────────────────────────────
-  'post /ai': { summary: 'AI 文件处理（摘要/标签/索引）', tags: ['AI'] },
 
   // ── AI Config ──────────────────────────────────────
   'get  /ai-config/models': { summary: '获取模型列表', tags: ['AI'] },
@@ -211,18 +208,16 @@ const routeMetadata: Record<string, RouteMeta> = {
   'get  /ai-config/system-config': { summary: '获取系统配置', tags: ['AI'] },
 
   // ── AI Chat ────────────────────────────────────────
-  'post /ai-chat/chat': { summary: '发送 AI 对话消息', tags: ['AI'] },
-  'get  /ai-chat/conversations': { summary: '获取对话列表', tags: ['AI'] },
-  'get  /ai-chat/conversations/:convId': { summary: '获取对话详情', tags: ['AI'] },
-  'delete /ai-chat/conversations/:convId': { summary: '删除对话', tags: ['AI'] },
-  'post /ai-chat/generate-title': { summary: '生成对话标题', tags: ['AI'] },
+  'get  /ai-chat/sessions': { summary: '获取对话列表', tags: ['AI'] },
+  'delete /ai-chat/sessions/:sessionId': { summary: '删除对话', tags: ['AI'] },
+  'post /ai-chat/sessions/:sessionId/title': { summary: '生成对话标题', tags: ['AI'] },
 
   // ── Telegram ────────────────────────────────────────
   'post /telegram/test': { summary: '测试 Telegram Bot 连接', tags: ['Telegram'] },
 
   // ── Migrate ─────────────────────────────────────────
   'post /migrate/start': { summary: '启动迁移任务', tags: ['Migrate'] },
-  'get  /migrate/tasks': { summary: '查询迁移任务状态', tags: ['Migrate'] },
+  'get  /migrate/:migrationId': { summary: '查询迁移任务状态', tags: ['Migrate'] },
 
   // ── Health ──────────────────────────────────────────
   'get  /health': { summary: '健康检查', tags: ['Health'], auth: false },
@@ -264,16 +259,15 @@ const tagDefinitions = [
 // 核心：从 Hono app 实例生成 OpenAPI spec
 // ═════════════════════════════════════════════════════════════════════════════
 
-function buildOpenApiSpec(appRoutes: RouterRoute[]) {
+/** 从 Hono 路由表生成 OpenAPI spec；导出以便回归测试直接断言 paths 是否为空。 */
+export function buildOpenApiSpec(appRoutes: RouterRoute[]) {
   const paths: Record<string, unknown> = {};
 
   for (const route of appRoutes) {
     // 路由格式: { method: string, path: string }
     const method = route.method.toLowerCase(); // get/post/put/delete/patch...
     const path = normalizePath(route.path);
-    const key = `${method} ${path}`;
-
-    const meta = routeMetadata[key];
+    const meta = metadataIndex.get(metadataKey(method, path));
     if (!meta) continue; // 未定义元数据的路由跳过（内部路由等）
 
     if (!paths[path]) {
@@ -327,7 +321,9 @@ X-API-Key: osk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 `,
       contact: { name: 'OSSshelf Team' },
     },
-    servers: [{ url: '/api', description: '本地开发 / 生产环境' }],
+    // paths 使用含 /api 的完整路径（/health、/dav 等非 /api 挂载也各自真实），
+    // 因此 baseUrl 必须是根路径；填 /api 会让所有条目变成 /api/api/...
+    servers: [{ url: '/', description: '同源部署：路径即实际请求路径' }],
     tags: tagDefinitions,
     paths,
     components: {
@@ -352,6 +348,36 @@ X-API-Key: osk_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 /** 将 :param 格式的路径参数转为 OpenAPI 的 {param} 格式 */
 function normalizePath(path: string): string {
   return path.replace(/:(\w+)/g, '{$1}');
+}
+
+/**
+ * 把任意一侧的键归一化成可比较形式：`方法 + 相对路径 + :param`。
+ *
+ * 元数据表与 app.routes 有四处天然差异，任一处不归一化都会让**整张表**匹配失败、
+ * spec.paths 变成空对象（表现为 /api/docs 打开是空白页）：
+ * - app.routes 给的是挂载后的完整路径（`/api/files/:id`），表里按相对路径写（`/files/:id`）；
+ * - 表里方法名补齐到 4 字符对齐（`get  /files`、`post /files`），运行期是 `get /files`；
+ * - 运行期路径已被 normalizePath 转成 `{id}`，表里写的是 `:id`；
+ * - 同一个参数两边可能不同名（表里 `:id`、路由 `:requestId`），因此统一折叠为 `:param`。
+ */
+function normalizeMetadataKey(rawKey: string): string {
+  const [method = '', ...pathParts] = rawKey.trim().split(/\s+/);
+  const path = pathParts
+    .join(' ')
+    .replace(/\{(\w+)\}/g, ':$1')
+    .replace(/:\w+/g, ':param');
+  return `${method} ${path}`;
+}
+
+/** 元数据索引：键已归一化，避免每次请求都逐条比较 */
+const metadataIndex = new Map<string, RouteMeta>(
+  Object.entries(routeMetadata).map(([key, meta]) => [normalizeMetadataKey(key), meta])
+);
+
+/** 运行期路由 → 索引键 */
+function metadataKey(method: string, normalizedPath: string): string {
+  const relativePath = normalizedPath.replace(/^\/api(?=\/|$)/, '') || '/';
+  return normalizeMetadataKey(`${method} ${relativePath}`);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
