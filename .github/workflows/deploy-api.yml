@@ -9,7 +9,7 @@ on:
       # 前端产物由同一个 Worker 承载，纯前端改动也必须走完迁移预检 → Hook → 部署
       - 'apps/web/**'
       - 'packages/shared/**'
-      # wrangler.toml 由脚本生成，改脚本等于改部署配置
+      # 部署相关脚本（迁移预检等）变更后，同样需要重新走一遍部署校验
       - 'scripts/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
