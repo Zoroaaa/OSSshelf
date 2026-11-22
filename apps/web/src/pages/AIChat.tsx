@@ -539,7 +539,7 @@ export function AIChat() {
         <button
           type="button"
           onClick={() => setShowSidebar(true)}
-          className="fixed left-0 top-1/2 z-20 hidden h-12 w-6 -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground lg:flex"
+          className="fixed left-0 top-1/2 z-dropdown hidden h-12 w-6 -translate-y-1/2 items-center justify-center rounded-r-lg border border-l-0 border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground lg:flex"
           title="显示对话历史"
           aria-label="显示对话历史"
         >
@@ -578,6 +578,7 @@ export function AIChat() {
           onModelChange={handleModelChange}
           onExport={currentSessionId ? handleExport : undefined}
           exporting={exporting}
+          onToggleSidebar={() => setShowSidebar((visible) => !visible)}
           connected={agent.connected}
         />
 

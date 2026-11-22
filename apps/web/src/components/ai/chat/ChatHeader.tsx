@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Download, Info, Loader2, MoreHorizontal, Settings, Sparkles } from 'lucide-react';
+import { ArrowLeft, Download, Info, Loader2, MoreHorizontal, PanelLeft, Settings, Sparkles } from 'lucide-react';
 import { cn } from '@/utils';
 
 export interface HeaderModelOption {
@@ -27,6 +27,8 @@ interface ChatHeaderProps {
   onExport?: () => void;
   exporting?: boolean;
   connected?: boolean;
+  /** 移动端打开会话历史侧栏（桌面端侧栏常驻，无需此按钮） */
+  onToggleSidebar?: () => void;
 }
 
 export function ChatHeader({
@@ -39,6 +41,7 @@ export function ChatHeader({
   onExport,
   exporting,
   connected,
+  onToggleSidebar,
 }: ChatHeaderProps) {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -73,6 +76,18 @@ export function ChatHeader({
           <ArrowLeft className="h-4 w-4" />
           <span className="hidden text-xs md:inline">文件</span>
         </button>
+
+        {onToggleSidebar && (
+          <button
+            type="button"
+            onClick={onToggleSidebar}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground lg:hidden"
+            title="会话历史"
+            aria-label="打开会话历史"
+          >
+            <PanelLeft className="h-4 w-4" />
+          </button>
+        )}
 
         <div className="ml-1 flex min-w-0 items-center gap-2">
           <div className="hidden h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10 sm:flex">

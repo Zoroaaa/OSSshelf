@@ -101,13 +101,13 @@ export function ChatSidebar({
   return (
     <>
       {showSidebar && (
-        <div className="fixed inset-0 z-20 bg-black/40 backdrop-blur-sm lg:hidden" onClick={onCloseMobile} />
+        <div className="fixed inset-0 z-overlay bg-black/40 backdrop-blur-sm lg:hidden" onClick={onCloseMobile} />
       )}
 
       <aside
         className={`flex flex-shrink-0 flex-col overflow-hidden border-r border-border bg-background pb-[env(safe-area-inset-bottom)] transition-all duration-300 ${
           showSidebar ? 'w-72' : 'w-0 border-r-0'
-        } fixed inset-y-0 left-0 z-30 lg:relative lg:z-auto`}
+        } fixed inset-y-0 left-0 z-popover lg:relative lg:z-auto`}
       >
         <div className="flex flex-shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))]">
           <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">对话历史</span>

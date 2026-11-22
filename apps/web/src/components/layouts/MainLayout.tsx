@@ -12,7 +12,7 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/auth';
 import { useFileStore } from '@/stores/files';
-import { useThemeStore } from '@/stores/theme';
+import { useThemeStore, resolveTheme } from '@/stores/theme';
 import { Button } from '@/components/ui/Button';
 import { StorageBar } from '@/components/files/StorageBar';
 import { Toaster } from '@/components/ui/Toaster';
@@ -87,26 +87,23 @@ export default function MainLayout() {
   const filesActionUrl = (action: string) =>
     currentFolderId ? `/files/${currentFolderId}?action=${action}` : `/files?action=${action}`;
 
+  const effectiveTheme = resolveTheme(theme);
+  const themeTitle =
+    theme === 'system'
+      ? `当前主题: 跟随系统（${effectiveTheme === 'dark' ? '深色' : '浅色'}），点击切换为${effectiveTheme === 'dark' ? '浅色' : '深色'}`
+      : `当前主题: ${theme === 'dark' ? '深色' : '浅色'}，点击切换为${effectiveTheme === 'dark' ? '浅色' : '深色'}`;
+
   const cycleTheme = () => {
-    const themes: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system'];
-    const currentTheme = theme || 'system';
-    const currentIndex = themes.indexOf(currentTheme);
-    const nextIndex = (currentIndex + 1) % themes.length;
-    const nextTheme = themes[nextIndex];
-    if (nextTheme) {
-      setTheme(nextTheme);
-    }
+    // 直接切到当前外观的相反值：每次点击都必然产生可见变化。
+    // 旧逻辑是 light → dark → system 循环，当系统主题恰好等于当前外观时，
+    // 会出现"点一下没反应"（system 与 light/dark 外观相同），容易被认为切换失效。
+    setTheme(effectiveTheme === 'dark' ? 'light' : 'dark');
   };
 
   const getThemeIcon = () => {
-    switch (theme) {
-      case 'light':
-        return Sun;
-      case 'dark':
-        return Moon;
-      default:
-        return Monitor;
-    }
+    // 图标表达"当前模式"：跟随系统仍用显示器图标，手动模式用日/月
+    if (theme === 'system') return Monitor;
+    return effectiveTheme === 'dark' ? Moon : Sun;
   };
 
   const ThemeIcon = getThemeIcon();
@@ -153,7 +150,6 @@ export default function MainLayout() {
 
   return (
     <div className="min-h-screen bg-background">
-      <EmailVerificationBanner />
       {/* 移动端顶部栏 - 精简版 */}
       <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur border-b px-3 py-2.5 flex items-center justify-between safe-top">
         <div className="flex items-center gap-2">
@@ -185,7 +181,8 @@ export default function MainLayout() {
             size="icon"
             className="h-9 w-9 touch-target-sm"
             onClick={cycleTheme}
-            title={`当前主题: ${theme === 'light' ? '浅色' : theme === 'dark' ? '深色' : '跟随系统'}`}
+            title={themeTitle}
+            aria-label={themeTitle}
           >
             <ThemeIcon className="h-4.5 w-4.5" />
           </Button>
@@ -290,7 +287,8 @@ export default function MainLayout() {
                 size="sm"
                 className="flex-1"
                 onClick={cycleTheme}
-                title={`当前主题: ${theme === 'light' ? '浅色' : theme === 'dark' ? '深色' : '跟随系统'}`}
+                title={themeTitle}
+                aria-label={themeTitle}
               >
                 <ThemeIcon className="h-3.5 w-3.5 mr-1.5" />
                 {theme === 'light' ? '浅色' : theme === 'dark' ? '深色' : '系统'}
@@ -310,7 +308,8 @@ export default function MainLayout() {
                 size="icon"
                 className="w-full px-2"
                 onClick={cycleTheme}
-                title={`当前主题: ${theme === 'light' ? '浅色' : theme === 'dark' ? '深色' : '跟随系统'}`}
+                title={themeTitle}
+                aria-label={themeTitle}
               >
                 <ThemeIcon className="h-4 w-4" />
               </Button>
@@ -343,6 +342,9 @@ export default function MainLayout() {
           isCollapsed ? 'lg:pl-16' : 'lg:pl-64'
         )}
       >
+        {/* 邮箱验证横幅放在内容区内：放在布局最外层会被移动端固定顶栏盖住 */}
+        <EmailVerificationBanner />
+        <PWAPrompt />
         <div className="p-4 lg:p-6 max-w-[1400px] mx-auto relative">
           <Outlet />
         </div>
@@ -353,7 +355,6 @@ export default function MainLayout() {
         onNewFolder={() => navigate(filesActionUrl('new-folder'))}
       />
 
-      <PWAPrompt />
       <SWUpdatePrompt />
       <Toaster />
 

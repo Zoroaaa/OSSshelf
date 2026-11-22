@@ -947,7 +947,9 @@ export default function Files() {
 
   return (
     <div
-      className="space-y-6"
+      // 移动端底部有一条固定的文件操作栏（约 3.5rem，见 .mobile-action-bar），
+      // 它悬浮在底部导航之上；这里补足滚动余量，避免最后一行文件/分页被操作栏压住。
+      className="space-y-6 pb-[calc(3.5rem+1rem)] lg:pb-0"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDropWithPermissionCheck}
@@ -1434,7 +1436,7 @@ export default function Files() {
       </div>
 
       {selectedFiles.length > 0 && (
-        <div className="flex items-center gap-3 px-4 py-2.5 bg-primary/10 border border-primary/20 rounded-lg text-sm">
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 bg-primary/10 border border-primary/20 rounded-lg text-sm sm:gap-3 sm:px-4">
           <CheckCircle2 className="h-4 w-4 text-primary" />
           <span className="font-medium">已选中 {selectedFiles.length} 个</span>
           {undeletableSelectedCount > 0 && (

@@ -87,8 +87,10 @@ export function PWAInstallPrompt({ className }: PWAInstallPromptProps) {
   return (
     <div
       className={cn(
-        'fixed bottom-20 lg:bottom-4 left-4 right-4 lg:left-auto lg:right-4 lg:w-80 z-40',
-        'bg-card border rounded-xl shadow-lg p-4 animate-slide-up',
+        // 移动端参与正常排版（顶栏下方整行卡片），不再用 fixed 覆盖标题/搜索；
+        // 桌面端仍固定在右下角，避免挤占内容宽度。
+        'relative z-40 mx-3 mt-2 rounded-xl border bg-card p-4 shadow-lg animate-fade-in',
+        'lg:fixed lg:bottom-4 lg:right-4 lg:left-auto lg:top-auto lg:m-0 lg:w-80 lg:animate-slide-up',
         className
       )}
     >

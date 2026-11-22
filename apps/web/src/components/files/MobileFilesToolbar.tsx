@@ -8,6 +8,7 @@
  */
 
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Grid,
   List,
@@ -58,13 +59,14 @@ export function MobileFilesToolbar({
   onUpload,
   onUploadFolder,
 }: MobileFilesToolbarProps) {
+  const navigate = useNavigate();
   const [showFabMenu, setShowFabMenu] = useState(false);
 
   return (
     <>
       <div className="mobile-action-bar lg:hidden">
-        {/* 左侧：视图切换 + 排序 */}
-        <div className="flex items-center gap-0.5">
+        {/* 左侧：视图切换 + 排序（窄屏可横向滚动，避免挤出屏幕） */}
+        <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto no-scrollbar pr-16">
           {viewModes.map(({ mode, icon: Icon, label }) => (
             <button
               key={mode}
@@ -103,26 +105,33 @@ export function MobileFilesToolbar({
             {sortBy === 'size' &&
               (sortOrder === 'asc' ? <SortAsc className="h-3 w-3" /> : <SortDesc className="h-3 w-3" />)}
           </button>
+          <div className="w-px h-4 bg-border mx-0.5 flex-shrink-0" />
+          {/* AI 入口：文件页移动端隐藏全局悬浮按钮，改由底栏提供，避免遮住列表右侧操作 */}
+          <button
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-primary transition-colors hover:bg-primary/10"
+            onClick={() => navigate('/ai-chat')}
+            title="AI 对话"
+            aria-label="打开 AI 对话"
+          >
+            <Sparkles className="h-4 w-4" />
+          </button>
         </div>
 
-        {/* 中间：FAB 按钮 */}
+        {/* 右侧：新建/上传按钮（靠右固定，避免与左侧排序按钮在窄屏重叠） */}
         <button
-          className="flex items-center justify-center w-12 h-10 rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95"
+          className="absolute right-3 top-1/2 flex h-10 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95"
           onClick={() => setShowFabMenu(!showFabMenu)}
           title="新建/上传"
         >
           {showFabMenu ? <X className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
         </button>
-
-        {/* 右侧占位，保持 FAB 居中 */}
-        <div className="w-[120px]" />
       </div>
 
       {showFabMenu && (
         <>
-          <div className="fixed inset-0 z-30 bg-black/30 lg:hidden" onClick={() => setShowFabMenu(false)} />
+          <div className="fixed inset-0 z-sticky bg-black/30 lg:hidden" onClick={() => setShowFabMenu(false)} />
           <div
-            className="fixed bottom-36 left-1/2 z-30 flex flex-col gap-2 lg:hidden"
+            className="fixed bottom-36 left-1/2 z-sticky flex flex-col gap-2 lg:hidden"
             style={{ transform: 'translateX(-50%)' }}
           >
             <button
@@ -240,7 +249,10 @@ export function MobileSearchPanel({
   onBlur,
 }: MobileSearchPanelProps) {
   return (
-    <div className="space-y-2 md:hidden">
+    // 与 MobileFilesToolbar / 桌面工具栏统一到 lg 断点：
+    // 用 md:hidden 会在 768–1023px 平板区间隐藏搜索框，而桌面搜索是 hidden lg:flex，
+    // 导致该区间完全没有搜索入口。
+    <div className="space-y-2 lg:hidden">
       {/* 搜索输入行：输入框 + 搜索模式按钮 + 高级搜索 */}
       <div className="relative flex items-center gap-1.5">
         <div className="relative flex-1">

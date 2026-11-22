@@ -46,39 +46,61 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 );
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', async () => {
-    // 首次安装时 controller 为空，不需要提示更新
-    const hadController = Boolean(navigator.serviceWorker.controller);
-    const notifyUpdate = () => window.dispatchEvent(new Event('ossshelf:sw-update'));
+  if (import.meta.env.DEV) {
+    // 开发环境不注册 Service Worker：
+    // 旧 SW 会对 /src/*.tsx、/@vite/client 等模块做 stale-while-revalidate，
+    // 导致改完代码刷新仍加载旧模块（典型的"主题切换没反应""布局还是旧的"）。
+    // 这里同时清理历史注册与缓存，让本地调试始终拿到 dev server 的最新代码。
+    window.addEventListener('load', async () => {
+      try {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+        if ('caches' in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((key) => caches.delete(key)));
+        }
+        if (registrations.length > 0) {
+          console.info('[dev] 已注销历史 Service Worker 并清空缓存');
+        }
+      } catch (error) {
+        console.warn('[dev] 清理 Service Worker 失败', error);
+      }
+    });
+  } else {
+    window.addEventListener('load', async () => {
+      // 首次安装时 controller 为空，不需要提示更新
+      const hadController = Boolean(navigator.serviceWorker.controller);
+      const notifyUpdate = () => window.dispatchEvent(new Event('ossshelf:sw-update'));
 
-    try {
-      const registration = await navigator.serviceWorker.register('/sw.js', {
-        scope: '/',
-      });
-      console.log('Service Worker registered:', registration.scope);
+      try {
+        const registration = await navigator.serviceWorker.register('/sw.js', {
+          scope: '/',
+        });
+        console.log('Service Worker registered:', registration.scope);
 
-      registration.addEventListener('updatefound', () => {
-        const newWorker = registration.installing;
-        if (!newWorker) return;
-        newWorker.addEventListener('statechange', () => {
-          if (newWorker.state === 'installed' && hadController) {
-            notifyUpdate();
+        registration.addEventListener('updatefound', () => {
+          const newWorker = registration.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' && hadController) {
+              notifyUpdate();
+            }
+          });
+        });
+
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (hadController) notifyUpdate();
+        });
+
+        // 应用回到前台时检查一次更新，避免长期停留在旧 SW 上
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
+            registration.update().catch(() => {});
           }
         });
-      });
-
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (hadController) notifyUpdate();
-      });
-
-      // 应用回到前台时检查一次更新，避免长期停留在旧 SW 上
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-          registration.update().catch(() => {});
-        }
-      });
-    } catch (error) {
-      console.error('Service Worker registration failed:', error);
-    }
-  });
+      } catch (error) {
+        console.error('Service Worker registration failed:', error);
+      }
+    });
+  }
 }
