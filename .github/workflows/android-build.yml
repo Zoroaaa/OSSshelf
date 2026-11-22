@@ -1,0 +1,155 @@
+name: Build Android APK
+
+# 仅在发版时手动触发；日常 push 不出包，避免频繁构建与产物堆积。
+# 壳加载已部署站点（server.url），站点更新无需重新发版；域名不入库，由 app_url 输入或仓库变量 APP_URL 提供。
+on:
+  workflow_dispatch:
+    inputs:
+      app_url:
+        description: '站点地址（https://...）；留空则使用仓库变量 APP_URL'
+        required: false
+        type: string
+      release_tag:
+        description: '目标 Release 标签（如 v3.2.0）；留空则只构建不上传'
+        required: false
+        type: string
+      upload:
+        description: '构建后上传 APK 到该 Release'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: Build Android APK
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          # Capacitor 8 CLI 要求 Node >= 22
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      # mobile/ 不在 pnpm workspace 内，独立使用 npm，不影响根锁文件与线上部署
+      - name: Install Mobile Dependencies
+        working-directory: mobile
+        run: npm install
+
+      - name: Set Server URL
+        working-directory: mobile
+        env:
+          APP_URL: ${{ inputs.app_url || vars.APP_URL }}
+        run: node scripts/set-server-url.mjs
+
+      # android/ 不入库，每次由模板生成，避免仓库携带 Gradle 产物
+      - name: Add Android Platform
+        working-directory: mobile
+        run: npx cap add android
+
+      - name: Generate Android Icons
+        working-directory: mobile
+        run: npx capacitor-assets generate --android
+
+      - name: Sync Web Assets
+        working-directory: mobile
+        run: npx cap sync android
+
+      # 版本号从根 package.json 注入；配置了签名 Secrets 时同时写入 signingConfig
+      - name: Prepare Android Project
+        working-directory: mobile
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/ossshelf-release.p12"
+            # export 让同一脚本内的 node 可见；GITHUB_ENV 供后续 Gradle 步骤读取
+            export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/ossshelf-release.p12"
+            keytool -list -keystore "$ANDROID_KEYSTORE_PATH" -storetype PKCS12 \
+              -storepass "$ANDROID_KEYSTORE_PASSWORD" > /dev/null
+            {
+              echo "ANDROID_KEYSTORE_PATH=$ANDROID_KEYSTORE_PATH"
+              echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
+              echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS"
+              echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
+              echo "ANDROID_SIGNING=true"
+            } >> "$GITHUB_ENV"
+          fi
+          node scripts/prepare-android.mjs
+
+      # 有签名密钥时出 release APK，否则回退 debug（可直接侧载，但无法覆盖升级）
+      - name: Build APK
+        working-directory: mobile/android
+        run: |
+          chmod +x gradlew
+          if [ "$ANDROID_SIGNING" = "true" ]; then
+            ./gradlew assembleRelease --no-daemon
+          else
+            ./gradlew assembleDebug --no-daemon
+          fi
+
+      - name: Collect APK
+        run: |
+          mkdir -p build-output
+          if [ -f mobile/android/app/build/outputs/apk/release/app-release.apk ]; then
+            cp mobile/android/app/build/outputs/apk/release/app-release.apk build-output/OSSshelf-Android-release.apk
+          elif [ -f mobile/android/app/build/outputs/apk/debug/app-debug.apk ]; then
+            cp mobile/android/app/build/outputs/apk/debug/app-debug.apk build-output/OSSshelf-Android-debug.apk
+          else
+            echo "未找到 APK 产物，输出目录如下："
+            find mobile/android/app/build/outputs -name '*.apk' -print
+            exit 1
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ossshelf-android
+          path: build-output/*.apk
+          if-no-files-found: error
+
+      # 上传到指定 Release：标签必须与根版本一致，且必须是已签名包
+      - name: Validate Release
+        if: ${{ inputs.upload && inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "v$PKG_VERSION" ]; then
+            echo "标签 $TAG 与根 package.json 版本 v$PKG_VERSION 不一致，终止上传"
+            exit 1
+          fi
+          if [ ! -f build-output/OSSshelf-Android-release.apk ]; then
+            echo "本次为 debug 构建，拒绝上传未签名包（请先配置 ANDROID_KEYSTORE_* Secrets）"
+            exit 1
+          fi
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null
+
+      - name: Upload APK to Release
+        if: ${{ inputs.upload && inputs.release_tag != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          cp build-output/OSSshelf-Android-release.apk "build-output/OSSshelf-Android-$PKG_VERSION.apk"
+          gh release upload "$TAG" "build-output/OSSshelf-Android-$PKG_VERSION.apk" --repo "$GITHUB_REPOSITORY" --clobber
+          echo "已上传 OSSshelf-Android-$PKG_VERSION.apk 到 $TAG"
