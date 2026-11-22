@@ -1,0 +1,26 @@
+{
+  "appId": "uk.wort.ossshelf",
+  "appName": "OSSshelf",
+  "webDir": "www",
+  "server": {
+    "cleartext": false
+  },
+  "android": {
+    "backgroundColor": "#ffffff",
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "StatusBar": {
+      "style": "LIGHT",
+      "backgroundColor": "#ffffff",
+      "overlaysWebView": false
+    },
+    "SplashScreen": {
+      "launchShowDuration": 800,
+      "launchAutoHide": true,
+      "backgroundColor": "#ffffff",
+      "androidScaleType": "CENTER_INSIDE",
+      "showSpinner": false
+    }
+  }
+}
