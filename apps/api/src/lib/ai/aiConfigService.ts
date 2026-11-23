@@ -165,7 +165,7 @@ export async function initializeAiConfig(env: Env): Promise<void> {
       label: '默认视觉模型',
       description: '用于图片分析、视觉理解的模型ID（需支持vision能力）',
       valueType: 'string',
-      defaultValue: '@cf/llava-hf/llava-1.5-7b-hf',
+      defaultValue: '@cf/meta/llama-4-scout-17b-16e-instruct',
       isEditable: true,
       sortOrder: 2,
     },

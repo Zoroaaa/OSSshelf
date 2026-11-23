@@ -73,7 +73,7 @@ export const WORKERS_AI_FALLBACK_MODELS: WorkersAiFallbackModel[] = [
     description: '阿里Qwen3最新一代MoE模型(30B总参/3B激活)，推理+指令遵循+Agent能力全面突破',
   },
   {
-    id: '@cf/mistral/mistral-small-3.1-24b-instruct',
+    id: '@cf/mistralai/mistral-small-3.1-24b-instruct',
     name: 'Mistral Small 3.1 24B (Mistral AI)',
     capabilities: ['chat', 'vision', 'function_calling'],
     description: 'Mistral AI顶级文本+视觉双优模型，128K长上下文，速度与智能的最佳平衡',
@@ -107,12 +107,6 @@ export const WORKERS_AI_FALLBACK_MODELS: WorkersAiFallbackModel[] = [
     description: 'Llama 3.1 8B极速版，60K上下文，延迟敏感场景首选',
   },
   {
-    id: '@cf/google/gemma-3-12b-it',
-    name: 'Gemma 3 12B (Google)',
-    capabilities: ['chat', 'vision'],
-    description: 'Google多模态模型，128K上下文，140+语言支持，文本生成与图像理解全能',
-  },
-  {
     id: '@cf/meta/llama-3.2-3b-instruct',
     name: 'Llama 3.2 3B Instruct (Meta)',
     capabilities: ['chat'],
@@ -130,13 +124,7 @@ export const WORKERS_AI_FALLBACK_MODELS: WorkersAiFallbackModel[] = [
     id: '@cf/meta/llama-3.2-11b-vision-instruct',
     name: 'Llama 3.2 11B Vision (Meta)',
     capabilities: ['vision'],
-    description: 'Meta原生视觉指令模型，图像识别、图像推理、图注生成全能',
-  },
-  {
-    id: '@cf/llava-hf/llava-1.5-7b-hf',
-    name: 'LLaVA 1.5 7B Vision',
-    capabilities: ['vision'],
-    description: '经典多模态视觉语言模型，图片内容理解与描述生成',
+    description: 'Meta原生视觉指令模型，首次使用前需发送一次 {"prompt":"agree"} 接受 Meta 许可',
   },
 
   // ========== 嵌入/向量化模型 ==========

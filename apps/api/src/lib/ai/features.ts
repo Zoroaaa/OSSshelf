@@ -127,7 +127,7 @@ async function getDefaultModels(env: Env): Promise<Record<string, string>> {
   try {
     const [chatModel, visionModel] = await Promise.all([
       getAiConfigString(env, 'ai.default_model.chat', '@cf/meta/llama-3.1-8b-instruct'),
-      getAiConfigString(env, 'ai.default_model.vision', '@cf/llava-hf/llava-1.5-7b-hf'),
+      getAiConfigString(env, 'ai.default_model.vision', '@cf/meta/llama-4-scout-17b-16e-instruct'),
     ]);
 
     return {
@@ -140,8 +140,8 @@ async function getDefaultModels(env: Env): Promise<Record<string, string>> {
     logger.warn('AI', 'Failed to load default models from config, using hardcoded fallback');
     return {
       summary: '@cf/meta/llama-3.1-8b-instruct',
-      imageCaption: '@cf/llava-hf/llava-1.5-7b-hf',
-      imageTag: '@cf/llava-hf/llava-1.5-7b-hf',
+      imageCaption: '@cf/meta/llama-4-scout-17b-16e-instruct',
+      imageTag: '@cf/meta/llama-4-scout-17b-16e-instruct',
       rename: '@cf/meta/llama-3.1-8b-instruct',
     };
   }

@@ -78,6 +78,11 @@ export function mapAiError(error: unknown): AiError {
     return new AiError('AI_TIMEOUT', 'AI 请求已取消或超时', { cause: error });
   }
 
+  // 模型下线（如 llava-1.5 返回 410），换参数重试也没有意义
+  if (status === 410 || /model.*(deprecated|removed|sunset)|no longer available/i.test(message)) {
+    return new AiError('AI_CONFIG_INVALID', '该模型已下线或不可用，请更换模型', { cause: error });
+  }
+
   if (status === 401 || status === 403 || /invalid.*api.*key|unauthorized/i.test(message)) {
     return new AiError('AI_UNAUTHORIZED', 'AI 服务鉴权失败，请检查模型配置', { cause: error });
   }

@@ -12,13 +12,13 @@ import type { Env } from '../../types/env';
 import type { ModelConfig } from './types';
 import { isVisionProbeAnswer, probeVisionModel } from './visionProbe';
 
-function llavaConfig(): ModelConfig {
+function nativeVisionConfig(): ModelConfig {
   return {
     id: 'test-model',
     userId: 'user-1',
-    name: 'LLaVA',
+    name: 'Llama 3.2 Vision',
     provider: 'workers_ai',
-    modelId: '@cf/llava-hf/llava-1.5-7b-hf',
+    modelId: '@cf/meta/llama-3.2-11b-vision-instruct',
     isActive: true,
     capabilities: ['vision'],
     temperature: 0.7,
@@ -37,25 +37,25 @@ describe('视觉探测', () => {
   });
 
   it('能看见图片的模型通过探测', async () => {
-    const run = vi.fn(async () => ({ description: '红色' }));
+    const run = vi.fn(async () => ({ response: '红色' }));
     const env = { AI: { run } } as unknown as Env;
 
-    const result = await probeVisionModel(env, 'user-1', { config: llavaConfig() });
+    const result = await probeVisionModel(env, 'user-1', { config: nativeVisionConfig() });
 
     expect(result.ok).toBe(true);
     expect(result.answer).toBe('红色');
-    expect(result.modelId).toBe('@cf/llava-hf/llava-1.5-7b-hf');
+    expect(result.modelId).toBe('@cf/meta/llama-3.2-11b-vision-instruct');
     expect(run).toHaveBeenCalledWith(
-      '@cf/llava-hf/llava-1.5-7b-hf',
+      '@cf/meta/llama-3.2-11b-vision-instruct',
       expect.objectContaining({ prompt: expect.stringContaining('颜色') })
     );
   });
 
   it('只回文本的模型不通过探测', async () => {
-    const run = vi.fn(async () => ({ description: '我无法查看图片，请提供图片内容。' }));
+    const run = vi.fn(async () => ({ response: '我无法查看图片，请提供图片内容。' }));
     const env = { AI: { run } } as unknown as Env;
 
-    const result = await probeVisionModel(env, 'user-1', { config: llavaConfig() });
+    const result = await probeVisionModel(env, 'user-1', { config: nativeVisionConfig() });
 
     expect(result.ok).toBe(false);
   });

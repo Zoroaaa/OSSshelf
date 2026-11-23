@@ -443,7 +443,11 @@ export class ContentTools {
 
     const imageBytes = new Uint8Array(buffer);
     const actualMimeType = file.mimeType || 'image/jpeg';
-    const visionModelId = await getAiConfigString(env, 'ai.default_model.vision', '@cf/llava-hf/llava-1.5-7b-hf');
+    const visionModelId = await getAiConfigString(
+      env,
+      'ai.default_model.vision',
+      '@cf/meta/llama-4-scout-17b-16e-instruct'
+    );
 
     try {
       if (visionModelId.startsWith('@cf/') && !env.AI) {

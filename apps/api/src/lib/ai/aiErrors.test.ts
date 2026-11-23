@@ -24,6 +24,12 @@ describe('aiErrors', () => {
     expect(error.message).toContain('许可');
   });
 
+  it('classifies retired models as non-retryable config errors', () => {
+    const error = mapAiError({ status: 410, message: 'Gone' });
+    expect(error.code).toBe('AI_CONFIG_INVALID');
+    expect(error.retryable).toBe(false);
+  });
+
   it('preserves AiError instances', () => {
     const original = new AiError('AI_TOOL_FAILED', 'boom');
     expect(mapAiError(original)).toBe(original);

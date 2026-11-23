@@ -3,7 +3,7 @@
  * 视觉调用链路回归测试
  *
  * 覆盖三条曾经返回空或只回文本的路径：
- * - 旧 Workers AI 视觉模型（llava）走原生 { image, prompt } 输入
+ * - 旧 Workers AI 视觉模型（llama-3.2-11b-vision）走原生 { image, prompt } 输入
  * - 新多模态模型（llama-4-scout）走 chat messages + image_url
  * - moondream3 走任务式 { task, image, question } 并读取 answer
  * - OpenAI 兼容视觉模型必须把图片 part 转换为 image_url data URL
@@ -23,7 +23,7 @@ function baseConfig(overrides: Partial<ModelConfig>): ModelConfig {
     userId: 'user-1',
     name: '测试模型',
     provider: 'workers_ai',
-    modelId: '@cf/llava-hf/llava-1.5-7b-hf',
+    modelId: '@cf/meta/llama-3.2-11b-vision-instruct',
     isActive: true,
     capabilities: ['vision'],
     temperature: 0.7,
@@ -51,15 +51,15 @@ afterEach(() => {
 });
 
 describe('视觉调用链路', () => {
-  it('旧 Workers AI 视觉模型（llava）走原生 image + prompt，而不是 chat messages', async () => {
-    const run = vi.fn(async () => ({ description: '一只猫' }));
+  it('旧 Workers AI 视觉模型（llama-3.2-11b-vision）走原生 image + prompt，而不是 chat messages', async () => {
+    const run = vi.fn(async () => ({ response: '一只猫' }));
     const env = { AI: { run } } as unknown as Env;
 
     const result = await completeTextWithConfig(env, baseConfig({}), visionRequest());
 
     expect(run).toHaveBeenCalledTimes(1);
     expect(run).toHaveBeenCalledWith(
-      '@cf/llava-hf/llava-1.5-7b-hf',
+      '@cf/meta/llama-3.2-11b-vision-instruct',
       expect.objectContaining({
         image: [104, 101, 108, 108, 111],
         prompt: '请描述这张图片',

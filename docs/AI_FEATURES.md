@@ -10,7 +10,7 @@
 | 变化             | 说明                                                                                                                                                                                      |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Agent 运行时** | 会话消息改由 `@cloudflare/ai-chat` 的 `AIChatAgent`（Durable Object）承载，支持断线续传、多端同步、审批后同轮继续                                                                         |
-| **模型调用层**   | 新增 `lib/ai/modelRuntime.ts`，统一走 AI SDK provider（Workers AI / OpenAI 兼容 / Anthropic），Agent 与后台功能共用同一解析与调用入口；Workers AI 视觉按模型分派输入格式（moondream3 任务式、llava/llama-3.2-vision 原生 `{ image, prompt }`、其余多模态模型走 chat messages + `image_url`） |
+| **模型调用层**   | 新增 `lib/ai/modelRuntime.ts`，统一走 AI SDK provider（Workers AI / OpenAI 兼容 / Anthropic），Agent 与后台功能共用同一解析与调用入口；Workers AI 视觉按模型分派输入格式（moondream3 任务式、llama-3.2-vision 等旧模型原生 `{ image, prompt }`、其余多模态模型走 chat messages + `image_url`） |
 | **真实用量**     | 每次调用写入 `ai_usage_events`，新增日配额与分钟限流（`ai.quota.*`、`ai.rate.*`）                                                                                                         |
 | **检索**         | 分块正文落 `file_chunks`，新增 FTS5 关键词召回、可选 rerank、`search_content` 工具                                                                                                        |
 | **队列**         | 移除 KV 并发锁，改由 Queue `max_concurrency`；`ai_task_items` 提供逐文件幂等与真续跑；`agent_batch` 走 fileService                                                                        |
@@ -914,10 +914,10 @@ v2.3.0 提供了 **100+ 个智能工具**，分为 13 个功能模块：
 
 **使用的模型**：
 
-- 描述：vision 模型，默认 LLaVA 1.5 7B Vision
+- 描述：vision 模型，默认 Llama 4 Scout
 - 标签：同一 vision 模型（标签与描述各调一次）
 
-> Workers AI 视觉模型的输入契约分三类：moondream3 用 `{ task, image, question }`，llava / llama-3.2-11b-vision 用 `{ image, prompt }`，llama-4-scout、qwen3.8 等新模型必须走 chat `messages` + `image_url`。格式不匹配时模型不会报错，只会忽略图片按纯文本回答，表现为「返回空」或「只能读取文本」。因此：新模型（chat 首选）返回空内容或格式类错误时依次降级到旧版原生格式（成功/失败只记一次用量）；保存图片描述/标签模型、修改默认视觉模型、模型「测试」都会用内置纯红 PNG 做一次真实图片探测；图片超过 `ai.tool.max_image_size_bytes`（默认 5MB）时在发送前明确失败。需要接受许可的模型（如 llama-3.2-11b-vision）首次使用前必须发送一次 `{"prompt":"agree"}`，否则探测会直接提示。
+> Workers AI 视觉模型的输入契约分三类：moondream3 用 `{ task, image, question }`，llama-3.2-11b-vision 等旧模型用 `{ image, prompt }`，llama-4-scout、qwen3.8 等新模型必须走 chat `messages` + `image_url`。格式不匹配时模型不会报错，只会忽略图片按纯文本回答，表现为「返回空」或「只能读取文本」。因此：新模型（chat 首选）返回空内容或格式类错误时依次降级到旧版原生格式（成功/失败只记一次用量）；保存图片描述/标签模型、修改默认视觉模型、模型「测试」都会用内置纯红 PNG 做一次真实图片探测；图片超过 `ai.tool.max_image_size_bytes`（默认 5MB）时在发送前明确失败。需要接受许可的模型（如 llama-3.2-11b-vision）首次使用前必须发送一次 `{"prompt":"agree"}`，否则探测会直接提示；已下线的模型（如 llava-1.5）会返回明确的「模型已下线」错误。moondream3 在 Workers AI 侧对所有输入均返回空结果，探测会拦截，建议先用 llama-4-scout。
 
 **使用方式**：
 
@@ -1092,12 +1092,12 @@ GET /api/ai-config/workers-ai/models?refresh=1
 
 选择模型时会根据功能需求进行过滤：
 
-| 功能       | 要求的能力 | 可选模型示例                       |
-| ---------- | ---------- | ---------------------------------- |
-| 文件摘要   | `chat`     | Llama 3.1 8B, DeepSeek 32B, GPT-4o |
-| 图片描述   | `vision`   | LLaVA 1.5 7B, GPT-4 Vision         |
-| 图片标签   | `chat`     | Llama 3.1 8B, Qwen 14B, GPT-4o     |
-| 智能重命名 | `chat`     | Llama 3.1 8B, Qwen 14B, GPT-4o     |
+| 功能       | 要求的能力 | 可选模型示例                          |
+| ---------- | ---------- | ------------------------------------- |
+| 文件摘要   | `chat`     | Llama 3.1 8B, DeepSeek 32B, GPT-4o    |
+| 图片描述   | `vision`   | Llama 4 Scout, Qwen3.8, GPT-4 Vision  |
+| 图片标签   | `vision`   | Llama 4 Scout, Qwen3.8                |
+| 智能重命名 | `chat`     | Llama 3.1 8B, Qwen 14B, GPT-4o        |
 
 ### 配置方法
 
@@ -1128,14 +1128,14 @@ v2.3.0 AI 系统配置功能，支持细粒度的 AI 参数调整。
 
 ### 配置项示例
 
-| 配置 Key                      | 默认值                           |
-| ----------------------------- | -------------------------------- |
-| `ai.default_model.chat`       | `@cf/meta/llama-3.1-8b-instruct` |
-| `ai.default_model.vision`     | `@cf/llava-hf/llava-1.5-7b-hf`   |
-| `ai.default_model.embedding`  | `@cf/baai/bge-m3`                |
-| `ai.model.temperature`        | `0.7`                            |
-| `ai.agent.max_steps`          | `20`                             |
-| `ai.agent.max_context_tokens` | `100000`                         |
+| 配置 Key                      | 默认值                                      |
+| ----------------------------- | ------------------------------------------- |
+| `ai.default_model.chat`       | `@cf/meta/llama-3.1-8b-instruct`            |
+| `ai.default_model.vision`     | `@cf/meta/llama-4-scout-17b-16e-instruct`   |
+| `ai.default_model.embedding`  | `@cf/baai/bge-m3`                           |
+| `ai.model.temperature`        | `0.7`                                       |
+| `ai.agent.max_steps`          | `20`                                        |
+| `ai.agent.max_context_tokens` | `100000`                                    |
 | `ai.quota.daily_tokens`       | `200000`                         |
 | `ai.quota.daily_requests`     | `200`                            |
 | `ai.rate.requests_per_minute` | `20`                             |
