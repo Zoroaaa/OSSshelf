@@ -54,6 +54,8 @@ export type AiConfigValue = string | number | boolean | object | null;
 export const AI_REQUEST_DEFAULTS = {
   maxRetries: 3,
   timeoutMs: 30_000,
+  /** 图片理解请求（含流式）独立超时：截图/大图通常比纯文本慢一个数量级 */
+  visionTimeoutMs: 120_000,
 } as const;
 
 /**
@@ -70,6 +72,7 @@ export const SYSTEM_CONFIG_UI_META: Record<string, AiConfigUiMeta> = {
   'ai.rag.rerank_enabled': { advanced: false },
   'ai.request.max_retries': { min: 0, max: 10, step: 1, unit: '次', advanced: true },
   'ai.request.timeout_ms': { min: 5_000, max: 120_000, step: 1_000, unit: 'ms' },
+  'ai.request.vision_timeout_ms': { min: 5_000, max: 300_000, step: 1_000, unit: 'ms' },
   'ai.quota.daily_tokens': { min: 0, max: 100_000_000, step: 1_000, unit: 'tokens' },
   'ai.quota.daily_requests': { min: 0, max: 100_000, step: 1, unit: '次' },
   'ai.rate.requests_per_minute': { min: 0, max: 10_000, step: 1, unit: '次/分' },
@@ -165,7 +168,7 @@ export async function initializeAiConfig(env: Env): Promise<void> {
       label: '默认视觉模型',
       description: '用于图片分析、视觉理解的模型ID（需支持vision能力）',
       valueType: 'string',
-      defaultValue: '@cf/llava-hf/llava-1.5-7b-hf',
+      defaultValue: '@cf/meta/llama-4-scout-17b-16e-instruct',
       isEditable: true,
       sortOrder: 2,
     },
@@ -268,6 +271,16 @@ export async function initializeAiConfig(env: Env): Promise<void> {
       defaultValue: String(AI_REQUEST_DEFAULTS.timeoutMs),
       isEditable: true,
       sortOrder: 32,
+    },
+    {
+      key: 'ai.request.vision_timeout_ms',
+      category: 'retry',
+      label: '视觉请求超时时间(ms)',
+      description: '图片理解请求（含流式输出）的超时时间；截图/大图较慢，默认 120 秒',
+      valueType: 'number',
+      defaultValue: String(AI_REQUEST_DEFAULTS.visionTimeoutMs),
+      isEditable: true,
+      sortOrder: 31,
     },
     {
       key: 'ai.quota.daily_tokens',
@@ -374,18 +387,23 @@ export async function initializeAiConfig(env: Env): Promise<void> {
     return;
   }
 
+  // 多 isolate 可能同时初始化（部署后首批请求、并发管理页），key 唯一约束会让后来的插入冲突，
+  // 冲突只代表别的 isolate 已写入，忽略即可，否则整个 /system-config 会 500。
   for (const config of missingConfigs) {
     const now = new Date().toISOString();
-    await db.insert(aiConfig).values({
-      id: crypto.randomUUID(),
-      ...config,
-      stringValue: config.valueType === 'string' ? config.defaultValue : null,
-      numberValue: config.valueType === 'number' ? parseFloat(config.defaultValue) : null,
-      booleanValue: config.valueType === 'boolean' ? config.defaultValue === 'true' : false,
-      jsonValue: config.valueType === 'json' ? config.defaultValue : null,
-      createdAt: now,
-      updatedAt: now,
-    });
+    await db
+      .insert(aiConfig)
+      .values({
+        id: crypto.randomUUID(),
+        ...config,
+        stringValue: config.valueType === 'string' ? config.defaultValue : null,
+        numberValue: config.valueType === 'number' ? parseFloat(config.defaultValue) : null,
+        booleanValue: config.valueType === 'boolean' ? config.defaultValue === 'true' : false,
+        jsonValue: config.valueType === 'json' ? config.defaultValue : null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing();
   }
 
   if (obsoleteKeys.length > 0) {

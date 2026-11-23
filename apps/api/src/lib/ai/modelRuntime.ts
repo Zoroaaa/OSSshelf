@@ -21,7 +21,6 @@ import { MODEL_ID_FORMAT_HINT, pickSupportedModelId } from './modelId';
 import { recordUsage } from './usage';
 import { estimateTokens, extractThinkingContent } from './utils';
 import { buildWorkersAiConfig, getActiveModel, getModelById } from './modelService';
-import { isPrivateHostname } from './providers/providerService';
 import type { AiFeatureType, ChatContentPart, ChatMessage, ModelConfig, TokenUsage } from './types';
 import { AI_LOG_MODULE } from './constants';
 
@@ -313,66 +312,6 @@ function hasImageContent(messages: ChatMessage[]): boolean {
   );
 }
 
-function base64ToBytes(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
-}
-
-const MAX_VISION_IMAGE_BYTES = 10 * 1024 * 1024;
-
-/**
- * 将视觉输入统一转换为字节：支持 data URL 与 https 远程地址。
- * 远程地址强制 https、拒绝私网域名且不跟随重定向，避免 SSRF。
- */
-async function loadImageBytes(rawUrl: string): Promise<Uint8Array | null> {
-  const dataUrl = parseDataUrl(rawUrl);
-  if (dataUrl) return base64ToBytes(dataUrl.data);
-
-  try {
-    const url = new URL(rawUrl);
-    if (url.protocol !== 'https:' || isPrivateHostname(url.hostname)) return null;
-
-    const response = await fetch(url, { redirect: 'manual' });
-    if (!response.ok) return null;
-
-    const contentLength = Number(response.headers.get('content-length') ?? '0');
-    if (contentLength > MAX_VISION_IMAGE_BYTES) return null;
-
-    const buffer = await response.arrayBuffer();
-    return buffer.byteLength > MAX_VISION_IMAGE_BYTES ? null : new Uint8Array(buffer);
-  } catch {
-    return null;
-  }
-}
-
-async function extractWorkersAiVisionInput(
-  messages: ChatMessage[]
-): Promise<{ prompt: string; image: Uint8Array } | null> {
-  for (const message of messages) {
-    if (!Array.isArray(message.content)) continue;
-
-    const imagePart = message.content.find((part) => part.type === 'image_url' && !!part.image_url?.url);
-    if (!imagePart?.image_url?.url) continue;
-
-    const image = await loadImageBytes(imagePart.image_url.url);
-    if (!image) continue;
-
-    const prompt = message.content
-      .filter((part) => part.type === 'text')
-      .map((part) => part.text ?? '')
-      .join('\n')
-      .trim();
-
-    return { prompt, image };
-  }
-
-  return null;
-}
-
 function toTokenUsage(
   usage: { inputTokens?: number; outputTokens?: number; inputTokenDetails?: { cacheReadTokens?: number } } | undefined,
   promptText: string,
@@ -434,76 +373,12 @@ async function resolveNormalizedConfig(env: Env, userId: string, modelId?: strin
   return resolved.provider === 'workers_ai' ? normalizeWorkersAiConfig(resolved) : resolved;
 }
 
-/**
- * Workers AI 视觉模型的原生输入是 { image, prompt }，不走 chat-completions。
- * 单独保留这一分支，避免 LLaVA 等模型因 messages 格式不兼容而返回空。
- */
-async function runWorkersAiVision(
-  env: Env,
-  config: ModelConfig,
-  request: CompleteRequest,
-  options: { userId: string; record: boolean }
-): Promise<CompleteResult> {
-  if (!env.AI) {
-    throw new AiError('AI_CONFIG_INVALID', 'Workers AI 绑定未配置，无法进行视觉分析');
-  }
-
-  const input = await extractWorkersAiVisionInput(request.messages);
-  if (!input) {
-    throw new AiError('AI_CONFIG_INVALID', '视觉调用缺少图片内容');
-  }
-
-  const featureType = request.featureType ?? 'chat';
-  const startedAt = Date.now();
-
+/** 视觉请求独立超时：截图/大图比纯文本慢一个数量级，复用普通请求超时会误杀 */
+async function getVisionTimeoutMs(env: Env): Promise<number> {
   try {
-    const raw = await (env.AI as any).run(config.modelId, {
-      image: Array.from(input.image),
-      prompt: input.prompt,
-    });
-
-    const content = String(
-      (raw as { description?: unknown; response?: unknown })?.description ??
-        (raw as { response?: unknown })?.response ??
-        ''
-    ).trim();
-    const usage: TokenUsage = {
-      inputTokens: estimateTokens(input.prompt),
-      outputTokens: estimateTokens(content),
-    };
-
-    if (options.record) {
-      await recordUsage(env, {
-        userId: options.userId,
-        feature: featureType,
-        provider: config.provider,
-        modelId: config.modelId,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        latencyMs: Date.now() - startedAt,
-        status: 'completed',
-      });
-    }
-
-    return { content, modelId: config.modelId, usage };
-  } catch (error) {
-    const mapped = mapAiError(error);
-
-    if (options.record) {
-      await recordUsage(env, {
-        userId: options.userId,
-        feature: featureType,
-        provider: config.provider,
-        modelId: config.modelId,
-        inputTokens: estimateTokens(input.prompt),
-        outputTokens: 0,
-        latencyMs: Date.now() - startedAt,
-        status: 'error',
-        errorCode: mapped.code,
-      });
-    }
-
-    throw mapped;
+    return await getAiConfigNumber(env, 'ai.request.vision_timeout_ms', AI_REQUEST_DEFAULTS.visionTimeoutMs);
+  } catch {
+    return AI_REQUEST_DEFAULTS.visionTimeoutMs;
   }
 }
 
@@ -512,14 +387,16 @@ async function runCompletion(
   model: LanguageModel,
   config: ModelConfig,
   request: CompleteRequest,
-  options: { userId: string; signal?: AbortSignal; record: boolean }
+  options: { userId: string; signal?: AbortSignal; record: boolean; timeoutMs?: number }
 ): Promise<CompleteResult> {
   const featureType = request.featureType ?? 'chat';
   const messages = injectSystemPrompt(request.messages, config.systemPrompt);
   const { system, messages: modelMessages } = toModelMessages(messages);
   const promptText = collectPromptText(messages);
 
-  const { maxRetries, timeoutMs } = await getRuntimeSettings(env);
+  const runtimeSettings = await getRuntimeSettings(env);
+  const maxRetries = runtimeSettings.maxRetries;
+  const timeoutMs = options.timeoutMs ?? runtimeSettings.timeoutMs;
 
   const timeoutSignal = createTimeoutSignal(timeoutMs, options.signal);
   const startedAt = Date.now();
@@ -584,6 +461,8 @@ async function runCompletion(
 
 /**
  * 后台功能统一入口：解析用户配置 → AI SDK 生成 → 记账。
+ * 视觉请求（含图片 part）统一走 chat-completions，使用独立的视觉超时；
+ * 不做按模型 ID 的分支，避免每接入一个新模型就要加一条特例。
  */
 export async function completeText(
   env: Env,
@@ -592,16 +471,14 @@ export async function completeText(
   options: { modelId?: string; signal?: AbortSignal } = {}
 ): Promise<CompleteResult> {
   const config = await resolveNormalizedConfig(env, userId, options.modelId);
-
-  if (config.provider === 'workers_ai' && hasImageContent(request.messages)) {
-    return runWorkersAiVision(env, config, request, { userId, record: true });
-  }
+  const timeoutMs = hasImageContent(request.messages) ? await getVisionTimeoutMs(env) : undefined;
 
   const model = await createLanguageModel(env, config);
   return runCompletion(env, model, config, request, {
     userId,
     signal: options.signal,
     record: true,
+    timeoutMs,
   });
 }
 
@@ -615,16 +492,14 @@ export async function completeTextWithConfig(
   options: { signal?: AbortSignal } = {}
 ): Promise<CompleteResult> {
   const normalized = config.provider === 'workers_ai' ? normalizeWorkersAiConfig(config) : config;
-
-  if (normalized.provider === 'workers_ai' && hasImageContent(request.messages)) {
-    return runWorkersAiVision(env, normalized, request, { userId: normalized.userId, record: false });
-  }
+  const timeoutMs = hasImageContent(request.messages) ? await getVisionTimeoutMs(env) : undefined;
 
   const model = await createLanguageModel(env, normalized);
   return runCompletion(env, model, normalized, request, {
     userId: normalized.userId,
     signal: options.signal,
     record: false,
+    timeoutMs,
   });
 }
 

@@ -771,7 +771,9 @@ export const aiConfig = sqliteTable(
   'ai_config',
   {
     id: text('id').primaryKey(),
-    userId: text('user_id'),
+    // 生产库 ai_config 在历史上被手工重建过，缺 user_id / value 两列（111–116 手工应用的后遗症）。
+    // 这两列代码从未读写，声明在这里会让 Drizzle 的 select 带上它们，直接报
+    // "table ai_config has no column named user_id" 并让 /system-config 500，因此不声明。
     key: text('key').notNull().unique(),
     category: text('category').notNull(),
     label: text('label').notNull(),
@@ -781,7 +783,6 @@ export const aiConfig = sqliteTable(
     numberValue: real('number_value'),
     booleanValue: integer('boolean_value', { mode: 'boolean' }).default(false),
     jsonValue: text('json_value'),
-    value: text('value'),
     defaultValue: text('default_value').notNull(),
     isSystem: integer('is_system', { mode: 'boolean' }).notNull().default(true),
     isEditable: integer('is_editable', { mode: 'boolean' }).notNull().default(true),

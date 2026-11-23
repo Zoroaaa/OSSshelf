@@ -16,13 +16,12 @@ import { getDb, aiModels } from '../db';
 import { authMiddleware, requireAdmin } from '../middleware/auth';
 import { aiRateLimit } from '../middleware/aiRateLimit';
 import { recordUsage } from '../lib/ai/usage';
-import { ERROR_CODES } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { getActiveModel, getAllModels, getModelById } from '../lib/ai/modelService';
 import { completeTextWithConfig, validateModelConfig } from '../lib/ai/modelRuntime';
-import { WORKERS_AI_FALLBACK_MODELS } from '../lib/ai/workersAiModels';
 import { getWorkersAiCatalog } from '../lib/ai/workersAiCatalog';
+import { probeVisionModel } from '../lib/ai/visionProbe';
 import { MODEL_ID_FORMAT_HINT, pickSupportedModelId } from '../lib/ai/modelId';
 import { getFeatureModelConfig, saveFeatureModelConfig } from '../lib/ai/featureConfigService';
 import type { ModelConfig, ModelCapability, ModelProvider } from '../lib/ai/types';
@@ -809,12 +808,15 @@ app.get('/feature-config', async (c) => {
   }
 });
 
-function validateWorkersAiModel(
+async function validateWorkersAiModel(
+  env: Env,
   modelId: string,
   requiredCapability: ModelCapability
-): { valid: boolean; error?: string } {
-  const workersAiModels = WORKERS_AI_FALLBACK_MODELS;
-  const model = workersAiModels.find((m) => m.id === modelId);
+): Promise<{ valid: boolean; error?: string }> {
+  // 校验必须与前端下拉同源：目录为实时同步结果（未配置凭据时内部回退内置清单），
+  // 用静态清单会把只在线上目录里的新模型判成「不存在」。
+  const catalog = await getWorkersAiCatalog(env);
+  const model = catalog.models.find((m) => m.id === modelId);
   if (!model) {
     return { valid: false, error: 'Workers AI 模型不存在' };
   }
@@ -822,6 +824,42 @@ function validateWorkersAiModel(
     return { valid: false, error: `该模型不支持 ${requiredCapability} 能力` };
   }
   return { valid: true };
+}
+
+/** 能力标记分散在模型配置与 Workers AI 目录两处，任一处判定为视觉模型即可 */
+async function isVisionCapableModel(env: Env, config: ModelConfig): Promise<boolean> {
+  if (config.capabilities?.includes('vision') || config.inputModalities?.includes('image')) {
+    return true;
+  }
+  if (config.provider === 'workers_ai') {
+    const catalog = await getWorkersAiCatalog(env);
+    return !!catalog.models.find((m) => m.id === config.modelId)?.capabilities.includes('vision');
+  }
+  return false;
+}
+
+/**
+ * 保存视觉模型前做一次真实图片探测。
+ * 输入格式不匹配的模型不会报错，只会忽略图片，必须在配置阶段发现，否则批量处理时静默失败。
+ */
+async function assertVisionModelUsable(env: Env, userId: string, modelId: string, label: string): Promise<void> {
+  let probe: Awaited<ReturnType<typeof probeVisionModel>>;
+  try {
+    probe = await probeVisionModel(env, userId, { modelId });
+  } catch (error) {
+    throwAppError(
+      'VALIDATION_ERROR',
+      `${label}模型视觉探测失败：${error instanceof Error ? error.message : '未知错误'}`
+    );
+  }
+
+  if (!probe.ok) {
+    const detail = probe.answer ? probe.answer.slice(0, 100) : '模型返回空内容';
+    throwAppError(
+      'VALIDATION_ERROR',
+      `${label}模型「${modelId}」未通过视觉探测（${detail}）。请确认该模型支持图片输入，或换用其他视觉模型。`
+    );
+  }
 }
 
 // 保存功能模型配置
@@ -837,7 +875,7 @@ app.put('/feature-config', async (c) => {
 
   if (summary) {
     if (summary.startsWith('@cf/')) {
-      const result = validateWorkersAiModel(summary, 'chat');
+      const result = await validateWorkersAiModel(c.env, summary, 'chat');
       if (!result.valid) {
         throwAppError('VALIDATION_ERROR', result.error);
       }
@@ -854,7 +892,7 @@ app.put('/feature-config', async (c) => {
 
   if (imageCaption) {
     if (imageCaption.startsWith('@cf/')) {
-      const result = validateWorkersAiModel(imageCaption, 'vision');
+      const result = await validateWorkersAiModel(c.env, imageCaption, 'vision');
       if (!result.valid) {
         throwAppError('VALIDATION_ERROR', result.error);
       }
@@ -871,7 +909,7 @@ app.put('/feature-config', async (c) => {
 
   if (imageTag) {
     if (imageTag.startsWith('@cf/')) {
-      const result = validateWorkersAiModel(imageTag, 'vision');
+      const result = await validateWorkersAiModel(c.env, imageTag, 'vision');
       if (!result.valid) {
         throwAppError('VALIDATION_ERROR', result.error);
       }
@@ -888,7 +926,7 @@ app.put('/feature-config', async (c) => {
 
   if (rename) {
     if (rename.startsWith('@cf/')) {
-      const result = validateWorkersAiModel(rename, 'chat');
+      const result = await validateWorkersAiModel(c.env, rename, 'chat');
       if (!result.valid) {
         throwAppError('VALIDATION_ERROR', result.error);
       }
@@ -901,6 +939,19 @@ app.put('/feature-config', async (c) => {
         throwAppError('VALIDATION_ERROR', '该模型不支持 chat 能力');
       }
     }
+  }
+
+  // 仅在视觉模型发生变化时做真实图片探测：前端每次保存都会带上全部字段，避免无谓调用
+  const currentFeatureConfig = await getFeatureModelConfig(c.env, userId);
+  const changedVisionModels = new Set<string>();
+  if (imageCaption && imageCaption !== currentFeatureConfig.imageCaption) {
+    changedVisionModels.add(imageCaption);
+  }
+  if (imageTag && imageTag !== currentFeatureConfig.imageTag) {
+    changedVisionModels.add(imageTag);
+  }
+  for (const modelId of changedVisionModels) {
+    await assertVisionModelUsable(c.env, userId, modelId, '图片描述/标签');
   }
 
   const config = {
@@ -1012,6 +1063,38 @@ app.post('/test', async (c) => {
       testConfig.modelId = resolvedModelId;
     }
 
+    // 视觉模型用真实图片探测，纯文本测试测不出"看不见图"
+    if (await isVisionCapableModel(c.env, testConfig)) {
+      const startTime = Date.now();
+      const probe = await probeVisionModel(c.env, userId, { config: testConfig });
+      const latencyMs = Date.now() - startTime;
+      c.set('aiUsageTokens', (probe.usage?.inputTokens ?? 0) + (probe.usage?.outputTokens ?? 0));
+
+      await recordUsage(c.env, {
+        userId,
+        feature: 'test',
+        provider: testConfig.provider,
+        modelId: probe.modelId,
+        inputTokens: probe.usage?.inputTokens ?? 0,
+        outputTokens: probe.usage?.outputTokens ?? 0,
+        latencyMs,
+        status: probe.ok ? 'completed' : 'error',
+        ...(probe.ok ? {} : { errorCode: 'AI_UPSTREAM_ERROR' as const }),
+      });
+
+      return c.json({
+        success: true,
+        data: {
+          valid: probe.ok,
+          response: probe.ok ? `视觉探测通过：${probe.answer}` : undefined,
+          error: probe.ok ? undefined : `视觉探测未通过：${probe.answer || '模型返回空内容'}`,
+          model: probe.modelId,
+          latencyMs,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    }
+
     // 执行测试请求
     const startTime = Date.now();
     const response = await completeTextWithConfig(c.env, testConfig, {
@@ -1097,6 +1180,16 @@ app.put('/system-config/:key', requireAdmin(), async (c) => {
     const validation = validateAiConfigValue(config, value);
     if (!validation.valid) {
       throwAppError('VALIDATION_ERROR', validation.error || '配置值无效');
+    }
+
+    // 默认视觉模型改动时做一次真实图片探测，避免保存一个"看不见图"的模型
+    if (
+      key === 'ai.default_model.vision' &&
+      typeof value === 'string' &&
+      value.trim() &&
+      value !== config.stringValue
+    ) {
+      await assertVisionModelUsable(c.env, c.get('userId')!, value.trim(), '默认视觉');
     }
 
     const success = await updateAiConfig(c.env, key, value as string | number | boolean | object | null);
