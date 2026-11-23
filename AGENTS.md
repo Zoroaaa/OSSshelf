@@ -18,6 +18,7 @@ pnpm dev:setup                                                # 首次/换机：
 pnpm dev:api                                                  # wrangler dev，http://127.0.0.1:8787
 pnpm dev:web                                                  # vite，http://127.0.0.1:3000（代理 /api /dav /agents）
 pnpm smoke                                                    # 关键链路冒烟，需上面两个服务在跑
+pnpm audit:gate                                               # 生产依赖 high/critical 审计门禁（CI 部署前强制，豁免见 scripts/audit-exemptions.json）
 
 pnpm typecheck                                                # 三包递归 tsc --noEmit
 pnpm test                                                     # 全仓 vitest（api / web / shared）
@@ -44,6 +45,7 @@ pnpm db:migrate:local                                         # 本地 D1 应用
 | `apps/web/src/{pages,components}`      | 页面与业务组件                               | 请求走 hooks/services；`components/ui` 保持无业务耦合 |
 | `apps/web/src/{hooks,services,stores}` | 数据编排、API 封装、客户端状态               | 服务端数据进 TanStack Query，不进 store               |
 | `packages/shared`                      | 错误码、MIME、logger、共享类型               | 改这里等于改契约，前后端都要 typecheck                |
+| `mobile/`                              | Capacitor Android 壳（加载已部署站点）        | **独立用 npm**（自带 package-lock.json），不进 pnpm workspace；不要在根目录 pnpm install 它 |
 
 ## 3. 硬约束
 
@@ -132,7 +134,7 @@ pnpm db:migrate:local                                         # 本地 D1 应用
 
 ## 7. 数据库迁移
 
-1. 新建 `apps/api/migrations/<下一个编号>_<snake_case>.sql`（120 起；`010` / `020` / … / `110` 为模块块，块内递增）。
+1. 新建 `apps/api/migrations/<下一个编号>_<snake_case>.sql`（`010` / `020` / … / `110` 为模块块，块内递增；写文件前 `ls apps/api/migrations` 确认当前最大编号，当前下一个是 **122**）。
 2. 同步修改 `src/db/schema.ts`。
 3. `pnpm db:migrate:local` 验证。
 4. 新表或新关系更新 `docs/architecture.md` 数据模型。

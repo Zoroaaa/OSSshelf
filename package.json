@@ -17,6 +17,7 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r --if-present test",
+    "audit:gate": "node scripts/audit-gate.mjs",
     "db:generate": "pnpm --filter api db:generate",
     "db:migrate": "pnpm --filter api db:migrate",
     "db:studio": "pnpm --filter api db:studio"
@@ -45,5 +46,18 @@
     "prettier": "^3.2.0",
     "typescript": "^5.3.0"
   },
-  "packageManager": "pnpm@8.15.0"
+  "packageManager": "pnpm@8.15.0",
+  "pnpm": {
+    "overrides": {
+      "@xmldom/xmldom@<0.8.15": ">=0.8.15",
+      "lodash@<4.18.1": ">=4.18.1",
+      "katex@<0.18.2": ">=0.18.2",
+      "nanoid@<3.3.18": ">=3.3.18",
+      "nanoid@>=5.0.0 <5.1.16": ">=5.1.16",
+      "picomatch@<2.3.2": ">=2.3.2",
+      "picomatch@>=4.0.0 <4.0.4": ">=4.0.4",
+      "postcss@<8.5.23": ">=8.5.23",
+      "source-map-js@<1.2.2": ">=1.2.2"
+    }
+  }
 }

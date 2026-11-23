@@ -47,6 +47,12 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      - name: Dependency audit gate
+        # 生产依赖（--prod）存在未豁免的 high/critical 通告时阻塞部署。
+        # 豁免清单 scripts/audit-exemptions.json，每项须带跟进阶段；
+        # 用户指令批准本步骤纳入部署链路（升级方案 Phase 0 / 0.3）。
+        run: pnpm audit:gate
+
       - name: Preflight D1 migration state
         # 比对 d1_migrations 与真实 schema，拦截“控制台手工执行过但未记录”等会直接失败的差异。
         # 修复指引：docs/runbooks/d1-112-repair.md
@@ -64,7 +70,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      # Worker secrets（JWT_SECRET / ALERT_TG_BOT_TOKEN / CF_API_TOKEN）跨部署持久存在，
+      # Worker secrets（JWT_SECRET / ALERT_TG_BOT_TOKEN / ALERT_TG_CHAT_ID / CF_API_TOKEN）跨部署持久存在，
       # 只在首次部署或轮换时手工执行 `wrangler secret put`，不再每次流水线重写。
       - name: Trigger Workers Builds deploy
         # 顺序保证：迁移成功后，才通过 Deploy Hook 触发构建部署。

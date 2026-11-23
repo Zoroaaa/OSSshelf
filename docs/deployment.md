@@ -542,7 +542,7 @@ wrangler r2 bucket create ossshelf-files
 
 > 工作流只引用上面三个 Secret；D1 / KV 的 id 已写入仓库内的
 > `apps/api/wrangler.toml`，不再需要 Secret 注入。
-> 运行时密钥（`JWT_SECRET`、`ALERT_TG_BOT_TOKEN`、`CF_API_TOKEN`）在
+> 运行时密钥（`JWT_SECRET`、`ALERT_TG_BOT_TOKEN`、`ALERT_TG_CHAT_ID`、`CF_API_TOKEN`）在
 > Cloudflare Dashboard 的 Worker → Settings → Variables and Secrets 手工维护，
 > 见 [运行时密钥管理](#运行时密钥管理)。
 > `CLOUDFLARE_API_TOKEN` 需要额外勾选 `Workers AI:Read`（仅当需要实时模型目录）。
@@ -631,6 +631,7 @@ node scripts/preflight-migrations.mjs --plan     # 只静态检查迁移文件�
 cd apps/api
 wrangler secret put JWT_SECRET          # 必填，32+ 字符，例如 openssl rand -base64 32
 wrangler secret put ALERT_TG_BOT_TOKEN  # 可选，Telegram 告警
+wrangler secret put ALERT_TG_CHAT_ID    # 可选，告警目标 Chat ID（2026-11-23 起为 Secret，不再放 wrangler.toml）
 wrangler secret put CF_API_TOKEN        # 可选，Workers AI 模型目录（仅 Workers AI:Read）
 ```
 
@@ -697,8 +698,8 @@ curl https://ossshelf.your-subdomain.workers.dev/api/auth/registration-config
 | --------------------- | --------------------------------- | ---- |
 | `JWT_SECRET`          | Worker Secrets                    | 必填，JWT 签名 + 文件加密密钥派生 |
 | `ALERT_TG_BOT_TOKEN`  | Worker Secrets                    | 可选，Telegram 告警 |
+| `ALERT_TG_CHAT_ID`    | Worker Secrets                    | 可选，告警目标 Chat ID（2026-11-23 起从 `wrangler.toml` [vars] 迁出） |
 | `CF_API_TOKEN`        | Worker Secrets                    | 可选，Workers AI 模型目录 |
-| `ALERT_TG_CHAT_ID`    | `wrangler.toml` 的 `[vars]`       | 可选，告警目标 Chat ID（非密钥） |
 
 `encrypt-secrets.yml` 工作流仍引用 `JWT_SECRET`（用于一次性密钥加密迁移），保留该 Secret 不要删除。
 
@@ -710,7 +711,7 @@ curl https://ossshelf.your-subdomain.workers.dev/api/auth/registration-config
 2. **获取 Chat ID**：
    - **个人消息**：直接使用你的 User ID（转发任意消息到 [@userinfobot](https://t.me/userinfobot) 获取），需要先向 Bot 发送 `/start`
    - **频道/群组**：创建频道或群组，将 Bot 添加为管理员，转发消息到 [@userinfobot](https://t.me/userinfobot) 获取 Chat ID（以 `-100` 开头）
-3. **配置**：`wrangler secret put ALERT_TG_BOT_TOKEN`，并把 Chat ID 填入 `apps/api/wrangler.toml` 的 `ALERT_TG_CHAT_ID`
+3. **配置**：`wrangler secret put ALERT_TG_BOT_TOKEN` 与 `wrangler secret put ALERT_TG_CHAT_ID`
 
 ---
 
@@ -777,7 +778,7 @@ run_worker_first = ["/api", "/api/*", "/dav", "/dav/*", "/agents", "/agents/*", 
 
 顺序语义：迁移任一步失败都不会发出 Hook，线上代码保持不变；`CF_BUILDS_DEPLOY_HOOK` 缺失时步骤显式报错退出。
 
-Worker secrets（`JWT_SECRET` / `ALERT_TG_BOT_TOKEN` / `CF_API_TOKEN`）跨部署持久存在，
+Worker secrets（`JWT_SECRET` / `ALERT_TG_BOT_TOKEN` / `ALERT_TG_CHAT_ID` / `CF_API_TOKEN`）跨部署持久存在，
 只在首次部署或轮换时手工执行 `wrangler secret put`（见 Step 5），流水线不再每次重写。
 
 ### 触发条件
@@ -1723,8 +1724,8 @@ pnpm typecheck        # 类型检查
 - [ ] 手工写入 Worker Secrets
   - [ ] `JWT_SECRET`（必填）
   - [ ] `ALERT_TG_BOT_TOKEN`（可选）
+  - [ ] `ALERT_TG_CHAT_ID`（可选）
   - [ ] `CF_API_TOKEN`（可选，仅 Workers AI Read）
-- [ ] 如需告警，把 Chat ID 填入 `wrangler.toml` 的 `ALERT_TG_CHAT_ID`
 - [ ] 连接 Workers Builds（根目录 `apps/api`、构建命令、监视路径，无需构建期变量）
 - [ ] 创建 Deploy Hook 并写入 `CF_BUILDS_DEPLOY_HOOK`
 - [ ] 验证 workers.dev 域名可访问（SPA 刷新、`/api`、WebDAV）

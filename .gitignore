@@ -9,6 +9,10 @@ build/
 .next/
 .nuxt/
 .trae/
+*.tsbuildinfo
+
+# 临时排查产物（曾误提交过 lint 输出，勿再入库）
+lint_output.txt
 
 # Cloudflare
 .wrangler/

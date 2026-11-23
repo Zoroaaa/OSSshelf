@@ -13,6 +13,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import { getDb, apiKeys } from '../db';
 import { authMiddleware, denyApiKeyAuth } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
+import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 import { sendNotification } from '../lib/notificationUtils';
@@ -120,6 +121,18 @@ app.post('/', async (c) => {
     },
   });
 
+  // Key 是长期凭据，签发必须留审计轨迹（谁在何时授了什么 scope）
+  await createAuditLog({
+    env: c.env,
+    userId,
+    action: 'apikey.create',
+    resourceType: 'api_key',
+    resourceId: keyId,
+    details: { name, scopes, expiresAt: expiresAt ?? null },
+    ipAddress: getClientIp(c),
+    userAgent: getUserAgent(c),
+  });
+
   return c.json({
     success: true,
     data: {
@@ -176,6 +189,22 @@ app.patch('/:id', async (c) => {
 
   if (Object.keys(updateData).length > 0) {
     await db.update(apiKeys).set(updateData).where(eq(apiKeys.id, keyId));
+
+    // scope 变更等于重新授权，必须留审计轨迹
+    await createAuditLog({
+      env: c.env,
+      userId,
+      action: 'apikey.update',
+      resourceType: 'api_key',
+      resourceId: keyId,
+      details: {
+        name: key.name,
+        changedFields: Object.keys(updateData),
+        newScopes: scopes ?? undefined,
+      },
+      ipAddress: getClientIp(c),
+      userAgent: getUserAgent(c),
+    });
   }
 
   return c.json({
@@ -210,6 +239,17 @@ app.delete('/:id', async (c) => {
       keyId,
       name: key.name,
     },
+  });
+
+  await createAuditLog({
+    env: c.env,
+    userId,
+    action: 'apikey.delete',
+    resourceType: 'api_key',
+    resourceId: keyId,
+    details: { name: key.name, scopes: JSON.parse(key.scopes) },
+    ipAddress: getClientIp(c),
+    userAgent: getUserAgent(c),
   });
 
   return c.json({
