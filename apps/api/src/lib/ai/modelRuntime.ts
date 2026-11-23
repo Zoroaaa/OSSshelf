@@ -468,6 +468,98 @@ async function resolveNormalizedConfig(env: Env, userId: string, modelId?: strin
 }
 
 /**
+ * Workers AI 视觉响应字段在各模型族间不一致（description / response / answer / caption），
+ * 有的还会套一层 result/data/output 或返回 JSON 字符串，统一在这里递归取文本。
+ */
+function extractVisionText(raw: unknown, depth = 0): string {
+  if (raw === null || raw === undefined) return '';
+
+  if (typeof raw === 'string') {
+    const text = raw.trim();
+    if (!text || depth > 2) return text;
+    try {
+      return extractVisionText(JSON.parse(text), depth + 1);
+    } catch {
+      return text;
+    }
+  }
+
+  if (typeof raw !== 'object' || depth > 2) return '';
+  const record = raw as Record<string, unknown>;
+
+  for (const key of ['description', 'response', 'answer', 'caption', 'text']) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+
+  for (const key of ['result', 'data', 'output']) {
+    if (record[key] !== undefined) {
+      const text = extractVisionText(record[key], depth + 1);
+      if (text) return text;
+    }
+  }
+
+  return '';
+}
+
+/** 空内容时只透出响应字段名用于定位，避免把原始内容写进用户侧错误 */
+function describeResponseKeys(raw: unknown): string {
+  if (raw === null || raw === undefined) return '空响应';
+  if (typeof raw !== 'object') return typeof raw;
+  const keys = Object.keys(raw as Record<string, unknown>);
+  return keys.length > 0 ? keys.slice(0, 8).join(',') : '无字段';
+}
+
+interface VisionInput {
+  prompt: string;
+  image: Uint8Array;
+  sourceUrl: string;
+}
+
+async function runNativeVision(
+  env: Env,
+  modelId: string,
+  input: VisionInput
+): Promise<{ content: string; raw: unknown }> {
+  const raw = await (env.AI as any).run(modelId, { image: Array.from(input.image), prompt: input.prompt });
+  return { content: extractVisionText(raw), raw };
+}
+
+/**
+ * moondream3 任务式接口。文档声明 image 接受 HTTPS URL 或 base64 data URI，
+ * 但绑定侧编码差异会让图片被静默丢弃，空响应时依次尝试 data URI、纯 base64、字节数组。
+ */
+async function runMoondreamVision(
+  env: Env,
+  modelId: string,
+  input: VisionInput
+): Promise<{ content: string; raw: unknown }> {
+  const dataUri = input.sourceUrl;
+  const rawBase64 = dataUri.startsWith('data:') ? dataUri.slice(dataUri.indexOf(',') + 1) : dataUri;
+  const attempts: Array<Record<string, unknown>> = [
+    { task: 'query', image: dataUri, question: input.prompt, reasoning: false },
+    { task: 'query', image: rawBase64, question: input.prompt, reasoning: false },
+    { task: 'query', image: Array.from(input.image), question: input.prompt, reasoning: false },
+  ];
+
+  let lastRaw: unknown;
+  let lastError: unknown;
+  for (const payload of attempts) {
+    try {
+      const raw = await (env.AI as any).run(modelId, payload);
+      lastRaw = raw;
+      const content = extractVisionText(raw);
+      if (content) return { content, raw };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastRaw === undefined && lastError) throw mapAiError(lastError);
+  return { content: '', raw: lastRaw };
+}
+
+/**
  * 旧版 Workers AI 视觉模型的原生输入：moondream3 任务式、llava/llama-3.2-vision 的 { image, prompt }。
  * 其余视觉模型走 chat-completions（messages + image_url），由 AI SDK 组装，避免这里重复实现。
  * 记账由调用方（runWorkersAiVisionWithFallback）统一处理。
@@ -488,14 +580,18 @@ async function runWorkersAiVision(
   }
 
   try {
-    const payload =
+    const { content, raw } =
       options.path === 'moondream'
-        ? { task: 'query', image: input.sourceUrl, question: input.prompt }
-        : { image: Array.from(input.image), prompt: input.prompt };
-    const raw = await (env.AI as any).run(config.modelId, payload);
+        ? await runMoondreamVision(env, config.modelId, input)
+        : await runNativeVision(env, config.modelId, input);
 
-    const body = raw as { description?: unknown; response?: unknown; answer?: unknown; caption?: unknown };
-    const content = String(body?.description ?? body?.response ?? body?.answer ?? body?.caption ?? '').trim();
+    if (!content) {
+      throw new AiError(
+        'AI_UPSTREAM_ERROR',
+        `视觉模型「${config.modelId}」返回空内容（响应字段：${describeResponseKeys(raw)}）`
+      );
+    }
+
     const usage: TokenUsage = {
       inputTokens: estimateTokens(input.prompt),
       outputTokens: estimateTokens(content),

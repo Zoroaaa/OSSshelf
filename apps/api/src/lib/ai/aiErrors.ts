@@ -90,6 +90,15 @@ export function mapAiError(error: unknown): AiError {
     return new AiError('AI_CONTEXT_OVERFLOW', '对话上下文超出模型限制', { cause: error });
   }
 
+  // 部分模型（如 llama-3.2-11b-vision）首次使用前需显式接受许可，否则直接拒绝推理
+  if (/must submit the prompt ['"]?agree/i.test(message)) {
+    return new AiError(
+      'AI_UNAUTHORIZED',
+      '该模型需先接受许可协议：请在 Cloudflare Dashboard 打开该模型页面点击 Agree，或手动发送一次 {"prompt":"agree"} 后再试',
+      { cause: error }
+    );
+  }
+
   if (name === 'TimeoutError' || /timeout|timed out/i.test(message)) {
     return new AiError('AI_TIMEOUT', 'AI 模型响应超时', { cause: error });
   }

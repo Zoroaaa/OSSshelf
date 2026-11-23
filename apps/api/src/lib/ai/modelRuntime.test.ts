@@ -110,6 +110,7 @@ describe('视觉调用链路', () => {
       task: 'query',
       image: `data:image/png;base64,${IMAGE_BASE64}`,
       question: '请描述这张图片',
+      reasoning: false,
     });
     expect(result.content).toBe('一只兔子');
   });

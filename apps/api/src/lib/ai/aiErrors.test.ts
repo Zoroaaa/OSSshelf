@@ -18,6 +18,12 @@ describe('aiErrors', () => {
     expect(error.retryable).toBe(false);
   });
 
+  it('turns Workers AI license gate into actionable message', () => {
+    const error = mapAiError(new Error("5016: Prior to using this model, you must submit the prompt 'agree'."));
+    expect(error.code).toBe('AI_UNAUTHORIZED');
+    expect(error.message).toContain('许可');
+  });
+
   it('preserves AiError instances', () => {
     const original = new AiError('AI_TOOL_FAILED', 'boom');
     expect(mapAiError(original)).toBe(original);
