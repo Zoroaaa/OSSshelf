@@ -485,9 +485,11 @@ export function AISettings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ai-feature-config'] });
     },
-    // 功能配置保存失败时给出反馈
-    onError: (err) =>
-      toast({ title: err instanceof Error ? err.message : '操作失败', variant: 'destructive' }),
+    // 保存失败时服务端仍是旧值，重新拉取回滚下拉，避免看起来"改了但不生效"
+    onError: (err) => {
+      toast({ title: err instanceof Error ? err.message : '操作失败', variant: 'destructive' });
+      queryClient.invalidateQueries({ queryKey: ['ai-feature-config'] });
+    },
   });
 
   const updateSystemConfigMutation = useMutation({
