@@ -27,7 +27,7 @@
  */
 
 import { and, eq, isNull, gt, ne } from 'drizzle-orm';
-import { files } from '../db/schema';
+import { files, fileVersions } from '../db/schema';
 import type { DrizzleDb } from '../db';
 
 export interface DedupResult {
@@ -84,9 +84,42 @@ export async function checkAndClaimDedup(
 }
 
 /**
+ * 物理对象是否仍被「其他文件」引用。
+ *
+ * 引用来源有两处，缺一不可：
+ *   1. files.r2_key（含回收站记录，软删除不删对象）
+ *   2. file_versions.r2_key（历史版本）——CoW 副本与版本链会共享同一对象，
+ *      只看 files 会在“副本被删而原文件旧版本仍需该对象”时误删。
+ *
+ * excludeFileId 的文件自身（当前记录与其全部版本）不计入：
+ * 文件被永久删除时其版本行会随之级联删除；删除单个版本时，同文件内的其它版本由调用方另行判断。
+ */
+export async function isR2KeyReferencedByOtherFile(
+  db: DrizzleDb,
+  r2Key: string,
+  excludeFileId: string
+): Promise<boolean> {
+  const byFile = await db
+    .select({ id: files.id })
+    .from(files)
+    .where(and(eq(files.r2Key, r2Key), ne(files.id, excludeFileId)))
+    .limit(1)
+    .get();
+  if (byFile) return true;
+
+  const byVersion = await db
+    .select({ id: fileVersions.id })
+    .from(fileVersions)
+    .where(and(eq(fileVersions.r2Key, r2Key), ne(fileVersions.fileId, excludeFileId)))
+    .limit(1)
+    .get();
+  return !!byVersion;
+}
+
+/**
  * 删除文件时判断是否可以清理物理对象。
  *
- * 判断依据：files 表中是否还有其它记录引用同一个 r2_key。
+ * 判断依据：files 与 file_versions 中是否还有其它文件引用同一个 r2_key。
  * 这里必须把回收站中的记录也计算在内——软删除只释放配额，
  * 并不会删除物理对象，因此它仍然持有一个引用。
  *
@@ -98,12 +131,7 @@ export async function releaseFileRef(db: DrizzleDb, fileId: string): Promise<{ s
   const file = await db.select({ r2Key: files.r2Key }).from(files).where(eq(files.id, fileId)).get();
   if (!file) return { shouldDeleteStorage: true };
 
-  const otherRef = await db
-    .select({ id: files.id })
-    .from(files)
-    .where(and(eq(files.r2Key, file.r2Key), ne(files.id, fileId)))
-    .limit(1)
-    .get();
+  const otherRef = await isR2KeyReferencedByOtherFile(db, file.r2Key, fileId);
 
   // 兼容字段归零，便于排查；真正的删除判断看上面的聚合结果
   await db.update(files).set({ refCount: 0, updatedAt: now }).where(eq(files.id, fileId));

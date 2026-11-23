@@ -20,6 +20,7 @@ import type { DrizzleDb } from '../db';
 import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';
 import { deleteObjectSafely } from './storageGC';
+import { isR2KeyReferencedByOtherFile } from './dedup';
 import { resolveBucketConfig } from './bucketResolver';
 import { getEncryptionKey } from './crypto';
 import { isEditableFile } from '@osshelf/shared';
@@ -30,15 +31,8 @@ const isVersionableFile = isEditableFile;
 
 export { isEditableFile, isVersionableFile };
 
-async function isKeySharedByOtherFile(db: DrizzleDb, r2Key: string, fileId: string): Promise<boolean> {
-  const row = await db
-    .select({ id: files.id })
-    .from(files)
-    .where(and(eq(files.r2Key, r2Key), ne(files.id, fileId)))
-    .limit(1)
-    .get();
-  return !!row;
-}
+// 同时覆盖其他文件的当前对象与历史版本（见 dedup.isR2KeyReferencedByOtherFile）
+const isKeySharedByOtherFile = isR2KeyReferencedByOtherFile;
 
 export interface CreateVersionOptions {
   changeSummary?: string;
@@ -340,12 +334,7 @@ export async function cleanExpiredVersions(db: DrizzleDb, env: Env): Promise<Pru
  *
  * 根据文件配置选择正确的存储后端删除对象。
  */
-async function deleteStorageObject(
-  db: DrizzleDb,
-  env: Env,
-  file: FileRecord,
-  r2Key: string
-): Promise<void> {
+async function deleteStorageObject(db: DrizzleDb, env: Env, file: FileRecord, r2Key: string): Promise<void> {
   await deleteObjectSafely(env, db, {
     userId: file.userId,
     bucketId: file.bucketId,
