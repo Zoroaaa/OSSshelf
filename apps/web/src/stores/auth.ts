@@ -9,6 +9,7 @@
  * - 设备管理
  */
 
+import { clearClientCaches } from '@/utils/clearClientCaches';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { User } from '@osshelf/shared';
@@ -39,13 +40,16 @@ export const useAuthStore = create<AuthState>()(
           isAuthenticated: true,
           isInitialized: true,
         }),
-      logout: () =>
+      logout: () => {
+        // 先清缓存再清状态：避免下一个账号读到当前账号的缓存响应
+        void clearClientCaches();
         set({
           user: null,
           token: null,
           isAuthenticated: false,
           isInitialized: true,
-        }),
+        });
+      },
       updateUser: (userData) =>
         set((state) => ({
           user: state.user ? { ...state.user, ...userData } : null,

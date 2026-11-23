@@ -108,11 +108,7 @@ export function MarkdownPreview({
           </ReactMarkdown>
         ) : timedOut ? (
           // E-08：超时后显示错误态与重试入口，不再永久停留在加载中
-          <ErrorState
-            title="内容加载失败"
-            message="文件内容长时间未能加载，请重试"
-            onRetry={handleRetry}
-          />
+          <ErrorState title="内容加载失败" message="文件内容长时间未能加载，请重试" onRetry={handleRetry} />
         ) : (
           <div className="flex items-center justify-center h-full">
             <p className="text-center text-muted-foreground text-sm py-8">加载中...</p>

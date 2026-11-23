@@ -8,9 +8,10 @@
  * - 系统分享面板（Web Share Target）接管
  */
 
-const CACHE_NAME = 'osshelf-v3';
-const STATIC_CACHE_NAME = 'osshelf-static-v3';
-const DYNAMIC_CACHE_NAME = 'osshelf-dynamic-v3';
+// v4：升级版本号让 activate 阶段清掉 v3 中遗留的鉴权响应缓存（/api/user、/api/buckets 等）
+const CACHE_NAME = 'osshelf-v4';
+const STATIC_CACHE_NAME = 'osshelf-static-v4';
+const DYNAMIC_CACHE_NAME = 'osshelf-dynamic-v4';
 
 const STATIC_ASSETS = ['/', '/index.html', '/manifest.json'];
 
@@ -19,11 +20,9 @@ const SHARE_TARGET_PATH = '/api/share-target';
 const SHARE_TARGET_CACHE_NAME = 'osshelf-share-target-v1';
 const SHARE_TARGET_ENTRY_PREFIX = '/__share-target/';
 
-const CACHE_STRATEGIES = {
-  networkFirst: ['/api/'],
-  cacheFirst: ['/api/files/preview/', '/api/files/thumbnail/'],
-  staleWhileRevalidate: ['/api/buckets', '/api/user'],
-};
+// /api/* 一律不进 SW：响应带用户身份，写入共享缓存会造成同设备换账号后的跨账号数据泄露。
+// 预览/缩略图的重复拉取由后端 Cache-Control 与浏览器 HTTP 缓存负责。
+const API_PREFIX = '/api/';
 
 self.addEventListener('install', (event) => {
   console.log('[SW] Installing...');
@@ -33,9 +32,7 @@ self.addEventListener('install', (event) => {
       console.log('[SW] Precaching static assets');
       // 逐个缓存：单个资源 404/离线不会导致整个 Service Worker 安装失败
       return Promise.all(
-        STATIC_ASSETS.map((url) =>
-          cache.add(url).catch((error) => console.warn('[SW] Failed to cache', url, error))
-        )
+        STATIC_ASSETS.map((url) => cache.add(url).catch((error) => console.warn('[SW] Failed to cache', url, error)))
       );
     })
   );
@@ -69,6 +66,13 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// 登出时由页面通知：清空全部缓存（含 share-target 暂存），避免下一个账号读到旧数据
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'CLEAR_ALL_CACHES') {
+    event.waitUntil(caches.keys().then((names) => Promise.all(names.map((n) => caches.delete(n)))));
+  }
+});
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -90,26 +94,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 下载、预签名相关路径不走缓存
-  if (url.pathname.startsWith('/api/files/download/') || url.pathname.includes('/presign')) {
-    return;
-  }
-
-  // API 请求：network first
-  if (CACHE_STRATEGIES.networkFirst.some((path) => url.pathname.startsWith(path))) {
-    event.respondWith(networkFirst(request));
-    return;
-  }
-
-  // 预览/缩略图：cache first
-  if (CACHE_STRATEGIES.cacheFirst.some((path) => url.pathname.includes(path))) {
-    event.respondWith(cacheFirst(request));
-    return;
-  }
-
-  // stale-while-revalidate
-  if (CACHE_STRATEGIES.staleWhileRevalidate.some((path) => url.pathname.startsWith(path))) {
-    event.respondWith(staleWhileRevalidate(request));
+  // API 请求：不拦截，直接交给浏览器（不缓存带鉴权的响应）
+  if (url.pathname.startsWith(API_PREFIX)) {
     return;
   }
 
@@ -206,27 +192,6 @@ async function networkFirst(request) {
       return caches.match('/');
     }
 
-    return new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
-  }
-}
-
-async function cacheFirst(request) {
-  const cachedResponse = await caches.match(request);
-
-  if (cachedResponse) {
-    return cachedResponse;
-  }
-
-  try {
-    const networkResponse = await fetch(request);
-
-    if (networkResponse.ok) {
-      const cache = await caches.open(DYNAMIC_CACHE_NAME);
-      cache.put(request, networkResponse.clone());
-    }
-
-    return networkResponse;
-  } catch (error) {
     return new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
   }
 }

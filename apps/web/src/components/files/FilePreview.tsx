@@ -56,14 +56,7 @@ import { AISummaryCard, ImageTagsDisplay, SmartRenameDialog } from '@/components
 import { ImagePreview } from './filepreview/ImagePreview';
 import { VideoPreview } from './filepreview/VideoPreview';
 import { AudioPreview } from './filepreview/AudioPreview';
-import { PdfPreview } from './filepreview/PdfPreview';
-import { MarkdownPreview } from './filepreview/MarkdownPreview';
-import { CodePreview } from './filepreview/CodePreview';
-import { OfficePreview } from './filepreview/OfficePreview';
-import { CsvPreview } from './filepreview/CsvPreview';
-import { ZipPreview } from './filepreview/ZipPreview';
-import { FontPreview } from './filepreview/FontPreview';
-import { EpubPreview } from './filepreview/EpubPreview';
+import { PdfPreview, MarkdownPreview, CodePreview, OfficePreview, CsvPreview, ZipPreview, FontPreview, EpubPreview } from './filepreview/lazyPreviews';
 import { WINDOW_SIZE_CONFIG, WindowSize, getLanguageFromExtension, isCodeFile } from './filepreview/previewUtils';
 
 interface PreviewInfo {

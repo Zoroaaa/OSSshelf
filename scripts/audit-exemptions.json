@@ -1,25 +1,5 @@
 {
   "$comment": "依赖审计门禁豁免清单。键为 module_name；每项必须有 reason 与 followUp（对应 docs/plans 升级方案的阶段编号）。新增豁免需同步升级方案；消除后立即从本清单删除。",
-  "xlsx": {
-    "reason": "CVE-2023-30533/CVE-2024-22363，npm 无补丁（SheetJS 已退出 npm registry）；仅 OfficePreview 预览 xlsx 时加载，不处理不可信来源之外的场景",
-    "followUp": "Phase 1 / 1.2：SheetJS CDN 自托管 0.20.2+ 或替换 exceljs"
-  },
-  "x-data-spreadsheet": {
-    "reason": "CVE-2022-25646 无补丁，且连带 opencollective→inquirer 依赖链（minimist/node-fetch/tmp）；csv/xlsx 预览场景，攻击面有限",
-    "followUp": "Phase 1 / 1.2：替换或移除；替换后同步删除本条及 minimist/node-fetch/tmp 豁免"
-  },
-  "minimist": {
-    "reason": "x-data-spreadsheet 的 opencollective→inquirer 赞助链（1.2.0），不进前端 bundle，仅存在于依赖树",
-    "followUp": "Phase 1 / 1.2：随 x-data-spreadsheet 替换消除"
-  },
-  "node-fetch": {
-    "reason": "同上：opencollective 赞助链（1.6.3），不进前端 bundle",
-    "followUp": "Phase 1 / 1.2：随 x-data-spreadsheet 替换消除"
-  },
-  "tmp": {
-    "reason": "同上：opencollective→inquirer→external-editor 链（0.0.33），不进前端 bundle",
-    "followUp": "Phase 1 / 1.2：随 x-data-spreadsheet 替换消除"
-  },
   "drizzle-orm": {
     "reason": "CVE-2026-39356 需 ≥0.45.2，从 0.29 升级跨 16 个 minor，有 API 变化，需专项验证",
     "followUp": "Phase 2 / 2.1：专项升级（API diff 盘点 → 迁移 → EXPLAIN 回归 → 回滚手册）"

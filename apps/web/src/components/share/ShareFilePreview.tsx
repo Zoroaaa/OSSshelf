@@ -33,14 +33,7 @@ import { cn } from '@/utils';
 import { ImagePreview } from '../files/filepreview/ImagePreview';
 import { VideoPreview } from '../files/filepreview/VideoPreview';
 import { AudioPreview } from '../files/filepreview/AudioPreview';
-import { PdfPreview } from '../files/filepreview/PdfPreview';
-import { MarkdownPreview } from '../files/filepreview/MarkdownPreview';
-import { CodePreview } from '../files/filepreview/CodePreview';
-import { OfficePreview } from '../files/filepreview/OfficePreview';
-import { CsvPreview } from '../files/filepreview/CsvPreview';
-import { ZipPreview } from '../files/filepreview/ZipPreview';
-import { FontPreview } from '../files/filepreview/FontPreview';
-import { EpubPreview } from '../files/filepreview/EpubPreview';
+import { PdfPreview, MarkdownPreview, CodePreview, OfficePreview, CsvPreview, ZipPreview, FontPreview, EpubPreview } from '../files/filepreview/lazyPreviews';
 import {
   WINDOW_SIZE_CONFIG,
   WindowSize,

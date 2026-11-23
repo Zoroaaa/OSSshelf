@@ -13,7 +13,7 @@ import { useFolderUpload } from '@/hooks/useFolderUpload';
 import { useToast } from '@/components/ui/useToast';
 import { useQueryClient } from '@tanstack/react-query';
 import { presignUpload } from '@/services/presignUpload';
-import { getErrorMessage } from '@/utils';
+import { getErrorMessage, runWithConcurrency } from '@/utils';
 
 interface UseFileDragDropProps {
   folderId: string | null;
@@ -89,7 +89,8 @@ export function useFileDragDrop({ folderId, setUploadProgresses, bucketId, teamI
       if (hasFolder) {
         uploadFolderEntriesDirect(entries);
       } else {
-        for (const file of Array.from(e.dataTransfer.files)) {
+        // 最多 3 并发；整批结束后统一失效一次列表，避免逐文件刷新
+        await runWithConcurrency(Array.from(e.dataTransfer.files), 3, async (file) => {
           const key = `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
           setUploadProgresses((p) => ({ ...p, [key]: 0 }));
           try {
@@ -100,27 +101,23 @@ export function useFileDragDrop({ folderId, setUploadProgresses, bucketId, teamI
               teamId,
               onProgress: (progress) => setUploadProgresses((prev) => ({ ...prev, [key]: progress })),
             });
-            setUploadProgresses((p) => {
-              const n = { ...p };
-              delete n[key];
-              return n;
-            });
-            queryClient.invalidateQueries({ queryKey: ['files'] });
-            queryClient.invalidateQueries({ queryKey: ['stats'] });
             toast({ title: '上传成功' });
           } catch (e: any) {
-            setUploadProgresses((p) => {
-              const n = { ...p };
-              delete n[key];
-              return n;
-            });
             toast({
               title: '上传失败',
               description: e?.message || e?.response?.data?.error?.message,
               variant: 'destructive',
             });
+          } finally {
+            setUploadProgresses((p) => {
+              const n = { ...p };
+              delete n[key];
+              return n;
+            });
           }
-        }
+        });
+        queryClient.invalidateQueries({ queryKey: ['files'] });
+        queryClient.invalidateQueries({ queryKey: ['stats'] });
       }
     },
     [folderId, teamId, uploadFolderEntriesDirect, setUploadProgresses, queryClient, toast]

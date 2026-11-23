@@ -27,7 +27,8 @@ import {
   type StorageBucket,
   aiApi,
 } from '@/services/api';
-import { getPresignedDownloadUrl, presignUpload } from '@/services/presignUpload';
+import { presignUpload } from '@/services/presignUpload';
+import { downloadFile, DownloadTooLargeError } from '@/services/downloadFile';
 import { useFileKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useFolderUpload } from '@/hooks/useFolderUpload';
 import { BreadcrumbNav, type BreadcrumbItem } from '@/components/ui/BreadcrumbNav';
@@ -417,7 +418,8 @@ export default function Files() {
   }
 
   const handleUpload = useCallback(
-    async (file: File, key: string): Promise<boolean> => {
+    // refresh=false 用于批量上传：由调用方在整批结束后统一失效一次，避免 N 个文件触发 N 次列表请求
+    async (file: File, key: string, refresh = true): Promise<boolean> => {
       const bucket = getEffectiveBucket();
       const limitErr = checkTelegramLimit(file, bucket);
       if (limitErr) {
@@ -437,8 +439,10 @@ export default function Files() {
           delete n[key];
           return n;
         });
-        queryClient.invalidateQueries({ queryKey: ['files'] });
-        queryClient.invalidateQueries({ queryKey: ['stats'] });
+        if (refresh) {
+          queryClient.invalidateQueries({ queryKey: ['files'] });
+          queryClient.invalidateQueries({ queryKey: ['stats'] });
+        }
         toast({ title: '上传成功' });
         return true;
       } catch (e: any) {
@@ -585,9 +589,11 @@ export default function Files() {
 
     await runWithConcurrency(sharedFiles, 3, async (entry) => {
       const key = `${entry.name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const ok = await handleUpload(entry.file, key);
+      const ok = await handleUpload(entry.file, key, false);
       if (!ok) failedEntries.push(entry);
     });
+    queryClient.invalidateQueries({ queryKey: ['files'] });
+    queryClient.invalidateQueries({ queryKey: ['stats'] });
 
     setShareTargetUploading(false);
 
@@ -603,7 +609,7 @@ export default function Files() {
     }
 
     closeShareTargetDialog();
-  }, [sharedFiles, handleUpload, closeShareTargetDialog, toast]);
+  }, [sharedFiles, handleUpload, closeShareTargetDialog, toast, queryClient]);
 
   // ── file_handlers：系统「用本应用打开」交付的本地文件，直接进入预览 ──────────
   const [launchFiles, setLaunchFiles] = useState<File[]>([]);
@@ -710,50 +716,17 @@ export default function Files() {
 
   const handleDownload = useCallback(
     async (file: FileItem) => {
-      // 代理由后端返回 attachment；此处仅作为不支持 File System Access 时的兜底
-      const forceBlobDownload = (blob: Blob, name: string) => {
-        const forceBlob = new Blob([blob], { type: 'application/octet-stream' });
-        const blobUrl = URL.createObjectURL(forceBlob);
-        const a = document.createElement('a');
-        a.href = blobUrl;
-        a.download = name;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
-      };
-
-      // 直接导航到预签名 URL：由浏览器原生流式下载，不占用页面内存
-      const triggerDirectDownload = (href: string, name: string) => {
-        const a = document.createElement('a');
-        a.href = href;
-        a.download = name;
-        a.rel = 'noopener';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      };
-
       try {
-        const result = await getPresignedDownloadUrl(file.id);
-        if (!result.useProxy) {
-          triggerDirectDownload(result.url, result.fileName || file.name);
-          return;
-        }
-
-        // 代理下载：携带 Authorization 头，避免 token 出现在 URL
-        const downloadToken = token || useAuthStore.getState().token;
-        const resp = await fetch(result.url, {
-          headers: downloadToken ? { Authorization: `Bearer ${downloadToken}` } : undefined,
+        await downloadFile({ id: file.id, name: file.name, size: file.size });
+      } catch (e) {
+        toast({
+          title: '下载失败',
+          description: e instanceof DownloadTooLargeError ? e.message : undefined,
+          variant: 'destructive',
         });
-        if (!resp.ok) throw new Error('download failed');
-        const blob = await resp.blob();
-        forceBlobDownload(blob, result.fileName || file.name);
-      } catch {
-        toast({ title: '下载失败', variant: 'destructive' });
       }
     },
-    [toast, token]
+    [toast]
   );
 
   const handleFileClick = useCallback(
@@ -1395,7 +1368,10 @@ export default function Files() {
                 e.target.value = '';
                 void runWithConcurrency(files, 3, async (file) => {
                   const key = `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-                  await handleUpload(file, key);
+                  await handleUpload(file, key, false);
+                }).then(() => {
+                  queryClient.invalidateQueries({ queryKey: ['files'] });
+                  queryClient.invalidateQueries({ queryKey: ['stats'] });
                 });
               }}
             />

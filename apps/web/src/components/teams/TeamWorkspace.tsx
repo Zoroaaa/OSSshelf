@@ -19,7 +19,8 @@ import { useToast } from '@/components/ui/useToast';
 import { confirmAction } from '@/components/ui/useConfirm';
 import { teamsApi, type WorkspaceFile } from '@/services/collab';
 import api from '@/services/api-client';
-import { getPresignedDownloadUrl, presignUpload } from '@/services/presignUpload';
+import { presignUpload } from '@/services/presignUpload';
+import { downloadFile, DownloadTooLargeError } from '@/services/downloadFile';
 import { filesApi } from '@/services/api';
 import { FilePreview } from '@/components/files/FilePreview';
 import { FileIcon } from '@/components/files/FileIcon';
@@ -439,38 +440,16 @@ const TeamWorkspace: React.FC<TeamWorkspaceProps> = ({ teamId, teamName, userRol
     renameMutation.mutate({ fileId: renamingFileId, name: renameValue.trim() });
   };
 
-  // ── 下载文件（使用预签名 URL）──
+  // ── 下载文件（预签名直链 / 带鉴权头的代理，统一走 downloadFile）──
   const handleDownload = async (file: WorkspaceFile) => {
-    const forceBlobDownload = (blob: Blob, name: string) => {
-      const forceBlob = new Blob([blob], { type: 'application/octet-stream' });
-      const blobUrl = URL.createObjectURL(forceBlob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
-    };
-
     try {
-      const result = await getPresignedDownloadUrl(file.fileId);
-      const { url, fileName } = result;
-      const resp = await fetch(url);
-      if (!resp.ok) throw new Error('download failed');
-      const blob = await resp.blob();
-      forceBlobDownload(blob, fileName || file.fileName);
-    } catch {
-      const dlToken = token || useAuthStore.getState().token;
-      const dlUrl = `${import.meta.env.VITE_API_URL || ''}/api/files/${file.fileId}/download${dlToken ? `?token=${encodeURIComponent(dlToken)}` : ''}`;
-      try {
-        const resp = await fetch(dlUrl);
-        if (!resp.ok) throw new Error('download failed');
-        const blob = await resp.blob();
-        forceBlobDownload(blob, file.fileName);
-      } catch {
-        toast({ title: '下载失败', variant: 'destructive' });
-      }
+      await downloadFile({ id: file.fileId, name: file.fileName, size: (file as any).size });
+    } catch (e) {
+      toast({
+        title: '下载失败',
+        description: e instanceof DownloadTooLargeError ? e.message : undefined,
+        variant: 'destructive',
+      });
     }
   };
 

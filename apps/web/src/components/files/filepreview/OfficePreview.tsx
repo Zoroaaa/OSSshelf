@@ -4,9 +4,8 @@
  */
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { renderAsync } from 'docx-preview';
-import { init as initPptxPreview } from 'pptx-preview';
-import * as XLSX from 'xlsx';
+import type { init as initPptxPreview } from 'pptx-preview';
+import { renderWorksheetTable } from './excelTable';
 import { Download, FileText, FileSpreadsheet, Presentation } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils';
@@ -114,6 +113,7 @@ export function OfficePreview({
 
       docxContainerRef.current.innerHTML = '';
 
+      const { renderAsync } = await import('docx-preview');
       await renderAsync(arrayBuffer, docxContainerRef.current, undefined, {
         className: 'docx-preview-wrapper',
         inWrapper: true,
@@ -148,38 +148,32 @@ export function OfficePreview({
 
     setExcelLoading(true);
     try {
+      // .xls（BIFF 二进制）exceljs 不支持，明确报错走降级提示，而不是静默白屏
+      if (mimeType === 'application/vnd.ms-excel') {
+        throw new Error('旧版 .xls 格式暂不支持在线预览，请下载查看');
+      }
       const response = await fetch(resolvedUrl);
       if (!response.ok) {
         throw new Error(`文件加载失败: ${response.status}`);
       }
       const arrayBuffer = await response.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+      // 动态加载：exceljs 体积大，仅在预览 xlsx 时才下载
+      const { default: ExcelJS } = await import('exceljs');
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(arrayBuffer);
 
-      const firstSheetName = workbook.SheetNames[0];
-      if (!firstSheetName) {
+      const worksheet = workbook.worksheets[0];
+      if (!worksheet) {
         throw new Error('Excel 文件无工作表');
       }
-
-      const worksheet = workbook.Sheets[firstSheetName];
-      if (!worksheet) {
-        throw new Error('工作表不存在');
-      }
-      const html = XLSX.utils.sheet_to_html(worksheet, { editable: false });
-      excelContainerRef.current.innerHTML = html;
-      const table = excelContainerRef.current.querySelector('table');
-      if (table) {
-        table.className = 'w-full border-collapse text-sm';
-        table.querySelectorAll('td, th').forEach((cell) => {
-          cell.className = 'border border-border px-2 py-1 text-left';
-        });
-      }
+      excelContainerRef.current.replaceChildren(renderWorksheetTable(worksheet as never));
     } catch (err) {
       console.error('Excel preview error:', err);
       onLoadError();
     } finally {
       setExcelLoading(false);
     }
-  }, [isExcel, resolvedUrl, onLoadError]);
+  }, [isExcel, mimeType, resolvedUrl, onLoadError]);
 
   const loadPptPreview = useCallback(async () => {
     const container = pptxContainerRef.current;
@@ -196,7 +190,8 @@ export function OfficePreview({
       const arrayBuffer = await response.arrayBuffer();
 
       container.innerHTML = '';
-      pptxViewerRef.current = initPptxPreview(container, {
+      const { init: initPptx } = await import('pptx-preview');
+      pptxViewerRef.current = initPptx(container, {
         width: 960,
         height: 540,
       });

@@ -11,8 +11,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { formatBytes } from '@/utils';
-import { MarkdownPreview } from './filepreview/MarkdownPreview';
-import { CodePreview } from './filepreview/CodePreview';
+import { MarkdownPreview, CodePreview } from './filepreview/lazyPreviews';
 import { getLanguageFromExtension, isCodeFile } from './filepreview/previewUtils';
 
 interface LocalFilePreviewDialogProps {

@@ -7,8 +7,6 @@
  * - 文件类型判断
  */
 
-import hljs from 'highlight.js';
-
 export const CODE_LANGUAGE_MAP: Record<string, string> = {
   js: 'javascript',
   jsx: 'javascript',
@@ -97,17 +95,6 @@ export function getLanguageFromExtension(filename: string): string {
 export function isCodeFile(filename: string): boolean {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
   return CODE_EXTENSIONS.has(ext);
-}
-
-export function highlightCode(code: string, language: string): string {
-  try {
-    if (hljs.getLanguage(language)) {
-      return hljs.highlight(code, { language }).value;
-    }
-    return hljs.highlightAuto(code).value;
-  } catch {
-    return code;
-  }
 }
 
 export type WindowSize = 'small' | 'medium' | 'large' | 'fullscreen';

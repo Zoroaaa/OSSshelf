@@ -7,7 +7,7 @@ import { useMemo } from 'react';
 import { Sparkles } from 'lucide-react';
 import { cn } from '@/utils';
 import { AISummaryCard } from '@/components/ai';
-import { highlightCode } from './previewUtils';
+import { highlightCode } from './highlightCode';
 
 interface CodePreviewProps {
   textContent: string | null;
