@@ -102,7 +102,7 @@ TRASH_RETENTION_DAYS = "30"
 # （代码侧 hasTelegramAlert 要求两者都存在）。
 ALERT_TG_CHAT_ID = "5093634303"
 # Workers AI 实时模型目录需要账户 ID（可选）
-CF_ACCOUNT_ID = ""
+CF_ACCOUNT_ID = "2f24288827c6b14fac807324df3a4ac2"
 
 # ── Cron Triggers (定时任务) ─────────────────────────────────────────────
 # 每天凌晨 3 点执行回收站清理
