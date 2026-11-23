@@ -45,10 +45,9 @@ describe('视觉探测', () => {
     expect(result.ok).toBe(true);
     expect(result.answer).toBe('红色');
     expect(result.modelId).toBe('@cf/meta/llama-3.2-11b-vision-instruct');
-    expect(run).toHaveBeenCalledWith(
-      '@cf/meta/llama-3.2-11b-vision-instruct',
-      expect.objectContaining({ prompt: expect.stringContaining('颜色') })
-    );
+    const [calledModel, payload] = run.mock.calls[0] as unknown as [string, { prompt: string }];
+    expect(calledModel).toBe('@cf/meta/llama-3.2-11b-vision-instruct');
+    expect(payload.prompt).toContain('颜色');
   });
 
   it('只回文本的模型不通过探测', async () => {

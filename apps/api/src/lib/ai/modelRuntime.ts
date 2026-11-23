@@ -526,52 +526,123 @@ interface VisionInput {
 async function runNativeVision(
   env: Env,
   modelId: string,
-  input: VisionInput
+  input: VisionInput,
+  timeoutMs: number
 ): Promise<{ content: string; raw: unknown }> {
-  const raw = await (env.AI as any).run(modelId, { image: Array.from(input.image), prompt: input.prompt });
-  return { content: extractVisionText(raw), raw };
+  const { signal, clear } = createTimeoutSignal(timeoutMs);
+  try {
+    const raw = await (env.AI as any).run(
+      modelId,
+      { image: Array.from(input.image), prompt: input.prompt },
+      { signal }
+    );
+    return { content: extractVisionText(raw), raw };
+  } finally {
+    clear();
+  }
 }
 
-/** 从 Workers AI 的 SSE 文本中提取 moondream 的 answer / caption */
+/** 解析单条 SSE data 事件，非答案事件返回空串 */
+function extractSseLine(line: string): string {
+  const payload = line.trim().replace(/^data:\s*/, '');
+  if (!payload || payload === '[DONE]' || payload.startsWith('event:')) return '';
+
+  try {
+    const json = JSON.parse(payload) as Record<string, unknown>;
+    let content = '';
+    const chunks: unknown[] = [
+      ...(json.chunk && typeof json.chunk === 'object' ? [json.chunk] : []),
+      ...(Array.isArray(json.output) ? json.output : []),
+    ];
+
+    for (const item of chunks) {
+      if (!item || typeof item !== 'object') continue;
+      const record = item as Record<string, unknown>;
+      if (typeof record.answer === 'string' && record.answer.trim()) content = record.answer.trim();
+      if (typeof record.caption === 'string' && record.caption.trim()) content = content || record.caption.trim();
+    }
+
+    if (typeof json.response === 'string' && json.response.trim()) content = json.response.trim();
+    return content;
+  } catch {
+    return '';
+  }
+}
+
+/** 从完整 SSE 文本中提取最后一条有效答案 */
 function extractSseText(text: string): string {
   let content = '';
-
   for (const line of text.split('\n')) {
-    const payload = line.trim().replace(/^data:\s*/, '');
-    if (!payload || payload === '[DONE]' || payload.startsWith('event:')) continue;
-
-    try {
-      const json = JSON.parse(payload) as Record<string, unknown>;
-      const chunks: unknown[] = [
-        ...(json.chunk && typeof json.chunk === 'object' ? [json.chunk] : []),
-        ...(Array.isArray(json.output) ? json.output : []),
-      ];
-
-      for (const item of chunks) {
-        if (!item || typeof item !== 'object') continue;
-        const record = item as Record<string, unknown>;
-        if (typeof record.answer === 'string' && record.answer.trim()) content = record.answer.trim();
-        if (typeof record.caption === 'string' && record.caption.trim()) content = content || record.caption.trim();
-      }
-
-      if (typeof json.response === 'string' && json.response.trim()) content = json.response.trim();
-    } catch {
-      // 忽略非 JSON 事件
-    }
+    const lineContent = extractSseLine(line);
+    if (lineContent) content = lineContent;
   }
-
   return content;
 }
 
+/** reader.read() 本身不支持 signal，用竞速保证超时能中断挂起的流 */
+function raceWithSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      }
+    );
+  });
+}
+
+/**
+ * 增量读取 SSE 流，只保留最后一条答案。
+ * moondream 处理文字密集截图时可能输出上千个事件，禁止整段读进内存。
+ */
+async function readSseStream(stream: ReadableStream<Uint8Array>, signal: AbortSignal): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let content = '';
+
+  try {
+    for (;;) {
+      const { done, value } = await raceWithSignal(reader.read(), signal);
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      let index = buffer.indexOf('\n');
+      while (index >= 0) {
+        const lineContent = extractSseLine(buffer.slice(0, index));
+        if (lineContent) content = lineContent;
+        buffer = buffer.slice(index + 1);
+        index = buffer.indexOf('\n');
+      }
+    }
+
+    if (buffer.trim()) {
+      const lineContent = extractSseLine(buffer);
+      if (lineContent) content = lineContent;
+    }
+
+    return content;
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+}
+
 /** 绑定可能返回对象、JSON 字符串或 SSE 流，统一取出文本 */
-async function readVisionRawText(raw: unknown): Promise<string> {
+async function readVisionRawText(raw: unknown, signal: AbortSignal): Promise<string> {
   if (typeof raw === 'string') {
     return raw.includes('data:') ? extractSseText(raw) : extractVisionText(raw);
   }
 
   if (raw && typeof raw === 'object' && typeof (raw as { getReader?: unknown }).getReader === 'function') {
-    const text = await new Response(raw as ReadableStream).text();
-    return extractSseText(text);
+    return readSseStream(raw as ReadableStream<Uint8Array>, signal);
   }
 
   return extractVisionText(raw);
@@ -580,30 +651,35 @@ async function readVisionRawText(raw: unknown): Promise<string> {
 /**
  * moondream3 任务式接口。
  * 注意：非流式调用恒返回空对象（实测 `{}`），必须用 `stream: true` 读取 SSE 的 answer/caption。
+ * max_tokens 必须限制：不传时默认 8192，文字密集截图会输出 27MB 流、跑 4 分钟以上。
  * image 文档声明接受 data URI，绑定侧对编码敏感，data URI 取不到时再试纯 base64。
  */
 async function runMoondreamVision(
   env: Env,
   modelId: string,
-  input: VisionInput
+  input: VisionInput,
+  timeoutMs: number
 ): Promise<{ content: string; raw: unknown }> {
   const dataUri = input.sourceUrl;
   const rawBase64 = dataUri.startsWith('data:') ? dataUri.slice(dataUri.indexOf(',') + 1) : dataUri;
   const attempts: Array<Record<string, unknown>> = [
-    { task: 'query', image: dataUri, question: input.prompt, reasoning: false, stream: true },
-    { task: 'query', image: rawBase64, question: input.prompt, reasoning: false, stream: true },
+    { task: 'query', image: dataUri, question: input.prompt, reasoning: false, stream: true, max_tokens: 1024 },
+    { task: 'query', image: rawBase64, question: input.prompt, reasoning: false, stream: true, max_tokens: 1024 },
   ];
 
   let lastRaw: unknown;
   let lastError: unknown;
   for (const payload of attempts) {
+    const { signal, clear } = createTimeoutSignal(timeoutMs);
     try {
-      const raw = await (env.AI as any).run(modelId, payload);
+      const raw = await (env.AI as any).run(modelId, payload, { signal });
       lastRaw = raw;
-      const content = await readVisionRawText(raw);
+      const content = await readVisionRawText(raw, signal);
       if (content) return { content, raw };
     } catch (error) {
       lastError = error;
+    } finally {
+      clear();
     }
   }
 
@@ -620,7 +696,7 @@ async function runWorkersAiVision(
   env: Env,
   config: ModelConfig,
   request: CompleteRequest,
-  options: { path: 'native' | 'moondream' }
+  options: { path: 'native' | 'moondream'; timeoutMs: number }
 ): Promise<CompleteResult> {
   if (!env.AI) {
     throw new AiError('AI_CONFIG_INVALID', 'Workers AI 绑定未配置，无法进行视觉分析');
@@ -634,8 +710,8 @@ async function runWorkersAiVision(
   try {
     const { content, raw } =
       options.path === 'moondream'
-        ? await runMoondreamVision(env, config.modelId, input)
-        : await runNativeVision(env, config.modelId, input);
+        ? await runMoondreamVision(env, config.modelId, input, options.timeoutMs)
+        : await runNativeVision(env, config.modelId, input, options.timeoutMs);
 
     if (!content) {
       throw new AiError(
@@ -660,14 +736,16 @@ async function runCompletion(
   model: LanguageModel,
   config: ModelConfig,
   request: CompleteRequest,
-  options: { userId: string; signal?: AbortSignal; record: boolean }
+  options: { userId: string; signal?: AbortSignal; record: boolean; timeoutMs?: number }
 ): Promise<CompleteResult> {
   const featureType = request.featureType ?? 'chat';
   const messages = injectSystemPrompt(request.messages, config.systemPrompt);
   const { system, messages: modelMessages } = toModelMessages(messages);
   const promptText = collectPromptText(messages);
 
-  const { maxRetries, timeoutMs } = await getRuntimeSettings(env);
+  const runtimeSettings = await getRuntimeSettings(env);
+  const maxRetries = runtimeSettings.maxRetries;
+  const timeoutMs = options.timeoutMs ?? runtimeSettings.timeoutMs;
 
   const timeoutSignal = createTimeoutSignal(timeoutMs, options.signal);
   const startedAt = Date.now();
@@ -746,6 +824,15 @@ function isFormatRetryable(error: unknown): boolean {
   return !NON_FORMAT_RETRYABLE_ERRORS.has(mapAiError(error).code);
 }
 
+/** 视觉请求独立超时：截图/大图比纯文本慢一个数量级，复用普通请求超时会误杀 */
+async function getVisionTimeoutMs(env: Env): Promise<number> {
+  try {
+    return await getAiConfigNumber(env, 'ai.request.vision_timeout_ms', AI_REQUEST_DEFAULTS.visionTimeoutMs);
+  } catch {
+    return AI_REQUEST_DEFAULTS.visionTimeoutMs;
+  }
+}
+
 /**
  * Workers AI 视觉调用的格式降级链。
  *
@@ -761,6 +848,7 @@ async function runWorkersAiVisionWithFallback(
 ): Promise<CompleteResult> {
   const primary = resolveWorkersAiVisionPath(config.modelId);
   const order = primary === 'chat' ? [primary, ...WORKERS_AI_VISION_FALLBACK_ORDER] : [primary];
+  const visionTimeoutMs = await getVisionTimeoutMs(env);
   const startedAt = Date.now();
   let lastError: unknown;
 
@@ -774,8 +862,9 @@ async function runWorkersAiVisionWithFallback(
               userId: options.userId,
               signal: options.signal,
               record: false,
+              timeoutMs: visionTimeoutMs,
             })
-          : await runWorkersAiVision(env, config, request, { path });
+          : await runWorkersAiVision(env, config, request, { path, timeoutMs: visionTimeoutMs });
 
       if (!result.content.trim()) {
         lastError = new AiError('AI_UPSTREAM_ERROR', `视觉模型「${config.modelId}」返回空内容`);

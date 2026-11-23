@@ -58,8 +58,9 @@ describe('视觉调用链路', () => {
     const result = await completeTextWithConfig(env, baseConfig({}), visionRequest());
 
     expect(run).toHaveBeenCalledTimes(1);
-    expect(run).toHaveBeenCalledWith(
-      '@cf/meta/llama-3.2-11b-vision-instruct',
+    const [calledModel, payload] = run.mock.calls[0] as unknown as [string, { image: number[]; prompt: string }];
+    expect(calledModel).toBe('@cf/meta/llama-3.2-11b-vision-instruct');
+    expect(payload).toEqual(
       expect.objectContaining({
         image: [104, 101, 108, 108, 111],
         prompt: '请描述这张图片',
@@ -119,13 +120,18 @@ describe('视觉调用链路', () => {
       visionRequest()
     );
 
-    expect(run).toHaveBeenCalledWith('@cf/moondream/moondream3.1-9B-A2B', {
-      task: 'query',
-      image: `data:image/png;base64,${IMAGE_BASE64}`,
-      question: '请描述这张图片',
-      reasoning: false,
-      stream: true,
-    });
+    const [calledModel, payload] = run.mock.calls[0] as unknown as [string, Record<string, unknown>];
+    expect(calledModel).toBe('@cf/moondream/moondream3.1-9B-A2B');
+    expect(payload).toEqual(
+      expect.objectContaining({
+        task: 'query',
+        image: `data:image/png;base64,${IMAGE_BASE64}`,
+        question: '请描述这张图片',
+        reasoning: false,
+        stream: true,
+        max_tokens: 1024,
+      })
+    );
     expect(result.content).toBe('一只兔子');
   });
 

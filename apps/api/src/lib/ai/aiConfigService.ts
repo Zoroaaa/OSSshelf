@@ -54,6 +54,8 @@ export type AiConfigValue = string | number | boolean | object | null;
 export const AI_REQUEST_DEFAULTS = {
   maxRetries: 3,
   timeoutMs: 30_000,
+  /** 图片理解请求（含流式）独立超时：截图/大图通常比纯文本慢一个数量级 */
+  visionTimeoutMs: 120_000,
 } as const;
 
 /**
@@ -70,6 +72,7 @@ export const SYSTEM_CONFIG_UI_META: Record<string, AiConfigUiMeta> = {
   'ai.rag.rerank_enabled': { advanced: false },
   'ai.request.max_retries': { min: 0, max: 10, step: 1, unit: '次', advanced: true },
   'ai.request.timeout_ms': { min: 5_000, max: 120_000, step: 1_000, unit: 'ms' },
+  'ai.request.vision_timeout_ms': { min: 5_000, max: 300_000, step: 1_000, unit: 'ms' },
   'ai.quota.daily_tokens': { min: 0, max: 100_000_000, step: 1_000, unit: 'tokens' },
   'ai.quota.daily_requests': { min: 0, max: 100_000, step: 1, unit: '次' },
   'ai.rate.requests_per_minute': { min: 0, max: 10_000, step: 1, unit: '次/分' },
@@ -268,6 +271,16 @@ export async function initializeAiConfig(env: Env): Promise<void> {
       defaultValue: String(AI_REQUEST_DEFAULTS.timeoutMs),
       isEditable: true,
       sortOrder: 32,
+    },
+    {
+      key: 'ai.request.vision_timeout_ms',
+      category: 'retry',
+      label: '视觉请求超时时间(ms)',
+      description: '图片理解请求（含流式输出）的超时时间；截图/大图较慢，默认 120 秒',
+      valueType: 'number',
+      defaultValue: String(AI_REQUEST_DEFAULTS.visionTimeoutMs),
+      isEditable: true,
+      sortOrder: 31,
     },
     {
       key: 'ai.quota.daily_tokens',
