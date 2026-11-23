@@ -4,6 +4,7 @@
  *
  * 线上目录优先由 workersAiCatalog 拉取；未配置凭据或同步失败时使用本清单。
  * 仅承载静态数据，不含调用逻辑。
+ * 新增/删除条目前先用真实账号调一次 /ai/run 验证：已下线模型（如 llava-1.5 返回 410）不要留在清单里。
  */
 
 export interface WorkersAiFallbackModel {

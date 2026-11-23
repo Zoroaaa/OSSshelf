@@ -392,9 +392,16 @@ async function extractWorkersAiVisionInput(
 
 /**
  * Workers AI 视觉模型有三代输入契约，用错格式不会报错，模型会静默忽略图片：
- * - `moondream`: moondream3 是任务式接口，`{ task, image: data URI 字符串, question }` → `answer` / `caption`
- * - `native`: llava / llama-3.2-11b-vision 是旧原生接口，`{ image: number[], prompt }` → `description` / `response`
- * - `chat`: llama-4-scout、qwen3.8 等新模型只认 chat messages + `image_url`，交给 AI SDK 组装
+ * - `moondream`: 任务式接口（目前只有 moondream3），`{ task, image, question }` + stream → `answer` / `caption`
+ * - `native`: 旧原生接口 `{ image: number[], prompt }` → `description` / `response`；llava 已下线（410），仅保留兼容旧配置；llama-3.2 需先接受许可
+ * - `chat`: llama-4-scout、qwen3.8、mistral 等新模型只认 chat messages + `image_url`，交给 AI SDK 组装
+ *
+ * 新增模型接入清单（踩过的坑都在这）：
+ * 1. 先用 REST `/ai/run` + `stream: true` 探测真实输入契约；非流式会把解码/结构错误吞成 `{}`，只有流式日志看得到。
+ * 2. 按契约归入上面三类；无法确认时先归 `chat`（Cloudflare 新模型默认走 chat messages）。
+ * 3. 任务式模型（moondream3）非流式恒返回空，必须 `stream: true` 并解析 SSE 的 answer/caption。
+ * 4. 需要许可的模型（llama-3.2-11b-vision）先发一次 `{"prompt":"agree"}`；410 表示已下线，直接换模型。
+ * 5. 接入后补 modelRuntime.test.ts 用例，并用真实账号保存一次模型，验证配置期探测通过。
  */
 type WorkersAiVisionPath = 'native' | 'moondream' | 'chat';
 
