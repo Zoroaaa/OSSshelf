@@ -35,7 +35,12 @@ import { releaseFileRef } from './dedup';
 import { getEncryptionKey } from './crypto';
 import { pathPrefixCondition } from './pathUtils';
 import { processDeletionQueue, deleteObjectSafely } from './storageGC';
-import { runStorageReconciliation, type ReconciliationReport } from './storageReconciliation';
+import {
+  runStorageReconciliation,
+  hasReconciliationDrift,
+  formatDriftAlert,
+  type ReconciliationReport,
+} from './storageReconciliation';
 
 interface CleanupResult {
   trash: {
@@ -226,6 +231,11 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
       `• 数据：清理 ${result.data.searchHistoryCleaned} 搜索历史，${result.data.notificationsCleaned} 通知，${result.data.aiTasksCleaned} AI任务\n` +
       rcLine;
     await sendCronAlert(env, summaryMsg);
+  }
+
+  // 对账偏差单独告警：不依赖每日摘要，避免记账漂移被“完成”消息淹没
+  if (result.reconciliation.generatedAt && hasReconciliationDrift(result.reconciliation)) {
+    await sendCronAlert(env, formatDriftAlert(result.reconciliation, startedAt));
   }
 
   return result;

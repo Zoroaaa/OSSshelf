@@ -224,3 +224,36 @@ export async function runStorageReconciliation(env: Env): Promise<Reconciliation
 
   return report;
 }
+
+/**
+ * 是否存在需要人工介入的偏差。
+ * 触发器是唯一记账源，任何用户/桶/路径偏差或跨桶共享对象都意味着记账链路有 bug，
+ * 因此不设字节阈值：有就告警，避免漂移被每日“完成”摘要淹没。
+ */
+export function hasReconciliationDrift(report: ReconciliationReport): boolean {
+  return (
+    report.users.withDiff > 0 ||
+    report.buckets.withDiff > 0 ||
+    report.path.mismatch > 0 ||
+    report.path.unreachable > 0 ||
+    report.dedup.crossBucketGroups > 0
+  );
+}
+
+/** 独立的偏差告警文案（Telegram HTML）；样本只列前 3 条，完整明细走管理端对账接口 */
+export function formatDriftAlert(report: ReconciliationReport, startedAt: string): string {
+  const lines = [
+    `🚨 <b>OSSshelf 存储对账发现偏差</b>`,
+    `时间：${startedAt}`,
+    `• 用户记账偏差：${report.users.withDiff} 个（净差 ${report.users.totalDiffBytes} B）`,
+    `• 存储桶记账偏差：${report.buckets.withDiff} 个（净差 ${report.buckets.totalDiffBytes} B / ${report.buckets.totalDiffCount} 文件）`,
+    `• 路径不一致：${report.path.mismatch}，不可达：${report.path.unreachable}`,
+    `• 跨桶共享对象：${report.dedup.crossBucketGroups} 组`,
+  ];
+  const samples = [...report.users.samples, ...report.buckets.samples].slice(0, 3);
+  if (samples.length > 0) {
+    lines.push('样本：', ...samples.map((s) => `  - ${s.id}：记录 ${s.recorded} / 实际 ${s.actual}`));
+  }
+  lines.push('完整明细见管理端对账接口（/cron 对账报告）。');
+  return lines.join('\n');
+}

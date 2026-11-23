@@ -44,3 +44,51 @@ describe('diffStorageMaps', () => {
     expect(result.samples[0].id).toBe('u60');
   });
 });
+
+import { hasReconciliationDrift, formatDriftAlert, type ReconciliationReport } from './storageReconciliation';
+
+function cleanReport(): ReconciliationReport {
+  return {
+    generatedAt: '2026-11-23T03:00:00.000Z',
+    users: { checked: 3, withDiff: 0, totalDiffBytes: 0, samples: [] },
+    buckets: { checked: 2, withDiff: 0, totalDiffBytes: 0, totalDiffCount: 0, samples: [] },
+    unassigned: { files: 0, bytes: 0 },
+    dedup: { sharedGroups: 4, crossBucketGroups: 0 },
+    path: { mismatch: 0, unreachable: 0 },
+  };
+}
+
+describe('hasReconciliationDrift', () => {
+  it('全部一致（含正常的同桶去重共享）不算偏差', () => {
+    expect(hasReconciliationDrift(cleanReport())).toBe(false);
+  });
+
+  it.each([
+    ['用户记账', (r: ReconciliationReport) => (r.users.withDiff = 1)],
+    ['桶记账', (r: ReconciliationReport) => (r.buckets.withDiff = 1)],
+    ['路径不一致', (r: ReconciliationReport) => (r.path.mismatch = 1)],
+    ['路径不可达', (r: ReconciliationReport) => (r.path.unreachable = 1)],
+    ['跨桶共享', (r: ReconciliationReport) => (r.dedup.crossBucketGroups = 1)],
+  ])('%s 出现偏差即判定为漂移', (_name, mutate) => {
+    const r = cleanReport();
+    mutate(r);
+    expect(hasReconciliationDrift(r)).toBe(true);
+  });
+});
+
+describe('formatDriftAlert', () => {
+  it('包含各类计数与前 3 条样本', () => {
+    const r = cleanReport();
+    r.users = {
+      checked: 3,
+      withDiff: 5,
+      totalDiffBytes: 1234,
+      samples: Array.from({ length: 5 }, (_, i) => ({ id: `u${i}`, recorded: 10 + i, actual: 10, diff: i })),
+    };
+    const msg = formatDriftAlert(r, '2026-11-23T03:00:00.000Z');
+    expect(msg).toContain('用户记账偏差：5');
+    expect(msg).toContain('u0');
+    expect(msg).toContain('u2');
+    expect(msg).not.toContain('u3');
+  });
+});
