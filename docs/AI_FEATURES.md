@@ -917,7 +917,7 @@ v2.3.0 提供了 **100+ 个智能工具**，分为 13 个功能模块：
 - 描述：vision 模型，默认 Llama 4 Scout
 - 标签：同一 vision 模型（标签与描述各调一次）
 
-> Workers AI 视觉模型的输入契约分三类：moondream3 用 `{ task, image, question }`，llama-3.2-11b-vision 等旧模型用 `{ image, prompt }`，llama-4-scout、qwen3.8 等新模型必须走 chat `messages` + `image_url`。格式不匹配时模型不会报错，只会忽略图片按纯文本回答，表现为「返回空」或「只能读取文本」。因此：新模型（chat 首选）返回空内容或格式类错误时依次降级到旧版原生格式（成功/失败只记一次用量）；保存图片描述/标签模型、修改默认视觉模型、模型「测试」都会用内置纯红 PNG 做一次真实图片探测；图片超过 `ai.tool.max_image_size_bytes`（默认 5MB）时在发送前明确失败。需要接受许可的模型（如 llama-3.2-11b-vision）首次使用前必须发送一次 `{"prompt":"agree"}`，否则探测会直接提示；已下线的模型（如 llava-1.5）会返回明确的「模型已下线」错误。moondream3 在 Workers AI 侧对所有输入均返回空结果，探测会拦截，建议先用 llama-4-scout。
+> Workers AI 视觉模型的输入契约分三类：moondream3 用 `{ task, image, question }`，llama-3.2-11b-vision 等旧模型用 `{ image, prompt }`，llama-4-scout、qwen3.8 等新模型必须走 chat `messages` + `image_url`。格式不匹配时模型不会报错，只会忽略图片按纯文本回答，表现为「返回空」或「只能读取文本」。因此：新模型（chat 首选）返回空内容或格式类错误时依次降级到旧版原生格式（成功/失败只记一次用量）；保存图片描述/标签模型、修改默认视觉模型、模型「测试」都会用内置纯红 PNG 做一次真实图片探测；图片超过 `ai.tool.max_image_size_bytes`（默认 5MB）时在发送前明确失败。需要接受许可的模型（如 llama-3.2-11b-vision）首次使用前必须发送一次 `{"prompt":"agree"}`，否则探测会直接提示；已下线的模型（如 llava-1.5）会返回明确的「模型已下线」错误。moondream3 的非流式接口恒返回空对象，运行时改用 `stream: true` 读取 SSE 中的 `answer` / `caption`。
 
 **使用方式**：
 

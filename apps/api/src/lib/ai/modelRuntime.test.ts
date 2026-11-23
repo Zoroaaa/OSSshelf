@@ -96,8 +96,21 @@ describe('视觉调用链路', () => {
     expect(result.content).toBe('一只狗');
   });
 
-  it('moondream3 走任务式输入并读取 answer', async () => {
-    const run = vi.fn(async () => ({ answer: '一只兔子', caption: null }));
+  it('moondream3 走流式任务式输入并读取 answer', async () => {
+    // 非流式接口恒返回空，必须 stream: true 并解析 SSE
+    const run = vi.fn(
+      async () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              new TextEncoder().encode(
+                'data: {"chunk":{"answer":"一只兔子","caption":null}}\n\ndata: {"chunk":{"answer":"一只兔子","finish_reason":"stop"}}\n\n'
+              )
+            );
+            controller.close();
+          },
+        })
+    );
     const env = { AI: { run } } as unknown as Env;
 
     const result = await completeTextWithConfig(
@@ -111,6 +124,7 @@ describe('视觉调用链路', () => {
       image: `data:image/png;base64,${IMAGE_BASE64}`,
       question: '请描述这张图片',
       reasoning: false,
+      stream: true,
     });
     expect(result.content).toBe('一只兔子');
   });

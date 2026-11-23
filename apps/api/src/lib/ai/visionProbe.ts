@@ -12,9 +12,12 @@ import type { ModelConfig, TokenUsage } from './types';
 import { completeText, completeTextWithConfig, type CompleteRequest } from './modelRuntime';
 import { buildVisionMessageContent } from './utils';
 
-/** 64x64 纯红 PNG：体积小、颜色明确，避免模型答不出颜色 */
+/**
+ * 64x64 纯红 PNG（仅 IHDR/IDAT/IEND，标准 RGB 编码）。
+ * 不要换成带 sRGB/gAMA/pHYs 等附加块的图片：moondream 的解码器会拒绝并返回空。
+ */
 export const VISION_PROBE_IMAGE_BASE64 =
-  'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACHSURBVHhe7dAhAQAADITA719681QAcQbJbjuzMdg0gMGmAQw2DWCwaQCDTQMYbBrAYNMABpsGMNg0gMGmAQw2DWCwaQCDTQMYbBrAYNMABpsGMNg0gMGmAQw2DWCwaQCDTQMYbBrAYNMABpsGMNg0gMGmAQw2DWCwaQCDTQMYbBrAYNMABpsHQ4jh0hEeUY0AAAAASUVORK5CYII=';
+  'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAS0lEQVR42u3PQQkAAAgAsetfWiP4FgYrsKZeS0BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEDgsqnc8OJg6Ln3AAAAAElFTkSuQmCC';
 
 export const VISION_PROBE_PROMPT = '这张图片整体是什么颜色？只回答颜色名称。';
 

@@ -525,9 +525,55 @@ async function runNativeVision(
   return { content: extractVisionText(raw), raw };
 }
 
+/** 从 Workers AI 的 SSE 文本中提取 moondream 的 answer / caption */
+function extractSseText(text: string): string {
+  let content = '';
+
+  for (const line of text.split('\n')) {
+    const payload = line.trim().replace(/^data:\s*/, '');
+    if (!payload || payload === '[DONE]' || payload.startsWith('event:')) continue;
+
+    try {
+      const json = JSON.parse(payload) as Record<string, unknown>;
+      const chunks: unknown[] = [
+        ...(json.chunk && typeof json.chunk === 'object' ? [json.chunk] : []),
+        ...(Array.isArray(json.output) ? json.output : []),
+      ];
+
+      for (const item of chunks) {
+        if (!item || typeof item !== 'object') continue;
+        const record = item as Record<string, unknown>;
+        if (typeof record.answer === 'string' && record.answer.trim()) content = record.answer.trim();
+        if (typeof record.caption === 'string' && record.caption.trim()) content = content || record.caption.trim();
+      }
+
+      if (typeof json.response === 'string' && json.response.trim()) content = json.response.trim();
+    } catch {
+      // 忽略非 JSON 事件
+    }
+  }
+
+  return content;
+}
+
+/** 绑定可能返回对象、JSON 字符串或 SSE 流，统一取出文本 */
+async function readVisionRawText(raw: unknown): Promise<string> {
+  if (typeof raw === 'string') {
+    return raw.includes('data:') ? extractSseText(raw) : extractVisionText(raw);
+  }
+
+  if (raw && typeof raw === 'object' && typeof (raw as { getReader?: unknown }).getReader === 'function') {
+    const text = await new Response(raw as ReadableStream).text();
+    return extractSseText(text);
+  }
+
+  return extractVisionText(raw);
+}
+
 /**
- * moondream3 任务式接口。文档声明 image 接受 HTTPS URL 或 base64 data URI，
- * 但绑定侧编码差异会让图片被静默丢弃，空响应时依次尝试 data URI、纯 base64、字节数组。
+ * moondream3 任务式接口。
+ * 注意：非流式调用恒返回空对象（实测 `{}`），必须用 `stream: true` 读取 SSE 的 answer/caption。
+ * image 文档声明接受 data URI，绑定侧对编码敏感，data URI 取不到时再试纯 base64。
  */
 async function runMoondreamVision(
   env: Env,
@@ -537,9 +583,8 @@ async function runMoondreamVision(
   const dataUri = input.sourceUrl;
   const rawBase64 = dataUri.startsWith('data:') ? dataUri.slice(dataUri.indexOf(',') + 1) : dataUri;
   const attempts: Array<Record<string, unknown>> = [
-    { task: 'query', image: dataUri, question: input.prompt, reasoning: false },
-    { task: 'query', image: rawBase64, question: input.prompt, reasoning: false },
-    { task: 'query', image: Array.from(input.image), question: input.prompt, reasoning: false },
+    { task: 'query', image: dataUri, question: input.prompt, reasoning: false, stream: true },
+    { task: 'query', image: rawBase64, question: input.prompt, reasoning: false, stream: true },
   ];
 
   let lastRaw: unknown;
@@ -548,7 +593,7 @@ async function runMoondreamVision(
     try {
       const raw = await (env.AI as any).run(modelId, payload);
       lastRaw = raw;
-      const content = extractVisionText(raw);
+      const content = await readVisionRawText(raw);
       if (content) return { content, raw };
     } catch (error) {
       lastError = error;
