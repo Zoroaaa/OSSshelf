@@ -2,8 +2,10 @@
  * modelRuntime.test.ts
  * 视觉调用链路回归测试
  *
- * 覆盖两个曾经返回空的路径：
- * - Workers AI 视觉模型必须走原生 { image, prompt } 输入
+ * 覆盖三条曾经返回空或只回文本的路径：
+ * - 旧 Workers AI 视觉模型（llava）走原生 { image, prompt } 输入
+ * - 新多模态模型（llama-4-scout）走 chat messages + image_url
+ * - moondream3 走任务式 { task, image, question } 并读取 answer
  * - OpenAI 兼容视觉模型必须把图片 part 转换为 image_url data URL
  */
 
@@ -49,7 +51,7 @@ afterEach(() => {
 });
 
 describe('视觉调用链路', () => {
-  it('Workers AI 视觉走原生 image + prompt，而不是 chat messages', async () => {
+  it('旧 Workers AI 视觉模型（llava）走原生 image + prompt，而不是 chat messages', async () => {
     const run = vi.fn(async () => ({ description: '一只猫' }));
     const env = { AI: { run } } as unknown as Env;
 
@@ -63,6 +65,77 @@ describe('视觉调用链路', () => {
         prompt: '请描述这张图片',
       })
     );
+    expect(result.content).toBe('一只猫');
+  });
+
+  it('新多模态模型（llama-4-scout）走 chat messages + image_url', async () => {
+    // AI SDK 用 returnRawResponse 调用绑定，真实 Workers AI 返回 Response，mock 必须一致
+    const run = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ response: '一只狗' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+    );
+    const env = { AI: { run } } as unknown as Env;
+
+    const result = await completeTextWithConfig(
+      env,
+      baseConfig({ modelId: '@cf/meta/llama-4-scout-17b-16e-instruct' }),
+      visionRequest()
+    );
+
+    expect(run).toHaveBeenCalledTimes(1);
+    const [modelId, input] = run.mock.calls[0] as unknown as [
+      string,
+      { messages: Array<{ content: Array<{ type: string; image_url?: { url: string } }> }> },
+    ];
+    expect(modelId).toBe('@cf/meta/llama-4-scout-17b-16e-instruct');
+    const imagePart = input.messages[0].content.find((part) => part.type === 'image_url');
+    expect(imagePart?.image_url?.url).toBe(`data:image/png;base64,${IMAGE_BASE64}`);
+    expect(result.content).toBe('一只狗');
+  });
+
+  it('moondream3 走任务式输入并读取 answer', async () => {
+    const run = vi.fn(async () => ({ answer: '一只兔子', caption: null }));
+    const env = { AI: { run } } as unknown as Env;
+
+    const result = await completeTextWithConfig(
+      env,
+      baseConfig({ modelId: '@cf/moondream/moondream3.1-9B-A2B' }),
+      visionRequest()
+    );
+
+    expect(run).toHaveBeenCalledWith('@cf/moondream/moondream3.1-9B-A2B', {
+      task: 'query',
+      image: `data:image/png;base64,${IMAGE_BASE64}`,
+      question: '请描述这张图片',
+    });
+    expect(result.content).toBe('一只兔子');
+  });
+
+  it('首选格式返回空时降级到其他输入格式', async () => {
+    const run = vi.fn(async (_modelId: string, input: { messages?: unknown[]; image?: number[] }) => {
+      // chat 请求返回空内容（模拟格式不匹配被静默忽略）
+      if (Array.isArray(input.messages)) {
+        return new Response(JSON.stringify({ response: '' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return { description: '一只猫' };
+    });
+    const env = { AI: { run } } as unknown as Env;
+
+    const result = await completeTextWithConfig(
+      env,
+      baseConfig({ modelId: '@cf/meta/llama-4-scout-17b-16e-instruct' }),
+      visionRequest()
+    );
+
+    expect(run).toHaveBeenCalledTimes(2);
+    expect((run.mock.calls[0][1] as { messages?: unknown[] }).messages).toBeDefined();
+    expect(run.mock.calls[1][1]).toEqual(expect.objectContaining({ image: [104, 101, 108, 108, 111] }));
     expect(result.content).toBe('一只猫');
   });
 

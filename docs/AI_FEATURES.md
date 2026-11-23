@@ -10,7 +10,7 @@
 | 变化             | 说明                                                                                                                                                                                      |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Agent 运行时** | 会话消息改由 `@cloudflare/ai-chat` 的 `AIChatAgent`（Durable Object）承载，支持断线续传、多端同步、审批后同轮继续                                                                         |
-| **模型调用层**   | 新增 `lib/ai/modelRuntime.ts`，统一走 AI SDK provider（Workers AI / OpenAI 兼容 / Anthropic），Agent 与后台功能共用同一解析与调用入口；Workers AI 视觉模型走原生 `{ image, prompt }` 输入 |
+| **模型调用层**   | 新增 `lib/ai/modelRuntime.ts`，统一走 AI SDK provider（Workers AI / OpenAI 兼容 / Anthropic），Agent 与后台功能共用同一解析与调用入口；Workers AI 视觉按模型分派输入格式（moondream3 任务式、llava/llama-3.2-vision 原生 `{ image, prompt }`、其余多模态模型走 chat messages + `image_url`） |
 | **真实用量**     | 每次调用写入 `ai_usage_events`，新增日配额与分钟限流（`ai.quota.*`、`ai.rate.*`）                                                                                                         |
 | **检索**         | 分块正文落 `file_chunks`，新增 FTS5 关键词召回、可选 rerank、`search_content` 工具                                                                                                        |
 | **队列**         | 移除 KV 并发锁，改由 Queue `max_concurrency`；`ai_task_items` 提供逐文件幂等与真续跑；`agent_batch` 走 fileService                                                                        |
@@ -914,8 +914,10 @@ v2.3.0 提供了 **100+ 个智能工具**，分为 13 个功能模块：
 
 **使用的模型**：
 
-- 描述：LLaVA 1.5 7B Vision（需 vision 能力）
-- 标签：使用 chat 模型生成
+- 描述：vision 模型，默认 LLaVA 1.5 7B Vision
+- 标签：同一 vision 模型（标签与描述各调一次）
+
+> Workers AI 视觉模型的输入契约分三类：moondream3 用 `{ task, image, question }`，llava / llama-3.2-11b-vision 用 `{ image, prompt }`，llama-4-scout、qwen3.8 等新模型必须走 chat `messages` + `image_url`。格式不匹配时模型不会报错，只会忽略图片按纯文本回答，表现为「返回空」或「只能读取文本」。因此：新模型（chat 首选）返回空内容或格式类错误时依次降级到旧版原生格式（成功/失败只记一次用量）；保存图片描述/标签模型、修改默认视觉模型、模型「测试」都会用内置纯红 PNG 做一次真实图片探测；图片超过 `ai.tool.max_image_size_bytes`（默认 5MB）时在发送前明确失败。
 
 **使用方式**：
 

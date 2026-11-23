@@ -19,7 +19,7 @@ import { decryptCredential, getEncryptionKey, isAesGcmFormat } from '../crypto';
 import { AiError, mapAiError } from './aiErrors';
 import { MODEL_ID_FORMAT_HINT, pickSupportedModelId } from './modelId';
 import { recordUsage } from './usage';
-import { estimateTokens, extractThinkingContent } from './utils';
+import { estimateTokens, extractThinkingContent, formatBytes } from './utils';
 import { buildWorkersAiConfig, getActiveModel, getModelById } from './modelService';
 import { isPrivateHostname } from './providers/providerService';
 import type { AiFeatureType, ChatContentPart, ChatMessage, ModelConfig, TokenUsage } from './types';
@@ -324,13 +324,24 @@ function base64ToBytes(base64: string): Uint8Array {
 
 const MAX_VISION_IMAGE_BYTES = 10 * 1024 * 1024;
 
+function assertVisionImageSize(bytes: Uint8Array): Uint8Array {
+  if (bytes.byteLength > MAX_VISION_IMAGE_BYTES) {
+    throw new AiError(
+      'AI_CONFIG_INVALID',
+      `图片过大（${formatBytes(bytes.byteLength)}），超过视觉模型上限 ${formatBytes(MAX_VISION_IMAGE_BYTES)}`
+    );
+  }
+  return bytes;
+}
+
 /**
  * 将视觉输入统一转换为字节：支持 data URL 与 https 远程地址。
  * 远程地址强制 https、拒绝私网域名且不跟随重定向，避免 SSRF。
+ * 超过上限时抛出明确错误，避免与"缺少图片"混淆。
  */
 async function loadImageBytes(rawUrl: string): Promise<Uint8Array | null> {
   const dataUrl = parseDataUrl(rawUrl);
-  if (dataUrl) return base64ToBytes(dataUrl.data);
+  if (dataUrl) return assertVisionImageSize(base64ToBytes(dataUrl.data));
 
   try {
     const url = new URL(rawUrl);
@@ -340,25 +351,31 @@ async function loadImageBytes(rawUrl: string): Promise<Uint8Array | null> {
     if (!response.ok) return null;
 
     const contentLength = Number(response.headers.get('content-length') ?? '0');
-    if (contentLength > MAX_VISION_IMAGE_BYTES) return null;
+    if (contentLength > MAX_VISION_IMAGE_BYTES) {
+      throw new AiError(
+        'AI_CONFIG_INVALID',
+        `图片过大（${formatBytes(contentLength)}），超过视觉模型上限 ${formatBytes(MAX_VISION_IMAGE_BYTES)}`
+      );
+    }
 
     const buffer = await response.arrayBuffer();
-    return buffer.byteLength > MAX_VISION_IMAGE_BYTES ? null : new Uint8Array(buffer);
-  } catch {
+    return assertVisionImageSize(new Uint8Array(buffer));
+  } catch (error) {
+    if (error instanceof AiError) throw error;
     return null;
   }
 }
 
 async function extractWorkersAiVisionInput(
   messages: ChatMessage[]
-): Promise<{ prompt: string; image: Uint8Array } | null> {
+): Promise<{ prompt: string; image: Uint8Array; sourceUrl: string } | null> {
   for (const message of messages) {
     if (!Array.isArray(message.content)) continue;
 
-    const imagePart = message.content.find((part) => part.type === 'image_url' && !!part.image_url?.url);
-    if (!imagePart?.image_url?.url) continue;
+    const imageUrl = message.content.find((part) => part.type === 'image_url' && !!part.image_url?.url)?.image_url?.url;
+    if (!imageUrl) continue;
 
-    const image = await loadImageBytes(imagePart.image_url.url);
+    const image = await loadImageBytes(imageUrl);
     if (!image) continue;
 
     const prompt = message.content
@@ -367,10 +384,26 @@ async function extractWorkersAiVisionInput(
       .join('\n')
       .trim();
 
-    return { prompt, image };
+    return { prompt, image, sourceUrl: imageUrl };
   }
 
   return null;
+}
+
+/**
+ * Workers AI 视觉模型有三代输入契约，用错格式不会报错，模型会静默忽略图片：
+ * - `moondream`: moondream3 是任务式接口，`{ task, image: data URI 字符串, question }` → `answer` / `caption`
+ * - `native`: llava / llama-3.2-11b-vision 是旧原生接口，`{ image: number[], prompt }` → `description` / `response`
+ * - `chat`: llama-4-scout、qwen3.8 等新模型只认 chat messages + `image_url`，交给 AI SDK 组装
+ */
+type WorkersAiVisionPath = 'native' | 'moondream' | 'chat';
+
+function resolveWorkersAiVisionPath(modelId: string): WorkersAiVisionPath {
+  if (/^@cf\/moondream\/moondream3/i.test(modelId)) return 'moondream';
+  if (modelId === '@cf/llava-hf/llava-1.5-7b-hf' || modelId === '@cf/meta/llama-3.2-11b-vision-instruct') {
+    return 'native';
+  }
+  return 'chat';
 }
 
 function toTokenUsage(
@@ -435,14 +468,15 @@ async function resolveNormalizedConfig(env: Env, userId: string, modelId?: strin
 }
 
 /**
- * Workers AI 视觉模型的原生输入是 { image, prompt }，不走 chat-completions。
- * 单独保留这一分支，避免 LLaVA 等模型因 messages 格式不兼容而返回空。
+ * 旧版 Workers AI 视觉模型的原生输入：moondream3 任务式、llava/llama-3.2-vision 的 { image, prompt }。
+ * 其余视觉模型走 chat-completions（messages + image_url），由 AI SDK 组装，避免这里重复实现。
+ * 记账由调用方（runWorkersAiVisionWithFallback）统一处理。
  */
 async function runWorkersAiVision(
   env: Env,
   config: ModelConfig,
   request: CompleteRequest,
-  options: { userId: string; record: boolean }
+  options: { path: 'native' | 'moondream' }
 ): Promise<CompleteResult> {
   if (!env.AI) {
     throw new AiError('AI_CONFIG_INVALID', 'Workers AI 绑定未配置，无法进行视觉分析');
@@ -453,57 +487,23 @@ async function runWorkersAiVision(
     throw new AiError('AI_CONFIG_INVALID', '视觉调用缺少图片内容');
   }
 
-  const featureType = request.featureType ?? 'chat';
-  const startedAt = Date.now();
-
   try {
-    const raw = await (env.AI as any).run(config.modelId, {
-      image: Array.from(input.image),
-      prompt: input.prompt,
-    });
+    const payload =
+      options.path === 'moondream'
+        ? { task: 'query', image: input.sourceUrl, question: input.prompt }
+        : { image: Array.from(input.image), prompt: input.prompt };
+    const raw = await (env.AI as any).run(config.modelId, payload);
 
-    const content = String(
-      (raw as { description?: unknown; response?: unknown })?.description ??
-        (raw as { response?: unknown })?.response ??
-        ''
-    ).trim();
+    const body = raw as { description?: unknown; response?: unknown; answer?: unknown; caption?: unknown };
+    const content = String(body?.description ?? body?.response ?? body?.answer ?? body?.caption ?? '').trim();
     const usage: TokenUsage = {
       inputTokens: estimateTokens(input.prompt),
       outputTokens: estimateTokens(content),
     };
 
-    if (options.record) {
-      await recordUsage(env, {
-        userId: options.userId,
-        feature: featureType,
-        provider: config.provider,
-        modelId: config.modelId,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        latencyMs: Date.now() - startedAt,
-        status: 'completed',
-      });
-    }
-
     return { content, modelId: config.modelId, usage };
   } catch (error) {
-    const mapped = mapAiError(error);
-
-    if (options.record) {
-      await recordUsage(env, {
-        userId: options.userId,
-        feature: featureType,
-        provider: config.provider,
-        modelId: config.modelId,
-        inputTokens: estimateTokens(input.prompt),
-        outputTokens: 0,
-        latencyMs: Date.now() - startedAt,
-        status: 'error',
-        errorCode: mapped.code,
-      });
-    }
-
-    throw mapped;
+    throw mapAiError(error);
   }
 }
 
@@ -582,6 +582,103 @@ async function runCompletion(
   }
 }
 
+/** 视觉格式降级顺序：只对新模型（首选 chat）启用，旧模型契约已知，空结果直接算失败 */
+const WORKERS_AI_VISION_FALLBACK_ORDER: WorkersAiVisionPath[] = ['native', 'moondream'];
+
+/** 换输入格式也不可能修复的错误（配置/鉴权/限流/超时/上下文） */
+const NON_FORMAT_RETRYABLE_ERRORS = new Set([
+  'AI_CONFIG_INVALID',
+  'AI_UNAUTHORIZED',
+  'AI_RATE_LIMIT',
+  'AI_TIMEOUT',
+  'AI_CONTEXT_OVERFLOW',
+]);
+
+function isFormatRetryable(error: unknown): boolean {
+  return !NON_FORMAT_RETRYABLE_ERRORS.has(mapAiError(error).code);
+}
+
+/**
+ * Workers AI 视觉调用的格式降级链。
+ *
+ * 模型族更换输入契约时不会报错，只会静默忽略图片，所以新模型（首选 chat）返回空内容时
+ * 依次换旧版原生格式重试；旧模型契约已知，空结果直接算失败，避免把纯文本回答当成功。
+ * 成功或最终失败只记一次用量，避免降级放大配额。
+ */
+async function runWorkersAiVisionWithFallback(
+  env: Env,
+  config: ModelConfig,
+  request: CompleteRequest,
+  options: { userId: string; signal?: AbortSignal; record: boolean }
+): Promise<CompleteResult> {
+  const primary = resolveWorkersAiVisionPath(config.modelId);
+  const order = primary === 'chat' ? [primary, ...WORKERS_AI_VISION_FALLBACK_ORDER] : [primary];
+  const startedAt = Date.now();
+  let lastError: unknown;
+
+  for (const path of order) {
+    if (options.signal?.aborted) break;
+
+    try {
+      const result =
+        path === 'chat'
+          ? await runCompletion(env, await createLanguageModel(env, config), config, request, {
+              userId: options.userId,
+              signal: options.signal,
+              record: false,
+            })
+          : await runWorkersAiVision(env, config, request, { path });
+
+      if (!result.content.trim()) {
+        lastError = new AiError('AI_UPSTREAM_ERROR', `视觉模型「${config.modelId}」返回空内容`);
+        logger.warn(AI_LOG_MODULE, 'Vision model returned empty content, trying next input format', {
+          modelId: config.modelId,
+          path,
+        });
+        continue;
+      }
+
+      if (options.record) {
+        await recordUsage(env, {
+          userId: options.userId,
+          feature: request.featureType ?? 'chat',
+          provider: config.provider,
+          modelId: config.modelId,
+          inputTokens: result.usage.inputTokens,
+          outputTokens: result.usage.outputTokens,
+          cachedTokens: result.usage.cachedTokens ?? 0,
+          latencyMs: Date.now() - startedAt,
+          status: 'completed',
+        });
+      }
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (!isFormatRetryable(error)) break;
+      logger.warn(AI_LOG_MODULE, 'Vision input format failed, trying next input format', {
+        modelId: config.modelId,
+        path,
+      });
+    }
+  }
+
+  const mapped = mapAiError(lastError ?? new AiError('AI_UPSTREAM_ERROR', '视觉模型调用失败'));
+  if (options.record) {
+    await recordUsage(env, {
+      userId: options.userId,
+      feature: request.featureType ?? 'chat',
+      provider: config.provider,
+      modelId: config.modelId,
+      inputTokens: estimateTokens(collectPromptText(request.messages)),
+      outputTokens: 0,
+      latencyMs: Date.now() - startedAt,
+      status: 'error',
+      errorCode: mapped.code,
+    });
+  }
+  throw mapped;
+}
+
 /**
  * 后台功能统一入口：解析用户配置 → AI SDK 生成 → 记账。
  */
@@ -594,7 +691,11 @@ export async function completeText(
   const config = await resolveNormalizedConfig(env, userId, options.modelId);
 
   if (config.provider === 'workers_ai' && hasImageContent(request.messages)) {
-    return runWorkersAiVision(env, config, request, { userId, record: true });
+    return runWorkersAiVisionWithFallback(env, config, request, {
+      userId,
+      signal: options.signal,
+      record: true,
+    });
   }
 
   const model = await createLanguageModel(env, config);
@@ -617,7 +718,11 @@ export async function completeTextWithConfig(
   const normalized = config.provider === 'workers_ai' ? normalizeWorkersAiConfig(config) : config;
 
   if (normalized.provider === 'workers_ai' && hasImageContent(request.messages)) {
-    return runWorkersAiVision(env, normalized, request, { userId: normalized.userId, record: false });
+    return runWorkersAiVisionWithFallback(env, normalized, request, {
+      userId: normalized.userId,
+      signal: options.signal,
+      record: false,
+    });
   }
 
   const model = await createLanguageModel(env, normalized);

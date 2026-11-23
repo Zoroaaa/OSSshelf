@@ -24,8 +24,8 @@ import { createTaskRecord } from './aiTaskQueue';
 import { syncFileFts } from './retrieval/fts';
 import { completeText, type CompleteRequest } from './modelRuntime';
 import { decryptSecret } from '../s3client';
-import { getAiConfigString, getAiConfigBoolean } from './aiConfigService';
-import { uint8ArrayToBase64, fetchFileBuffer, buildVisionMessageContent } from './utils';
+import { getAiConfigString, getAiConfigBoolean, getAiConfigNumber } from './aiConfigService';
+import { uint8ArrayToBase64, fetchFileBuffer, buildVisionMessageContent, formatBytes } from './utils';
 import type { AiFeatureType } from './types';
 import type { TelegramBotConfig } from '../telegramClient';
 
@@ -465,6 +465,13 @@ export async function generateImageTags(
   }
 
   const uint8Array = new Uint8Array(imageData);
+  // 视觉模型对图片体积/分辨率有上限，超限在发送前明确失败，避免上游返回难懂的错误
+  const maxImageBytes = await getAiConfigNumber(env, 'ai.tool.max_image_size_bytes', 5 * 1024 * 1024);
+  if (uint8Array.byteLength > maxImageBytes) {
+    throw new Error(
+      `图片过大（${formatBytes(uint8Array.byteLength)}），超过 ${formatBytes(maxImageBytes)} 限制，无法进行视觉分析`
+    );
+  }
   const effectiveUserId = userId || file.userId || 'default';
   const defaultModels = await getDefaultModels(env);
   const actualMimeType = file.mimeType || 'image/jpeg';
