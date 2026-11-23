@@ -20,7 +20,8 @@ pnpm dev:web                                                  # vite，http://12
 pnpm smoke                                                    # 关键链路冒烟，需上面两个服务在跑
 
 pnpm typecheck                                                # 三包递归 tsc --noEmit
-pnpm --filter api test                                        # 后端 vitest
+pnpm test                                                     # 全仓 vitest（api / web / shared）
+pnpm --filter web test                                        # 单包测试（api / shared 同理换 filter）
 pnpm --filter api exec vitest run src/lib/pathUtils.test.ts   # 单文件
 pnpm build:web                                                # shared build → tsc → vite build
 pnpm lint                                                     # 根 eslint（基线见第 9 节）
@@ -164,14 +165,14 @@ pnpm db:migrate:local                                         # 本地 D1 应用
 | 改动范围             | 命令                                 |
 | -------------------- | ------------------------------------ |
 | 任何 TS              | `pnpm typecheck`                     |
-| `apps/api/**`        | 追加 `pnpm --filter api test`        |
-| `apps/web/**`        | 追加 `pnpm build:web`                |
-| `packages/shared/**` | 先 build shared，再 typecheck        |
+| `apps/api/**`        | 追加 `pnpm --filter api test`                                    |
+| `apps/web/**`        | 追加 `pnpm --filter web test`；UI 产物改动加 `pnpm build:web`     |
+| `packages/shared/**` | 追加 `pnpm --filter @osshelf/shared test`；改产物先 build 再 typecheck |
 | UI / 交互            | 起两个服务实点，覆盖 375px 与 1024px |
 
 - 测试失败先找根因；不允许删、跳、弱化测试或改断言。
 - 没验证的（真实桶、模型 key、线上 D1）在汇报里写「未验证 + 原因」。
-- `apps/web` 没有测试设施，不要擅自引入测试框架。
+- web 测试栈已固定为 vitest + jsdom + @testing-library/react（`vitest.config.ts` 用 mergeConfig 复用 vite 的 alias）；不要引入 jest 等第二套框架。`dialogStack` 是模块单例，跨用例共享，测试需固定 id 并 afterEach 清理。
 - lint 基线不通过（`--max-warnings 0` + 历史 `any` / 非空断言）。不要批量修绿或加 disable，只保证改动文件不新增问题。
 - UI 验证用 Chrome headless，每次换新的 `--user-data-dir`，否则 Service Worker 会返回旧模块。
 
