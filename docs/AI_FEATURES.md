@@ -1016,7 +1016,7 @@ GET /api/ai-config/workers-ai/models?refresh=1
 
 - `ai_providers` 存连接：协议（OpenAI 兼容 / Anthropic）、Base URL、加密 API Key、自定义请求头；
 - 一个供应商连接可挂多个模型，共用同一份 Key；
-- 「供应商」页选择预设（DeepSeek / OpenAI / Anthropic / Google / 硅基流动 / Kimi / 智谱 / 通义 / 火山 / MiniMax / NVIDIA / Together / OpenRouter 等 39 项），填 Key 后点「获取模型列表」，勾选导入；
+- 「供应商」页选择预设（DeepSeek / OpenAI / Anthropic / Google / 硅基流动 / Kimi / 智谱 / 通义 / 火山 / MiniMax / NVIDIA / Together / OpenRouter 等 37 项），填 Key 后点「获取模型列表」，勾选导入；
 - 模型元数据（上下文、最大输出、价格、视觉/工具/思考）来自随代码发布的 models.dev 精简快照，可用 `pnpm --filter api models:sync` 更新；
 - Anthropic 走原生 Messages 协议，MiniMax 走其 Anthropic 兼容端点；其余预设走 OpenAI 兼容协议。
 
