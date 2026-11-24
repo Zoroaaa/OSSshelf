@@ -210,8 +210,8 @@
 | Phase 0 | ✅ | 283e87b；0.4 的“残留手写错误响应”核实为误报 |
 | Phase 1 | ✅ | a94b22f；决策记录见 `2026-11-23-phase1-decisions.md` |
 | 2.1 drizzle 升级 | ✅（待部署后冒烟） | 见 `docs/runbooks/drizzle-orm-upgrade.md` |
-| 2.2 核心域测试 | 🟡 | 测试台 `src/test/d1Shim.ts` 已建；dedup 已覆盖并修复版本引用误删；permissionResolver / shareService / bucketResolver 待补 |
+| 2.2 核心域测试 | ✅ | 测试台 `src/test/d1Shim.ts`；dedup（并修复版本引用误删）、permissionResolver、shareService、114 记账触发器与配额均有真实库集成测试（api 共 150 例） |
 | 2.3 对账 cron | ✅ | 对账早已接入 cron；补了偏差独立告警 |
 | 2.4 schema 漂移守卫 | ✅ | 060 回填 ai_models 8 列；仅余 ai_config 已知差异（白名单） |
-| 2.5 shared 类型对齐 | ⬜ | 未开始 |
+| 2.5 shared 类型对齐 | ✅ | 类型与迁移早已一致；新增 `sharedTypesAlignment.test.ts` 编译期守卫（已验证漂移会让 typecheck 失败） |
 | Phase 3 | ⬜ | 未开始 |
