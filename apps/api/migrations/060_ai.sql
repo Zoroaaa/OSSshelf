@@ -60,6 +60,16 @@ CREATE TABLE IF NOT EXISTS ai_models (
     temperature REAL DEFAULT 0.7,
     system_prompt TEXT DEFAULT '你是OSSshelf文件管理系统的智能助手。你可以帮助用户查询、分析和管理他们的文件。',
     config_json TEXT DEFAULT '{}',
+    -- 以下 8 列生产库早已存在（旧版建表语句创建），060 收敛改写时遗漏；
+    -- 回填到此处使全新库与生产一致。生产库已应用过 060，不会重跑，无副作用。
+    supports_thinking INTEGER DEFAULT 0,
+    thinking_param_format TEXT,
+    thinking_param_name TEXT,
+    thinking_enabled_value TEXT,
+    thinking_disabled_value TEXT,
+    thinking_nested_key TEXT,
+    disable_thinking_for_features TEXT DEFAULT '["image_caption","image_tag","image_analysis","file_summary"]',
+    is_readonly INTEGER DEFAULT 0,
     sort_order INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,

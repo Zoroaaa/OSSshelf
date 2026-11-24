@@ -58,21 +58,9 @@ function declaredColumns(): Map<string, Set<string>> {
 
 /**
  * 已知且已文档化的漂移（只许减少，不许新增）。
- * - ai_models 的 8 个 thinking/readonly 列：schema.ts 与业务代码在读写，线上库存在（Drizzle 会 select 全部列，
- *   缺列时 AI 全线 500），但没有任何迁移创建它们——全新库按迁移建出来会缺列。
- *   待确认线上 PRAGMA table_info(ai_models) 后补 122 迁移并同步 preflight，然后从这里删除。
  * - ai_config.user_id / value：生产库历史上被手工重建，缺这两列；schema.ts 已刻意不声明（见 schema.ts 注释）。
  */
-const KNOWN_DRIFT_IN_SCHEMA_ONLY = new Set([
-  'ai_models.supports_thinking',
-  'ai_models.thinking_param_format',
-  'ai_models.thinking_param_name',
-  'ai_models.thinking_enabled_value',
-  'ai_models.thinking_disabled_value',
-  'ai_models.thinking_nested_key',
-  'ai_models.disable_thinking_for_features',
-  'ai_models.is_readonly',
-]);
+const KNOWN_DRIFT_IN_SCHEMA_ONLY = new Set<string>([]);
 const KNOWN_DRIFT_IN_MIGRATIONS_ONLY = new Set(['ai_config.user_id', 'ai_config.value']);
 
 describe('schema.ts 与 migrations 不漂移', () => {
