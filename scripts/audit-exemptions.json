@@ -1,7 +1,3 @@
 {
-  "$comment": "依赖审计门禁豁免清单。键为 module_name；每项必须有 reason 与 followUp（对应 docs/plans 升级方案的阶段编号）。新增豁免需同步升级方案；消除后立即从本清单删除。",
-  "drizzle-orm": {
-    "reason": "CVE-2026-39356 需 ≥0.45.2，从 0.29 升级跨 16 个 minor，有 API 变化，需专项验证",
-    "followUp": "Phase 2 / 2.1：专项升级（API diff 盘点 → 迁移 → EXPLAIN 回归 → 回滚手册）"
-  }
+  "$comment": "依赖审计门禁豁免清单。键为 module_name；每项必须有 reason 与 followUp（对应 docs/plans 升级方案的阶段编号）。新增豁免需同步升级方案；消除后立即从本清单删除。"
 }
