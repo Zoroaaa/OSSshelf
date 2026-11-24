@@ -44,8 +44,15 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Lint gate (baseline frozen)
+        # error 一律失败；warning 只允许不超过 lint-baseline.json（存量只减不增）。
+        # 本地同款命令：pnpm lint（约 15 秒）。
+        run: pnpm lint
+
       - name: Unit tests
-        run: pnpm test
+        run: |
+          pnpm test
+          pnpm test:scripts
 
       - name: Dependency audit gate
         # 生产依赖（--prod）存在未豁免的 high/critical 通告时阻塞部署。

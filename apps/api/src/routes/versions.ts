@@ -15,7 +15,6 @@ import { eq, and, desc, sql, ne } from 'drizzle-orm';
 import { getDb, files, fileVersions } from '../db';
 import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
 import { throwAppError } from '../middleware/error';
-import { logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { checkFilePermission } from './permissions';
 import { z } from 'zod';

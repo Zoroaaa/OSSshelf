@@ -91,7 +91,7 @@ export function NotificationBell({ className, align = 'right', direction = 'down
         }
 
         reader.releaseLock();
-      } catch (error) {
+      } catch {
         // 卸载后不再更新状态、也不再安排下一次重连
         if (stopped) return;
         setIsConnected(false);

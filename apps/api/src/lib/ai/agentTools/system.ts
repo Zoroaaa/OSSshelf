@@ -540,7 +540,7 @@ export class SystemTools {
           createdAt: k.createdAt,
         })),
       };
-    } catch (error) {
+    } catch {
       return { total: 0, keys: [], note: 'API密钥功能可能未启用' };
     }
   }
@@ -633,7 +633,7 @@ export class SystemTools {
           createdAt: h.createdAt,
         })),
       };
-    } catch (error) {
+    } catch {
       return { total: 0, webhooks: [], note: 'Webhook功能可能未启用' };
     }
   }
@@ -707,7 +707,7 @@ export class SystemTools {
           createdAt: l.createdAt,
         })),
       };
-    } catch (error) {
+    } catch {
       return { total: 0, logs: [], range: { sinceHours }, note: '审计日志功能可能未启用' };
     }
   }

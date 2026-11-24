@@ -33,3 +33,6 @@ coverage/
 # Wrangler
 .wrangler/
 .dev.vars
+
+# 生成/数据类文件：格式不由 prettier 管理（原先靠 eslint-disable prettier/prettier 豁免）
+apps/api/src/lib/ai/catalog/modelsDevCatalog.ts

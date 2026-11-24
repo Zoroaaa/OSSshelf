@@ -218,7 +218,8 @@ export default function Tags() {
   const toggleSelect = (fileId: string) => {
     setSelectedFileIds((prev) => {
       const next = new Set(prev);
-      next.has(fileId) ? next.delete(fileId) : next.add(fileId);
+      if (next.has(fileId)) next.delete(fileId);
+      else next.add(fileId);
       return next;
     });
   };

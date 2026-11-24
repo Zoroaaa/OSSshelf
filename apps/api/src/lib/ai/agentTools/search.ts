@@ -718,7 +718,7 @@ export class SearchTools {
         total: similar.length,
         similarFiles: similar,
       };
-    } catch (error) {
+    } catch {
       const similarByName = await db
         .select()
         .from(files)

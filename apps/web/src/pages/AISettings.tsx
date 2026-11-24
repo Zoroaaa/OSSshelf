@@ -432,7 +432,7 @@ export function AISettings() {
       const res = await aiApi.getIndexSample(fileId);
       setSampleData(res.data.data);
       setShowDetailModal(true);
-    } catch (error) {
+    } catch {
       toast({ title: '加载失败', description: '无法获取向量索引详情', variant: 'destructive' });
     } finally {
       setLoadingDetail(false);

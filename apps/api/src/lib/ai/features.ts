@@ -49,7 +49,7 @@ async function getSummaryPromptFromConfig(env: Env): Promise<Record<string, stri
       markdown: markdownPrompt,
       data: dataPrompt,
     };
-  } catch (error) {
+  } catch {
     logger.warn('AI', 'Failed to load prompts from config, using defaults');
     return SUMMARY_PROMPTS;
   }
@@ -136,7 +136,7 @@ async function getDefaultModels(env: Env): Promise<Record<string, string>> {
       imageTag: visionModel,
       rename: chatModel,
     };
-  } catch (error) {
+  } catch {
     logger.warn('AI', 'Failed to load default models from config, using hardcoded fallback');
     return {
       summary: '@cf/meta/llama-3.1-8b-instruct',

@@ -33,7 +33,6 @@ import {
   buildDescendantPathUpdate,
   normalizeEntryName,
   normalizeParentId,
-  pathPrefix,
   pathPrefixCondition,
 } from './pathUtils';
 import { isFileNameConflictError } from './dbErrors';

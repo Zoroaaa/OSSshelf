@@ -1151,7 +1151,7 @@ app.get('/email-preferences', authMiddleware, async (c) => {
   if (user.emailPreferences) {
     try {
       preferences = { ...defaultPreferences, ...JSON.parse(user.emailPreferences) };
-    } catch (e) {
+    } catch {
       // 使用默认值
     }
   }
@@ -1187,7 +1187,7 @@ app.put('/email-preferences', authMiddleware, async (c) => {
   if (user.emailPreferences) {
     try {
       currentPrefs = JSON.parse(user.emailPreferences);
-    } catch (e) {
+    } catch {
       // 使用空对象
     }
   }

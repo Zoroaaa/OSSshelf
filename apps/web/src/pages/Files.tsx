@@ -837,7 +837,7 @@ export default function Files() {
           toast({ title: '已收藏' });
         }
         refetch();
-      } catch (error) {
+      } catch {
         toast({ title: '操作失败', variant: 'destructive' });
       }
     },

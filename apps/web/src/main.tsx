@@ -60,7 +60,7 @@ if ('serviceWorker' in navigator) {
           await Promise.all(keys.map((key) => caches.delete(key)));
         }
         if (registrations.length > 0) {
-          console.info('[dev] 已注销历史 Service Worker 并清空缓存');
+          console.log('[dev] 已注销历史 Service Worker 并清空缓存');
         }
       } catch (error) {
         console.warn('[dev] 清理 Service Worker 失败', error);

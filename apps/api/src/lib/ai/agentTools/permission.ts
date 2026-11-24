@@ -495,7 +495,7 @@ export class PermissionTools {
         total: result.length,
         groups: result,
       };
-    } catch (error) {
+    } catch {
       return {
         total: 0,
         groups: [],

@@ -4,7 +4,6 @@
  * 运行 pnpm --filter api models:sync 更新。
  */
 
-/* eslint-disable prettier/prettier */
 
 import type { ModelsDevSnapshot } from './types';
 

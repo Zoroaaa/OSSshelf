@@ -40,7 +40,7 @@ import {
 import { releaseFileRef } from '../lib/dedup';
 import { verifyPassword, getEncryptionKey } from '../lib/crypto';
 import type { Env, Variables } from '../types/env';
-import { logger, MAX_BUFFERED_TRANSFER_BYTES } from '@osshelf/shared';
+import { MAX_BUFFERED_TRANSFER_BYTES } from '@osshelf/shared';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;

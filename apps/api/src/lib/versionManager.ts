@@ -14,15 +14,12 @@
  * - 使用 ref_count 追踪同一 r2Key 的引用，实现去重存储
  */
 
-import { eq, and, desc, lt, ne } from 'drizzle-orm';
+import { eq, and, desc, lt } from 'drizzle-orm';
 import { files, fileVersions } from '../db';
 import type { DrizzleDb } from '../db';
 import type { Env } from '../types/env';
-import { logger } from '@osshelf/shared';
 import { deleteObjectSafely } from './storageGC';
 import { isR2KeyReferencedByOtherFile } from './dedup';
-import { resolveBucketConfig } from './bucketResolver';
-import { getEncryptionKey } from './crypto';
 import { isEditableFile } from '@osshelf/shared';
 
 type FileRecord = typeof files.$inferSelect;
@@ -208,7 +205,6 @@ export async function pruneExcessVersions(
   }
 
   const toPrune = allVersions.slice(maxVersions);
-  const encKey = getEncryptionKey(env);
 
   for (const version of toPrune) {
     if (version.version === currentVersion) {
@@ -262,7 +258,6 @@ export async function cleanExpiredVersions(db: DrizzleDb, env: Env): Promise<Pru
     errors: [],
   };
 
-  const encKey = getEncryptionKey(env);
   const now = new Date();
 
   const allFiles = await db

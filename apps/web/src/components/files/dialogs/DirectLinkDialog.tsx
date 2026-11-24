@@ -11,7 +11,18 @@
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Link, Copy, Trash2, RefreshCw, ExternalLink, Check, Infinity, Eye, Code, Lightbulb } from 'lucide-react';
+import {
+  Link,
+  Copy,
+  Trash2,
+  RefreshCw,
+  ExternalLink,
+  Check,
+  Infinity as InfinityIcon,
+  Eye,
+  Code,
+  Lightbulb,
+} from 'lucide-react';
 import { directLinkApi, type DirectLinkInfo } from '@/services/api';
 import { decodeFileName, getErrorMessage, copyToClipboard as writeClipboard } from '@/utils';
 import { useToast } from '@/components/ui/useToast';
@@ -304,7 +315,7 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
               <span>过期时间：</span>
               {directLink.isPermanent ? (
                 <span className="flex items-center gap-1 text-green-600 font-medium">
-                  <Infinity className="h-3 w-3" />
+                  <InfinityIcon className="h-3 w-3" />
                   永久有效
                 </span>
               ) : (
@@ -322,7 +333,7 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
                   className="h-4 w-4 rounded border-gray-300"
                 />
                 <label htmlFor="permanent" className="text-sm font-medium flex items-center gap-1">
-                  <Infinity className="h-3 w-3" />
+                  <InfinityIcon className="h-3 w-3" />
                   永久有效
                 </label>
               </div>
@@ -378,7 +389,7 @@ export function DirectLinkDialog({ fileId, fileName, onClose }: DirectLinkDialog
                   className="h-4 w-4 rounded border-gray-300"
                 />
                 <label htmlFor="permanent-new" className="text-sm font-medium flex items-center gap-1">
-                  <Infinity className="h-3 w-3" />
+                  <InfinityIcon className="h-3 w-3" />
                   永久有效
                 </label>
               </div>

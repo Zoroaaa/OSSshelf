@@ -214,4 +214,5 @@
 | 2.3 对账 cron | ✅ | 对账早已接入 cron；补了偏差独立告警 |
 | 2.4 schema 漂移守卫 | ✅ | 060 回填 ai_models 8 列；仅余 ai_config 已知差异（白名单） |
 | 2.5 shared 类型对齐 | ✅ | 类型与迁移早已一致；新增 `sharedTypesAlignment.test.ts` 编译期守卫（已验证漂移会让 typecheck 失败） |
-| Phase 3 | ⬜ | 未开始 |
+| 3.1 ESLint 9 + 基线冻结 | ✅ | flat config + typescript-eslint 8；去掉 eslint-plugin-prettier；全量 lint 由 >280s 降到约 16s；error 清零；754 条存量 warning 冻结于 `lint-baseline.json`，CI 挂 `pnpm lint` 门禁 |
+| 3.2–3.5 | ⬜ | pnpm 10 / vite 7、Playwright E2E、Tailwind 4、react-router 7 未开始 |

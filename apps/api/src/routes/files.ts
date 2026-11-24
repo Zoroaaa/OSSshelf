@@ -1437,7 +1437,7 @@ app.get('/:id/detail', async (c) => {
   let aiTagsArray: string[] = [];
   try {
     aiTagsArray = file.aiTags ? JSON.parse(file.aiTags as string) : [];
-  } catch (e) {
+  } catch {
     aiTagsArray = [];
   }
 
@@ -1490,7 +1490,7 @@ app.get('/:id/detail', async (c) => {
         totalFileCount = recursiveStats[0].totalFileCount ?? totalFileCount;
         totalSize = recursiveStats[0].totalSize ?? totalSize;
       }
-    } catch (e) {
+    } catch {
       // WITH RECURSIVE 可能失败，使用直接子文件统计作为降级
     }
 

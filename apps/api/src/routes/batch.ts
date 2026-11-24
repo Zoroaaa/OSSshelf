@@ -14,16 +14,12 @@ import { Hono } from 'hono';
 import { eq, and, isNull, isNotNull, inArray } from 'drizzle-orm';
 import { getDb, files } from '../db';
 import { authMiddleware, requireApiKeyScope } from '../middleware/auth';
-import { logger } from '@osshelf/shared';
 import { throwAppError } from '../middleware/error';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
-import { s3Get } from '../lib/s3client';
 import { deleteObjectSafely } from '../lib/storageGC';
 import { normalizeParentId, pathPrefix } from '../lib/pathUtils';
-import { resolveBucketConfig } from '../lib/bucketResolver';
 import { createAuditLog, getClientIp, getUserAgent } from '../lib/audit';
-import { getEncryptionKey } from '../lib/crypto';
 import { releaseFileRef } from '../lib/dedup';
 import { createZipStream, assertZipLimits } from '../lib/zipStream';
 import { openFileStream } from '../lib/fileContentHelper';
@@ -210,7 +206,6 @@ app.post('/permanent-delete', async (c) => {
 
   const { fileIds } = result.data;
   const db = getDb(c.env.DB);
-  const encKey = getEncryptionKey(c.env);
   const batchResult: BatchResult = { success: 0, failed: 0, errors: [] };
   let totalFreed = 0;
 

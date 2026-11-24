@@ -1,8 +1,0 @@
-node_modules/
-dist/
-build/
-*.tsbuildinfo
-coverage/
-.wrangler/
-*.config.js
-*.config.ts

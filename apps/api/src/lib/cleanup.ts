@@ -244,7 +244,7 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
 export async function runTrashCleanup(
   db: ReturnType<typeof getDb>,
   env: Env,
-  encKey: string
+  _encKey: string
 ): Promise<{ deletedCount: number; freedBytes: number; expiredDirectLinks: number }> {
   const retentionDate = new Date();
   retentionDate.setDate(retentionDate.getDate() - getTrashRetentionDays(env));

@@ -754,7 +754,6 @@ function extractAllXmlTags(xml: string, containerTag: string): string[] {
   const closeTag = `</${containerTag}>`;
   let searchFrom = 0;
 
-  // eslint-disable-next-line no-constant-condition -- XML解析标准模式
   while (true) {
     const startIdx = xml.indexOf(openTag, searchFrom);
     if (startIdx === -1) break;

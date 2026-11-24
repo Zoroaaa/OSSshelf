@@ -117,7 +117,6 @@ function isVectorizeRateLimit(error: unknown): boolean {
 async function withVectorizeRateLimitRetry<T>(operation: () => Promise<T>, action: string): Promise<T> {
   let attempt = 1;
 
-  // eslint-disable-next-line no-constant-condition -- 由内部 return/throw 退出，重试次数由 VECTORIZE_RETRY.maxAttempts 控制
   while (true) {
     try {
       return await operation();

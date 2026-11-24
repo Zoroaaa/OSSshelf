@@ -11,8 +11,8 @@
     "build:web": "pnpm --filter @osshelf/shared build && pnpm --filter web build",
     "build:api": "pnpm --filter api build",
     "deploy:api": "pnpm --filter @osshelf/shared build && pnpm --filter api deploy:worker",
-    "lint": "eslint . --ext .ts,.tsx --report-unused-disable-directives --max-warnings 0",
-    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "lint": "node scripts/lint-baseline.mjs",
+    "lint:fix": "eslint . --fix",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "typecheck": "pnpm -r typecheck",
@@ -20,7 +20,10 @@
     "audit:gate": "node scripts/audit-gate.mjs",
     "db:generate": "pnpm --filter api db:generate",
     "db:migrate": "pnpm --filter api db:migrate",
-    "db:studio": "pnpm --filter api db:studio"
+    "db:studio": "pnpm --filter api db:studio",
+    "lint:raw": "eslint .",
+    "lint:baseline:update": "node scripts/lint-baseline.mjs --update",
+    "test:scripts": "node --test scripts/lint-baseline.test.mjs"
   },
   "keywords": [
     "cloudflare",
@@ -37,14 +40,14 @@
     "pnpm": ">=8.0.0"
   },
   "devDependencies": {
-    "@typescript-eslint/eslint-plugin": "^7.0.0",
-    "@typescript-eslint/parser": "^7.0.0",
-    "eslint": "^8.56.0",
-    "eslint-config-prettier": "^9.1.0",
-    "eslint-plugin-prettier": "^5.1.0",
-    "eslint-plugin-react-hooks": "^4.6.0",
+    "@eslint/js": "^9",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^17.14.0",
     "prettier": "^3.2.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "typescript-eslint": "^8"
   },
   "packageManager": "pnpm@8.15.0",
   "pnpm": {
@@ -58,8 +61,8 @@
       "picomatch@>=4.0.0 <4.0.4": ">=4.0.4",
       "postcss@<8.5.23": ">=8.5.23",
       "source-map-js@<1.2.2": ">=1.2.2",
-      "brace-expansion@<1.1.20": ">=1.1.20",
-      "brace-expansion@>=2.0.0 <2.1.6": ">=2.1.6"
+      "brace-expansion@<1.1.20": "^1.1.20",
+      "brace-expansion@>=2.0.0 <2.1.6": "^2.1.6"
     }
   }
 }

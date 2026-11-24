@@ -15,7 +15,7 @@ import { useToast } from '@/components/ui/useToast';
 import { confirmAction } from '@/components/ui/useConfirm';
 import api from '@/services/api-client';
 import { Loader2, X, Clock, CheckCircle2, XCircle, Ban, Filter, Mail, User, Calendar, Shield } from 'lucide-react';
-import { cn, formatDate } from '@/utils';
+import { cn } from '@/utils';
 
 interface TeamInviteRecordsProps {
   teamId: string;
