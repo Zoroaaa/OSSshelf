@@ -64,7 +64,7 @@ v2.7.0 版本对 AI 模块进行了全面升级，核心变化如下：
 | **100+ 个智能工具**        | 覆盖文件操作、权限管理、分享链接等 13+ 个模块       | v2.3.0 新增, v2.7.0 扩展 |
 | **模型库大幅扩展**         | 16 个厂商 80+ 个模型，覆盖 2025 年最新推理/视觉模型 | v2.5.0 新增              |
 | **Agent 引擎增强**         | Token 预算管理、降级机制改进、统计增强              | v2.5.0 增强              |
-| **AI 供应商管理**          | 18 个预设 + 自定义连接，供应商级 Key、模型自动发现  | v2.4.0 新增, v3.0.0 重构 |
+| **AI 供应商管理**          | 37 个预设 + 自定义连接，供应商级 Key、模型自动发现  | v2.4.0 新增, v3.0.0 重构 |
 | **Agent 引擎重构**         | ReAct 架构，多轮推理，链式调用                      | v2.3.0 重构              |
 | **智能意图识别**           | 自动识别搜索、视觉、内容理解等意图                  | v2.3.0 新增              |
 | **写操作确认**             | 敏感操作需用户确认后执行                            | v2.3.0 新增              |
@@ -447,7 +447,9 @@ AI: 调用 list_expired_permissions() → 逐个 revoke_permission()
 - **模型**（`ai_models`）：模型 ID、能力、上下文、价格、思考参数；
 - 一个连接可挂多个模型，共用同一份 Key。
 
-### 预设目录（18 个）
+### 预设目录（37 个）
+
+事实源为 `apps/api/src/lib/ai/providers/providerPresets.ts`，下表为速查；新增预设须同步 `sync-models-dev.mjs` 白名单。
 
 | 地区 | 预设                  | 协议        | 默认 Base URL                                             |
 | ---- | --------------------- | ----------- | --------------------------------------------------------- |
@@ -460,14 +462,33 @@ AI: 调用 list_expired_permissions() → 逐个 revoke_permission()
 | 国内 | 百度千帆              | OpenAI 兼容 | `https://qianfan.baidubce.com/v2`                         |
 | 国内 | 腾讯混元              | OpenAI 兼容 | `https://api.hunyuan.cloud.tencent.com/v1`                |
 | 国内 | MiniMax               | Anthropic   | `https://api.minimax.io/anthropic/v1`                     |
+| 国内 | 阿里魔搭 ModelScope   | OpenAI 兼容 | `https://api-inference.modelscope.cn/v1`                  |
+| 国内 | 阶跃星辰              | OpenAI 兼容 | `https://api.stepfun.com/v1`                              |
+| 国内 | 商汤日日新            | OpenAI 兼容 | `https://token.sensenova.cn/v1`                           |
+| 国内 | 小米 MiMo             | OpenAI 兼容 | `https://api.xiaomimimo.com/v1`                           |
+| 国内 | 七牛云 AI             | OpenAI 兼容 | `https://api.qnaigc.com/v1`                               |
 | 国际 | OpenAI                | OpenAI 兼容 | `https://api.openai.com/v1`                               |
 | 国际 | Anthropic Claude      | Anthropic   | `https://api.anthropic.com/v1`                            |
 | 国际 | Google Gemini         | OpenAI 兼容 | `https://generativelanguage.googleapis.com/v1beta/openai` |
+| 国际 | NVIDIA NIM            | OpenAI 兼容 | `https://integrate.api.nvidia.com/v1`                     |
+| 国际 | Meta Llama            | OpenAI 兼容 | `https://api.meta.ai/v1`                                  |
+| 国际 | Cohere                | OpenAI 兼容 | `https://api.cohere.ai/compatibility/v1`                   |
+| 国际 | AI21 Labs             | OpenAI 兼容 | `https://api.ai21.com/studio/v1`                          |
+| 国际 | SambaNova             | OpenAI 兼容 | `https://api.sambanova.ai/v1`                             |
 | 国际 | xAI Grok              | OpenAI 兼容 | `https://api.x.ai/v1`                                     |
 | 国际 | Mistral AI            | OpenAI 兼容 | `https://api.mistral.ai/v1`                               |
 | 国际 | Groq                  | OpenAI 兼容 | `https://api.groq.com/openai/v1`                          |
 | 国际 | OpenRouter            | OpenAI 兼容 | `https://openrouter.ai/api/v1`                            |
 | 国际 | Perplexity            | OpenAI 兼容 | `https://api.perplexity.ai`                               |
+| 聚合 | Agnes AI              | OpenAI 兼容 | `https://apihub.agnes-ai.com/v1`                          |
+| 聚合 | OpenCode Zen          | OpenAI 兼容 | `https://opencode.ai/inference/openai/v1`                 |
+| 聚合 | Together AI           | OpenAI 兼容 | `https://api.together.xyz/v1`                             |
+| 聚合 | Fireworks AI          | OpenAI 兼容 | `https://api.fireworks.ai/inference/v1`                   |
+| 聚合 | Deep Infra            | OpenAI 兼容 | `https://api.deepinfra.com/v1/openai`                     |
+| 聚合 | Novita AI             | OpenAI 兼容 | `https://api.novita.ai/openai`                            |
+| 聚合 | Hugging Face Router   | OpenAI 兼容 | `https://router.huggingface.co/v1`                        |
+| 聚合 | 302.AI                | OpenAI 兼容 | `https://api.302.ai/v1`                                   |
+| 聚合 | ZenMux                | OpenAI 兼容 | `https://zenmux.ai/api/v1`                                |
 | 内置 | Cloudflare Workers AI | Workers AI  | 无需配置，走 Binding                                      |
 
 另有「自定义连接」，支持本地 Ollama / LM Studio 或公司网关，允许不填 API Key。
@@ -995,7 +1016,7 @@ GET /api/ai-config/workers-ai/models?refresh=1
 
 - `ai_providers` 存连接：协议（OpenAI 兼容 / Anthropic）、Base URL、加密 API Key、自定义请求头；
 - 一个供应商连接可挂多个模型，共用同一份 Key；
-- 「供应商」页选择预设（DeepSeek / OpenAI / Anthropic / Google / 硅基流动 / Kimi / 智谱 / 通义 / 火山 / MiniMax 等），填 Key 后点「获取模型列表」，勾选导入；
+- 「供应商」页选择预设（DeepSeek / OpenAI / Anthropic / Google / 硅基流动 / Kimi / 智谱 / 通义 / 火山 / MiniMax / NVIDIA / Together / OpenRouter 等 39 项），填 Key 后点「获取模型列表」，勾选导入；
 - 模型元数据（上下文、最大输出、价格、视觉/工具/思考）来自随代码发布的 models.dev 精简快照，可用 `pnpm --filter api models:sync` 更新；
 - Anthropic 走原生 Messages 协议，MiniMax 走其 Anthropic 兼容端点；其余预设走 OpenAI 兼容协议。
 
