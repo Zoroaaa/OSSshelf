@@ -5,13 +5,20 @@
  *
  * 用法：pnpm --filter api models:sync
  * 快照随代码提交，运行时零外网依赖。
+ *
+ * 快照策略（2026-11-25）：
+ * - 全量 provider 保留元数据（name/api/doc/npm/env/modelCount），供「新建供应商」目录选取；
+ * - 仅 MODEL_DETAIL_PROVIDER_IDS 白名单保留模型明细，控制体积（全量明细约 3.6MB，
+ *   白名单明细约 0.6MB），避免 D1 单行与前端 bundle 膨胀。
+ * - 非白名单 provider 的模型元数据兜底：用户连接后走 /models 实时发现 + 供应商原始响应。
  */
 
 import { writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-const PROVIDER_IDS = [
+/** 仅这些 provider 保留模型明细；其余 provider 只保留元数据 + modelCount */
+const MODEL_DETAIL_PROVIDER_IDS = new Set([
   'cloudflare-workers-ai',
   'deepseek',
   'openai',
@@ -53,7 +60,7 @@ const PROVIDER_IDS = [
   'huggingface',
   '302ai',
   'zenmux',
-];
+]);
 
 const MODEL_FIELDS = [
   'attachment',
@@ -138,24 +145,28 @@ async function main() {
   const source = await response.json();
   const providers = {};
 
-  for (const providerId of PROVIDER_IDS) {
+  // 全量 provider 都写入元数据（供新建供应商目录选取）；模型明细仅白名单保留。
+  for (const providerId of Object.keys(source).sort()) {
     const provider = source[providerId];
-    if (!provider) {
-      console.warn(`[models:sync] 跳过不存在的 provider: ${providerId}`);
-      continue;
-    }
+    if (!provider || typeof provider !== 'object') continue;
 
+    const rawModels = provider.models && typeof provider.models === 'object' ? provider.models : {};
+    const modelCount = Object.keys(rawModels).length;
+    const keepDetails = MODEL_DETAIL_PROVIDER_IDS.has(providerId);
     const models = {};
-    for (const modelId of Object.keys(provider.models ?? {}).sort()) {
-      models[modelId] = compactModel(provider.models[modelId]);
+    if (keepDetails) {
+      for (const modelId of Object.keys(rawModels).sort()) {
+        models[modelId] = compactModel(rawModels[modelId]);
+      }
     }
 
     providers[providerId] = {
-      name: provider.name,
+      name: String(provider.name ?? providerId),
       ...(provider.api ? { api: provider.api } : {}),
       ...(provider.doc ? { doc: provider.doc } : {}),
       ...(provider.npm ? { npm: provider.npm } : {}),
       ...(provider.env ? { env: provider.env } : {}),
+      modelCount,
       models,
     };
   }
@@ -182,11 +193,14 @@ async function main() {
 
   await writeFile(target, `${header}${JSON.stringify(snapshot)}\n`, 'utf8');
 
-  const modelCount = Object.values(providers).reduce(
+  const detailCount = Object.values(providers).reduce(
     (sum, provider) => sum + Object.keys(provider.models).length,
     0
   );
-  console.log(`[models:sync] 写入 ${Object.keys(providers).length} 个 provider、${modelCount} 个模型`);
+  const catalogModelCount = Object.values(providers).reduce((sum, provider) => sum + provider.modelCount, 0);
+  console.log(
+    `[models:sync] 写入 ${Object.keys(providers).length} 个 provider；${detailCount} 个模型明细、${catalogModelCount} 个模型总数`
+  );
   console.log(`[models:sync] ${target}`);
 }
 

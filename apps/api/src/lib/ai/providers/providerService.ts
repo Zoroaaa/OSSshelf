@@ -342,7 +342,8 @@ export async function createProviderConnection(
     protocol,
     apiEndpoint: endpoint,
     apiKeyEncrypted: encryptedKey,
-    presetId: preset?.id ?? null,
+    // 预设 id 或 models.dev 目录 id 都保留，便于追溯来源并命中目录元数据
+    presetId: preset?.id ?? input.presetId ?? null,
     logoUrl: presetLogoUrl(preset) ?? null,
     headersJson: serializeHeaders(headers),
     discoveredModelsJson: null,

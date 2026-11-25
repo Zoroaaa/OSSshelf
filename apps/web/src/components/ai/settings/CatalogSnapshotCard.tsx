@@ -83,7 +83,7 @@ export function CatalogSnapshotCard() {
               </span>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
-              用于供应商模型列表和新建模型的上下文、价格、能力。拉取只影响之后导入的模型。
+              全量供应商目录供新建时选取，模型明细用于元数据补全。拉取只影响之后导入的模型。
             </p>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-[11px] text-muted-foreground">
               <span>{status ? `${status.providerCount} 个供应商` : '—'}</span>

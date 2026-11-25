@@ -135,6 +135,7 @@ export type {
   AiWorkersAiCatalog,
   AiConfigStatus,
   AiCatalogStatus,
+  AiCatalogProvider,
   AiChatSession,
 } from './ai';
 

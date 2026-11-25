@@ -3,20 +3,44 @@
  * 供应商目录：预设卡片 + 已连接状态 + 自定义连接
  */
 
-import { useState } from 'react';
-import { Cloud, ExternalLink, Plus, Settings2, Trash2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Cloud, ExternalLink, Plus, Search, Settings2, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { cn } from '@/utils';
-import type { AiProviderConnection, AiProviderPreset } from '@/services/api';
+import type { AiCatalogProvider, AiProviderConnection, AiProviderPreset } from '@/services/api';
 
 interface ProviderCatalogPanelProps {
   presets: AiProviderPreset[];
   connections: AiProviderConnection[];
+  catalogProviders: AiCatalogProvider[];
   onConnect: (preset: AiProviderPreset) => void;
   onManage: (connection: AiProviderConnection) => void;
   onDelete: (connection: AiProviderConnection) => void;
   onOpenWorkersAi: () => void;
   workersAiModelCount: number;
+}
+
+/** npm 包名推断协议：Anthropic SDK 走 Anthropic Messages，其余按 OpenAI 兼容处理 */
+function inferProtocol(npm?: string): 'openai_compatible' | 'anthropic' {
+  return npm?.includes('anthropic') ? 'anthropic' : 'openai_compatible';
+}
+
+/** 把 models.dev 目录项转成预设结构，复用现有连接弹窗的预填逻辑 */
+function catalogItemToPreset(item: AiCatalogProvider): AiProviderPreset {
+  return {
+    id: item.id,
+    name: item.name,
+    kind: inferProtocol(item.npm),
+    protocol: inferProtocol(item.npm),
+    baseUrl: item.api ?? '',
+    docsUrl: item.doc ?? '',
+    logoUrl: item.logoUrl,
+    requiresApiKey: item.env.length > 0,
+    defaultInput: ['text'],
+    description: `models.dev · ${item.modelCount} 个模型${item.hasPreset ? '（已有内置预设）' : ''}`,
+    // 目录项的协议是推断值，允许用户在弹窗里修正
+    isCatalogBased: true,
+  };
 }
 
 function ProtocolBadge({ protocol }: { protocol: string | null }) {
@@ -52,6 +76,7 @@ function ProviderLogo({ name, logoUrl }: { name: string; logoUrl?: string | null
 export function ProviderCatalogPanel({
   presets,
   connections,
+  catalogProviders,
   onConnect,
   onManage,
   onDelete,
@@ -62,6 +87,32 @@ export function ProviderCatalogPanel({
   const customConnections = connections.filter(
     (connection) => !connection.presetId || !presets.some((preset) => preset.id === connection.presetId)
   );
+
+  const [catalogQuery, setCatalogQuery] = useState('');
+  const [catalogExpanded, setCatalogExpanded] = useState(false);
+  const presetIds = useMemo(() => new Set(presets.map((preset) => preset.id)), [presets]);
+  const filteredCatalog = useMemo(() => {
+    const keyword = catalogQuery.trim().toLowerCase();
+    // 默认隐藏已有内置预设的项，避免与上方预设卡片重复；搜索时全量匹配
+    const source = keyword
+      ? catalogProviders
+      : catalogProviders.filter((item) => !presetIds.has(item.id));
+    const list = keyword
+      ? source.filter(
+          (item) =>
+            item.name.toLowerCase().includes(keyword) ||
+            item.id.toLowerCase().includes(keyword)
+        )
+      : source;
+    return catalogExpanded ? list : list.slice(0, 24);
+  }, [catalogProviders, catalogQuery, catalogExpanded, presetIds]);
+  const catalogTotal = catalogQuery.trim()
+    ? catalogProviders.filter(
+        (item) =>
+          item.name.toLowerCase().includes(catalogQuery.trim().toLowerCase()) ||
+          item.id.toLowerCase().includes(catalogQuery.trim().toLowerCase())
+      ).length
+    : catalogProviders.filter((item) => !presetIds.has(item.id)).length;
 
   return (
     <div className="space-y-6">
@@ -167,6 +218,65 @@ export function ProviderCatalogPanel({
           })}
         </div>
       </section>
+
+      {catalogProviders.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold">models.dev 供应商目录</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                可选 {catalogTotal} 家未在上方预设中的供应商，自动填入端点与协议；模型列表在连接后获取。
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 rounded-lg border bg-background px-2.5 py-1.5 w-full sm:w-56">
+              <Search className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+              <input
+                value={catalogQuery}
+                onChange={(event) => {
+                  setCatalogQuery(event.target.value);
+                  setCatalogExpanded(false);
+                }}
+                placeholder="搜索供应商（含已预设）"
+                className="w-full bg-transparent text-xs focus:outline-none"
+              />
+            </div>
+          </div>
+
+          {filteredCatalog.length === 0 ? (
+            <div className="text-center py-5 border-2 border-dashed rounded-lg text-sm text-muted-foreground">
+              没有匹配的供应商
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+              {filteredCatalog.map((item) => (
+                <div key={item.id} className="p-2.5 rounded-lg border bg-card flex items-center gap-2.5">
+                  <ProviderLogo name={item.name} logoUrl={item.logoUrl} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-medium text-xs truncate">{item.name}</span>
+                      {item.hasPreset && (
+                        <span className="px-1 py-0.5 rounded text-[10px] bg-muted text-muted-foreground">已预设</span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      {item.modelCount} 个模型 · {inferProtocol(item.npm) === 'anthropic' ? 'Anthropic' : 'OpenAI 兼容'}
+                    </p>
+                  </div>
+                  <Button size="sm" variant="outline" className="h-7 text-xs flex-shrink-0" onClick={() => onConnect(catalogItemToPreset(item))}>
+                    配置
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!catalogExpanded && catalogTotal > 24 && (
+            <Button variant="ghost" size="sm" onClick={() => setCatalogExpanded(true)}>
+              显示全部 {catalogTotal} 家
+            </Button>
+          )}
+        </section>
+      )}
 
       <section className="space-y-3">
         <div className="flex items-center justify-between">

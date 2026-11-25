@@ -39,6 +39,12 @@ export interface ModelsDevProviderMeta {
   doc?: string;
   npm?: string;
   env?: string[];
+  /**
+   * models.dev 上的完整模型数量。
+   * 快照只保留白名单 provider 的模型明细（控制体积），非白名单 provider 的 models 为空，
+   * 但目录需要展示真实模型数，故单独记录。
+   */
+  modelCount?: number;
   models: Record<string, ModelsDevModelMeta>;
 }
 

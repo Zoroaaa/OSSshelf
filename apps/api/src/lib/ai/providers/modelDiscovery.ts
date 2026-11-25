@@ -195,7 +195,8 @@ export async function discoverProviderModels(
   const apiKey = await decryptProviderApiKey(env, provider.apiKeyEncrypted);
   const preset = getProviderPreset(provider.presetId);
   const fallbackInput = parseDefaultInput(provider.defaultInput);
-  const metadataProviderId = preset?.metadataProviderId;
+  // 预设走 metadataProviderId；从 models.dev 目录建的自定义连接直接用 presetId 查快照元数据
+  const metadataProviderId = preset?.metadataProviderId ?? provider.presetId;
   const runtimeProvider = await getRuntimeProvider(env, metadataProviderId);
   const providerMeta = runtimeProvider ?? getModelsDevProvider(metadataProviderId);
 

@@ -175,6 +175,8 @@ export interface AiProviderPreset {
   defaultInput: string[];
   description: string;
   thinkingConfig?: Record<string, unknown>;
+  /** 来自 models.dev 目录（非内置预设）：协议允许修改并需提交给后端 */
+  isCatalogBased?: boolean;
 }
 
 /** 用户级供应商连接 */
@@ -345,6 +347,19 @@ export interface AiCatalogStatus {
   modelCount: number;
 }
 
+/** models.dev 目录项：新建供应商时可直接选取 */
+export interface AiCatalogProvider {
+  id: string;
+  name: string;
+  api?: string;
+  doc?: string;
+  npm?: string;
+  env: string[];
+  modelCount: number;
+  logoUrl: string;
+  hasPreset: boolean;
+}
+
 /** AI 配置总览状态 */
 export interface AiConfigStatus {
   configured: boolean;
@@ -503,6 +518,8 @@ export const aiApi = {
         params: refresh ? { refresh: '1' } : {},
       }),
     getStatus: () => api.get<ApiResponse<AiConfigStatus>>('/api/ai-config/status'),
+    getCatalogProviders: () =>
+      api.get<ApiResponse<AiCatalogProvider[]>>('/api/ai-config/catalog-providers'),
     getCatalogStatus: () => api.get<ApiResponse<AiCatalogStatus>>('/api/ai-config/catalog-status'),
     syncCatalog: () => api.post<ApiResponse<AiCatalogStatus>>('/api/ai-config/catalog-sync'),
     resetCatalog: () => api.delete<ApiResponse<AiCatalogStatus>>('/api/ai-config/catalog-snapshot'),

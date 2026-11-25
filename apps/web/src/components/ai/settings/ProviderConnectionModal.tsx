@@ -67,7 +67,9 @@ export function ProviderConnectionModal({ preset, connection, onClose, onSaved }
   // Base URL 字段级校验错误（保存/测试/拉取列表都会经过 saveConnection 校验）
   const [endpointError, setEndpointError] = useState<string | null>(null);
 
-  const lockedProtocol = (!!preset && preset.id !== 'custom') || !!connection?.presetId;
+  // 内置预设协议固定；models.dev 目录项为推断值，允许修正并提交给后端
+  const lockedProtocol =
+    (!!preset && preset.id !== 'custom' && !preset.isCatalogBased) || !!connection?.presetId;
   const workingConnectionId = workingConnection?.id;
 
   useEffect(() => {

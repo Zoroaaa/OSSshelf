@@ -155,6 +155,13 @@ export function AISettings() {
   const providerPresets = providerCatalog?.presets ?? [];
   const providerConnections = providerCatalog?.connections ?? [];
 
+  // models.dev 全量供应商目录：新建时可直接选取，运行时快照/内置快照由后端兜底
+  const { data: catalogProviders } = useQuery({
+    queryKey: ['ai-catalog-providers'],
+    queryFn: () => aiApi.config.getCatalogProviders().then((r) => r.data.data ?? []),
+    staleTime: 5 * 60_000,
+  });
+
   const { data: workersCatalog } = useQuery({
     queryKey: ['workers-ai-catalog'],
     queryFn: () => aiApi.config.getWorkersAiModels().then((r) => r.data.data),
@@ -1047,11 +1054,12 @@ export function AISettings() {
                 />
               </div>
             ) : (
-              <ProviderCatalogPanel
-                presets={providerPresets}
-                connections={providerConnections}
-                workersAiModelCount={workersAiModels.length}
-                onConnect={(preset) => setProviderModal({ preset })}
+                <ProviderCatalogPanel
+                  presets={providerPresets}
+                  connections={providerConnections}
+                  catalogProviders={catalogProviders ?? []}
+                  workersAiModelCount={workersAiModels.length}
+                  onConnect={(preset) => setProviderModal({ preset })}
                 onManage={(connection) => setProviderModal({ connection })}
                 onDelete={handleDeleteProvider}
                 onOpenWorkersAi={() => setShowWorkersAiCatalog(true)}

@@ -31,12 +31,16 @@ export interface CatalogStatus {
 let cachedSnapshot: ModelsDevSnapshot | null = null;
 let cachedAt = 0;
 
-function catalogProviderIds(): string[] {
+/**
+ * 保留模型明细的 provider 白名单（来自预设引用的 metadataProviderId）。
+ * 其余 provider 仍进入目录，但只保留元数据 + modelCount，控制快照体积。
+ */
+function detailProviderIds(): Set<string> {
   const ids = new Set<string>();
   for (const preset of PROVIDER_PRESETS) {
     if (preset.metadataProviderId) ids.add(preset.metadataProviderId);
   }
-  return Array.from(ids);
+  return ids;
 }
 
 function compactModel(raw: Record<string, unknown>): ModelsDevModelMeta {
@@ -94,20 +98,25 @@ export function buildSnapshotFromRaw(
   generatedAt = new Date().toISOString()
 ): ModelsDevSnapshot {
   const providers: Record<string, ModelsDevProviderMeta> = {};
+  const detailIds = detailProviderIds();
 
-  for (const providerId of catalogProviderIds()) {
+  // 全量 provider 保留元数据供新建目录选取；模型明细仅白名单保留（约 0.6MB vs 全量 3.6MB）。
+  for (const providerId of Object.keys(source).sort()) {
     const rawProvider = source[providerId];
     if (!rawProvider || typeof rawProvider !== 'object') continue;
 
     const provider = rawProvider as Record<string, unknown>;
     const rawModels =
       provider.models && typeof provider.models === 'object' ? (provider.models as Record<string, unknown>) : {};
+    const modelCount = Object.keys(rawModels).length;
 
     const models: Record<string, ModelsDevModelMeta> = {};
-    for (const modelId of Object.keys(rawModels).sort()) {
-      const rawModel = rawModels[modelId];
-      if (!rawModel || typeof rawModel !== 'object') continue;
-      models[modelId] = compactModel(rawModel as Record<string, unknown>);
+    if (detailIds.has(providerId)) {
+      for (const modelId of Object.keys(rawModels).sort()) {
+        const rawModel = rawModels[modelId];
+        if (!rawModel || typeof rawModel !== 'object') continue;
+        models[modelId] = compactModel(rawModel as Record<string, unknown>);
+      }
     }
 
     providers[providerId] = {
@@ -116,6 +125,7 @@ export function buildSnapshotFromRaw(
       ...(typeof provider.doc === 'string' ? { doc: provider.doc } : {}),
       ...(typeof provider.npm === 'string' ? { npm: provider.npm } : {}),
       ...(Array.isArray(provider.env) ? { env: provider.env.map(String) } : {}),
+      modelCount,
       models,
     };
   }
@@ -127,8 +137,58 @@ export function countSnapshot(snapshot: ModelsDevSnapshot): { providerCount: num
   const providers = Object.values(snapshot.providers);
   return {
     providerCount: providers.length,
-    modelCount: providers.reduce((sum, provider) => sum + Object.keys(provider.models).length, 0),
+    // 优先用原始 modelCount（含非白名单 provider），兼容旧快照回退到明细数。
+    modelCount: providers.reduce((sum, provider) => sum + (provider.modelCount ?? Object.keys(provider.models).length), 0),
   };
+}
+
+/** 目录条目：新建供应商时可选的精简 provider 信息 */
+export interface CatalogProviderItem {
+  id: string;
+  name: string;
+  api?: string;
+  doc?: string;
+  npm?: string;
+  env: string[];
+  modelCount: number;
+  logoUrl: string;
+  /** 该 provider 是否已有内置预设（前端可提示「已预设」） */
+  hasPreset: boolean;
+}
+
+/** 运行时快照优先，失败回退内置快照 */
+export function getCatalogSnapshot(env: Env): Promise<ModelsDevSnapshot> {
+  return getRuntimeSnapshot(env).then((runtime) => runtime ?? MODELS_DEV_SNAPSHOT);
+}
+
+/**
+ * 生成新建供应商可选的 provider 目录。
+ * 过滤规则：必须有可直连的 https OpenAI 兼容端点（排除含 ${} 占位符的模板 URL，
+ * 例如 Cloudflare Workers AI 的 accounts/${ID} 形式，无法直接作为 Base URL 使用）。
+ */
+export function listCatalogProviders(snapshot: ModelsDevSnapshot): CatalogProviderItem[] {
+  const presetIds = new Set<string>();
+  for (const preset of PROVIDER_PRESETS) {
+    if (preset.metadataProviderId) presetIds.add(preset.metadataProviderId);
+  }
+
+  const items: CatalogProviderItem[] = [];
+  for (const [id, provider] of Object.entries(snapshot.providers)) {
+    if (!provider.api || provider.api.includes('${')) continue;
+    items.push({
+      id,
+      name: provider.name,
+      ...(provider.api ? { api: provider.api } : {}),
+      ...(provider.doc ? { doc: provider.doc } : {}),
+      ...(provider.npm ? { npm: provider.npm } : {}),
+      env: provider.env ?? [],
+      modelCount: provider.modelCount ?? Object.keys(provider.models).length,
+      logoUrl: `https://models.dev/logos/${encodeURIComponent(id)}.svg`,
+      hasPreset: presetIds.has(id),
+    });
+  }
+
+  return items.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function getBundledCatalogStatus(): CatalogStatus {

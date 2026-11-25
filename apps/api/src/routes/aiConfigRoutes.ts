@@ -52,7 +52,9 @@ import {
   testProviderConnection,
 } from '../lib/ai/providers/modelDiscovery';
 import {
+  getCatalogSnapshot,
   getCatalogStatus,
+  listCatalogProviders,
   resetCatalogSnapshot,
   resolveModelMetadataAsync,
   syncCatalogSnapshot,
@@ -345,6 +347,19 @@ app.post('/providers/:providerId/models', async (c) => {
 // ============================================================================
 // models.dev 运行时快照
 // ============================================================================
+
+/** 新建供应商可选的 models.dev 目录；运行时快照优先，失败回退内置快照 */
+app.get('/catalog-providers', async (c) => {
+  try {
+    const snapshot = await getCatalogSnapshot(c.env);
+    return c.json({ success: true, data: listCatalogProviders(snapshot) });
+  } catch (error) {
+    logger.error('AI Config', 'Failed to list catalog providers', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return errorResponse(c, error, '获取供应商目录失败');
+  }
+});
 
 app.get('/catalog-status', async (c) => {
   try {

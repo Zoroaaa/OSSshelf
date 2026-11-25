@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSnapshotFromRaw, countSnapshot } from './runtimeCatalog';
+import { buildSnapshotFromRaw, countSnapshot, listCatalogProviders } from './runtimeCatalog';
 
 describe('runtime models.dev snapshot', () => {
   it('normalizes provider and model fields', () => {
@@ -35,7 +35,10 @@ describe('runtime models.dev snapshot', () => {
     );
 
     expect(snapshot.generatedAt).toBe('2026-01-01T00:00:00.000Z');
-    expect(snapshot.providers.unknown).toBeUndefined();
+    // 非白名单 provider 仍保留元数据供目录展示，但不保留模型明细（控制快照体积）
+    expect(snapshot.providers.unknown?.name).toBe('Unknown');
+    expect(snapshot.providers.unknown?.modelCount).toBe(1);
+    expect(Object.keys(snapshot.providers.unknown?.models ?? {})).toHaveLength(0);
 
     const model = snapshot.providers.deepseek.models['deepseek-test'];
     expect(model.name).toBe('DeepSeek Test');
@@ -60,5 +63,31 @@ describe('runtime models.dev snapshot', () => {
     });
 
     expect(countSnapshot(snapshot)).toEqual({ providerCount: 2, modelCount: 3 });
+  });
+
+  it('keeps metadata but drops model details for providers without a preset', () => {
+    const snapshot = buildSnapshotFromRaw({
+      deepseek: { name: 'DeepSeek', api: 'https://api.deepseek.com', models: { a: { name: 'A' } } },
+      acme: { name: 'Acme', api: 'https://api.acme.com', models: { b: { name: 'B' }, c: { name: 'C' } } },
+    });
+
+    expect(snapshot.providers.acme?.api).toBe('https://api.acme.com');
+    expect(snapshot.providers.acme?.modelCount).toBe(2);
+    expect(Object.keys(snapshot.providers.acme?.models ?? {})).toHaveLength(0);
+    // 目录统计用完整 modelCount，不受明细裁剪影响
+    expect(countSnapshot(snapshot)).toEqual({ providerCount: 2, modelCount: 3 });
+  });
+
+  it('lists only providers with a directly usable https endpoint', () => {
+    const snapshot = buildSnapshotFromRaw({
+      deepseek: { name: 'DeepSeek', api: 'https://api.deepseek.com', doc: 'https://docs.example.com', models: {} },
+      templated: { name: 'Templated', api: 'https://api.example.com/${ACCOUNT_ID}/v1', models: {} },
+      noapi: { name: 'No Api', npm: '@ai-sdk/vertex', models: {} },
+    });
+
+    const items = listCatalogProviders(snapshot);
+    expect(items.map((item) => item.id)).toEqual(['deepseek']);
+    expect(items[0]?.hasPreset).toBe(true);
+    expect(items[0]?.logoUrl).toContain('deepseek');
   });
 });
