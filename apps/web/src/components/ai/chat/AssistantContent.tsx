@@ -40,34 +40,24 @@ interface FileRefInfo {
   isStandalone: boolean;
 }
 
-/** 引用缺少 name 时按 id 回查，避免直接暴露 uuid */
-function useResolvedFileRef(id: string, type: 'FILE' | 'FOLDER', name: string) {
-  const [resolvedName, setResolvedName] = useState(name);
-  const [isFolder, setIsFolder] = useState(type === 'FOLDER');
+interface ResolvedRefMeta {
+  name: string;
+  isFolder: boolean;
+}
 
-  useEffect(() => {
-    setResolvedName(name);
-    setIsFolder(type === 'FOLDER');
-    if (name) return;
+/** 批量补名结果：id → 元数据。缺名的引用一次请求补齐，避免长回复里几十个 GET /files/:id */
+type RefMetaCache = Record<string, ResolvedRefMeta>;
 
-    let cancelled = false;
-    filesApi
-      .get(id)
-      .then((res) => {
-        const data = res.data?.data;
-        if (!cancelled && data) {
-          setResolvedName(data.name);
-          setIsFolder(data.isFolder);
-        }
-      })
-      .catch(() => {});
-
-    return () => {
-      cancelled = true;
-    };
-  }, [id, name, type]);
-
-  return { name: resolvedName || (isFolder ? '文件夹' : '文件'), isFolder };
+function collectMissingRefIds(content: string): string[] {
+  const ids = new Set<string>();
+  FILE_REF_REGEX.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = FILE_REF_REGEX.exec(content)) !== null) {
+    const id = (match[2] ?? '').trim();
+    const name = (match[3] ?? '').trim();
+    if (id && !name) ids.add(id);
+  }
+  return Array.from(ids).slice(0, 100);
 }
 
 function isStandaloneLine(content: string, matchIndex: number, matchLength: number): boolean {
@@ -91,61 +81,55 @@ function extractText(node: React.ReactNode): string {
 }
 
 function FileRefCard({
-  type,
   id,
   name,
+  isFolder,
   onClick,
 }: {
-  type: 'FILE' | 'FOLDER';
   id: string;
   name: string;
+  isFolder: boolean;
   onClick: (id: string, isFolder: boolean) => void;
 }) {
-  const resolved = useResolvedFileRef(id, type, name);
   return (
     <button
       type="button"
-      onClick={() => onClick(id, resolved.isFolder)}
+      onClick={() => onClick(id, isFolder)}
       className="mx-0.5 inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-muted/60 px-2 py-0.5 text-[12px] font-medium text-foreground align-middle transition-colors hover:border-primary/50 hover:bg-accent"
     >
-      {resolved.isFolder ? (
+      {isFolder ? (
         <FolderOpen className="h-3 w-3 flex-shrink-0 text-amber-500" />
       ) : (
         <FileText className="h-3 w-3 flex-shrink-0 text-primary" />
       )}
-      <span className="max-w-[220px] truncate">{resolved.name}</span>
+      <span className="max-w-[220px] truncate">{name || (isFolder ? '文件夹' : '文件')}</span>
       <ExternalLink className="h-2.5 w-2.5 flex-shrink-0 opacity-40" />
     </button>
   );
 }
 
 function StandaloneFileRefCard({
-  type,
   id,
   name,
+  isFolder,
   onClick,
 }: {
-  type: 'FILE' | 'FOLDER';
   id: string;
   name: string;
+  isFolder: boolean;
   onClick: (id: string, isFolder: boolean) => void;
 }) {
-  const resolved = useResolvedFileRef(id, type, name);
   return (
     <div className="my-1.5">
       <button
         type="button"
-        onClick={() => onClick(id, resolved.isFolder)}
+        onClick={() => onClick(id, isFolder)}
         className="inline-flex max-w-full items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-[12px] font-medium text-foreground shadow-sm transition-colors hover:border-primary/50 hover:bg-accent"
       >
         <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-muted">
-          {resolved.isFolder ? (
-            <FolderOpen className="h-3 w-3 text-amber-500" />
-          ) : (
-            <FileText className="h-3 w-3 text-primary" />
-          )}
+          {isFolder ? <FolderOpen className="h-3 w-3 text-amber-500" /> : <FileText className="h-3 w-3 text-primary" />}
         </span>
-        <span className="max-w-[260px] truncate">{resolved.name}</span>
+        <span className="max-w-[260px] truncate">{name || (isFolder ? '文件夹' : '文件')}</span>
         <ExternalLink className="h-3 w-3 flex-shrink-0 opacity-40" />
       </button>
     </div>
@@ -185,16 +169,17 @@ function CopyButton({ text }: { text: string }) {
 
 function getMarkdownComponents(
   refMap?: Map<number, FileRefInfo>,
-  onFileClick?: (id: string, isFolder: boolean) => void
+  onFileClick?: (id: string, isFolder: boolean) => void,
+  refMeta?: RefMetaCache
 ) {
   const resolveRefs = (children: React.ReactNode): React.ReactNode => {
     if (!refMap || refMap.size === 0 || !onFileClick) return children;
     if (typeof children === 'string') {
-      return replacePlaceholders(children, refMap, onFileClick);
+      return replacePlaceholders(children, refMap, onFileClick, refMeta);
     }
     if (Array.isArray(children)) {
       return children.map((child) =>
-        typeof child === 'string' ? replacePlaceholders(child, refMap, onFileClick) : resolveRefs(child)
+        typeof child === 'string' ? replacePlaceholders(child, refMap, onFileClick, refMeta) : resolveRefs(child)
       );
     }
     return children;
@@ -303,7 +288,8 @@ function getMarkdownComponents(
 function replacePlaceholders(
   text: string,
   refMap: Map<number, FileRefInfo>,
-  onFileClick: (id: string, isFolder: boolean) => void
+  onFileClick: (id: string, isFolder: boolean) => void,
+  refMeta?: RefMetaCache
 ): React.ReactNode[] {
   const pattern = createRefTokenPattern();
   const result: React.ReactNode[] = [];
@@ -315,17 +301,26 @@ function replacePlaceholders(
     const idx = parseInt(match[1] ?? '0', 10);
     const info = refMap.get(idx);
     if (info) {
+      const meta = refMeta?.[info.id];
+      const name = info.name || meta?.name || '';
+      const isFolder = meta?.isFolder ?? info.type === 'FOLDER';
       result.push(
         info.isStandalone ? (
           <StandaloneFileRefCard
             key={`ref-${idx}`}
-            type={info.type}
             id={info.id}
-            name={info.name}
+            name={name}
+            isFolder={isFolder}
             onClick={onFileClick}
           />
         ) : (
-          <FileRefCard key={`ref-${idx}`} type={info.type} id={info.id} name={info.name} onClick={onFileClick} />
+          <FileRefCard
+            key={`ref-${idx}`}
+            id={info.id}
+            name={name}
+            isFolder={isFolder}
+            onClick={onFileClick}
+          />
         )
       );
     }
@@ -338,6 +333,35 @@ function replacePlaceholders(
 
 export function AssistantContent({ content, onFileClick }: AssistantContentProps) {
   const cleanedContent = content.replace(/```tool_call\s*[\s\S]*?```/g, '').trim();
+
+  const [refMeta, setRefMeta] = useState<RefMetaCache>({});
+  // 流式输出时 cleanedContent 每个 chunk 都变；用 ref 记住已请求过的 id，
+  // 避免同一批引用被重复 POST（缓存未命中时尤其明显）。
+  const requestedRefIds = React.useRef<Set<string>>(new Set());
+
+  // 缺名引用批量补名：一次 POST /api/files/batch-get，最多 100 个 id
+  useEffect(() => {
+    const missing = collectMissingRefIds(cleanedContent).filter((id) => !requestedRefIds.current.has(id));
+    if (missing.length === 0) return;
+    for (const id of missing) requestedRefIds.current.add(id);
+    filesApi
+      .batchGet(missing)
+      .then((res) => {
+        const rows = res.data?.data ?? [];
+        if (rows.length === 0) return;
+        setRefMeta((prev) => {
+          const next = { ...prev };
+          for (const row of rows) {
+            next[row.id] = { name: row.name, isFolder: row.isFolder };
+          }
+          return next;
+        });
+      })
+      .catch(() => {
+        // 失败时放回可重试集合，卡片先退回“文件/文件夹”占位，不阻塞正文渲染
+        for (const id of missing) requestedRefIds.current.delete(id);
+      });
+  }, [cleanedContent]);
 
   const refMap = new Map<number, FileRefInfo>();
   let processedContent = cleanedContent;
@@ -374,7 +398,7 @@ export function AssistantContent({ content, onFileClick }: AssistantContentProps
     refIndex++;
   }
 
-  const components = getMarkdownComponents(refMap.size > 0 ? refMap : undefined, onFileClick);
+  const components = getMarkdownComponents(refMap.size > 0 ? refMap : undefined, onFileClick, refMeta);
 
   return (
     <div className="max-w-none text-[14px] leading-relaxed text-foreground">

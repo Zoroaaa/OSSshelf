@@ -251,10 +251,11 @@ export function AIChat() {
     if (!agentConnected || !pendingAgentSend || !currentSessionId) return;
     const payload = pendingAgentSend;
     setPendingAgentSend(null);
-    // metadata 跟着消息落库：刷新后引用文件、模型名与用量都还能还原
+    // metadata 必须挂在消息本身（useChat 只持久化 message.metadata；options.metadata 只是请求级元数据），
+    // 否则本轮气泡立刻就不显示引用文件，刷新后更无法还原
     void agentSendMessage(
-      { text: payload.text },
-      { body: payload.body, metadata: { mentionedFiles: payload.files } }
+      { text: payload.text, metadata: { mentionedFiles: payload.files } },
+      { body: payload.body }
     );
   }, [agentConnected, agentSendMessage, pendingAgentSend, currentSessionId, setPendingAgentSend]);
 
@@ -769,7 +770,8 @@ export function AIChat() {
           onExport={currentSessionId ? handleExport : undefined}
           exporting={exporting}
           onToggleSidebar={() => setShowSidebar((visible) => !visible)}
-          connected={agent.connected}
+          connected={currentSessionId ? agent.connected : undefined}
+          sessionActive={Boolean(currentSessionId)}
         />
 
         {errorMessage && !dismissedError && (

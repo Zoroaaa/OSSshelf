@@ -42,9 +42,12 @@ interface OssShelfChatHandle {
   error: Error | undefined;
   /** 连接或换票错误 */
   connectionError: Error | null;
-  /** metadata 会随消息一起落到 DO / D1，用来持久化引用文件、模型与用量 */
+  /**
+   * `message.metadata` 会随消息一起落到 DO / D1（用于持久化引用文件、模型与用量）；
+   * `options.metadata` 只是请求级元数据，不会挂到消息上——需要"刷新后还在"的数据必须放前者。
+   */
   sendMessage: (
-    message: { text: string },
+    message: { text: string; metadata?: Record<string, unknown> },
     options?: { body?: object; metadata?: Record<string, unknown> }
   ) => Promise<void> | void;
   regenerate: (options?: { body?: object }) => Promise<void> | void;

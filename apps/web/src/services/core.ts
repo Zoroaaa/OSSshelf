@@ -210,6 +210,13 @@ export const filesApi = {
   list: (params?: Partial<FileListParams>) => api.get<ApiResponse<FileItem[]>>('/api/files', { params }),
   get: (id: string) => api.get<ApiResponse<FileItem>>(`/api/files/${id}`),
 
+  /** 批量取文件元数据：`[FILE:id:name]` 缺名时一次补齐，避免长回复里逐条请求 */
+  batchGet: (ids: string[]) =>
+    api.post<ApiResponse<Array<{ id: string; name: string; isFolder: boolean; mimeType: string | null; size: number | null }>>>(
+      '/api/files/batch-get',
+      { ids }
+    ),
+
   /** 获取文件完整详情（Phase 4） */
   getFileDetail: (id: string) => api.get<any>(`/api/files/${id}/detail`),
 

@@ -41,6 +41,8 @@ interface ChatHeaderProps {
   onExport?: () => void;
   exporting?: boolean;
   connected?: boolean;
+  /** 是否已有会话：未建会话时模型选择只作为下一条对话的默认值 */
+  sessionActive?: boolean;
   /** 移动端打开会话历史侧栏（桌面端侧栏常驻，无需此按钮） */
   onToggleSidebar?: () => void;
 }
@@ -55,6 +57,7 @@ export function ChatHeader({
   onExport,
   exporting,
   connected,
+  sessionActive,
   onToggleSidebar,
 }: ChatHeaderProps) {
   const navigate = useNavigate();
@@ -157,13 +160,11 @@ export function ChatHeader({
             <button
               type="button"
               onClick={() => setModelMenuOpen((value) => !value)}
-              disabled={!connected}
               className={cn(
                 'flex h-8 max-w-[132px] items-center gap-1.5 rounded-lg border border-border px-2 text-xs transition-colors sm:max-w-[190px]',
-                modelMenuOpen ? 'bg-accent text-foreground' : 'bg-background text-foreground hover:bg-accent',
-                !connected && 'cursor-not-allowed opacity-60'
+                modelMenuOpen ? 'bg-accent text-foreground' : 'bg-background text-foreground hover:bg-accent'
               )}
-              title={connected ? '切换模型' : '连接断开时不能切换模型'}
+              title="切换模型"
               aria-label="切换模型"
               aria-expanded={modelMenuOpen}
             >
@@ -176,7 +177,7 @@ export function ChatHeader({
               <div className="absolute right-0 top-9 z-dropdown w-[260px] overflow-hidden rounded-xl border border-border bg-popover shadow-popover animate-in fade-in zoom-in-95 duration-150">
                 <div className="border-b border-border/70 px-3 pb-2 pt-2.5">
                   <p className="text-[11px] text-muted-foreground">
-                    已配置 {models.length} 个可用模型 · 仅影响当前对话
+                    已配置 {models.length} 个可用模型 · {sessionActive ? '仅影响当前对话' : '下一条对话使用此模型'}
                   </p>
                   {models.length > 6 && (
                     <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-border bg-background px-2">
