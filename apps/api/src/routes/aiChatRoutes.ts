@@ -17,6 +17,7 @@ import {
   aiChatSessions,
   aiChatMessages,
   aiMemories,
+  aiModels,
   aiUsageEvents,
   aiTaskRuns,
   aiTaskSteps,
@@ -187,7 +188,12 @@ app.get('/sessions', async (c) => {
       sessions.length === 0
         ? []
         : await db
-            .select({ sessionId: aiChatMessages.sessionId, cnt: count(aiChatMessages.id) })
+            .select({
+              sessionId: aiChatMessages.sessionId,
+              cnt: count(aiChatMessages.id),
+              // 工具调用数按审计镜像里每轮 tool_calls JSON 长度求和：即便 ai_usage_events 缺行也能给出累计值
+              toolCalls: sql<number>`coalesce(sum(case when json_valid(${aiChatMessages.toolCalls}) then json_array_length(${aiChatMessages.toolCalls}) else 0 end), 0)`,
+            })
             .from(aiChatMessages)
             .where(
               sql`${aiChatMessages.sessionId} IN (${sql.join(
@@ -199,6 +205,7 @@ app.get('/sessions', async (c) => {
             .all();
 
     const countMap = new Map(msgCounts.map((row) => [row.sessionId, row.cnt]));
+    const messageToolCallMap = new Map(msgCounts.map((row) => [row.sessionId, row.toolCalls ?? 0]));
 
     // token / 工具调用以 ai_usage_events 为准（Agent 写入），回退到会话行累计值
     let usageRows: Array<{ sessionId: string | null; tokens: number; toolCalls: number }> = [];
@@ -238,7 +245,11 @@ app.get('/sessions', async (c) => {
           ...session,
           messageCount: countMap.get(session.id) ?? 0,
           totalTokensUsed: Math.max(usage?.tokens ?? 0, session.totalTokensUsed ?? 0),
-          lastToolCallCount: Math.max(usage?.toolCalls ?? 0, session.lastToolCallCount ?? 0),
+          lastToolCallCount: Math.max(
+            usage?.toolCalls ?? 0,
+            session.lastToolCallCount ?? 0,
+            messageToolCallMap.get(session.id) ?? 0
+          ),
         };
       }),
     });
@@ -292,9 +303,11 @@ app.put('/sessions/:sessionId', async (c) => {
   const sessionId = c.req.param('sessionId');
   const body = await c.req.json();
   const title = typeof body?.title === 'string' ? body.title.trim() : '';
+  const modelId = typeof body?.modelId === 'string' && body.modelId.trim() ? body.modelId.trim() : undefined;
 
-  if (!title) {
-    throwAppError('VALIDATION_ERROR', '标题不能为空');
+  // 标题与模型可以单独更新：会话内切模型不能要求前端同时提交标题
+  if (!title && !modelId) {
+    throwAppError('VALIDATION_ERROR', '标题或模型不能为空');
   }
 
   try {
@@ -309,12 +322,28 @@ app.put('/sessions/:sessionId', async (c) => {
       throwAppError('NOT_FOUND', '会话不存在');
     }
 
+    if (modelId) {
+      // 只能选择自己名下且可用的模型，防止把别人的模型 id 写进会话
+      const model = await db
+        .select({ id: aiModels.id, isActive: aiModels.isActive })
+        .from(aiModels)
+        .where(and(eq(aiModels.id, modelId), eq(aiModels.userId, userId)))
+        .get();
+      if (!model) {
+        throwAppError('NOT_FOUND', '模型不存在');
+      }
+    }
+
     await db
       .update(aiChatSessions)
-      .set({ title, updatedAt: new Date().toISOString() })
+      .set({
+        ...(title ? { title } : {}),
+        ...(modelId ? { modelId } : {}),
+        updatedAt: new Date().toISOString(),
+      })
       .where(eq(aiChatSessions.id, sessionId));
 
-    return c.json({ success: true, data: { id: sessionId, title } });
+    return c.json({ success: true, data: { id: sessionId, ...(title ? { title } : {}), ...(modelId ? { modelId } : {}) } });
   } catch (error) {
     if (error instanceof AppError) throw error;
     logger.error('AI Chat', 'Failed to update session', { userId, sessionId }, error);

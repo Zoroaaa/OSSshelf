@@ -54,10 +54,36 @@ export interface OSSshelfAgentState {
   memoryExtractedMessageCount?: number;
 }
 
+/** 单条消息的引用文件（前端刷新后仍需显示名称，不能只存 id） */
+interface MentionedFileMeta {
+  id: string;
+  name: string;
+}
+
+interface MessageUsageMeta {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedTokens?: number;
+}
+
 interface MessageMetadata {
   createdAt?: string;
   aborted?: boolean;
+  /** ai_models 行 id（会话级模型选择用它，不是供应商的 model key） */
+  modelId?: string;
+  modelName?: string;
+  provider?: string;
+  usage?: MessageUsageMeta;
+  toolCallCount?: number;
+  latencyMs?: number;
+  mentionedFiles?: MentionedFileMeta[];
 }
+
+const MAX_MENTIONED_FILES_META = 20;
+
+/** UIMessage 的 metadata 在 SDK 里是 unknown，内部统一按 MessageMetadata 读写 */
+type AgentUIMessage = UIMessage & { metadata?: MessageMetadata };
 
 interface PendingUsage {
   userId: string;
@@ -65,6 +91,9 @@ interface PendingUsage {
   requestId?: string;
   provider: string;
   modelId: string;
+  /** ai_models 行 id，会话行 model_id 用它回显 */
+  modelConfigId: string;
+  modelName: string;
   startedAt: number;
   inputTokensEstimate: number;
 }
@@ -92,6 +121,40 @@ function getReasoningText(message: UIMessage): string {
 function readMetadata(message: UIMessage): MessageMetadata {
   const raw = message.metadata;
   return raw && typeof raw === 'object' ? (raw as MessageMetadata) : {};
+}
+
+/**
+ * mentioned_files 列兼容两种历史格式：
+ * - 旧格式：`["file-id", ...]`（只有 id，名称需要回查 files 表）
+ * - 新格式：`[{ id, name }, ...]`
+ */
+function parseMentionedFiles(raw: string | null | undefined): MentionedFileMeta[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    const files: MentionedFileMeta[] = [];
+    const seen = new Set<string>();
+    for (const item of parsed.slice(0, MAX_MENTIONED_FILES_META)) {
+      if (typeof item === 'string') {
+        if (item && !seen.has(item)) {
+          seen.add(item);
+          files.push({ id: item, name: '' });
+        }
+        continue;
+      }
+      if (!item || typeof item !== 'object') continue;
+      const id = (item as { id?: unknown }).id;
+      const name = (item as { name?: unknown }).name;
+      if (typeof id !== 'string' || !id || seen.has(id)) continue;
+      seen.add(id);
+      files.push({ id, name: typeof name === 'string' ? name : '' });
+    }
+    return files;
+  } catch {
+    return [];
+  }
 }
 
 export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
@@ -172,11 +235,25 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
         .all();
       rows.reverse();
 
-      const history: UIMessage[] = rows
+      const history = rows
         .filter((row) => row.role === 'user' || row.content.trim().length > 0 || row.toolCalls)
         .map((row) => {
           const parts: UIMessage['parts'] = [];
           const metadata: MessageMetadata = { createdAt: row.createdAt };
+
+          // 历史消息也要带上模型/用量/引用文件，否则刷新后气泡底部信息与引用卡片全部丢失
+          const usageInput = row.inputTokens ?? 0;
+          const usageOutput = row.outputTokens ?? 0;
+          if (usageInput > 0 || usageOutput > 0) {
+            metadata.usage = {
+              inputTokens: usageInput,
+              outputTokens: usageOutput,
+              totalTokens: usageInput + usageOutput,
+            };
+          }
+          if (row.modelUsed) metadata.modelName = row.modelUsed;
+          const mentioned = parseMentionedFiles(row.mentionedFiles);
+          if (mentioned.length > 0) metadata.mentionedFiles = mentioned;
 
           if (row.reasoning) parts.push({ type: 'reasoning', text: row.reasoning } as UIMessage['parts'][number]);
 
@@ -216,9 +293,39 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
             role: row.role === 'user' ? ('user' as const) : ('assistant' as const),
             metadata,
             parts,
-          } as UIMessage;
+          } as AgentUIMessage & { metadata: MessageMetadata };
         })
         .filter((message) => message.parts.length > 0);
+
+      // 旧格式只存了 id，这里一次性回查文件名，避免历史气泡显示 "文件"
+      const missingNames = new Set<string>();
+      for (const message of history) {
+        for (const file of message.metadata.mentionedFiles ?? []) {
+          if (!file.name) missingNames.add(file.id);
+        }
+      }
+      if (missingNames.size > 0) {
+        try {
+          const resolved = await db
+            .select({ id: files.id, name: files.name })
+            .from(files)
+            .where(inArray(files.id, [...missingNames]))
+            .all();
+          const nameById = new Map(resolved.map((row) => [row.id, row.name]));
+          for (const message of history) {
+            for (const file of message.metadata.mentionedFiles ?? []) {
+              if (!file.name) file.name = nameById.get(file.id) ?? '已删除文件';
+            }
+          }
+        } catch (error) {
+          for (const message of history) {
+            for (const file of message.metadata.mentionedFiles ?? []) {
+              if (!file.name) file.name = '文件';
+            }
+          }
+          logger.warn('Agent', 'Failed to resolve mentioned file names', { sessionId }, error);
+        }
+      }
 
       if (history.length === 0) return;
 
@@ -344,6 +451,9 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
     try {
       const requestedModelId =
         typeof options?.body?.modelId === 'string' ? (options.body.modelId as string) : undefined;
+      // 切换模型时把"上一轮用的是别的模型"显式注入 system：新模型实例没有这层记忆，
+      // 不说明容易把已有结论当新问题重新问一遍
+      const previousModelId = this.state.modelId;
 
       if (requestedModelId && requestedModelId !== this.state.modelId) {
         this.setState({ ...this.state, modelId: requestedModelId });
@@ -366,8 +476,13 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
       ]);
 
       const allocation = allocateContext(budget);
+      const modelSwitchSection =
+        previousModelId && config.id !== previousModelId
+          ? `## 模型切换\n本会话此前由另一个模型回复，本轮已切换到「${config.name}」。请延续已有对话上下文与结论继续，不要要求用户重复背景。`
+          : '';
       const system = [
         AGENT_SYSTEM_PROMPT,
+        modelSwitchSection,
         limitSection(taskSection, allocation.taskStateTokens),
         limitSection(contextSection, allocation.assetTokens),
         memorySection,
@@ -397,6 +512,8 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
         requestId: options?.requestId,
         provider: config.provider,
         modelId: config.modelId,
+        modelConfigId: config.id,
+        modelName: config.name,
         startedAt,
         inputTokensEstimate:
           estimateTokens(system) + prunedUiMessages.reduce((sum, message) => sum + estimateMessageTokens(message), 0),
@@ -404,6 +521,18 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
 
       // D1 审计镜像：供管理端与历史统计使用，DO 仍是消息事实源
       if (lastUserText && (await this.isOwnMessage(lastUserText.id, sessionId))) {
+        // 引用文件优先取客户端随消息 metadata 带来的 {id,name}；旧客户端只有 body 里的 id 时保留 id 形态，
+        // seedFromAudit 会按 id 回查文件名
+        const bodyFileIds = Array.isArray(options?.body?.contextFileIds)
+          ? (options.body.contextFileIds as unknown[]).filter((value): value is string => typeof value === 'string')
+          : [];
+        const clientMentions = readMetadata(lastUserText).mentionedFiles ?? [];
+        const mentionedFiles =
+          clientMentions.length > 0
+            ? clientMentions.slice(0, MAX_MENTIONED_FILES_META)
+            : bodyFileIds.slice(0, MAX_MENTIONED_FILES_META).map((id) => ({ id, name: '' }));
+        const mentionedJson = JSON.stringify(mentionedFiles);
+
         try {
           await db
             .insert(aiChatMessages)
@@ -412,14 +541,14 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
               sessionId,
               role: 'user',
               content: getMessageText(lastUserText),
-              mentionedFiles: JSON.stringify(options?.body?.contextFileIds ?? []),
+              mentionedFiles: mentionedJson,
               createdAt: readMetadata(lastUserText).createdAt ?? new Date().toISOString(),
             })
             .onConflictDoUpdate({
               target: aiChatMessages.id,
               set: {
                 content: getMessageText(lastUserText),
-                mentionedFiles: JSON.stringify(options?.body?.contextFileIds ?? []),
+                mentionedFiles: mentionedJson,
               },
             });
         } catch {
@@ -472,7 +601,8 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
             await db
               .update(aiChatSessions)
               .set({
-                modelId: config.modelId,
+                // 会话里存 ai_models 行 id，前端下拉与刷新回显都按该 id 匹配
+                modelId: config.id,
                 lastToolCallCount: toolCallCount,
                 totalTokensUsed: sql`total_tokens_used + ${(usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0)}`,
                 updatedAt: new Date().toISOString(),
@@ -484,7 +614,33 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
         },
       });
 
-      return result.toUIMessageStreamResponse();
+      // 模型与用量随流下发：客户端立即显示在气泡底部，DO 也会合并进消息 metadata 落库，
+      // 刷新/换设备后仍能还原（messageMetadata 在 start 与 finish 两个事件各回调一次）
+      return result.toUIMessageStreamResponse({
+        messageMetadata: ({ part }) => {
+          if (part.type === 'start') {
+            return {
+              modelId: config.id,
+              modelName: config.name,
+              provider: config.provider,
+              createdAt: new Date().toISOString(),
+            } satisfies MessageMetadata;
+          }
+          if (part.type === 'finish') {
+            const usage = part.totalUsage;
+            return {
+              usage: {
+                inputTokens: usage?.inputTokens ?? 0,
+                outputTokens: usage?.outputTokens ?? 0,
+                totalTokens: usage?.totalTokens ?? 0,
+                cachedTokens: usage?.inputTokenDetails?.cacheReadTokens ?? undefined,
+              },
+              latencyMs: Date.now() - startedAt,
+            } satisfies MessageMetadata;
+          }
+          return undefined;
+        },
+      });
     } catch (error) {
       // 模型调用未发生（配置解析失败等）：全额回滚本轮预扣
       await this.pendingQuota?.release();
@@ -520,6 +676,8 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
     const db = getDb(this.env.DB);
     const assistantMessage = result.message;
     const aborted = result.status === 'aborted';
+    const assistantMeta = assistantMessage ? readMetadata(assistantMessage) : {};
+    const assistantUsage = assistantMeta.usage;
 
     // 助手审计镜像：使用与 DO 完全相同的 message.id，避免历史恢复时重复
     if (assistantMessage && (await this.isOwnMessage(assistantMessage.id, this.state.sessionId))) {
@@ -547,6 +705,11 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
             toolCalls: toolCalls.length > 0 ? JSON.stringify(toolCalls) : null,
             reasoning: getReasoningText(assistantMessage) || null,
             aborted,
+            // 每条回复的模型与用量都落到审计表：历史列表/导出与 seedFromAudit 恢复都依赖这几列
+            modelUsed: assistantMeta.modelName ?? null,
+            inputTokens: assistantUsage?.inputTokens ?? 0,
+            outputTokens: assistantUsage?.outputTokens ?? 0,
+            latencyMs: assistantMeta.latencyMs ?? null,
             createdAt: readMetadata(assistantMessage).createdAt ?? new Date().toISOString(),
           })
           .onConflictDoUpdate({
@@ -556,6 +719,10 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
               toolCalls: toolCalls.length > 0 ? JSON.stringify(toolCalls) : null,
               reasoning: getReasoningText(assistantMessage) || null,
               aborted,
+              modelUsed: assistantMeta.modelName ?? null,
+              inputTokens: assistantUsage?.inputTokens ?? 0,
+              outputTokens: assistantUsage?.outputTokens ?? 0,
+              latencyMs: assistantMeta.latencyMs ?? null,
             },
           });
       } catch (error) {
@@ -606,6 +773,21 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
         // onFinish 未触发：用估算的输入 + 已生成内容结算预扣
         await this.pendingQuota?.settle(pending.inputTokensEstimate + partialOutputTokens);
         this.pendingQuota = null;
+
+        // 中断的轮次同样要回写会话统计，否则侧栏停在上一轮的数值（表现为"只显示第一次"）
+        try {
+          await db
+            .update(aiChatSessions)
+            .set({
+              modelId: pending.modelConfigId,
+              lastToolCallCount: toolCallCount,
+              totalTokensUsed: sql`total_tokens_used + ${pending.inputTokensEstimate + partialOutputTokens}`,
+              updatedAt: new Date().toISOString(),
+            })
+            .where(eq(aiChatSessions.id, this.state.sessionId));
+        } catch {
+          // 统计回写失败不影响中断流程
+        }
       }
       return;
     }
