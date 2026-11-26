@@ -78,7 +78,10 @@
 
 ## GET /api/ai-chat/sessions
 
-返回当前用户最近 50 个会话，附带 `messageCount`、`totalTokensUsed`、`lastToolCallCount`（用量来自 `ai_usage_events`）。
+返回当前用户最近 50 个会话，附带 `messageCount`、`totalTokensUsed`、`lastToolCallCount`。
+
+- `totalTokensUsed`：`ai_usage_events` 聚合与会话行累计取大值（会话行含中断时按估算回写的部分）。
+- `lastToolCallCount`：三处取大——`ai_usage_events` 聚合、会话行、`ai_chat_messages.tool_calls` JSON 累计条数（历史会话缺 usage 行时靠这条兜底）。
 
 ## POST /api/ai-chat/sessions
 
@@ -88,8 +91,10 @@
 
 ## PUT /api/ai-chat/sessions/:sessionId
 
+`title` 与 `modelId` 至少给一个；`modelId` 必须是当前用户名下的 `ai_models.id`，否则 404。
+
 ```json
-{ "title": "新标题" }
+{ "title": "新标题", "modelId": "模型记录ID" }
 ```
 
 ## POST /api/ai-chat/sessions/:sessionId/title

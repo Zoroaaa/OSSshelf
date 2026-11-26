@@ -584,6 +584,11 @@ AI: 调用 list_expired_permissions() → 逐个 revoke_permission()
 - **推理内容显示**：支持显示模型的思考过程（DeepSeek R1、智谱 GLM 等）
 - **工具调用显示**：显示 AI 调用的工具和结果
 - **写操作确认**：敏感操作展示确认卡片
+- **会话内切换模型**：下拉列出全部已配置模型（含已停用），切换结果写回会话；切换时在 system 里注入「本会话已换模型，延续上文」提示，避免新模型重复追问
+- **每条回复标注模型与用量**：消息 metadata 携带模型名、输入/输出/总 token、耗时、工具调用数，刷新后由 `ai_chat_messages` 审计行恢复
+- **上下文文件常驻**：用户消息的引用文件以 `metadata.mentionedFiles` 随消息持久化，刷新后仍显示引用标签
+- **直接粘贴/拖入文件**：输入框粘贴或拖入本地文件会走预签名上传，成功后自动加入本轮上下文
+- **首字等待过渡**：发送后到首个 token 之间显示「模型正在准备回复…」占位气泡，不再像卡死
 
 ### 全局悬浮聊天组件
 
@@ -1480,27 +1485,53 @@ interface ToolDefinition {
 
 #### ai_chat_sessions（对话会话表）
 
-| 字段       | 类型  | 说明          |
-| ---------- | ----- | ------------- |
-| id         | text  | 主键 UUID     |
-| user_id    | text  | 用户 ID       |
-| title      | text  | 会话标题      |
-| model_id   | text? | 使用的模型 ID |
-| created_at | text  | 创建时间      |
-| updated_at | text  | 更新时间      |
+| 字段                | 类型    | 说明                            |
+| ------------------- | ------- | ------------------------------- |
+| id                  | text    | 主键 UUID                       |
+| user_id             | text    | 用户 ID                         |
+| title               | text    | 会话标题                        |
+| model_id            | text?   | 最近使用的模型（`ai_models.id`） |
+| last_tool_call_count | integer | 最近一轮工具调用数              |
+| total_tokens_used   | integer | 会话累计 token（含预扣估算）    |
+| created_at          | text    | 创建时间                        |
+| updated_at          | text    | 更新时间                        |
 
 #### ai_chat_messages（对话消息表）
 
-| 字段       | 类型     | 说明                            |
-| ---------- | -------- | ------------------------------- |
-| id         | text     | 主键 UUID                       |
-| session_id | text     | 会话 ID                         |
-| role       | text     | 角色: user / assistant / system |
-| content    | text     | 消息内容                        |
-| sources    | text?    | 来源文件 JSON                   |
-| model_used | text?    | 使用的模型                      |
-| latency_ms | integer? | 响应延迟（毫秒）                |
-| created_at | text     | 创建时间                        |
+DO 是消息事实源，这张表是审计镜像：历史统计、导出、DO 重建都读它。
+
+| 字段           | 类型     | 说明                                   |
+| -------------- | -------- | -------------------------------------- |
+| id             | text     | 主键 UUID                              |
+| session_id     | text     | 会话 ID                                |
+| role           | text     | 角色: user / assistant / system        |
+| content        | text     | 消息内容                               |
+| sources        | text?    | 来源文件 JSON                          |
+| model_used     | text?    | 本次回复使用的模型（配置名）           |
+| latency_ms     | integer? | 响应延迟（毫秒）                       |
+| tool_calls     | text?    | 工具调用 JSON 数组                     |
+| reasoning      | text?    | 推理内容                               |
+| input_tokens   | integer  | 输入 token（默认 0）                   |
+| output_tokens  | integer  | 输出 token（默认 0）                   |
+| aborted        | integer  | 是否中断（0/1）                        |
+| mentioned_files | text?   | 用户引用文件 JSON：`[{id,name}]`；旧数据可能是 `["id"]` |
+| created_at     | text     | 创建时间                               |
+
+#### 消息 metadata 契约（前端 → DO → D1）
+
+`UIMessage.metadata` 同时用于乐观渲染与持久化恢复，字段定义见 `OSSShelfAgent.MessageMetadata`：
+
+| 字段          | 产生方            | 用途                                       |
+| ------------- | ----------------- | ------------------------------------------ |
+| createdAt     | DO 持久化前补全   | 时间显示；缺失时前端用有界 fallback 时间   |
+| modelId/modelName/provider | 流 `start` 事件 | 每条回复右下角模型标签                     |
+| usage         | 流 `finish` 事件  | 输入/输出/总/缓存 token，消息级用量         |
+| latencyMs     | 流 `finish` 事件  | 耗时展示                                   |
+| toolCallCount | 客户端发送/DO     | 会话统计                                   |
+| mentionedFiles | 客户端发送       | 用户引用文件，刷新后仍显示（上限 20 个）   |
+
+前端发送时通过 `sendMessage({text},{body, metadata})` 带上 `mentionedFiles`，DO 随消息持久化并镜像到 `ai_chat_messages.mentioned_files`；`seedFromAudit` 重建历史时按 id 回查 `files` 表补全文件名。
+
 
 #### ai_confirm_requests（确认请求表）— 已移除
 

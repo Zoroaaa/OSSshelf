@@ -13,6 +13,11 @@
 - P3：`retrievalService` 收敛向量+FTS+RRF；删除固定权重与业务层 LIKE 补漏；阈值/倍数/`rrf_k`/分块/重排模型与超时全部配置化；FTS 熔断改 TTL 半开。
 - P4：AIChat 状态收敛到单 reducer（19 个 useState → useReducer）；删除手写 `TOOL_META`，改为 `GET /api/ai-chat/tools` 由后端定义派生；每日 Cron 增加 AI 孤儿清理（file_chunks/ai_task_items/ai_task_*/ai_memories）。文档同步；新增 7 个测试文件（配置守卫、任务状态机、FTS 契约、工具选择、工具目录、孤儿清理、前端 reducer）；P0–P3 阶段本地 28 项冒烟全绿，P4 新增工具目录端点已登录态实测 200（102 工具 / 15 分类）。
 - P2（部分）：输入区本地文件上传/拖入，复用文件系统预签名上传并自动加入 @ 引用。
+- P5（2026-11-26 前端体验补强）：消息 metadata 贯通（模型名/用量/耗时/引用文件），`ai_chat_messages` 的 `model_used`/`input_tokens`/`output_tokens`/`mentioned_files` 首次落库；会话 `model_id` 改存 `ai_models.id`（原写供应商 key 导致刷新回退）；会话列表工具调用改为累计口径；模型下拉列全部已配置模型并支持搜索、会话内切换写回会话 + 切换时 system 注入「已换模型延续上文」；发送到首 token 之间「模型正在准备回复…」占位气泡；输入框支持粘贴文件；`fallbackTimestamps` 加 200 条上限；对话框每条回复右下角常显模型与 token。
+
+**P5 遗留**
+- `ai.ui.*` 剩余项仍未消费（流式节流/重试提示文案等），需要逐项对照注册表。
+- 批量引用解析：引用自带 `name` 时不会回查，只有缺名才逐条 `filesApi.get`，暂未做批量端点（后端无 batch get）。
 
 **与计划的偏差（及原因）**
 - 未新增 `POST /api/ai-chat/intake` multipart 端点，改为前端复用 `/api/files/upload`。原因：配额、去重、Telegram 分片、文件夹权限都在原链路已实现，另造一套会分叉安全校验；聊天页只需要「上传 + 加入引用」。
