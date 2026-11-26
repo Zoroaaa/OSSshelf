@@ -21,7 +21,7 @@ import { getEncryptionKey } from '../crypto';
 import { isEditableFile, logger, logAiError } from '@osshelf/shared';
 import { indexFileVector, buildFileTextForVector } from './vectorIndex';
 import { createTaskRecord } from './aiTaskQueue';
-import { syncFileFts } from './retrieval/fts';
+import { invalidateAsset } from './assetInvalidation';
 import { completeText, type CompleteRequest } from './modelRuntime';
 import { decryptSecret } from '../s3client';
 import { getAiConfigString, getAiConfigBoolean, getAiConfigNumber } from './aiConfigService';
@@ -428,7 +428,7 @@ export async function generateFileSummary(
       db.update(files).set({ aiSummary: summary, aiSummaryAt: new Date().toISOString() }).where(eq(files.id, fileId)),
     ]);
 
-    await syncFileFts(env, fileId);
+    await invalidateAsset(env, fileId, { reason: 'summary' });
 
     return { summary, cached: false };
   } catch (error) {
@@ -513,7 +513,7 @@ export async function generateImageTags(
       })
       .where(eq(files.id, fileId));
 
-    await syncFileFts(env, fileId);
+    await invalidateAsset(env, fileId, { reason: 'tags' });
 
     return { tags, caption };
   } catch (error) {

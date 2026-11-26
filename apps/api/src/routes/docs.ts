@@ -55,6 +55,7 @@ const routeMetadata: Record<string, RouteMeta> = {
   'get  /files': { summary: '列出文件', tags: ['Files'] },
   'post /files': { summary: '创建文件夹', tags: ['Files'] },
   'post /files/upload': { summary: '上传文件（代理模式）', tags: ['Files'] },
+  'post /files/batch-get': { summary: '批量获取文件信息（引用补名，最多 100 个）', tags: ['Files'] },
   'get  /files/:fileId': { summary: '获取文件信息', tags: ['Files'] },
   'put  /files/:fileId': { summary: '更新文件/文件夹', tags: ['Files'] },
   'delete /files/:fileId': { summary: '删除文件/文件夹（移至回收站）', tags: ['Files'] },
@@ -211,6 +212,9 @@ const routeMetadata: Record<string, RouteMeta> = {
   'get  /ai-chat/sessions': { summary: '获取对话列表', tags: ['AI'] },
   'delete /ai-chat/sessions/:sessionId': { summary: '删除对话', tags: ['AI'] },
   'post /ai-chat/sessions/:sessionId/title': { summary: '生成对话标题', tags: ['AI'] },
+  'post /ai-chat/assets': { summary: '登记文件解析策略（IngestPolicy）', tags: ['AI'] },
+  'get  /ai-chat/assets/:fileId': { summary: '读取文件解析状态', tags: ['AI'] },
+  'post /ai-chat/assets/:fileId/retry': { summary: '重试失败的解析步骤', tags: ['AI'] },
 
   // ── Telegram ────────────────────────────────────────
   'post /telegram/test': { summary: '测试 Telegram Bot 连接', tags: ['Telegram'] },

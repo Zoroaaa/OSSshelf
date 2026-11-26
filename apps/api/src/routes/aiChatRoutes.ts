@@ -8,6 +8,7 @@
  */
 
 import { Hono } from 'hono';
+import { z } from 'zod';
 import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
 import { getAgentByName } from 'agents';
 import { authMiddleware, denyApiKeyAuth } from '../middleware';
@@ -27,6 +28,7 @@ import { AgentMemory } from '../lib/ai/agentMemory';
 import { completeText } from '../lib/ai/modelRuntime';
 import { getActiveRun, getRunView, listRunEvents, resumeRun } from '../lib/ai/planRuntime';
 import { buildToolCatalog } from '../lib/ai/toolCatalog';
+import { getIngestAsset, registerIngestAsset, retryIngestAsset } from '../lib/ai/ingestAssets';
 import { AI_AGENT_DEFAULTS, getAiConfigNumber } from '../lib/ai/aiConfigService';
 import { buildAgentInstanceName, issueWsTicket } from '../agents/auth';
 import type { OSSShelfAgent } from '../agents/OSSShelfAgent';
@@ -117,6 +119,42 @@ app.get('/tools', (c) => {
   return c.json({ success: true, data: buildToolCatalog() });
 });
 
+// ── 上传资产解析（IngestPolicy） ─────────────────────────────────────────────
+// 与文件上传解耦：上传完成后由前端/移动端按策略登记，解析失败可单独重试。
+
+const ingestPolicySchema = z.object({
+  steps: z.array(z.enum(['index', 'summary', 'tags'])).max(3).optional(),
+  ocr: z.boolean().optional(),
+});
+
+app.post('/assets', aiRateLimit({ estimatedTokens: 0 }), async (c) => {
+  const userId = c.get('userId');
+  if (!userId) throwAppError('UNAUTHORIZED', '未认证');
+
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = z
+    .object({ fileId: z.string().min(1), policy: ingestPolicySchema.optional() })
+    .safeParse(body);
+  if (!parsed.success) throwAppError('VALIDATION_ERROR', parsed.error.issues[0]?.message ?? '参数错误');
+
+  const view = await registerIngestAsset(c.env, userId, parsed.data.fileId, parsed.data.policy);
+  return c.json({ success: true, data: view });
+});
+
+app.get('/assets/:fileId', async (c) => {
+  const userId = c.get('userId');
+  if (!userId) throwAppError('UNAUTHORIZED', '未认证');
+  const view = await getIngestAsset(c.env, userId, c.req.param('fileId'));
+  return c.json({ success: true, data: view });
+});
+
+app.post('/assets/:fileId/retry', aiRateLimit({ estimatedTokens: 0 }), async (c) => {
+  const userId = c.get('userId');
+  if (!userId) throwAppError('UNAUTHORIZED', '未认证');
+  const view = await retryIngestAsset(c.env, userId, c.req.param('fileId'));
+  return c.json({ success: true, data: view });
+});
+
 /** 当前会话进行中的任务（前端计划条 / 续跑入口） */
 app.get('/sessions/:sessionId/run', async (c) => {
   const userId = c.get('userId');
@@ -184,25 +222,40 @@ app.get('/sessions', async (c) => {
       .limit(50)
       .all();
 
-    const msgCounts =
+    const sessionIdsSql =
       sessions.length === 0
-        ? []
-        : await db
-            .select({
-              sessionId: aiChatMessages.sessionId,
-              cnt: count(aiChatMessages.id),
-              // 工具调用数按审计镜像里每轮 tool_calls JSON 长度求和：即便 ai_usage_events 缺行也能给出累计值
-              toolCalls: sql<number>`coalesce(sum(case when json_valid(${aiChatMessages.toolCalls}) then json_array_length(${aiChatMessages.toolCalls}) else 0 end), 0)`,
-            })
-            .from(aiChatMessages)
-            .where(
-              sql`${aiChatMessages.sessionId} IN (${sql.join(
-                sessions.map((s) => sql`${s.id}`),
-                sql`, `
-              )})`
-            )
-            .groupBy(aiChatMessages.sessionId)
-            .all();
+        ? null
+        : sql`${aiChatMessages.sessionId} IN (${sql.join(
+            sessions.map((s) => sql`${s.id}`),
+            sql`, `
+          )})`;
+
+    let msgCounts: Array<{ sessionId: string; cnt: number; toolCalls: number }> = [];
+    if (sessionIdsSql) {
+      try {
+        msgCounts = await db
+          .select({
+            sessionId: aiChatMessages.sessionId,
+            cnt: count(aiChatMessages.id),
+            // 工具调用数按审计镜像里每轮 tool_calls JSON 长度求和：即便 ai_usage_events 缺行也能给出累计值
+            toolCalls: sql<number>`coalesce(sum(case when json_valid(${aiChatMessages.toolCalls}) then json_array_length(${aiChatMessages.toolCalls}) else 0 end), 0)`,
+          })
+          .from(aiChatMessages)
+          .where(sessionIdsSql)
+          .groupBy(aiChatMessages.sessionId)
+          .all();
+      } catch (error) {
+        // 少数 D1 版本可能缺 JSON1 函数：退化为只统计消息数，工具调用回退会话行累计值
+        logger.warn('AIChat', '统计会话工具调用失败，退化为只统计消息数', { userId }, error);
+        const basic = await db
+          .select({ sessionId: aiChatMessages.sessionId, cnt: count(aiChatMessages.id) })
+          .from(aiChatMessages)
+          .where(sessionIdsSql)
+          .groupBy(aiChatMessages.sessionId)
+          .all();
+        msgCounts = basic.map((row) => ({ ...row, toolCalls: 0 }));
+      }
+    }
 
     const countMap = new Map(msgCounts.map((row) => [row.sessionId, row.cnt]));
     const messageToolCallMap = new Map(msgCounts.map((row) => [row.sessionId, row.toolCalls ?? 0]));

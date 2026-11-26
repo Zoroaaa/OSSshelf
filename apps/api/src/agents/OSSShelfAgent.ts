@@ -425,9 +425,12 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
       );
     }
 
+    // 预算先加载：配额预扣、system 截断与历史裁剪必须用同一套估算系数
+    const budget = await loadContextBudget(this.env);
+
     const estimatedInput =
-      estimateTokens(AGENT_SYSTEM_PROMPT) +
-      this.messages.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
+      estimateTokens(AGENT_SYSTEM_PROMPT, budget.tokenEstimate) +
+      this.messages.reduce((sum, message) => sum + estimateMessageTokens(message, budget.tokenEstimate), 0);
     const quota = await reserveAiQuota(this.env, userId, { estimatedTokens: estimatedInput });
     if (!quota.allowed || !quota.reservation) {
       const decision = quota.decision;
@@ -460,8 +463,7 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
       }
 
       // 单一预算源：总量来自 ai.agent.max_context_tokens，各层比例来自注册表
-      const [budget, maxSteps, maxRetries, thinkingBudget] = await Promise.all([
-        loadContextBudget(this.env),
+      const [maxSteps, maxRetries, thinkingBudget] = await Promise.all([
         getAiConfigNumber(this.env, 'ai.agent.max_steps', AI_AGENT_DEFAULTS.maxSteps),
         getAiConfigNumber(this.env, 'ai.request.max_retries', AI_REQUEST_DEFAULTS.maxRetries),
         getAiConfigNumber(this.env, 'ai.model.anthropic_thinking_budget', AI_MODEL_DEFAULTS.anthropicThinkingBudget),
@@ -483,8 +485,8 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
       const system = [
         AGENT_SYSTEM_PROMPT,
         modelSwitchSection,
-        limitSection(taskSection, allocation.taskStateTokens),
-        limitSection(contextSection, allocation.assetTokens),
+        limitSection(taskSection, allocation.taskStateTokens, budget.tokenEstimate),
+        limitSection(contextSection, allocation.assetTokens, budget.tokenEstimate),
         memorySection,
       ]
         .filter(Boolean)
@@ -494,7 +496,8 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
       const prunedUiMessages = trimMessagesByBudget(
         this.messages,
         allocation.historyTokens,
-        budget.minKeepMessages
+        budget.minKeepMessages,
+        budget.tokenEstimate
       );
       const messages = pruneMessages({
         messages: await convertToModelMessages(prunedUiMessages),
@@ -516,7 +519,11 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
         modelName: config.name,
         startedAt,
         inputTokensEstimate:
-          estimateTokens(system) + prunedUiMessages.reduce((sum, message) => sum + estimateMessageTokens(message), 0),
+          estimateTokens(system, budget.tokenEstimate) +
+          prunedUiMessages.reduce(
+            (sum, message) => sum + estimateMessageTokens(message, budget.tokenEstimate),
+            0
+          ),
       };
 
       // D1 审计镜像：供管理端与历史统计使用，DO 仍是消息事实源

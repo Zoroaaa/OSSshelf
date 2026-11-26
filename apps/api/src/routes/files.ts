@@ -1,4 +1,4 @@
-﻿/**
+/**
  * files.ts
  * 文件管理路由
  *
@@ -1364,6 +1364,33 @@ app.post('/create', async (c) => {
       createdAt: now,
     },
   });
+});
+
+// ── Batch metadata lookup ─────────────────────────────────────────────────
+// 供对话内 [FILE:id:name] 引用一次性补名：逐个 GET /:id 在长回复里会打出几十个请求
+const batchGetSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1).max(100),
+});
+
+app.post('/batch-get', async (c) => {
+  const userId = c.get('userId')!;
+  const { ids } = batchGetSchema.parse(await c.req.json());
+  const uniqueIds = Array.from(new Set(ids));
+  const db = getDb(c.env.DB);
+
+  const rows = await db
+    .select({
+      id: files.id,
+      name: files.name,
+      isFolder: files.isFolder,
+      mimeType: files.mimeType,
+      size: files.size,
+    })
+    .from(files)
+    .where(and(inArray(files.id, uniqueIds), eq(files.userId, userId), isNull(files.deletedAt)))
+    .all();
+
+  return c.json({ success: true, data: rows });
 });
 
 // ── Get single file ────────────────────────────────────────────────────────

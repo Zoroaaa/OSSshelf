@@ -11,7 +11,7 @@
 import type { UIMessage } from 'ai';
 import type { Env } from '../../types/env';
 import { AI_AGENT_DEFAULTS, getAiConfigNumber } from './aiConfigService';
-import { estimateTokens } from './utils';
+import { TOKEN_ESTIMATE_DEFAULTS, estimateTokens, type TokenEstimateOptions } from './utils';
 
 export interface ContextBudget {
   maxContextTokens: number;
@@ -20,6 +20,8 @@ export interface ContextBudget {
   taskStateRatio: number;
   assetRatio: number;
   maxContextFiles: number;
+  /** 与预算一起下发的估算系数，避免调用方各自读配置导致同一轮出现两种口径 */
+  tokenEstimate: Required<TokenEstimateOptions>;
 }
 
 export interface ContextAllocation {
@@ -29,15 +31,25 @@ export interface ContextAllocation {
 }
 
 export async function loadContextBudget(env: Env): Promise<ContextBudget> {
-  const [maxContextTokens, historyRatio, minKeepMessages, taskStateRatio, assetRatio, maxContextFiles] =
-    await Promise.all([
-      getAiConfigNumber(env, 'ai.agent.max_context_tokens', AI_AGENT_DEFAULTS.maxContextTokens),
-      getAiConfigNumber(env, 'ai.agent.context_history_ratio', AI_AGENT_DEFAULTS.contextHistoryRatio),
-      getAiConfigNumber(env, 'ai.agent.min_keep_messages', AI_AGENT_DEFAULTS.minKeepMessages),
-      getAiConfigNumber(env, 'ai.agent.task_state_ratio', AI_AGENT_DEFAULTS.taskStateRatio),
-      getAiConfigNumber(env, 'ai.agent.context_asset_ratio', AI_AGENT_DEFAULTS.contextAssetRatio),
-      getAiConfigNumber(env, 'ai.agent.max_context_files', AI_AGENT_DEFAULTS.maxContextFiles),
-    ]);
+  const [
+    maxContextTokens,
+    historyRatio,
+    minKeepMessages,
+    taskStateRatio,
+    assetRatio,
+    maxContextFiles,
+    charsPerToken,
+    cjkTokensPerChar,
+  ] = await Promise.all([
+    getAiConfigNumber(env, 'ai.agent.max_context_tokens', AI_AGENT_DEFAULTS.maxContextTokens),
+    getAiConfigNumber(env, 'ai.agent.context_history_ratio', AI_AGENT_DEFAULTS.contextHistoryRatio),
+    getAiConfigNumber(env, 'ai.agent.min_keep_messages', AI_AGENT_DEFAULTS.minKeepMessages),
+    getAiConfigNumber(env, 'ai.agent.task_state_ratio', AI_AGENT_DEFAULTS.taskStateRatio),
+    getAiConfigNumber(env, 'ai.agent.context_asset_ratio', AI_AGENT_DEFAULTS.contextAssetRatio),
+    getAiConfigNumber(env, 'ai.agent.max_context_files', AI_AGENT_DEFAULTS.maxContextFiles),
+    getAiConfigNumber(env, 'ai.agent.token_chars_per_token', AI_AGENT_DEFAULTS.tokenCharsPerToken),
+    getAiConfigNumber(env, 'ai.agent.cjk_tokens_per_char', AI_AGENT_DEFAULTS.cjkTokensPerChar),
+  ]);
 
   return {
     maxContextTokens: Math.max(1_000, maxContextTokens),
@@ -46,6 +58,10 @@ export async function loadContextBudget(env: Env): Promise<ContextBudget> {
     taskStateRatio: clamp(taskStateRatio, 0, 0.5),
     assetRatio: clamp(assetRatio, 0, 0.5),
     maxContextFiles: Math.max(1, Math.floor(maxContextFiles)),
+    tokenEstimate: {
+      charsPerToken: clamp(charsPerToken, 1, 8),
+      cjkTokensPerChar: clamp(cjkTokensPerChar, 0.3, 2),
+    },
   };
 }
 
@@ -63,17 +79,25 @@ export function allocateContext(budget: ContextBudget): ContextAllocation {
 }
 
 /** 按 token 预算裁剪一组 section 文本；超预算从尾部截断（低优先级内容在后） */
-export function limitSection(text: string, budgetTokens: number): string {
+export function limitSection(
+  text: string,
+  budgetTokens: number,
+  tokenEstimate: TokenEstimateOptions = TOKEN_ESTIMATE_DEFAULTS
+): string {
   if (!text) return '';
-  if (estimateTokens(text) <= budgetTokens) return text;
-  // 中文约 0.67 token/字符，按最坏情况保守截断
-  const maxChars = Math.max(200, Math.floor(budgetTokens * 1.5));
+  if (estimateTokens(text, tokenEstimate) <= budgetTokens) return text;
+  // 按最保守的系数反推字符上限：宁可截短，也不要超窗口
+  const cjkTokensPerChar = tokenEstimate.cjkTokensPerChar ?? TOKEN_ESTIMATE_DEFAULTS.cjkTokensPerChar;
+  const maxChars = Math.max(200, Math.floor(budgetTokens / Math.max(0.3, cjkTokensPerChar)));
   return `${text.slice(0, maxChars)}\n…（内容超预算已截断）`;
 }
 
-export function estimateMessageTokens(message: UIMessage): number {
+export function estimateMessageTokens(
+  message: UIMessage,
+  tokenEstimate: TokenEstimateOptions = TOKEN_ESTIMATE_DEFAULTS
+): number {
   try {
-    return estimateTokens(JSON.stringify(message.parts ?? []));
+    return estimateTokens(JSON.stringify(message.parts ?? []), tokenEstimate);
   } catch {
     return 0;
   }
@@ -83,17 +107,18 @@ export function estimateMessageTokens(message: UIMessage): number {
 export function trimMessagesByBudget(
   messages: UIMessage[],
   budgetTokens: number,
-  minKeepMessages: number
+  minKeepMessages: number,
+  tokenEstimate: TokenEstimateOptions = TOKEN_ESTIMATE_DEFAULTS
 ): UIMessage[] {
   const keep = Math.max(0, minKeepMessages);
   if (messages.length <= keep) return messages;
 
-  let total = messages.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
+  let total = messages.reduce((sum, message) => sum + estimateMessageTokens(message, tokenEstimate), 0);
   let start = 0;
   while (start < messages.length - keep && total > budgetTokens) {
     const oldest = messages[start];
     if (!oldest) break;
-    total -= estimateMessageTokens(oldest);
+    total -= estimateMessageTokens(oldest, tokenEstimate);
     start++;
   }
   return start === 0 ? messages : messages.slice(start);

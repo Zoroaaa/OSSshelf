@@ -26,7 +26,8 @@ import { createVersionSnapshot, shouldCreateVersion } from './versionManager';
 import { dispatchWebhook } from './webhook';
 import { readFileContent, writeFileContent } from './fileContentHelper';
 import { deleteFileVector } from './ai/vectorIndex';
-import { deleteFileFts, syncFileFts } from './ai/retrieval/fts';
+import { deleteFileFts } from './ai/retrieval/fts';
+import { invalidateAsset } from './ai/assetInvalidation';
 import {
   buildFilePath,
   buildPathUnderParent,
@@ -440,7 +441,7 @@ export async function renameFile(
     throw error;
   }
 
-  await syncFileFts(env, fileId);
+  await invalidateAsset(env, fileId, { reason: 'rename' });
 
   logger.info('FileService', '文件重命名成功', { fileId, oldName: file.name, newName: name });
   return { success: true, message: '重命名成功' };

@@ -13,7 +13,7 @@ import { eq, and, sql, ne } from 'drizzle-orm';
 import { logger } from '@osshelf/shared';
 import { indexFileVector, buildFileTextForVector } from './vectorIndex';
 import { generateFileSummary, generateImageTags } from './features';
-import { syncFileFts } from './retrieval/fts';
+import { invalidateAsset } from './assetInvalidation';
 import { moveFile, softDeleteFile, renameFile } from '../fileService';
 import { dispatchWebhook } from '../webhook';
 
@@ -214,7 +214,7 @@ async function handleIndexTask(env: Env, message: AiTaskMessage): Promise<{ succ
     }
 
     await indexFileVector(env, fileId, text);
-    await syncFileFts(env, fileId);
+    await invalidateAsset(env, fileId, { reason: 'index' });
 
     try {
       const db = getDb(env.DB);
@@ -243,7 +243,7 @@ async function handleSummaryTask(env: Env, message: AiTaskMessage): Promise<{ su
 
   try {
     await generateFileSummary(env, fileId, undefined, userId);
-    await syncFileFts(env, fileId);
+    await invalidateAsset(env, fileId, { reason: 'summary' });
 
     try {
       const db = getDb(env.DB);
@@ -286,7 +286,7 @@ async function handleTagsTask(env: Env, message: AiTaskMessage): Promise<{ succe
 
   try {
     await generateImageTags(env, fileId, undefined, userId);
-    await syncFileFts(env, fileId);
+    await invalidateAsset(env, fileId, { reason: 'tags' });
 
     try {
       const db = getDb(env.DB);

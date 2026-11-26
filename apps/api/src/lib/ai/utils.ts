@@ -196,15 +196,34 @@ export function hasThinkingTags(content: string): boolean {
 }
 
 /**
- * 语言感知 token 估算
- * 英文: 1 token ≈ 4 chars (0.25 tokens/char)
- * 中文: 1 token ≈ 1.5 chars (0.67 tokens/char)
- * 中文字符占比超 30% 时用中文系数，避免低估导致超窗口
+ * token 估算系数（可经配置覆盖）
+ *
+ * 之所以不用"中文占比 > 30% 就整体切换系数"的旧做法：同一段文本里中英混排很常见，
+ * 整体切换会同时高估英文部分、低估中文部分。按字符类别分别计数更接近真实 tokenizer。
+ * 真实数值仍以模型返回的 usage 为准，这里只服务于上下文预算的保守裁剪。
  */
-export function estimateTokens(text: string): number {
+export interface TokenEstimateOptions {
+  /** 拉丁字符 / 符号平均多少字符一个 token */
+  charsPerToken?: number;
+  /** 中日韩字符每个占多少 token */
+  cjkTokensPerChar?: number;
+}
+
+export const TOKEN_ESTIMATE_DEFAULTS = {
+  charsPerToken: 4,
+  cjkTokensPerChar: 0.67,
+} as const;
+
+const CJK_RE = /[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff\uac00-\ud7af]/g;
+
+export function estimateTokens(text: string, options?: TokenEstimateOptions): number {
   if (!text) return 0;
-  const chineseChars = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length;
-  const chineseRatio = text.length > 0 ? chineseChars / text.length : 0;
-  const tokensPerChar = chineseRatio > 0.3 ? 0.67 : 0.25;
-  return Math.ceil(text.length * tokensPerChar);
+  const cjkChars = (text.match(CJK_RE) || []).length;
+  const nonCjkChars = Math.max(0, text.length - cjkChars);
+  const charsPerToken = Math.min(8, Math.max(1, options?.charsPerToken ?? TOKEN_ESTIMATE_DEFAULTS.charsPerToken));
+  const cjkTokensPerChar = Math.min(
+    2,
+    Math.max(0.3, options?.cjkTokensPerChar ?? TOKEN_ESTIMATE_DEFAULTS.cjkTokensPerChar)
+  );
+  return Math.ceil(cjkChars * cjkTokensPerChar + nonCjkChars / charsPerToken);
 }

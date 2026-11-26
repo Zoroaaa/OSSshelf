@@ -77,6 +77,13 @@ export const AI_AGENT_DEFAULTS = {
   taskStateRatio: 0.1,
   /** L2 已解析资产层预算比例 */
   contextAssetRatio: 0.15,
+  /**
+   * token 估算系数：拉丁字符/符号平均多少字符一个 token。
+   * 只影响上下文预算裁剪与配额预扣的保守程度，真实用量以模型返回的 usage 为准。
+   */
+  tokenCharsPerToken: 4,
+  /** token 估算系数：CJK 字符每字约多少 token */
+  cjkTokensPerChar: 0.67,
 } as const;
 
 export const AI_RAG_DEFAULTS = {
@@ -101,8 +108,14 @@ export const AI_TASK_DEFAULTS = {
   approvalRequiredLevel: 'write' as 'write' | 'irreversible',
 } as const;
 
-export const AI_TOOL_DEFAULTS = {
-  /**
+export const AI_INGEST_DEFAULTS = {
+  /** 单文件解析登记上限：超过直接拒绝，避免把超大文件塞进队列反复失败 */
+  maxFileBytes: 50 * 1024 * 1024,
+  /** 单文件解析最大重试次数（按文件维度累计，不是按任务项） */
+  maxAttempts: 3,
+} as const;
+
+export const AI_TOOL_DEFAULTS = {  /**
    * 条件注入后实际候选约 70 个；40 会因定义顺序把写工具挤掉（多步任务直接不可用），
    * 60 只裁掉最不相关的尾部工具，仍显著低于全量近百个。
    */
@@ -170,6 +183,10 @@ export const SYSTEM_CONFIG_UI_META: Record<string, AiConfigUiMeta> = {
   'ai.agent.ticket_ttl_ms': { min: 60_000, max: 3_600_000, step: 60_000, unit: 'ms', advanced: true },
   'ai.agent.task_state_ratio': { min: 0, max: 0.5, step: 0.01 },
   'ai.agent.context_asset_ratio': { min: 0, max: 0.5, step: 0.01 },
+  'ai.agent.token_chars_per_token': { min: 1, max: 8, step: 0.1, advanced: true },
+  'ai.agent.cjk_tokens_per_char': { min: 0.3, max: 2, step: 0.01, advanced: true },
+  'ai.ingest.max_file_bytes': { min: 1_048_576, max: 524_288_000, step: 1_048_576, unit: 'bytes', advanced: true },
+  'ai.ingest.max_attempts': { min: 1, max: 10, step: 1, unit: '次', advanced: true },
   'ai.rag.rrf_k': { min: 1, max: 200, step: 1, advanced: true },
   'ai.rag.vector_threshold': { min: 0, max: 1, step: 0.01 },
   'ai.rag.chunk_threshold': { min: 0, max: 1, step: 0.01, advanced: true },
@@ -599,6 +616,46 @@ const DEFAULT_CONFIGS: Array<{
     defaultValue: String(AI_AGENT_DEFAULTS.contextAssetRatio),
     isEditable: true,
     sortOrder: 47,
+  },
+  {
+    key: 'ai.agent.token_chars_per_token',
+    category: 'agent',
+    label: 'token 估算：每 token 字符数',
+    description: '拉丁字符/符号平均多少字符算 1 token（默认 4）；仅用于上下文预算裁剪，真实用量以模型返回为准',
+    valueType: 'number',
+    defaultValue: String(AI_AGENT_DEFAULTS.tokenCharsPerToken),
+    isEditable: true,
+    sortOrder: 48,
+  },
+  {
+    key: 'ai.agent.cjk_tokens_per_char',
+    category: 'agent',
+    label: 'token 估算：CJK 每字 token',
+    description: '中日韩字符每字约多少 token（默认 0.67）；调大可让中文长对话更早触发裁剪',
+    valueType: 'number',
+    defaultValue: String(AI_AGENT_DEFAULTS.cjkTokensPerChar),
+    isEditable: true,
+    sortOrder: 49,
+  },
+  {
+    key: 'ai.ingest.max_file_bytes',
+    category: 'ingest',
+    label: '解析登记文件上限',
+    description: '登记上传资产解析时允许的最大文件体积（bytes）；超过直接拒绝，避免队列反复失败',
+    valueType: 'number',
+    defaultValue: String(AI_INGEST_DEFAULTS.maxFileBytes),
+    isEditable: true,
+    sortOrder: 50,
+  },
+  {
+    key: 'ai.ingest.max_attempts',
+    category: 'ingest',
+    label: '解析重试上限',
+    description: '单文件解析可重试的最大次数；达到后状态置为失败，不再自动排队',
+    valueType: 'number',
+    defaultValue: String(AI_INGEST_DEFAULTS.maxAttempts),
+    isEditable: true,
+    sortOrder: 51,
   },
   {
     key: 'ai.rag.rrf_k',

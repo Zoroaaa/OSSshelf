@@ -915,6 +915,33 @@ export const aiTaskItems = sqliteTable(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════
+// 上传资产解析（IngestPolicy）
+// 一次登记 + 按步骤排队；status 是派生值，读取时按 ai_tasks 重算并回写
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const aiIngestAssets = sqliteTable(
+  'ai_ingest_assets',
+  {
+    id: text('id').primaryKey(),
+    fileId: text('file_id').notNull(),
+    userId: text('user_id').notNull(),
+    policy: text('policy').notNull().default('{}'),
+    status: text('status').notNull().default('pending'), // pending | processing | ready | partial | failed
+    taskIds: text('task_ids'),
+    error: text('error'),
+    attempts: integer('attempts').notNull().default(0),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    fileUnique: uniqueIndex('idx_ai_ingest_assets_file').on(table.fileId),
+    userUpdatedIdx: index('idx_ai_ingest_assets_user').on(table.userId, table.updatedAt),
+  })
+);
+
+export type AiIngestAsset = typeof aiIngestAssets.$inferSelect;
+
+// ═══════════════════════════════════════════════════════════════════════════
 // 任务编排内核（PlanRuntime）
 // 事实源在 D1：DO 回收 / 断线 / 审批挂起后按 step 状态续跑
 // ═══════════════════════════════════════════════════════════════════════════
