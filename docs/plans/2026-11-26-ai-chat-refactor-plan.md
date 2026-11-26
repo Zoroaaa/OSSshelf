@@ -15,19 +15,23 @@
 - P2（部分）：输入区本地文件上传/拖入，复用文件系统预签名上传并自动加入 @ 引用。
 - P5（2026-11-26 前端体验补强）：消息 metadata 贯通（模型名/用量/耗时/引用文件），`ai_chat_messages` 的 `model_used`/`input_tokens`/`output_tokens`/`mentioned_files` 首次落库；会话 `model_id` 改存 `ai_models.id`（原写供应商 key 导致刷新回退）；会话列表工具调用改为累计口径；模型下拉列全部已配置模型并支持搜索、会话内切换写回会话 + 切换时 system 注入「已换模型延续上文」；发送到首 token 之间「模型正在准备回复…」占位气泡；输入框支持粘贴文件；`fallbackTimestamps` 加 200 条上限；对话框每条回复右下角常显模型与 token。
 
-**P5 遗留**
-- `ai.ui.*` 剩余项仍未消费（流式节流/重试提示文案等），需要逐项对照注册表。
-- 批量引用解析：引用自带 `name` 时不会回查，只有缺名才逐条 `filesApi.get`，暂未做批量端点（后端无 batch get）。
+- P6（2026-11-26 第二轮补强）：修「发送后引用文件丢失」——`useChat.sendMessage(message, options)` 的 `options.metadata` 是请求级、不落到消息上，改为 `sendMessage({ text, metadata:{ mentionedFiles } }, { body })`；未建会话也能切换模型（去掉 `disabled={!connected}`，新增 `sessionActive` 提示）；批量引用解析（新增 `POST /api/files/batch-get`，一次最多 100 个 id，`AssistantContent` 统一补名，消除逐条 `filesApi.get`）；token 估算器配置化（`estimateTokens(text, { charsPerToken, cjkTokensPerChar })` 按字符类别分别计数并 clamp，预算经 `ContextBudget.tokenEstimate` 单点下发）；`invalidateAsset(env, fileId, { reason, reindex })` 统一入口（FTS 同步 + 可选重排队索引，改名/摘要/标签/索引共 6 处调用点收敛，动态导入避免 fileService↔aiTaskQueue 模块环）；P2b 落地：迁移 124 `ai_ingest_assets` + `IngestPolicy`（`steps`/`ocr`）+ `POST/GET /api/ai-chat/assets` 与 `/retry`（状态按 `ai_tasks` 派生并回写，失败步骤单独重试，重试次数上限）+ `ai.ingest.max_file_bytes`/`max_attempts` 配置与设置页「上传解析」分类。
+
+**P6 遗留**
+- OCR 与页码/行号/区域锚点未实现：`policy.ocr` 只记录意图，接口返回 `ocrSupported:false`，不要当可用开关宣传。
+- 资产卡片 UI 未接（接口已可用，前端尚未展示解析状态与重试按钮）。
+- 「真实 tokenizer」未接入：仍是可配置估算器，系数只能逼近真实分词，预算裁剪按保守截断兜底。
+- `ai.ui.*` 的流式节流/重试提示文案等待消费项仍未逐项对照。
 
 **与计划的偏差（及原因）**
 - 未新增 `POST /api/ai-chat/intake` multipart 端点，改为前端复用 `/api/files/upload`。原因：配额、去重、Telegram 分片、文件夹权限都在原链路已实现，另造一套会分叉安全校验；聊天页只需要「上传 + 加入引用」。
-- 未做 per-upload 处理策略（摘要/标签/索引开关）。原因：处理策略目前由 `ai.feature.*` 全局配置驱动，上传 API 尚不携带策略；若在注册接口里伪装可选，实际不会生效，属于假开关。
+- 上传解析不与上传 API 强绑：上传完成后由客户端调 `/api/ai-chat/assets` 登记，避免文件系统链路反向依赖 AI 队列；未登记的旧文件行为不变。
 
 **未完成（下一阶段）**
-- P2b：上传 API 携带 `IngestPolicy`、`ai_ingest_assets` 表、解析状态/部分可用/重试、OCR 与页码/行号锚点。
-- P3b：真实 tokenizer 计数、元数据变更统一 `invalidateAsset`（重命名已验证只需 FTS 同步，向量按 fileId 取行不受名称影响）。
-- P4b：批量引用解析（一次请求解析所有 [FILE:id:name]）、有界缓存（`fallbackTimestamps` 上限）、`ai.ui.*` 剩余项的前端消费。
-- 说明：`ai.ui.*` 的超时/长度/推荐语/能力标签已通过 `effective-config` 前端消费；孤儿清理已接入每日 Cron。
+- P2b 剩余：OCR、页码/行号锚点、资产卡片 UI。
+- P3b 剩余：真实 tokenizer（厂商 tokenizer/计数 API）替代估算器。
+- P4b 已收口：批量引用解析、`fallbackTimestamps` 上限、`ai.ui.*` 前端消费（超时/长度/推荐语/能力标签）均已完成。
+
 
 ---
 

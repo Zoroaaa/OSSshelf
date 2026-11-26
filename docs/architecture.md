@@ -776,6 +776,21 @@ CREATE VIRTUAL TABLE files_fts_v2 USING fts5(
     file_id UNINDEXED, name, description, ai_summary, ai_tags,
     tokenize = 'unicode61'
 );
+
+-- 上传资产解析（124 迁移）：一次登记，按步骤排队，status 由 ai_tasks 派生后回写
+CREATE TABLE ai_ingest_assets (
+    id TEXT PRIMARY KEY,
+    file_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    policy TEXT NOT NULL DEFAULT '{}',   -- JSON: { steps: ['index','summary','tags'], ocr }
+    status TEXT NOT NULL DEFAULT 'pending', -- pending | processing | ready | partial | failed
+    task_ids TEXT,                        -- JSON: [{ step, taskId }]
+    error TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_ai_ingest_assets_file ON ai_ingest_assets(file_id);
 ```
 
 要点：`ai_task_*` 是任务事实源，DO 回收/断线/审批挂起后按 step 状态续跑；`files_fts_v2` 与 070 的旧 `files_fts`（列名 `id`）并存，旧表只作熔断降级回退。

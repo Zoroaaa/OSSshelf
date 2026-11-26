@@ -38,6 +38,18 @@
 | **孤儿清理** | 每日 Cron 新增 `runAiOrphanCleanup`：清理无文件归属的 `file_chunks`（先删向量）、无任务的 `ai_task_items`、无 run/无会话的 `ai_task_*`、无会话的 `ai_memories`；每类最多 10×100 行，避免超时 |
 | **配置化** | 注册表新增 35 项（agent 上下文分配、rag 阈值、task 重试、tool 注入、ui 超时/推荐语、quota 预估）；新增 `GET /api/ai-config/effective` 下发非敏感项；配置写入递增 KV 版本号，≤2s 跨 isolate 失效；`aiConfigRegistry.test.ts` 静态守卫「有注册必被读、被读必已注册」 |
 
+## 2026-11-26 增量（第二批）：上传解析、token 估算与引用修复
+
+| 变化 | 说明 |
+| --- | --- |
+| **引用文件随消息持久化** | 引用文件改由消息 `metadata.mentionedFiles` 携带（此前放在 `sendMessage` 的 `options.metadata`，只影响请求、不落消息，刷新后引用消失）；DO 持久化后由 `seedFromAudit` 按 `ai_chat_messages.mentioned_files` 还原，旧数据 `["id"]` 会回查文件名 |
+| **未建会话也能选模型** | 模型下拉不再依赖 WS 连接状态；无会话时选择只作为下一条对话的默认模型（`sessionActive=false` 时下拉顶部有说明），有会话时选择会 `PUT /api/ai-chat/sessions/:id { modelId }` 写回 |
+| **批量引用解析** | 新增 `POST /api/files/batch-get`（最多 100 个 id，只返回本人未删除文件）；`AssistantContent` 一次补齐所有缺名 `[FILE:id:name]`，不再为每个引用发一次 `filesApi.get` |
+| **token 估算可配置** | `estimateTokens(text, { charsPerToken, cjkTokensPerChar })` 按 CJK / 非 CJK 字符分别计数（不再按"中文占比整体切系数"）；系数注册为 `ai.agent.token_chars_per_token`（默认 4）与 `ai.agent.cjk_tokens_per_char`（默认 0.67），经 `ContextBudget.tokenEstimate` 单点下发给预算裁剪；真实用量仍以模型 `usage` 为准 |
+| **资产失效统一入口** | `invalidateAsset(env, fileId, { reason, reindex })`：改名/描述/摘要/标签/索引完成后统一同步 FTS，`reindex` 为真时重新排队向量索引；`fileService`、`features`、`aiTaskQueue` 共 6 个调用点收敛，动态导入避免模块环 |
+| **上传资产解析（IngestPolicy）** | 迁移 124 新建 `ai_ingest_assets`；`POST /api/ai-chat/assets` 登记 `{ steps: ['index'｜'summary'｜'tags'], ocr }` 并按步骤各自排队，`GET` 读状态、`POST /retry` 只重试失败步骤；`status` 由 `ai_tasks` 实际状态派生并回写（`ready/partial/failed/processing`），队列中断不会永远停在处理中；`ai.ingest.max_file_bytes` / `ai.ingest.max_attempts` 可配，设置页新增「上传解析」分类 |
+| **已知边界** | OCR 与页码/行号锚点未实现（`policy.ocr` 只记录意图，响应固定 `ocrSupported:false`）；资产卡片 UI 未接；token 估算仍是近似值而非厂商 tokenizer |
+
 ### 上下文预算分层
 
 总量唯一来源 `ai.agent.max_context_tokens`，各层按配置分配：

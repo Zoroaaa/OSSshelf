@@ -37,6 +37,37 @@
 
 续跑流程：前端调 `resume` → 把 `resumeMessage` 作为普通用户消息发给 Agent → Agent 从 system 中的「当前任务状态」继续，不重放历史工具调用。
 
+## 上传资产解析（2026-11-26 新增）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/api/ai-chat/assets` | 登记文件的解析策略并排队；body `{ fileId, policy?: { steps?: ['index'｜'summary'｜'tags'], ocr?: boolean } }` |
+| GET | `/api/ai-chat/assets/:fileId` | 读取解析状态；状态按 `ai_tasks` 实际结果重算并回写 |
+| POST | `/api/ai-chat/assets/:fileId/retry` | 只重试 failed/cancelled 的步骤，成功步骤不重复排队 |
+
+返回结构：
+
+```json
+{
+  "fileId": "uuid",
+  "status": "pending | processing | ready | partial | failed",
+  "policy": { "steps": ["index", "summary"], "ocr": false },
+  "steps": [{ "step": "index", "taskId": "uuid", "status": "completed", "error": null }],
+  "attempts": 1,
+  "ocrSupported": false,
+  "error": null,
+  "updatedAt": "2026-11-26T00:00:00.000Z"
+}
+```
+
+约束：
+
+- 文件必须属于当前用户且未删除；文件夹返回 `AI_NOT_SUPPORTED_FOR_FILE`，超上限返回 `AI_FILE_TOO_LARGE`。
+- 队列未配置时返回 `AI_SERVICE_UNAVAILABLE`；重试次数达到 `ai.ingest.max_attempts` 后同样拒绝。
+- `status` 是派生值：`ai_tasks` 全部 completed → `ready`；部分完成 → `partial`；全部失败 → `failed`；仍有 running/pending → `processing`。
+- `ocr` 目前只记录意图，响应固定 `ocrSupported: false`（OCR 与页码锚点未实现）。
+- 该接口不参与对话计费（`aiRateLimit({ estimatedTokens: 0 })`），实际消耗发生在任务队列执行时。
+
 ## 环境依赖
 
 | 绑定 / 变量                                                                             | 必需           | 说明                                                 |
