@@ -5,7 +5,7 @@
  * 功能:
  * - 查看文件标签
  * - 添加/删除标签（点击+号展开标签选择器）
- * - 标签选择器：展示已有标签列表（最多10个）、搜索、快速选择、新建
+ * - 标签选择器：展示已有标签列表（可滚动，不截断）、搜索、快速选择、新建
  * - 标签颜色选择
  */
 
@@ -47,15 +47,15 @@ export function FileTagsManager({ fileId, onTagClick }: FileTagsManagerProps) {
   });
 
   // 过滤：排除已添加的 + 搜索匹配
+  // 不截断条数：面板本身有 max-h + overflow-y-auto；一旦按固定条数截断，
+  // 排在后面的标签（尤其是刚建好、还没挂到任何文件上的新标签）就会直接看不见，
+  // 用户只能靠搜索才"选得到"。
   const availableTags = allTags.filter((t) => {
     const alreadyAdded = fileTags.some((ft) => ft.name === t.name);
     if (alreadyAdded) return false;
     if (!tagSearch) return true;
     return t.name.toLowerCase().includes(tagSearch.toLowerCase());
   });
-
-  // 显示的标签：最多10个
-  const displayTags = availableTags.slice(0, 10);
 
   // ── 添加已有标签到文件 ──
   const addTagMutation = useMutation({
@@ -205,9 +205,9 @@ export function FileTagsManager({ fileId, onTagClick }: FileTagsManagerProps) {
                 <div className="flex justify-center py-4">
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 </div>
-              ) : displayTags.length > 0 ? (
+              ) : availableTags.length > 0 ? (
                 <div className="grid grid-cols-2 gap-1.5 max-h-[200px] overflow-y-auto">
-                  {displayTags.map((tag) => (
+                  {availableTags.map((tag) => (
                     <button
                       key={tag.id}
                       onClick={() => handleSelectExistingTag(tag)}
