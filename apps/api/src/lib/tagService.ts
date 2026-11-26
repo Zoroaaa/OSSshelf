@@ -10,7 +10,7 @@
  * - 权限检查复用 permissionService
  */
 
-import { eq, and, isNull, inArray, sql, count, desc } from 'drizzle-orm';
+import { eq, and, isNull, isNotNull, inArray, sql, count, desc } from 'drizzle-orm';
 import { getDb, files, fileTags } from '../db';
 import type { Env } from '../types/env';
 import { logger } from '@osshelf/shared';
@@ -165,7 +165,7 @@ export async function getTagStats(env: Env, userId: string): Promise<Array<{ nam
   const results = await db
     .select({ name: fileTags.name, count: count() })
     .from(fileTags)
-    .where(eq(fileTags.userId, userId))
+    .where(and(eq(fileTags.userId, userId), isNotNull(fileTags.fileId)))
     .groupBy(fileTags.name)
     .orderBy(desc(count()))
     .limit(30)

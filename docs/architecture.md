@@ -606,19 +606,16 @@ CREATE TABLE file_versions (
 );
 
 -- 文件标签表
+-- file_id 为 NULL 表示「标签定义行」（标签库里还没挂到任何文件上的标签）；
+-- 非 NULL 才是文件-标签关联行，受 files 外键与 ON DELETE CASCADE 约束。
+-- 不能用 '' 之类的伪 fileId 表示定义：D1 默认开启外键校验，会直接违反 files 外键。
 CREATE TABLE file_tags (
     id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    name TEXT NOT NULL UNIQUE,
-    color TEXT,
-    created_at TEXT
-);
-
--- 文件-标签关联表
-CREATE TABLE file_tag_relations (
-    file_id TEXT NOT NULL,
-    tag_id TEXT NOT NULL,
-    PRIMARY KEY (file_id, tag_id)
+    file_id TEXT REFERENCES files(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    color TEXT DEFAULT '#6366f1',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 ```
 

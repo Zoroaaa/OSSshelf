@@ -11,7 +11,7 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, isNull, like, gte, lte, inArray, desc, asc, sql, SQL } from 'drizzle-orm';
+import { eq, and, isNull, isNotNull, like, gte, lte, inArray, desc, asc, sql, SQL } from 'drizzle-orm';
 import type { SQLiteColumn } from 'drizzle-orm/sqlite-core';
 import { getDb, files, fileTags, storageBuckets, searchHistory } from '../db';
 import type { DrizzleDb } from '../db';
@@ -226,14 +226,17 @@ app.get('/', async (c) => {
   }
 
   // tags 过滤前置：先获取符合 tag 条件的 fileId 集合，加入 SQL conditions
+  // file_id 为 NULL 的行是标签定义（未挂文件），不参与文件过滤
   if (searchParams.tags && searchParams.tags.length > 0) {
     const fileIdsWithTag = await db
       .select({ fileId: fileTags.fileId })
       .from(fileTags)
-      .where(and(eq(fileTags.userId, userId), inArray(fileTags.name, searchParams.tags)))
+      .where(
+        and(eq(fileTags.userId, userId), inArray(fileTags.name, searchParams.tags), isNotNull(fileTags.fileId))
+      )
       .all();
 
-    const taggedIds = fileIdsWithTag.map((t) => t.fileId);
+    const taggedIds = fileIdsWithTag.map((t) => t.fileId).filter((id): id is string => id !== null);
     if (taggedIds.length === 0) {
       return c.json({
         success: true,
@@ -309,6 +312,7 @@ app.get('/', async (c) => {
 
   const tagsByFile: Record<string, typeof allTags> = {};
   for (const tag of allTags) {
+    if (!tag.fileId) continue;
     if (!tagsByFile[tag.fileId]) tagsByFile[tag.fileId] = [];
     tagsByFile[tag.fileId].push(tag);
   }
@@ -445,9 +449,10 @@ app.post('/advanced', async (c) => {
     const tagRows = await db
       .select({ fileId: fileTags.fileId })
       .from(fileTags)
-      .where(and(eq(fileTags.userId, userId), inArray(fileTags.name, allTagNames)))
+      .where(and(eq(fileTags.userId, userId), inArray(fileTags.name, allTagNames), isNotNull(fileTags.fileId)))
       .all();
-    tagFileIdSet = new Set(tagRows.map((r) => r.fileId));
+    // 标签定义行（file_id 为 NULL）不指向文件，不参与结果集交集
+    tagFileIdSet = new Set(tagRows.map((r) => r.fileId).filter((id): id is string => id !== null));
     if (tagFileIdSet.size > 0) {
       baseConditions.push(inArray(files.id, Array.from(tagFileIdSet)));
     } else {

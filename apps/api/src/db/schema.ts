@@ -181,9 +181,9 @@ export const fileTags = sqliteTable(
   'file_tags',
   {
     id: text('id').primaryKey(),
-    fileId: text('file_id')
-      .notNull()
-      .references(() => files.id, { onDelete: 'cascade' }),
+    // NULL = 标签定义行（还没挂到任何文件上）；非空才是文件关联行。
+    // 定义行不能用 '' 之类的伪 fileId 占位：D1 默认开启外键校验，'' 会直接违反 files 外键。
+    fileId: text('file_id').references(() => files.id, { onDelete: 'cascade' }),
     userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),

@@ -725,26 +725,22 @@ app.get('/', async (c) => {
     );
   }
 
-  // 标签筛选
+  // 标签筛选（file_id 为 NULL 的是标签定义行，不指向任何文件，必须排除）
   if (tagNames.length > 0) {
     const taggedFileIds = await db
       .select({ fileId: fileTags.fileId })
       .from(fileTags)
-      .where(and(eq(fileTags.userId, userId), inArray(fileTags.name, tagNames)))
+      .where(and(eq(fileTags.userId, userId), inArray(fileTags.name, tagNames), isNotNull(fileTags.fileId)))
       .all();
-    if (taggedFileIds.length === 0) {
+    const taggedIds = taggedFileIds.map((t) => t.fileId).filter((id): id is string => id !== null);
+    if (taggedIds.length === 0) {
       return c.json({
         success: true,
         data: [],
         pagination: { page, limit, total: 0, totalPages: 0 },
       });
     }
-    conditions.push(
-      inArray(
-        files.id,
-        taggedFileIds.map((t) => t.fileId)
-      )
-    );
+    conditions.push(inArray(files.id, taggedIds));
   }
 
   if (parentId) {

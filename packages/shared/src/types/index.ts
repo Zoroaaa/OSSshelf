@@ -72,7 +72,8 @@ export type FileType = 'file' | 'folder';
 
 export interface FileTag {
   id: string;
-  fileId: string;
+  /** null = 未挂到任何文件的标签定义（标签库里待选的标签） */
+  fileId: string | null;
   userId: string;
   name: string;
   color: string;

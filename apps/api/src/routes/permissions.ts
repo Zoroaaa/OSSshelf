@@ -10,7 +10,7 @@
  */
 
 import { Hono } from 'hono';
-import { eq, and, inArray, like, isNull, count, desc } from 'drizzle-orm';
+import { eq, and, inArray, like, isNull, isNotNull, count, desc } from 'drizzle-orm';
 import {
   getDb,
   files,
@@ -571,10 +571,11 @@ app.post('/tags/create', async (c) => {
   const now = new Date().toISOString();
   const resolvedColor = color || TAG_COLORS[Math.floor(Math.random() * TAG_COLORS.length)] || '#6366f1';
 
-  // 插入一条"种子"记录（fileId 为空字符串表示这是标签定义）
+  // 插入一条标签定义行：file_id 为 NULL（125 迁移后允许），与文件关联行区分。
+  // 这里绝不能再用空字符串占位——D1 开启外键校验时会被 files 外键拒绝，标签就永远建不出来。
   await db.insert(fileTags).values({
     id: tagId,
-    fileId: '',
+    fileId: null,
     userId,
     name,
     color: resolvedColor,
@@ -682,10 +683,15 @@ app.post('/tags/batch', async (c) => {
     return c.json({ success: true, data: {} });
   }
 
-  const tags = await db.select().from(fileTags).where(inArray(fileTags.fileId, permittedFileIds)).all();
+  const tags = await db
+    .select()
+    .from(fileTags)
+    .where(and(inArray(fileTags.fileId, permittedFileIds), isNotNull(fileTags.fileId)))
+    .all();
 
   const tagsByFileId: Record<string, typeof tags> = {};
   for (const tag of tags) {
+    if (!tag.fileId) continue;
     if (!tagsByFileId[tag.fileId]) {
       tagsByFileId[tag.fileId] = [];
     }
@@ -780,7 +786,7 @@ app.get('/tags/stats', async (c) => {
   const results = await db
     .select({ name: fileTags.name, count: count() })
     .from(fileTags)
-    .where(eq(fileTags.userId, userId))
+    .where(and(eq(fileTags.userId, userId), isNotNull(fileTags.fileId)))
     .groupBy(fileTags.name)
     .orderBy(desc(count()))
     .limit(100)

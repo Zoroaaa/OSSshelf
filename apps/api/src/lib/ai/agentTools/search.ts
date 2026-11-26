@@ -449,9 +449,10 @@ export class SearchTools {
           db
             .select({ fileId: fileTags.fileId })
             .from(fileTags)
-            .where(and(eq(fileTags.userId, userId), like(fileTags.name, `%${tag}%`)))
+            .where(and(eq(fileTags.userId, userId), like(fileTags.name, `%${tag}%`), isNotNull(fileTags.fileId)))
             .all()
-            .then((rows) => new Set(rows.map((r) => r.fileId)))
+            // 标签定义行（file_id 为 NULL）不代表文件，不能进入交集
+            .then((rows) => new Set(rows.map((r) => r.fileId).filter((id): id is string => id !== null)))
         )
       );
 

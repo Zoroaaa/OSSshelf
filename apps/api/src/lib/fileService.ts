@@ -902,14 +902,15 @@ export async function getFilesByScope(
       const taggedFiles = await db
         .select({ fileId: fileTags.fileId })
         .from(fileTags)
-        .where(and(eq(fileTags.userId, userId), eq(fileTags.name, tagName)))
+        .where(and(eq(fileTags.userId, userId), eq(fileTags.name, tagName), isNotNull(fileTags.fileId)))
         .all();
 
-      if (taggedFiles.length === 0) {
+      // 标签定义行（file_id 为 NULL）不代表任何文件，排除后再拼 IN 条件
+      const taggedIds = taggedFiles.map((t) => t.fileId).filter((id): id is string => id !== null);
+      if (taggedIds.length === 0) {
         return { files: [], totalCount: 0 };
       }
 
-      const taggedIds = taggedFiles.map((t) => t.fileId);
       conditions.push(inArray(files.id, taggedIds));
       break;
     }
