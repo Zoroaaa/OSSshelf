@@ -27,6 +27,13 @@ interface TagBody {
   createdAt: string;
 }
 
+/** 标准响应包（成功/失败两种形态），避免测试里用 any 兜底 */
+interface ApiBody {
+  success: boolean;
+  data?: unknown;
+  error?: { code?: string; name?: string; message?: string };
+}
+
 let sqlite: ReturnType<typeof createMigratedSqlite>;
 let env: Env;
 let token: string;
@@ -47,7 +54,7 @@ async function call(path: string, init: RequestInit = {}) {
     },
     env
   );
-  return { status: res.status, body: (await res.json()) as Record<string, any> };
+  return { status: res.status, body: (await res.json()) as ApiBody };
 }
 
 const createTag = (name: string, color?: string) =>
@@ -102,7 +109,7 @@ describe('标签定义（未被文件引用）', () => {
     await createTag('重要');
     const again = await createTag('重要');
     expect(again.status).toBe(409);
-    expect(again.body.error.name).toBe('TAG_EXISTS');
+    expect(again.body.error?.name).toBe('TAG_EXISTS');
   });
 });
 
