@@ -1373,9 +1373,11 @@ const batchGetSchema = z.object({
 });
 
 app.post('/batch-get', async (c) => {
-  const userId = c.get('userId')!;
-  const { ids } = batchGetSchema.parse(await c.req.json());
-  const uniqueIds = Array.from(new Set(ids));
+  const userId = c.get('userId');
+  if (!userId) throwAppError('UNAUTHORIZED');
+  const parsed = batchGetSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) throwAppError('VALIDATION_ERROR', parsed.error.issues[0]?.message ?? '参数错误');
+  const uniqueIds = Array.from(new Set(parsed.data.ids));
   const db = getDb(c.env.DB);
 
   const rows = await db
