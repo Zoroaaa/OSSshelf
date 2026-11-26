@@ -4,7 +4,7 @@
  */
 
 import { useRef } from 'react';
-import { CheckCircle2, Copy, FolderOpen, RefreshCw, Reply, Sparkles, StopCircle } from 'lucide-react';
+import { CheckCircle2, Copy, Cpu, FolderOpen, RefreshCw, Reply, Sparkles, StopCircle } from 'lucide-react';
 import type { Message } from '../types';
 import { AssistantContent } from './AssistantContent';
 import { PlanProgressBar } from './PlanProgressBar';
@@ -27,6 +27,20 @@ interface MessageBubbleProps {
 function formatTime(date: Date): string {
   if (Number.isNaN(date.getTime())) return '';
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+}
+
+/** 与侧栏一致的紧凑 token 文案 */
+function compactTokens(tokens: number): string {
+  if (!Number.isFinite(tokens) || tokens <= 0) return '0';
+  if (tokens < 1000) return String(Math.round(tokens));
+  if (tokens < 1_000_000) return `${(tokens / 1000).toFixed(tokens < 10_000 ? 1 : 0)}k`;
+  return `${(tokens / 1_000_000).toFixed(1)}M`;
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const seconds = ms / 1000;
+  return seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`;
 }
 
 const LONG_PRESS_MS = 500;
@@ -73,7 +87,7 @@ export function MessageBubble({
   };
 
   const isUser = message.role === 'user';
-  const showActions = !message.isLoading;
+  const showActions = !message.isLoading && !message.preparing;
 
   return (
     <div
@@ -165,7 +179,7 @@ export function MessageBubble({
             </div>
           )}
 
-          {message.isLoading && !message.content && (
+          {(message.isLoading || message.preparing) && !message.content && (
             <div className="flex items-center gap-2 py-1">
               <span className="flex gap-1">
                 {[0, 150, 300].map((delay) => (
@@ -176,8 +190,12 @@ export function MessageBubble({
                   />
                 ))}
               </span>
-              <span className="text-[12px] text-muted-foreground">
-                {message.toolCalls?.some((tool) => tool.status === 'running') ? '正在执行工具…' : '正在思考…'}
+              <span className={`text-[12px] ${message.preparing ? 'animate-pulse text-muted-foreground' : 'text-muted-foreground'}`}>
+                {message.preparing
+                  ? '模型正在准备回复…'
+                  : message.toolCalls?.some((tool) => tool.status === 'running')
+                    ? '正在执行工具…'
+                    : '正在思考…'}
               </span>
             </div>
           )}
@@ -202,36 +220,69 @@ export function MessageBubble({
         )}
 
         {showActions && (
-          <div
-            className={`flex items-center gap-1.5 pt-0.5 ${isUser ? 'justify-end' : 'justify-start'} text-muted-foreground opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100 touch-visible`}
-          >
-            <span className="text-[11px] tabular-nums">{formatTime(message.timestamp)}</span>
-            <button
-              type="button"
-              onClick={() => onCopy(message.id, message.content)}
-              className="rounded p-1 transition-colors hover:bg-accent hover:text-foreground"
-              title="复制"
+          <div className="flex items-center justify-between gap-2 pt-0.5">
+            <div
+              className={`flex items-center gap-1.5 text-muted-foreground opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100 touch-visible ${
+                isUser ? 'justify-end' : 'justify-start'
+              }`}
             >
-              {copied ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
-            </button>
-            {!isUser && canRegenerate && (
+              <span className="text-[11px] tabular-nums">{formatTime(message.timestamp)}</span>
               <button
                 type="button"
-                onClick={onRegenerate}
+                onClick={() => onCopy(message.id, message.content)}
                 className="rounded p-1 transition-colors hover:bg-accent hover:text-foreground"
-                title="重新生成"
+                title="复制"
               >
-                <RefreshCw className="h-3.5 w-3.5" />
+                {copied ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
               </button>
+              {!isUser && canRegenerate && (
+                <button
+                  type="button"
+                  onClick={onRegenerate}
+                  className="rounded p-1 transition-colors hover:bg-accent hover:text-foreground"
+                  title="重新生成"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => onQuote(message)}
+                className="rounded p-1 transition-colors hover:bg-accent hover:text-foreground"
+                title="引用此消息"
+              >
+                <Reply className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
+            {/* 右下角常显：这条回复实际调用的模型与 token 消耗（来自消息 metadata） */}
+            {!isUser && (message.modelName || message.usage) && (
+              <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                {message.modelName && (
+                  <span
+                    className="inline-flex min-w-0 items-center gap-1 rounded-full border border-border/70 bg-card px-1.5 py-0.5"
+                    title={
+                      message.provider
+                        ? `模型：${message.modelName}（${message.provider}）`
+                        : `模型：${message.modelName}`
+                    }
+                  >
+                    <Cpu className="h-2.5 w-2.5 flex-shrink-0 text-primary/70" />
+                    <span className="max-w-[120px] truncate">{message.modelName}</span>
+                  </span>
+                )}
+                {message.usage && (
+                  <span
+                    className="tabular-nums"
+                    title={`输入 ${message.usage.inputTokens} · 输出 ${message.usage.outputTokens}${
+                      message.usage.cachedTokens ? ` · 命中缓存 ${message.usage.cachedTokens}` : ''
+                    }${message.latencyMs ? ` · 用时 ${formatDuration(message.latencyMs)}` : ''}`}
+                  >
+                    {compactTokens(message.usage.totalTokens)} tokens
+                  </span>
+                )}
+              </div>
             )}
-            <button
-              type="button"
-              onClick={() => onQuote(message)}
-              className="rounded p-1 transition-colors hover:bg-accent hover:text-foreground"
-              title="引用此消息"
-            >
-              <Reply className="h-3.5 w-3.5" />
-            </button>
           </div>
         )}
       </div>

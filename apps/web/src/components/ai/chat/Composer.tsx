@@ -1,10 +1,11 @@
 /**
  * Composer.tsx
- * 输入区：@文件引用、引用消息、文件拖拽、发送/停止、移动端安全区。
+ * 输入区：@文件引用、引用消息、本地文件粘贴/拖拽、发送/停止、移动端安全区。
  *
  * 交互约定：
  * - 流式生成时输入框仍可编辑，不会禁用（避免用户丢失草稿）
- * - 本地文件拖入不做隐式上传（聊天页不承担上传链路），给出明确提示
+ * - 粘贴/拖入的本地文件直接走预签名上传，成功后自动加进上下文引用
+ * - 纯文本粘贴不拦截，保持浏览器默认行为
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -195,6 +196,15 @@ export function Composer({
     }
   };
 
+  /** 粘贴文件（截图、从资源管理器复制的文件）→ 直接上传并引用；纯文本粘贴不拦截 */
+  const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!onUploadFiles) return;
+    const files = Array.from(event.clipboardData?.files ?? []);
+    if (files.length === 0) return;
+    event.preventDefault();
+    onUploadFiles(files);
+  };
+
   const quotedPreview = useMemo(() => {
     if (!quotedMessage) return '';
     return quotedMessage.content.length > 120 ? `${quotedMessage.content.slice(0, 120)}...` : quotedMessage.content;
@@ -207,7 +217,12 @@ export function Composer({
       }`}
       onDragOver={(event) => {
         event.preventDefault();
-        if (event.dataTransfer.types.includes('application/osshelf-file-ids')) setIsDragOver(true);
+        if (
+          event.dataTransfer.types.includes('application/osshelf-file-ids') ||
+          event.dataTransfer.types.includes('Files')
+        ) {
+          setIsDragOver(true);
+        }
       }}
       onDragLeave={(event) => {
         event.preventDefault();
@@ -246,7 +261,8 @@ export function Composer({
                 detectMention(event.target.value, event.target.selectionStart);
               }}
               onKeyDown={handleKeyDown}
-              placeholder="问我任何关于你的文件的问题…（@ 引用文件，Enter 发送，Shift+Enter 换行）"
+              onPaste={handlePaste}
+              placeholder="问我任何关于你的文件的问题…（@ 引用文件，可直接粘贴文件，Enter 发送，Shift+Enter 换行）"
               className="min-h-[36px] max-h-44 flex-1 resize-none bg-transparent py-1 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
               rows={1}
               // E-17：把 @提及下拉作为 combobox 的弹出列表暴露给辅助技术

@@ -318,13 +318,13 @@ export function ChatSidebar({
                                 </button>
                               </span>
                             </div>
-                            {(session.totalTokensUsed ?? 0) > 0 && (
-                              <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
-                                <CheckCircle2 className="h-2.5 w-2.5" />
-                                {compactTokens(session.totalTokensUsed ?? 0)}
-                                {session.lastToolCallCount ? ` · ${session.lastToolCallCount} 次调用` : ''}
-                              </div>
-                            )}
+                            {/* 统计常显：没有用量时也要有占位，否则用户会以为"从来没统计过" */}
+                            <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+                              <CheckCircle2 className="h-2.5 w-2.5" />
+                              <span>{compactTokens(session.totalTokensUsed ?? 0)}</span>
+                              <span className="opacity-60">·</span>
+                              <span>{session.lastToolCallCount ?? 0} 次调用</span>
+                            </div>
                           </>
                         )}
                       </div>

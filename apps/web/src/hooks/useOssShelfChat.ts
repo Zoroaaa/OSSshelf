@@ -42,7 +42,11 @@ interface OssShelfChatHandle {
   error: Error | undefined;
   /** 连接或换票错误 */
   connectionError: Error | null;
-  sendMessage: (message: { text: string }, options?: { body?: object }) => Promise<void> | void;
+  /** metadata 会随消息一起落到 DO / D1，用来持久化引用文件、模型与用量 */
+  sendMessage: (
+    message: { text: string },
+    options?: { body?: object; metadata?: Record<string, unknown> }
+  ) => Promise<void> | void;
   regenerate: (options?: { body?: object }) => Promise<void> | void;
   stop: () => void;
   addToolApprovalResponse: (options: { id: string; approved: boolean }) => void;

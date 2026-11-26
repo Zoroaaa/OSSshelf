@@ -20,6 +20,12 @@ interface MapOptions {
 interface MessageMetadata {
   createdAt?: string;
   aborted?: boolean;
+  modelId?: string;
+  modelName?: string;
+  provider?: string;
+  usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number; cachedTokens?: number };
+  latencyMs?: number;
+  mentionedFiles?: unknown;
 }
 
 const SOURCE_TOOL_NAMES = new Set([
@@ -40,7 +46,11 @@ const SOURCE_TOOL_NAMES = new Set([
 /** 无 metadata 的历史消息：首次映射时间固定下来，避免每帧都变成"现在" */
 const fallbackTimestamps = new Map<string, Date>();
 
+/** 长会话不能无限增长：超过上限时淘汰最早插入的条目（Map 保持插入顺序） */
+const MAX_FALLBACK_TIMESTAMPS = 200;
+
 const MAX_SOURCES = 6;
+const MAX_MENTIONED_FILES = 20;
 
 type FileLike = { id?: unknown; name?: unknown; isFolder?: unknown; mimeType?: unknown; score?: unknown };
 
@@ -63,7 +73,34 @@ function resolveTimestamp(message: UIMessage): Date {
   if (cached) return cached;
   const now = new Date();
   fallbackTimestamps.set(message.id, now);
+  if (fallbackTimestamps.size > MAX_FALLBACK_TIMESTAMPS) {
+    const oldest = fallbackTimestamps.keys().next().value;
+    if (oldest !== undefined) fallbackTimestamps.delete(oldest);
+  }
   return now;
+}
+
+/** metadata.mentionedFiles 兼容旧格式（`["id"]`）与新格式（`[{id,name}]`） */
+function parseMentionedFiles(raw: unknown): Message['mentionedFiles'] {
+  if (!Array.isArray(raw)) return undefined;
+  const files: NonNullable<Message['mentionedFiles']> = [];
+  const seen = new Set<string>();
+  for (const item of raw.slice(0, MAX_MENTIONED_FILES)) {
+    if (typeof item === 'string') {
+      if (item && !seen.has(item)) {
+        seen.add(item);
+        files.push({ id: item, name: '' });
+      }
+      continue;
+    }
+    if (!item || typeof item !== 'object') continue;
+    const id = (item as { id?: unknown }).id;
+    const name = (item as { name?: unknown }).name;
+    if (typeof id !== 'string' || !id || seen.has(id)) continue;
+    seen.add(id);
+    files.push({ id, name: typeof name === 'string' ? name : '' });
+  }
+  return files.length > 0 ? files : undefined;
 }
 
 function isFileLike(value: unknown): value is FileLike {
@@ -229,6 +266,17 @@ export function mapUIMessages(uiMessages: UIMessage[], options: MapOptions = {})
       const sourceCalls = toolCalls.filter((call) => SOURCE_TOOL_NAMES.has(call.toolName));
       const sources = collectSources(sourceCalls);
 
+      const usage = metadata.usage;
+      const resolvedUsage =
+        usage && (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) > 0
+          ? {
+              inputTokens: usage.inputTokens ?? 0,
+              outputTokens: usage.outputTokens ?? 0,
+              totalTokens: usage.totalTokens ?? (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
+              cachedTokens: usage.cachedTokens,
+            }
+          : undefined;
+
       return {
         id: message.id,
         role: message.role as 'user' | 'assistant',
@@ -241,6 +289,12 @@ export function mapUIMessages(uiMessages: UIMessage[], options: MapOptions = {})
         timestamp: resolveTimestamp(message),
         aborted: Boolean(metadata.aborted),
         isLoading: false,
+        modelId: metadata.modelId,
+        modelName: metadata.modelName,
+        provider: metadata.provider,
+        usage: resolvedUsage,
+        latencyMs: typeof metadata.latencyMs === 'number' ? metadata.latencyMs : undefined,
+        mentionedFiles: message.role === 'user' ? parseMentionedFiles(metadata.mentionedFiles) : undefined,
       } as Message;
     });
 

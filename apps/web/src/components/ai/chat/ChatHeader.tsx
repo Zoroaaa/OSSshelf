@@ -7,14 +7,28 @@
  * - 模型选择在移动端同样可用（不再隐藏）
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Download, Info, Loader2, MoreHorizontal, PanelLeft, Settings, Sparkles } from 'lucide-react';
+import {
+  ArrowLeft,
+  Check,
+  ChevronDown,
+  Download,
+  Info,
+  Loader2,
+  MoreHorizontal,
+  PanelLeft,
+  Search,
+  Settings,
+  Sparkles,
+} from 'lucide-react';
 import { cn } from '@/utils';
 
 export interface HeaderModelOption {
   id: string;
   name: string;
+  providerName?: string;
+  isActive?: boolean;
 }
 
 interface ChatHeaderProps {
@@ -46,6 +60,41 @@ export function ChatHeader({
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [modelQuery, setModelQuery] = useState('');
+  const modelMenuRef = useRef<HTMLDivElement>(null);
+
+  const activeModel = useMemo(() => models.find((model) => model.id === modelId), [models, modelId]);
+  const visibleModels = useMemo(() => {
+    const keyword = modelQuery.trim().toLowerCase();
+    if (!keyword) return models;
+    return models.filter(
+      (model) =>
+        model.name.toLowerCase().includes(keyword) ||
+        (model.providerName ?? '').toLowerCase().includes(keyword)
+    );
+  }, [models, modelQuery]);
+
+  useEffect(() => {
+    if (!modelMenuOpen) return;
+    const handleClick = (event: MouseEvent) => {
+      if (modelMenuRef.current && !modelMenuRef.current.contains(event.target as Node)) setModelMenuOpen(false);
+    };
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setModelMenuOpen(false);
+    };
+    window.addEventListener('mousedown', handleClick);
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      window.removeEventListener('mousedown', handleClick);
+      window.removeEventListener('keydown', handleKey);
+    };
+  }, [modelMenuOpen]);
+
+  // 关闭菜单时清空搜索词，避免下次打开还残留上次筛选
+  useEffect(() => {
+    if (!modelMenuOpen) setModelQuery('');
+  }, [modelMenuOpen]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -104,20 +153,97 @@ export function ChatHeader({
 
       <div className="flex flex-shrink-0 items-center gap-1.5">
         {models.length > 0 && (
-          <select
-            value={modelId ?? ''}
-            onChange={(event) => onModelChange?.(event.target.value)}
-            disabled={!connected}
-            className="h-8 max-w-[112px] rounded-lg border border-border bg-background px-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60 sm:max-w-[180px] sm:px-2"
-            title="切换模型"
-            aria-label="切换模型"
-          >
-            {models.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.name}
-              </option>
-            ))}
-          </select>
+          <div className="relative" ref={modelMenuRef}>
+            <button
+              type="button"
+              onClick={() => setModelMenuOpen((value) => !value)}
+              disabled={!connected}
+              className={cn(
+                'flex h-8 max-w-[132px] items-center gap-1.5 rounded-lg border border-border px-2 text-xs transition-colors sm:max-w-[190px]',
+                modelMenuOpen ? 'bg-accent text-foreground' : 'bg-background text-foreground hover:bg-accent',
+                !connected && 'cursor-not-allowed opacity-60'
+              )}
+              title={connected ? '切换模型' : '连接断开时不能切换模型'}
+              aria-label="切换模型"
+              aria-expanded={modelMenuOpen}
+            >
+              <Sparkles className="h-3.5 w-3.5 flex-shrink-0 text-primary" />
+              <span className="min-w-0 flex-1 truncate text-left">{activeModel?.name ?? '选择模型'}</span>
+              <ChevronDown className={cn('h-3 w-3 flex-shrink-0 text-muted-foreground transition-transform', modelMenuOpen && 'rotate-180')} />
+            </button>
+
+            {modelMenuOpen && (
+              <div className="absolute right-0 top-9 z-dropdown w-[260px] overflow-hidden rounded-xl border border-border bg-popover shadow-popover animate-in fade-in zoom-in-95 duration-150">
+                <div className="border-b border-border/70 px-3 pb-2 pt-2.5">
+                  <p className="text-[11px] text-muted-foreground">
+                    已配置 {models.length} 个可用模型 · 仅影响当前对话
+                  </p>
+                  {models.length > 6 && (
+                    <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-border bg-background px-2">
+                      <Search className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+                      <input
+                        value={modelQuery}
+                        onChange={(event) => setModelQuery(event.target.value)}
+                        placeholder="搜索模型或供应商"
+                        className="h-7 w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="max-h-[280px] overflow-y-auto py-1">
+                  {visibleModels.length === 0 && (
+                    <p className="px-3 py-3 text-center text-[11px] text-muted-foreground">没有匹配的模型</p>
+                  )}
+                  {visibleModels.map((model) => (
+                    <button
+                      key={model.id}
+                      type="button"
+                      onClick={() => {
+                        onModelChange?.(model.id);
+                        setModelMenuOpen(false);
+                      }}
+                      className={cn(
+                        'flex w-full items-start gap-2 px-3 py-1.5 text-left transition-colors hover:bg-accent',
+                        model.id === modelId && 'bg-primary/5'
+                      )}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-1.5">
+                          <span className="truncate text-xs font-medium text-foreground">{model.name}</span>
+                          {model.isActive === false && (
+                            <span className="flex-shrink-0 rounded-full bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
+                              已停用
+                            </span>
+                          )}
+                        </span>
+                        {model.providerName && (
+                          <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                            {model.providerName}
+                          </span>
+                        )}
+                      </span>
+                      {model.id === modelId && <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-primary" />}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="border-t border-border/70">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setModelMenuOpen(false);
+                      navigate('/ai-settings');
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    <Settings className="h-3 w-3" />
+                    管理模型与供应商
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         <div className="relative" ref={menuRef}>

@@ -658,7 +658,8 @@ export const aiApi = {
     getSessions: () => api.get<ApiResponse<AiChatSession[]>>('/api/ai-chat/sessions'),
     createSession: (data: { id?: string; title?: string; modelId?: string }) =>
       api.post<ApiResponse<AiChatSession>>('/api/ai-chat/sessions', data),
-    updateSession: (sessionId: string, data: { title: string }) =>
+    /** title / modelId 至少给一个；modelId 用于记住该会话最后使用的模型 */
+    updateSession: (sessionId: string, data: { title?: string; modelId?: string }) =>
       api.put<ApiResponse<AiChatSession>>(`/api/ai-chat/sessions/${sessionId}`, data),
     deleteSession: (sessionId: string) =>
       api.delete<ApiResponse<{ message: string }>>(`/api/ai-chat/sessions/${sessionId}`),

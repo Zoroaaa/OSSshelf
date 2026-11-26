@@ -7,7 +7,7 @@
  * - 乐观消息、上下文文件、引用消息、错误与连接状态
  */
 
-import { useRef, useEffect, useCallback, useMemo } from 'react';
+import { useRef, useEffect, useCallback, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, Copy, Loader2, PanelLeft, Reply } from 'lucide-react';
@@ -39,6 +39,8 @@ import {
 } from './aiChat/useAIChatUi';
 
 const PENDING_MESSAGE_ID = 'pending-user-message';
+/** 发送后、助手消息出现前的占位气泡（避免旧历史突然定住不动） */
+const PREPARING_MESSAGE_ID = 'preparing-assistant-message';
 /** 配置未加载时的兜底值；实际值来自 GET /api/ai-config/effective */
 const FALLBACK_MAX_QUERY_LENGTH = 15_000;
 const FALLBACK_CONNECT_TIMEOUT_MS = 10_000;
@@ -95,6 +97,9 @@ export function AIChat() {
   const prevSessionIdRef = useRef<string | null>(null);
   const wasStreamingRef = useRef(false);
   const titleGeneratedRef = useRef<Set<string>>(new Set());
+  /** 发送时的助手消息条数：用于判断"本轮助手消息是否已出现" */
+  const assistantBaselineRef = useRef(0);
+  const [awaitingReply, setAwaitingReply] = useState(false);
 
   const { catalog: toolCatalog } = useToolCatalog();
 
@@ -119,27 +124,6 @@ export function AIChat() {
 
 
 
-  // ═══ 展示层消息：历史 + 乐观消息 ═══
-  const displayMessages = useMemo<Message[]>(() => {
-    const mapped = mapUIMessages(agent.messages, { streaming: agent.isStreaming });
-    if (!pendingAgentSend) return mapped;
-    return [
-      ...mapped,
-      {
-        id: PENDING_MESSAGE_ID,
-        role: 'user' as const,
-        content: pendingAgentSend.text,
-        timestamp: new Date(),
-        isLoading: true,
-        pending: true,
-        mentionedFiles: pendingAgentSend.files.length > 0 ? pendingAgentSend.files : undefined,
-      },
-    ];
-  }, [agent.messages, agent.isStreaming, pendingAgentSend]);
-
-  const sessionLoading =
-    Boolean(currentSessionId) && displayMessages.length === 0 && (agent.isHydrating || !agent.ready);
-
   const isLoading = Boolean(
     pendingAgentSend ||
     agent.isStreaming ||
@@ -147,6 +131,57 @@ export function AIChat() {
     agent.status === 'submitted' ||
     agent.status === 'streaming'
   );
+
+  // ═══ 展示层消息：历史 + 乐观消息 + 首字占位 ═══
+  const displayMessages = useMemo<Message[]>(() => {
+    const mapped = mapUIMessages(agent.messages, { streaming: agent.isStreaming });
+    if (pendingAgentSend) {
+      mapped.push({
+        id: PENDING_MESSAGE_ID,
+        role: 'user' as const,
+        content: pendingAgentSend.text,
+        timestamp: new Date(),
+        isLoading: true,
+        pending: true,
+        mentionedFiles: pendingAgentSend.files.length > 0 ? pendingAgentSend.files : undefined,
+      });
+    }
+
+    // 已发出但助手消息还没出现：先放一个占位气泡，别让界面看起来"卡死"
+    const last = mapped[mapped.length - 1];
+    if (awaitingReply && (!last || last.role === 'user')) {
+      mapped.push({
+        id: PREPARING_MESSAGE_ID,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+        preparing: true,
+      });
+    }
+
+    return mapped;
+  }, [agent.messages, agent.isStreaming, pendingAgentSend, awaitingReply]);
+
+  const sessionLoading =
+    Boolean(currentSessionId) && displayMessages.length === 0 && (agent.isHydrating || !agent.ready);
+
+  // 助手消息一出现就撤掉占位气泡；出错或超时也撤，避免一直"正在准备"
+  useEffect(() => {
+    if (!awaitingReply) return;
+    const assistantCount = agent.messages.reduce((total, item) => (item.role === 'assistant' ? total + 1 : total), 0);
+    if (assistantCount > assistantBaselineRef.current) {
+      setAwaitingReply(false);
+      return;
+    }
+    if (agent.error || agent.connectionError || sendError) setAwaitingReply(false);
+  }, [agent.messages, awaitingReply, agent.error, agent.connectionError, sendError]);
+
+  useEffect(() => {
+    if (!awaitingReply) return;
+    // 兜底：长时间既没有助手消息也没有错误时也不要一直卡在占位态
+    const timer = window.setTimeout(() => setAwaitingReply(false), pendingConnectTimeoutMs + 20_000);
+    return () => window.clearTimeout(timer);
+  }, [awaitingReply, pendingConnectTimeoutMs]);
 
   // ═══ 会话数据 ═══
   const { data: sessions = [] } = useQuery({
@@ -179,8 +214,16 @@ export function AIChat() {
     staleTime: 60_000,
   });
 
+  // 模型下拉要列出"已配置可用"的全部模型：只隐藏真正不可调的，不再按 isActive 过滤，
+  // 否则用户停用过一个模型后经常只剩一个可选（后端 GET /models 已按 capability=chat 过滤）
   const modelOptions = useMemo(
-    () => models.filter((model) => model.isActive !== false).map((model) => ({ id: model.id, name: model.name })),
+    () =>
+      models.map((model) => ({
+        id: model.id,
+        name: model.name,
+        providerName: model.providerName ?? model.provider,
+        isActive: model.isActive !== false,
+      })),
     [models]
   );
 
@@ -188,7 +231,7 @@ export function AIChat() {
     if (modelId && modelOptions.some((model) => model.id === modelId)) return modelId;
     const preferred = currentSession?.modelId;
     if (preferred && modelOptions.some((model) => model.id === preferred)) return preferred;
-    return modelOptions[0]?.id ?? '';
+    return (modelOptions.find((model) => model.isActive) ?? modelOptions[0])?.id ?? '';
   }, [modelId, modelOptions, currentSession?.modelId]);
 
   const { data: contextFolder } = useQuery({
@@ -208,7 +251,11 @@ export function AIChat() {
     if (!agentConnected || !pendingAgentSend || !currentSessionId) return;
     const payload = pendingAgentSend;
     setPendingAgentSend(null);
-    void agentSendMessage({ text: payload.text }, { body: payload.body });
+    // metadata 跟着消息落库：刷新后引用文件、模型名与用量都还能还原
+    void agentSendMessage(
+      { text: payload.text },
+      { body: payload.body, metadata: { mentionedFiles: payload.files } }
+    );
   }, [agentConnected, agentSendMessage, pendingAgentSend, currentSessionId, setPendingAgentSend]);
 
   // 连接超时：避免乐观消息永远停在"正在连接"
@@ -367,6 +414,12 @@ export function AIChat() {
       setSendError(null);
       setDismissedError(false);
       if (inputRef.current) inputRef.current.style.height = 'auto';
+      // 记录发送前的助手消息数：等到本轮助手消息出现再撤掉"正在准备"占位
+      assistantBaselineRef.current = agent.messages.reduce(
+        (total, item) => (item.role === 'assistant' ? total + 1 : total),
+        0
+      );
+      setAwaitingReply(true);
       setPendingAgentSend({ text: finalQuery, body, files: currentMentions });
 
       if (currentSessionId) return;
@@ -384,6 +437,7 @@ export function AIChat() {
         queryClient.invalidateQueries({ queryKey: ['ai-chat-sessions'] });
       } catch (error) {
         setPendingAgentSend(null);
+        setAwaitingReply(false);
         setSendError(error instanceof Error ? error.message : '无法创建会话');
       }
     },
@@ -395,6 +449,7 @@ export function AIChat() {
       navigate,
       queryClient,
       user?.id,
+      agent.messages,
       setCurrentSessionId,
       setDismissedError,
       setInput,
@@ -469,6 +524,7 @@ export function AIChat() {
 
   const handleNewChat = () => {
     setPendingAgentSend(null);
+    setAwaitingReply(false);
     setCurrentSessionId(null);
     agent.clearMessages();
     if (urlSessionId) navigate('/ai-chat');
@@ -477,6 +533,13 @@ export function AIChat() {
   const handleSelectSession = (id: string) => {
     if (id === currentSessionId) return;
     setPendingAgentSend(null);
+    setAwaitingReply(false);
+    // 每条会话记住自己最后用的模型：切会话时下拉要跟着切，否则会上一条会话的模型继续生效
+    const target = sessions.find((session) => session.id === id);
+    if (target?.modelId && modelOptions.some((model) => model.id === target.modelId)) {
+      setModelId(target.modelId);
+      localStorage.setItem(MODEL_STORAGE_KEY, target.modelId);
+    }
     setCurrentSessionId(id);
     navigate(`/ai-chat/${id}`);
     if (window.innerWidth < 1024) setShowSidebar(false);
@@ -573,6 +636,17 @@ export function AIChat() {
   const handleModelChange = (value: string) => {
     setModelId(value);
     localStorage.setItem(MODEL_STORAGE_KEY, value);
+
+    // 会话内切模型要立刻落库：刷新/换设备后 ChatHeader 仍显示这条会话实际用过的模型。
+    // 后端 onChatMessage 会读 body.modelId 同步 DO 状态，所以只差会话行这一份持久化。
+    if (currentSessionId) {
+      void aiApi.chatSession
+        .updateSession(currentSessionId, { modelId: value })
+        .then(() => queryClient.invalidateQueries({ queryKey: ['ai-chat-sessions'] }))
+        .catch(() => {
+          // 失败不阻塞发送：下一条消息仍会带 modelId，由 Agent 侧生效
+        });
+    }
   };
 
   const handleAddMention = useCallback((file: { id: string; name: string }) => {

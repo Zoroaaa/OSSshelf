@@ -36,6 +36,13 @@ export interface PendingConfirm {
   args: Record<string, unknown>;
 }
 
+export interface MessageUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedTokens?: number;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -52,6 +59,18 @@ export interface Message {
   /** 本地乐观消息：已发出但 Agent 连接尚未就绪 */
   pending?: boolean;
   mentionedFiles?: Array<{ id: string; name: string }>;
+  /** 本轮实际调用的模型（ai_models 行 id 与展示名，来自消息 metadata） */
+  modelId?: string;
+  modelName?: string;
+  provider?: string;
+  /** 本轮 token 用量，来自消息 metadata 的 finish 事件 */
+  usage?: MessageUsage;
+  latencyMs?: number;
+  /**
+   * 已发出但模型还没吐出第一个 token（含排队/建连/思考）。
+   * 与 isLoading 分开：isLoading 表示"这一轮还在进行"，preparing 只覆盖首字之前的空档。
+   */
+  preparing?: boolean;
 }
 
 export interface ExecutionPlanStep {
