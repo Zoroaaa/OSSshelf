@@ -37,6 +37,69 @@ export interface AISummaryResult {
   cached: boolean;
 }
 
+/** 任务编排：Run / Step（与后端 ai_task_* 表一致） */
+export interface AiTaskStep {
+  id: string;
+  runId: string;
+  stepIndex: number;
+  title: string;
+  toolName: string | null;
+  status: 'pending' | 'running' | 'done' | 'failed' | 'skipped' | 'awaiting_approval';
+  error: string | null;
+  attempts: number;
+  updatedAt: string;
+}
+
+export interface AiTaskRun {
+  id: string;
+  sessionId: string;
+  userId: string;
+  goal: string;
+  status: 'running' | 'awaiting_approval' | 'succeeded' | 'failed' | 'cancelled';
+  currentStepId: string | null;
+  totalSteps: number;
+  completedSteps: number;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AiTaskRunView {
+  run: AiTaskRun;
+  steps: AiTaskStep[];
+}
+
+/** 工具目录（GET /api/ai-chat/tools）：展示元数据由后端定义派生 */
+export interface AiToolCatalogEntry {
+  name: string;
+  label: string;
+  category: string;
+  description: string;
+}
+
+export interface AiToolCatalog {
+  tools: AiToolCatalogEntry[];
+  categories: Array<{ name: string; count: number }>;
+}
+
+/** 非管理员可读的生效配置（GET /api/ai-config/effective） */
+export interface AiEffectiveConfig {
+  ui: {
+    connectTimeoutMs: number;
+    identityWaitMs: number;
+    maxQueryLength: number;
+    suggestions: string[];
+    capabilityTags: string[];
+  };
+  agent: {
+    ticketTtlMs: number;
+    streamStallTimeoutMs: number;
+    maxContextFiles: number;
+    maxToolDefinitions: number;
+    contextTopK: number;
+  };
+}
+
 /** AI 图片标签结果 */
 export interface AIImageTagResult {
   tags: string[];
@@ -471,6 +534,8 @@ export const aiApi = {
   // ═══════════════════════════════════════════════════════════════════════════
 
   config: {
+    /** 前端行为所需的生效配置（超时/上限/推荐语），非管理员可读 */
+    getEffective: () => api.get<ApiResponse<AiEffectiveConfig>>('/api/ai-config/effective'),
     getModels: (capability?: 'chat' | 'vision' | 'embedding') =>
       api.get<ApiResponse<AiModel[]>>('/api/ai-config/models', { params: capability ? { capability } : {} }),
     createModel: (data: CreateAiModelParams) => api.post<ApiResponse<AiModel>>('/api/ai-config/models', data),
@@ -610,6 +675,22 @@ export const aiApi = {
     /** 导出会话为 Markdown 文件 */
     exportMarkdown: (sessionId: string) =>
       api.get<Blob>(`/api/ai-chat/sessions/${sessionId}/export`, { responseType: 'blob' }),
+
+    /** 工具目录：label/category 由后端 TOOL_DEFINITIONS 派生 */
+    getTools: () => api.get<ApiResponse<AiToolCatalog>>('/api/ai-chat/tools'),
+
+    /** 当前会话进行中的任务（计划条） */
+    getActiveRun: (sessionId: string) =>
+      api.get<ApiResponse<AiTaskRunView | null>>(`/api/ai-chat/sessions/${sessionId}/run`),
+
+    getRun: (runId: string) => api.get<ApiResponse<AiTaskRunView>>(`/api/ai-chat/runs/${runId}`),
+
+    /** 续跑：把中断步骤退回 pending，返回应发送的续跑消息 */
+    resumeRun: (runId: string) =>
+      api.post<ApiResponse<{ run: AiTaskRun; steps: AiTaskStep[]; resumeMessage: string }>>(
+        `/api/ai-chat/runs/${runId}/resume`,
+        {}
+      ),
 
     /** 换取 Agent WebSocket 票据 */
     wsTicket: async (

@@ -35,6 +35,7 @@ import { releaseFileRef } from './dedup';
 import { getEncryptionKey } from './crypto';
 import { pathPrefixCondition } from './pathUtils';
 import { processDeletionQueue, deleteObjectSafely } from './storageGC';
+import { runAiOrphanCleanup, type AiOrphanCleanupResult } from './ai/orphanCleanup';
 import {
   runStorageReconciliation,
   hasReconciliationDrift,
@@ -70,6 +71,7 @@ interface CleanupResult {
     succeeded: number;
     failed: number;
   };
+  aiOrphans: AiOrphanCleanupResult;
   reconciliation: ReconciliationReport;
 }
 
@@ -139,6 +141,15 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
     audit: { cleaned: 0 },
     data: { searchHistoryCleaned: 0, notificationsCleaned: 0, aiTasksCleaned: 0 },
     storageGC: { processed: 0, succeeded: 0, failed: 0 },
+    aiOrphans: {
+      orphanChunkFiles: 0,
+      orphanChunkRows: 0,
+      orphanTaskItems: 0,
+      orphanTaskSteps: 0,
+      orphanTaskEvents: 0,
+      orphanTaskRuns: 0,
+      orphanMemories: 0,
+    },
     reconciliation: {
       generatedAt: '',
       users: { checked: 0, withDiff: 0, totalDiffBytes: 0, samples: [] },
@@ -192,6 +203,14 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
   }
 
   try {
+    result.aiOrphans = await runAiOrphanCleanup(env);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    logCleanupError('AI 孤儿数据', error);
+    failures.push(`AI 孤儿数据清理: ${msg}`);
+  }
+
+  try {
     result.storageGC = await processDeletionQueue(env);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -211,7 +230,7 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
     const alertMsg =
       `⚠️ <b>OSSshelf Cron 告警</b>\n` +
       `时间：${startedAt}\n` +
-      `失败任务（${failures.length}/7）：\n` +
+      `失败任务（${failures.length}/8）：\n` +
       failures.map((f) => `• ${f}`).join('\n');
     await sendCronAlert(env, alertMsg);
   } else {
@@ -229,6 +248,7 @@ export async function runAllCleanupTasks(env: Env): Promise<CleanupResult> {
       `• 分享：清理 ${result.shares.sharesCleaned} 条\n` +
       `• 审计日志：清理 ${result.audit.cleaned} 条\n` +
       `• 数据：清理 ${result.data.searchHistoryCleaned} 搜索历史，${result.data.notificationsCleaned} 通知，${result.data.aiTasksCleaned} AI任务\n` +
+      `• AI 孤儿：分块 ${result.aiOrphans.orphanChunkRows} 文件 / 任务项 ${result.aiOrphans.orphanTaskItems} / 任务 ${result.aiOrphans.orphanTaskRuns} / 记忆 ${result.aiOrphans.orphanMemories}\n` +
       rcLine;
     await sendCronAlert(env, summaryMsg);
   }

@@ -25,9 +25,6 @@
 
 import type { Env } from '../../../types/env';
 import { logger } from '@osshelf/shared';
-import { getDb, files } from '../../../db';
-import { eq, and, isNull } from 'drizzle-orm';
-import { readFileContent } from '../../../lib/fileContentHelper';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 导入所有子模块
@@ -82,9 +79,6 @@ import { definitions as systemDefinitions, SystemTools } from './system';
 
 // AI增强模块 (5个工具)
 import { definitions as aiEnhanceDefinitions, AiEnhanceTools } from './ai-enhance';
-
-// 写操作标记集合
-import { WRITE_TOOLS } from './types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 聚合所有工具定义（发送给 LLM）
@@ -298,155 +292,6 @@ export class AgentToolExecutor {
     this.userId = userId;
   }
 
-  /**
-   * 执行指定的工具调用
-   * @param toolName 工具名称
-   * @param args 参数对象
-   * @returns 工具执行结果
-   */
-  async execute(toolName: string, args: Record<string, unknown>): Promise<unknown> {
-    const startTime = Date.now();
-
-    try {
-      const executor = TOOL_EXECUTOR_MAP[toolName];
-      if (!executor) {
-        logger.warn('AgentTool', 'Unknown tool requested', { toolName });
-        const allTools = Object.keys(TOOL_EXECUTOR_MAP).sort();
-        const similarTools = findSimilarTools(toolName, allTools);
-        return {
-          error: `未知工具: ${toolName}`,
-          hint:
-            similarTools.length > 0 ? `您是否想使用: ${similarTools.join(', ')}?` : `可用工具共 ${allTools.length} 个`,
-          similarTools,
-        };
-      }
-
-      const isWriteOperation = WRITE_TOOLS.has(toolName);
-
-      if (isWriteOperation) {
-        const pendingResult: Record<string, unknown> = {
-          status: 'pending_confirm' as const,
-          message: `此操作需要用户确认`,
-          toolName,
-          args,
-        };
-
-        // 对编辑类工具预先计算 diff 预览
-        if (['edit_file_content', 'find_and_replace', 'append_to_file'].includes(toolName)) {
-          try {
-            const fileId = args.fileId as string;
-            if (fileId) {
-              const db = getDb(this.env.DB);
-              const file = await db
-                .select()
-                .from(files)
-                .where(and(eq(files.id, fileId), eq(files.userId, this.userId), isNull(files.deletedAt)))
-                .get();
-              if (file) {
-                const readResult = await readFileContent(this.env, file, this.userId);
-                if (readResult.success && readResult.content) {
-                  const originalContent = readResult.content;
-                  let newContent = originalContent;
-                  let changeCount = 0;
-
-                  if (toolName === 'edit_file_content') {
-                    const edits = args.edits as Array<{
-                      operation: string;
-                      oldValue?: string;
-                      newValue?: string;
-                      position?: number;
-                    }>;
-                    for (const edit of edits || []) {
-                      if (edit.operation === 'replace' && edit.oldValue && edit.newValue !== undefined) {
-                        if (newContent.includes(edit.oldValue)) {
-                          changeCount++;
-                        }
-                        newContent = newContent.replace(edit.oldValue, edit.newValue);
-                      } else if (edit.operation === 'append' && edit.newValue) {
-                        changeCount++;
-                        newContent += '\n' + edit.newValue;
-                      } else if (edit.operation === 'insert' && edit.newValue !== undefined) {
-                        changeCount++;
-                        newContent =
-                          newContent.slice(0, edit.position ?? 0) +
-                          edit.newValue +
-                          newContent.slice(edit.position ?? 0);
-                      } else if (edit.operation === 'delete' && edit.oldValue) {
-                        changeCount++;
-                        newContent = newContent.replace(edit.oldValue, '');
-                      }
-                    }
-                  } else if (toolName === 'find_and_replace') {
-                    const findStr = args.find as string;
-                    const replaceStr = args.replace as string;
-                    const replaceAll = args.replaceAll !== false;
-                    if (findStr && replaceStr !== undefined) {
-                      const regex = new RegExp(findStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
-                      const matches = originalContent.match(regex);
-                      changeCount = matches ? matches.length : 0;
-                      newContent = replaceAll
-                        ? originalContent.replace(regex, replaceStr)
-                        : originalContent.replace(regex, replaceStr);
-                    }
-                  } else if (toolName === 'append_to_file') {
-                    const content = args.content as string;
-                    if (content) {
-                      changeCount = 1;
-                      newContent =
-                        args.addNewline === false ? originalContent + content : originalContent + '\n' + content;
-                    }
-                  }
-
-                  pendingResult.previewDiff = {
-                    before: originalContent.slice(0, 500),
-                    after: newContent.slice(0, 500),
-                    totalChanges: changeCount,
-                  };
-                }
-              }
-            }
-          } catch (diffError) {
-            logger.warn('AgentTool', 'Failed to compute previewDiff', { toolName, error: diffError });
-          }
-        }
-
-        return pendingResult;
-      }
-
-      const result = await executor(this.env, this.userId, args);
-      const duration = Date.now() - startTime;
-
-      logger.info('AgentTool', `Executed tool [${toolName}]`, {
-        toolName,
-        userId: this.userId,
-        duration: `${duration}ms`,
-        success: true,
-      });
-
-      return result;
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      const errorMessage = error instanceof Error ? error.message : String(error);
-
-      logger.error(
-        'AgentTool',
-        `Tool execution failed [${toolName}]`,
-        {
-          toolName,
-          userId: this.userId,
-          duration: `${duration}ms`,
-          error: errorMessage,
-        },
-        error instanceof Error ? error : undefined
-      );
-
-      return {
-        error: `${toolName} 执行失败: ${errorMessage}`,
-        toolName,
-      };
-    }
-  }
-
   async executeConfirmed(toolName: string, args: Record<string, unknown>): Promise<unknown> {
     const startTime = Date.now();
 
@@ -494,39 +339,6 @@ export class AgentToolExecutor {
 // ─────────────────────────────────────────────────────────────────────────────
 // 辅助函数
 // ─────────────────────────────────────────────────────────────────────────────
-
-function findSimilarTools(toolName: string, allTools: string[], maxResults: number = 5): string[] {
-  const lowerName = toolName.toLowerCase();
-  const scores: Array<{ name: string; score: number }> = [];
-
-  for (const name of allTools) {
-    const lowerTarget = name.toLowerCase();
-    let score = 0;
-
-    if (lowerTarget === lowerName) {
-      score = 100;
-    } else if (lowerTarget.includes(lowerName) || lowerName.includes(lowerTarget)) {
-      score = 80;
-    } else if (
-      lowerTarget.split('_').some((part) => lowerName.includes(part)) ||
-      lowerName.split('_').some((part) => lowerTarget.includes(part))
-    ) {
-      score = 60;
-    } else {
-      const commonChars = [...lowerName].filter((c) => lowerTarget.includes(c)).length;
-      score = (commonChars / Math.max(lowerName.length, lowerTarget.length)) * 50;
-    }
-
-    if (score > 30) {
-      scores.push({ name, score });
-    }
-  }
-
-  return scores
-    .sort((a, b) => b.score - a.score)
-    .slice(0, maxResults)
-    .map((s) => s.name);
-}
 
 export function getToolsByCategory(): Record<string, string[]> {
   const categories: Record<string, string[]> = {

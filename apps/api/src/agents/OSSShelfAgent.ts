@@ -24,12 +24,26 @@ import { getVerifiedIdentity } from './auth';
 import { getDb, aiChatMessages, aiChatSessions, files } from '../db';
 import { resolveModelRuntime, buildProviderOptions } from '../lib/ai/modelRuntime';
 import { buildAgentTools } from '../lib/ai/toolAdapter';
-import { AI_REQUEST_DEFAULTS, getAiConfigNumber } from '../lib/ai/aiConfigService';
+import {
+  AI_AGENT_DEFAULTS,
+  AI_MODEL_DEFAULTS,
+  AI_UI_DEFAULTS,
+  AI_REQUEST_DEFAULTS,
+  getAiConfigNumber,
+} from '../lib/ai/aiConfigService';
 import { AGENT_SYSTEM_PROMPT } from '../lib/ai/prompts/agentSystem';
 import { AgentMemory } from '../lib/ai/agentMemory';
 import { recordUsage, reserveAiQuota, type QuotaReservation } from '../lib/ai/usage';
 import { mapAiError } from '../lib/ai/aiErrors';
 import { estimateTokens } from '../lib/ai/utils';
+import {
+  allocateContext,
+  estimateMessageTokens,
+  limitSection,
+  loadContextBudget,
+  trimMessagesByBudget,
+} from '../lib/ai/contextBuilder';
+import { buildTaskContext } from '../lib/ai/planRuntime';
 import { logger } from '@osshelf/shared';
 
 export interface OSSshelfAgentState {
@@ -39,16 +53,6 @@ export interface OSSshelfAgentState {
   /** 已做记忆提取的消息数量，用于节流，避免每轮都调用一次模型 */
   memoryExtractedMessageCount?: number;
 }
-
-const DEFAULT_MAX_STEPS = 20;
-const DEFAULT_MAX_CONTEXT_TOKENS = 100_000;
-/** 预算只用来裁剪历史，保留 70% 给历史 + 30% 给工具结果与回复 */
-const CONTEXT_HISTORY_RATIO = 0.7;
-/** 至少保留最近 N 条消息，避免把当前轮上下文裁掉 */
-const MIN_KEEP_MESSAGES = 2;
-/** 已处理的对话轮数，每达到该阈值做一次记忆提取 */
-const MEMORY_EXTRACT_INTERVAL = 4;
-const MAX_CONTEXT_FILES = 5;
 
 interface MessageMetadata {
   createdAt?: string;
@@ -90,36 +94,12 @@ function readMetadata(message: UIMessage): MessageMetadata {
   return raw && typeof raw === 'object' ? (raw as MessageMetadata) : {};
 }
 
-/** 用 JSON 序列化后的字符数估算一条 UIMessage 的 token 成本 */
-function estimateMessageTokens(message: UIMessage): number {
-  try {
-    return estimateTokens(JSON.stringify(message.parts ?? []));
-  } catch {
-    return 0;
-  }
-}
-
-/** 历史裁剪：从最旧开始丢弃，直到落在预算内；保持消息边界，不破坏 tool call/result 配对 */
-function trimMessagesByBudget(messages: UIMessage[], budgetTokens: number): UIMessage[] {
-  if (messages.length <= MIN_KEEP_MESSAGES) return messages;
-
-  let total = messages.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
-  let start = 0;
-  while (start < messages.length - MIN_KEEP_MESSAGES && total > budgetTokens) {
-    const oldest = messages[start];
-    if (!oldest) break;
-    total -= estimateMessageTokens(oldest);
-    start++;
-  }
-  return start === 0 ? messages : messages.slice(start);
-}
-
 export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
   initialState: OSSshelfAgentState = { userId: '', sessionId: '' };
 
-  maxPersistedMessages = 200;
+  maxPersistedMessages: number = AI_AGENT_DEFAULTS.maxPersistedMessages;
   messageConcurrency = 'queue' as const;
-  chatStreamStallTimeoutMs = 120_000;
+  chatStreamStallTimeoutMs: number = AI_AGENT_DEFAULTS.streamStallTimeoutMs;
 
   /**
    * 本轮请求的待记账信息。
@@ -146,6 +126,18 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
 
     if (!this.state.userId) {
       this.setState({ userId, sessionId, memoryExtractedMessageCount: 0 });
+    }
+
+    // 类字段在构造时无法 await 配置；连接建立时同步一次，回种与后续持久化都按配置上限
+    try {
+      const [persistedMax, stallTimeout] = await Promise.all([
+        getAiConfigNumber(this.env, 'ai.agent.max_persisted_messages', AI_AGENT_DEFAULTS.maxPersistedMessages),
+        getAiConfigNumber(this.env, 'ai.agent.stream_stall_timeout_ms', AI_AGENT_DEFAULTS.streamStallTimeoutMs),
+      ]);
+      this.maxPersistedMessages = Math.max(20, Math.floor(persistedMax));
+      this.chatStreamStallTimeoutMs = Math.max(30_000, Math.floor(stallTimeout));
+    } catch {
+      // 配置读取失败时沿用注册表默认值
     }
 
     await super.onConnect(connection, ctx);
@@ -240,7 +232,7 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
   }
 
   /** 拼接本次请求的运行时上下文：当前文件夹 + 用户引用文件 */
-  private async buildContextSection(options?: OnChatMessageOptions): Promise<string> {
+  private async buildContextSection(options?: OnChatMessageOptions, maxFiles: number = AI_AGENT_DEFAULTS.maxContextFiles): Promise<string> {
     const contextFileIds = Array.isArray(options?.body?.contextFileIds)
       ? (options?.body?.contextFileIds as unknown[]).filter((id): id is string => typeof id === 'string')
       : [];
@@ -251,7 +243,7 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
 
     try {
       const db = getDb(this.env.DB);
-      const ids = [...new Set([...contextFileIds.slice(0, MAX_CONTEXT_FILES), contextFolderId].filter(Boolean))];
+      const ids = [...new Set([...contextFileIds.slice(0, maxFiles), contextFolderId].filter(Boolean))];
       if (ids.length === 0) return '';
 
       const rows = await db
@@ -311,6 +303,21 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
     }
 
     // ticket 只在建立连接时校验一次，会话期间每条消息都必须重新执行原子配额预扣
+    const lastUserText = [...this.messages].reverse().find((message) => message.role === 'user');
+    const lastUserQuery = lastUserText ? getMessageText(lastUserText) : '';
+
+    // 输入长度上限来自 ai.ui.max_query_length（前端同源），超限直接拒绝，不占用配额
+    const maxQueryLength = await getAiConfigNumber(this.env, 'ai.ui.max_query_length', AI_UI_DEFAULTS.maxQueryLength);
+    if (lastUserQuery.length > maxQueryLength) {
+      return new Response(
+        JSON.stringify({
+          error: `消息长度不能超过 ${maxQueryLength} 字符，当前 ${lastUserQuery.length} 字符`,
+          code: 'AI_INPUT_TOO_LONG',
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
     const estimatedInput =
       estimateTokens(AGENT_SYSTEM_PROMPT) +
       this.messages.reduce((sum, message) => sum + estimateMessageTokens(message), 0);
@@ -342,30 +349,38 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
         this.setState({ ...this.state, modelId: requestedModelId });
       }
 
-      const lastUserText = [...this.messages].reverse().find((message) => message.role === 'user');
-      const lastUserQuery = lastUserText ? getMessageText(lastUserText) : '';
-
-      const [{ model, config }, tools] = await Promise.all([
-        resolveModelRuntime(this.env, userId, requestedModelId ?? this.state.modelId),
-        buildAgentTools(this.env, userId, { query: lastUserQuery }),
-      ]);
-
-      const [maxSteps, maxContextTokens, maxRetries] = await Promise.all([
-        getAiConfigNumber(this.env, 'ai.agent.max_steps', DEFAULT_MAX_STEPS),
-        getAiConfigNumber(this.env, 'ai.agent.max_context_tokens', DEFAULT_MAX_CONTEXT_TOKENS),
+      // 单一预算源：总量来自 ai.agent.max_context_tokens，各层比例来自注册表
+      const [budget, maxSteps, maxRetries, thinkingBudget] = await Promise.all([
+        loadContextBudget(this.env),
+        getAiConfigNumber(this.env, 'ai.agent.max_steps', AI_AGENT_DEFAULTS.maxSteps),
         getAiConfigNumber(this.env, 'ai.request.max_retries', AI_REQUEST_DEFAULTS.maxRetries),
+        getAiConfigNumber(this.env, 'ai.model.anthropic_thinking_budget', AI_MODEL_DEFAULTS.anthropicThinkingBudget),
       ]);
 
-      const [contextSection, memorySection] = await Promise.all([
-        this.buildContextSection(options),
+      const [{ model, config }, tools, contextSection, memorySection, taskSection] = await Promise.all([
+        resolveModelRuntime(this.env, userId, requestedModelId ?? this.state.modelId),
+        buildAgentTools(this.env, userId, { query: lastUserQuery, sessionId }),
+        this.buildContextSection(options, budget.maxContextFiles),
         this.buildMemorySection(lastUserQuery),
+        buildTaskContext(this.env, userId, sessionId),
       ]);
 
-      const system = [AGENT_SYSTEM_PROMPT, contextSection, memorySection].filter(Boolean).join('\n\n');
+      const allocation = allocateContext(budget);
+      const system = [
+        AGENT_SYSTEM_PROMPT,
+        limitSection(taskSection, allocation.taskStateTokens),
+        limitSection(contextSection, allocation.assetTokens),
+        memorySection,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
 
       // 先按 token 预算裁剪 UIMessage 历史，再转成 ModelMessage 并做 tool/reasoning 剪枝
-      const budget = Math.floor(maxContextTokens * CONTEXT_HISTORY_RATIO);
-      const prunedUiMessages = trimMessagesByBudget(this.messages, budget);
+      const prunedUiMessages = trimMessagesByBudget(
+        this.messages,
+        allocation.historyTokens,
+        budget.minKeepMessages
+      );
       const messages = pruneMessages({
         messages: await convertToModelMessages(prunedUiMessages),
         reasoning: 'before-last-message',
@@ -418,7 +433,7 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
         messages,
         tools,
         temperature: config.temperature,
-        providerOptions: buildProviderOptions('chat', config),
+        providerOptions: buildProviderOptions('chat', config, thinkingBudget),
         maxRetries,
         stopWhen: stepCountIs(maxSteps),
         abortSignal: options?.abortSignal,
@@ -608,10 +623,17 @@ export class OSSShelfAgent extends AIChatAgent<Env, OSSshelfAgentState> {
     // 否则达到上限后差值恒为负，记忆提取会永久停摆。改为按对话轮数取模。
     const turns = (this.state.memoryExtractedMessageCount ?? 0) + 1;
     this.setState({ ...this.state, memoryExtractedMessageCount: turns });
-    if (turns % MEMORY_EXTRACT_INTERVAL !== 0) return;
+
+    const configuredInterval = await getAiConfigNumber(
+      this.env,
+      'ai.agent.memory_extract_interval',
+      AI_AGENT_DEFAULTS.memoryExtractInterval
+    );
+    const interval = Math.max(1, Math.floor(configuredInterval));
+    if (turns % interval !== 0) return;
 
     try {
-      const recent = this.messages.slice(-MEMORY_EXTRACT_INTERVAL * 2);
+      const recent = this.messages.slice(-interval * 2);
       const userText = recent
         .filter((message) => message.role === 'user')
         .map((message) => getMessageText(message))

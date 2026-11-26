@@ -914,6 +914,74 @@ export const aiTaskItems = sqliteTable(
   })
 );
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 任务编排内核（PlanRuntime）
+// 事实源在 D1：DO 回收 / 断线 / 审批挂起后按 step 状态续跑
+// ═══════════════════════════════════════════════════════════════════════════
+
+export const aiTaskRuns = sqliteTable(
+  'ai_task_runs',
+  {
+    id: text('id').primaryKey(),
+    sessionId: text('session_id').notNull(),
+    userId: text('user_id').notNull(),
+    goal: text('goal').notNull(),
+    status: text('status').notNull().default('running'),
+    currentStepId: text('current_step_id'),
+    totalSteps: integer('total_steps').notNull().default(0),
+    completedSteps: integer('completed_steps').notNull().default(0),
+    budgetUsed: integer('budget_used').notNull().default(0),
+    checkpoint: text('checkpoint'),
+    error: text('error'),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    completedAt: text('completed_at'),
+  },
+  (table) => ({
+    sessionIdx: index('idx_ai_task_runs_session').on(table.sessionId, table.createdAt),
+    userStatusIdx: index('idx_ai_task_runs_user_status').on(table.userId, table.status),
+  })
+);
+
+export const aiTaskSteps = sqliteTable(
+  'ai_task_steps',
+  {
+    id: text('id').primaryKey(),
+    runId: text('run_id').notNull(),
+    stepIndex: integer('step_index').notNull(),
+    title: text('title').notNull(),
+    toolName: text('tool_name'),
+    status: text('status').notNull().default('pending'),
+    input: text('input'),
+    output: text('output'),
+    error: text('error'),
+    attempts: integer('attempts').notNull().default(0),
+    idempotencyKey: text('idempotency_key'),
+    startedAt: text('started_at'),
+    completedAt: text('completed_at'),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => ({
+    runIndexUnique: uniqueIndex('idx_ai_task_steps_run_index').on(table.runId, table.stepIndex),
+    runStatusIdx: index('idx_ai_task_steps_run_status').on(table.runId, table.status),
+  })
+);
+
+export const aiTaskEvents = sqliteTable(
+  'ai_task_events',
+  {
+    id: text('id').primaryKey(),
+    runId: text('run_id').notNull(),
+    stepId: text('step_id'),
+    type: text('type').notNull(),
+    payload: text('payload'),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => ({
+    runCreatedIdx: index('idx_ai_task_events_run_created').on(table.runId, table.createdAt),
+  })
+);
+
 export const aiFeatureConfig = sqliteTable(
   'ai_feature_config',
   {

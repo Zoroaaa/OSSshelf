@@ -7,12 +7,15 @@ import { MessageSquare, Sparkles } from 'lucide-react';
 
 interface WelcomeScreenProps {
   suggestedQuestions: string[];
+  /** 能力标签由 /api/ai-config/effective 下发，未配置时用内置兜底 */
+  capabilityTags?: string[];
   onSelectQuestion: (question: string) => void;
 }
 
-const CAPABILITY_TAGS = ['搜索', '创建', '编辑', '统计', '浏览', '收藏', '分享', '标签', '版本', 'AI'];
+const FALLBACK_CAPABILITY_TAGS = ['搜索', '创建', '编辑', '统计', '浏览', '收藏', '分享', '标签', '版本', 'AI'];
 
-export function WelcomeScreen({ suggestedQuestions, onSelectQuestion }: WelcomeScreenProps) {
+export function WelcomeScreen({ suggestedQuestions, capabilityTags, onSelectQuestion }: WelcomeScreenProps) {
+  const tags = capabilityTags && capabilityTags.length > 0 ? capabilityTags : FALLBACK_CAPABILITY_TAGS;
   return (
     <div className="flex flex-col items-center justify-center px-2 py-10 text-center sm:py-16">
       <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
@@ -24,7 +27,7 @@ export function WelcomeScreen({ suggestedQuestions, onSelectQuestion }: WelcomeS
       </p>
 
       <div className="mb-6 flex max-w-md flex-wrap justify-center gap-1.5">
-        {CAPABILITY_TAGS.map((tag) => (
+        {tags.map((tag) => (
           <span
             key={tag}
             className="rounded-full border border-border bg-muted/60 px-2 py-0.5 text-xs text-muted-foreground"

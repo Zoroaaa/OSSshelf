@@ -1,7 +1,7 @@
 # OSSshelf AI 功能说明文档
 
 **版本**: v3.2.0
-**更新日期**: 2026-11-04
+**更新日期**: 2026-11-26
 
 ---
 
@@ -20,6 +20,35 @@
 ### 数据表
 
 `ai_usage_events`、`file_chunks`、`ai_task_items`、`ai_feature_config`、`files_fts`（FTS5）；`ai_chat_messages` 作为管理端审计镜像保留（由 Agent `onFinish` 写入）
+
+## 2026-11-26 增量：任务编排内核与配置化
+
+| 变化 | 说明 |
+| --- | --- |
+| **任务事实源** | 新增 `ai_task_runs / ai_task_steps / ai_task_events`（迁移 123）。`update_plan` 不再只渲染，而是落库为步骤状态机；断线、DO 回收、审批挂起后可按 `currentStepId` 续跑 |
+| **失败重试** | 步骤失败按 `ai.task.max_retries` 回到 pending，超过 `ai.task.dead_letter_after` 落 failed 并写 `step_dead_letter` 事件，不再无限重试或静默吞 |
+| **续跑入口** | `GET /api/ai-chat/sessions/:id/run` 返回进行中任务；`POST /api/ai-chat/runs/:id/resume` 把中断步骤退回 pending 并给出续跑消息；前端在失败/待审批时显示「继续执行」 |
+| **FTS 修复** | 070 的 `files_fts` 列名是 `id`，110 的同名声明被 `IF NOT EXISTS` 跳过，导致运行时永远回退 LIKE。迁移 122 新建 `files_fts_v2(file_id, …)` 并回填；查询改为前缀匹配（`"词"*`），中文两字关键词才真正命中 |
+| **统一检索** | `retrievalService.ts` 收敛为「向量 + FTS → RRF → 一次文件行过滤」；删除 `smart_search` 的 1.2/0.8 固定权重与 `search_files` 的 LIKE 补漏，阈值/倍数/`rrf_k` 全部读 `ai.rag.*` |
+| **配额单点** | `completeText` / embedding / rerank 均在调用前预扣 token、调用后按真实（或估算）用量结算；轮内二次调用 `countRequest=false`，一次用户消息只占一次请求数。rerank 配额不足时降级为融合排序 |
+| **安全** | 所有工具结果统一加 `_untrusted`（不再只在截断时）；AI 路由禁止 API Key（403 `A001`）；`generate_summary / generate_tags` 纳入写操作审批 |
+| **上传即上下文** | 输入区支持本地文件上传与拖入，复用文件系统预签名上传（配额/去重/Telegram 分片/权限全部沿用），成功后自动加入 @ 引用并进入自动 AI 处理 |
+| **工具目录** | 新增 `GET /api/ai-chat/tools`，前端 label/category 由后端 `TOOL_DEFINITIONS` 派生（描述前缀【】解析 + 分类表反查），删除手写 100+ 映射；前端只保留图标与分类说明 |
+| **前端状态** | AIChat 的 19 个 `useState` 收敛到单一 `useReducer`（`pages/aiChat/useAIChatUi.ts`），字段 setter 保持 `useState` 同签名，函数式更新读 ref 最新值 |
+| **孤儿清理** | 每日 Cron 新增 `runAiOrphanCleanup`：清理无文件归属的 `file_chunks`（先删向量）、无任务的 `ai_task_items`、无 run/无会话的 `ai_task_*`、无会话的 `ai_memories`；每类最多 10×100 行，避免超时 |
+| **配置化** | 注册表新增 35 项（agent 上下文分配、rag 阈值、task 重试、tool 注入、ui 超时/推荐语、quota 预估）；新增 `GET /api/ai-config/effective` 下发非敏感项；配置写入递增 KV 版本号，≤2s 跨 isolate 失效；`aiConfigRegistry.test.ts` 静态守卫「有注册必被读、被读必已注册」 |
+
+### 上下文预算分层
+
+总量唯一来源 `ai.agent.max_context_tokens`，各层按配置分配：
+
+| 层 | 内容 | 配置 |
+| --- | --- | --- |
+| L1 | 任务状态（目标/步骤/当前步） | `ai.agent.task_state_ratio` |
+| L2 | 本次引用文件与文件夹 | `ai.agent.context_asset_ratio`、`ai.agent.max_context_files` |
+| L3 | 检索片段 | `ai.rag.context_top_k` |
+| L4 | 历史消息 | `ai.agent.context_history_ratio`、`ai.agent.min_keep_messages` |
+| L5 | 工具结果 | `ai.tool.max_result_bytes` |
 
 ---
 

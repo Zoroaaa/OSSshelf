@@ -4,7 +4,7 @@
  */
 
 import { Hono } from 'hono';
-import { authMiddleware } from '../middleware';
+import { authMiddleware, denyApiKeyAuth } from '../middleware';
 import { throwAppError } from '../middleware/error';
 import { getUsageSummary, getQuotaStatus } from '../lib/ai/usage';
 import type { Env, Variables } from '../types/env';
@@ -12,6 +12,8 @@ import { logger } from '@osshelf/shared';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
+// 模型调用会产生费用且工具可读写用户文件：AI 端点禁用 API Key 认证
+app.use('/*', denyApiKeyAuth());
 
 app.get('/summary', async (c) => {
   const userId = c.get('userId')!;

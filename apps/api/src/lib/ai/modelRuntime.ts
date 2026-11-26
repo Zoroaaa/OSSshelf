@@ -14,11 +14,11 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import type { Env } from '../../types/env';
 import { logger } from '@osshelf/shared';
-import { AI_REQUEST_DEFAULTS, getAiConfigNumber, getAiConfigString } from './aiConfigService';
+import { AI_REQUEST_DEFAULTS, AI_MODEL_DEFAULTS, getAiConfigNumber, getAiConfigString } from './aiConfigService';
 import { decryptCredential, getEncryptionKey, isAesGcmFormat } from '../crypto';
 import { AiError, mapAiError } from './aiErrors';
 import { MODEL_ID_FORMAT_HINT, pickSupportedModelId } from './modelId';
-import { recordUsage } from './usage';
+import { recordUsage, reserveAiQuota, type QuotaReservation } from './usage';
 import { estimateTokens, extractThinkingContent } from './utils';
 import { buildWorkersAiConfig, getActiveModel, getModelById } from './modelService';
 import type { AiFeatureType, ChatContentPart, ChatMessage, ModelConfig, TokenUsage } from './types';
@@ -169,12 +169,13 @@ export async function resolveModelRuntime(env: Env, userId: string, modelId?: st
  *
  * - OpenAI 兼容：`@ai-sdk/openai-compatible` 会把 provider 名下的未知字段原样并入请求体，
  *   与旧的 extraBody 行为等价。
- * - Anthropic：SDK 只接受 `thinking.type + budgetTokens`，启用时固定 1024。
+ * - Anthropic：SDK 只接受 `thinking.type + budgetTokens`，预算来自配置。
  * - Workers AI：旧适配器本就忽略 extraBody，保持不传。
  */
 export function buildProviderOptions(
   featureType: AiFeatureType = 'chat',
-  config: ModelConfig
+  config: ModelConfig,
+  thinkingBudget: number = AI_MODEL_DEFAULTS.anthropicThinkingBudget
 ): ModelProviderOptions | undefined {
   if (!config.supportsThinking) return undefined;
 
@@ -196,7 +197,9 @@ export function buildProviderOptions(
 
   if (config.provider === 'anthropic') {
     if (!enabled) return undefined;
-    return { anthropic: { thinking: { type: 'enabled', budgetTokens: 1024 } } } as ModelProviderOptions;
+    return {
+      anthropic: { thinking: { type: 'enabled', budgetTokens: thinkingBudget } },
+    } as ModelProviderOptions;
   }
 
   if (config.provider !== 'openai_compatible') return undefined;
@@ -356,15 +359,22 @@ function createTimeoutSignal(
   return { signal: controller.signal, clear };
 }
 
-async function getRuntimeSettings(env: Env): Promise<{ maxRetries: number; timeoutMs: number }> {
+async function getRuntimeSettings(
+  env: Env
+): Promise<{ maxRetries: number; timeoutMs: number; thinkingBudget: number }> {
   try {
-    const [maxRetries, timeoutMs] = await Promise.all([
+    const [maxRetries, timeoutMs, thinkingBudget] = await Promise.all([
       getAiConfigNumber(env, 'ai.request.max_retries', DEFAULT_MAX_RETRIES),
       getAiConfigNumber(env, 'ai.request.timeout_ms', DEFAULT_REQUEST_TIMEOUT_MS),
+      getAiConfigNumber(env, 'ai.model.anthropic_thinking_budget', AI_MODEL_DEFAULTS.anthropicThinkingBudget),
     ]);
-    return { maxRetries, timeoutMs };
+    return { maxRetries, timeoutMs, thinkingBudget };
   } catch {
-    return { maxRetries: DEFAULT_MAX_RETRIES, timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS };
+    return {
+      maxRetries: DEFAULT_MAX_RETRIES,
+      timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
+      thinkingBudget: AI_MODEL_DEFAULTS.anthropicThinkingBudget,
+    };
   }
 }
 
@@ -398,6 +408,21 @@ async function runCompletion(
   const maxRetries = runtimeSettings.maxRetries;
   const timeoutMs = options.timeoutMs ?? runtimeSettings.timeoutMs;
 
+  // 记账型调用统一在此预扣 token 配额：调用前预扣、调用后按真实 usage 结算。
+  // countRequest=false —— 一次用户消息只占一次「每日请求数」，轮内二次调用不重复计请求。
+  const estimatedInput = estimateTokens(promptText);
+  let reservation: QuotaReservation | null = null;
+  if (options.record) {
+    const quota = await reserveAiQuota(env, options.userId, {
+      estimatedTokens: estimatedInput,
+      countRequest: false,
+    });
+    if (!quota.allowed || !quota.reservation) {
+      throw new AiError('AI_RATE_LIMIT', '今日 AI Token 配额已用完，请稍后再试');
+    }
+    reservation = quota.reservation;
+  }
+
   const timeoutSignal = createTimeoutSignal(timeoutMs, options.signal);
   const startedAt = Date.now();
 
@@ -407,7 +432,7 @@ async function runCompletion(
       system,
       messages: modelMessages,
       temperature: request.temperature ?? config.temperature,
-      providerOptions: buildProviderOptions(featureType, config),
+      providerOptions: buildProviderOptions(featureType, config, runtimeSettings.thinkingBudget),
       maxRetries,
       abortSignal: timeoutSignal.signal,
     });
@@ -430,6 +455,8 @@ async function runCompletion(
       });
     }
 
+    await reservation?.settle(usage.inputTokens + usage.outputTokens);
+
     return {
       content: extracted.content,
       reasoning,
@@ -451,6 +478,13 @@ async function runCompletion(
         status: 'error',
         errorCode: mapped.code,
       });
+    }
+
+    // 配置/鉴权错误时请求未真正发出：释放预扣；其余错误按估算值结算，避免"失败免费"
+    if (mapped.code === 'AI_CONFIG_INVALID' || mapped.code === 'AI_UNAUTHORIZED') {
+      await reservation?.release();
+    } else {
+      await reservation?.settle(estimatedInput);
     }
 
     throw mapped;
@@ -533,8 +567,15 @@ export function validateModelConfig(config: ModelConfig): { valid: boolean; erro
   return { valid: true };
 }
 
-/** 嵌入模型统一使用 Workers AI（向量索引与记忆召回共用） */
-export async function resolveEmbeddingProvider(env: Env): Promise<EmbeddingProvider> {
+/**
+ * 嵌入模型统一使用 Workers AI（向量索引与记忆召回共用）。
+ * 传入 userId 时按 embedding token 预扣配额并记账：embedding 同样按量计费，
+ * 调用方不再各自 recordUsage，避免漏记/重复记。
+ */
+export async function resolveEmbeddingProvider(
+  env: Env,
+  options: { userId?: string; feature?: string } = {}
+): Promise<EmbeddingProvider> {
   const modelKey = await getAiConfigString(env, 'ai.default_model.embedding', DEFAULT_EMBEDDING_MODEL);
 
   if (!env.AI) {
@@ -548,8 +589,42 @@ export async function resolveEmbeddingProvider(env: Env): Promise<EmbeddingProvi
     modelKey,
     async embed(texts: string[]): Promise<number[][]> {
       if (texts.length === 0) return [];
-      const result = await embedMany({ model, values: texts });
-      return result.embeddings.map((embedding) => Array.from(embedding));
+      const userId = options.userId;
+      const estimatedInput = texts.reduce((sum, text) => sum + estimateTokens(text), 0);
+
+      let reservation: QuotaReservation | null = null;
+      if (userId) {
+        const quota = await reserveAiQuota(env, userId, {
+          estimatedTokens: estimatedInput,
+          countRequest: false,
+        });
+        if (!quota.allowed || !quota.reservation) {
+          throw new AiError('AI_RATE_LIMIT', '今日 AI Token 配额已用完，请稍后再试');
+        }
+        reservation = quota.reservation;
+      }
+
+      const startedAt = Date.now();
+      try {
+        const result = await embedMany({ model, values: texts });
+        if (userId) {
+          await recordUsage(env, {
+            userId,
+            feature: options.feature ?? 'embedding',
+            provider: 'workers_ai',
+            modelId: modelKey,
+            inputTokens: estimatedInput,
+            outputTokens: 0,
+            latencyMs: Date.now() - startedAt,
+            status: 'completed',
+          });
+        }
+        await reservation?.settle(estimatedInput);
+        return result.embeddings.map((embedding) => Array.from(embedding));
+      } catch (error) {
+        await reservation?.release();
+        throw error;
+      }
     },
   };
 }

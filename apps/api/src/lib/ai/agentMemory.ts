@@ -12,8 +12,6 @@ import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { getDb, aiMemories } from '../../db';
 import { logger } from '@osshelf/shared';
 import { completeText, resolveEmbeddingProvider } from './modelRuntime';
-import { estimateTokens } from './utils';
-import { recordUsage } from './usage';
 import type { Env } from '../../types/env';
 
 export interface MemoryFact {
@@ -248,21 +246,9 @@ export class AgentMemory {
     if (!this.env.VECTORIZE || !this.env.AI) return null;
 
     try {
-      const provider = await resolveEmbeddingProvider(this.env);
-      const startedAt = Date.now();
+      const provider = await resolveEmbeddingProvider(this.env, { userId, feature: 'memory' });
       const [values] = await provider.embed([summary]);
       if (!values) return null;
-
-      await recordUsage(this.env, {
-        userId,
-        feature: 'memory',
-        provider: 'workers_ai',
-        modelId: provider.modelKey,
-        inputTokens: estimateTokens(summary),
-        outputTokens: 0,
-        latencyMs: Date.now() - startedAt,
-        status: 'completed',
-      });
 
       const embeddingId = `${MEMORY_VECTOR_PREFIX}${memoryId}`;
       await this.env.VECTORIZE.upsert([
@@ -288,21 +274,9 @@ export class AgentMemory {
     if (!this.env.VECTORIZE || !this.env.AI) return [];
 
     try {
-      const provider = await resolveEmbeddingProvider(this.env);
-      const startedAt = Date.now();
+      const provider = await resolveEmbeddingProvider(this.env, { userId, feature: 'memory' });
       const [values] = await provider.embed([query]);
       if (!values) return [];
-
-      await recordUsage(this.env, {
-        userId,
-        feature: 'memory',
-        provider: 'workers_ai',
-        modelId: provider.modelKey,
-        inputTokens: estimateTokens(query),
-        outputTokens: 0,
-        latencyMs: Date.now() - startedAt,
-        status: 'completed',
-      });
 
       const results = await this.env.VECTORIZE.query(values, {
         topK: MEMORY_RECALL_TOP_K * 2,

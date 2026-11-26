@@ -16,10 +16,9 @@ import { logger } from '@osshelf/shared';
 import { readFileContent } from '../fileContentHelper';
 import { VECTOR_LOG_MODULE } from './constants';
 import { resolveEmbeddingProvider } from './modelRuntime';
-import { getAiConfigBoolean } from './aiConfigService';
+import { AI_RAG_DEFAULTS, getAiConfigBoolean, getAiConfigNumber, getAiConfigString } from './aiConfigService';
 import { estimateTokens } from './utils';
-import { recordUsage } from './usage';
-import { searchFileIdsByKeyword } from './retrieval/fts';
+import { recordUsage, reserveAiQuota } from './usage';
 
 const MAX_TEXT_LENGTH = 4096;
 
@@ -50,18 +49,25 @@ export interface ChunkSearchResult {
 /**
  * 滑动窗口分块。
  */
-export function splitTextIntoChunks(text: string): string[] {
+export function splitTextIntoChunks(
+  text: string,
+  options: { chunkSize?: number; overlap?: number; maxChunks?: number } = {}
+): string[] {
   if (text.length <= MAX_TEXT_LENGTH) {
     return [text];
   }
 
+  const chunkSize = Math.max(100, options.chunkSize ?? CHUNK_CONFIG.chunkSize);
+  const overlap = Math.min(Math.max(0, options.overlap ?? CHUNK_CONFIG.overlap), chunkSize - 1);
+  const maxChunks = Math.max(1, options.maxChunks ?? CHUNK_CONFIG.maxChunks);
+
   const chunks: string[] = [];
   let start = 0;
 
-  while (start < text.length && chunks.length < CHUNK_CONFIG.maxChunks) {
-    const end = Math.min(start + CHUNK_CONFIG.chunkSize, text.length);
+  while (start < text.length && chunks.length < maxChunks) {
+    const end = Math.min(start + chunkSize, text.length);
     chunks.push(text.slice(start, end));
-    start += CHUNK_CONFIG.chunkSize - CHUNK_CONFIG.overlap;
+    start += chunkSize - overlap;
   }
 
   return chunks;
@@ -179,27 +185,19 @@ export async function indexFileVector(env: Env, fileId: string, text: string): P
       throw new Error(`File not found: ${fileId}`);
     }
 
-    const chunks = splitTextIntoChunks(text);
-    const provider = await resolveEmbeddingProvider(env);
+    const [chunkOverlap, maxChunks] = await Promise.all([
+      getAiConfigNumber(env, 'ai.rag.chunk_overlap', AI_RAG_DEFAULTS.chunkOverlap),
+      getAiConfigNumber(env, 'ai.rag.max_chunks', AI_RAG_DEFAULTS.maxChunks),
+    ]);
+    const chunks = splitTextIntoChunks(text, { overlap: chunkOverlap, maxChunks });
+    // embedding 的配额预扣与记账由 provider 统一完成
+    const provider = await resolveEmbeddingProvider(env, { userId: file.userId, feature: 'embedding' });
     const embedInputs = chunks.map((chunk) => chunk.slice(0, MAX_TEXT_LENGTH));
-    const embedStartedAt = Date.now();
     const embeddings = await provider.embed(embedInputs);
 
     if (embeddings.length !== chunks.length || embeddings.length === 0) {
       throw new Error('Failed to generate embeddings: empty data');
     }
-
-    // embedding 也是按 token 计费的模型调用，必须纳入用量统计与配额
-    await recordUsage(env, {
-      userId: file.userId,
-      feature: 'embedding',
-      provider: 'workers_ai',
-      modelId: provider.modelKey,
-      inputTokens: embedInputs.reduce((sum, item) => sum + estimateTokens(item), 0),
-      outputTokens: 0,
-      latencyMs: Date.now() - embedStartedAt,
-      status: 'completed',
-    });
 
     await deleteVectorsForFile(env, fileId);
     await db.delete(fileChunks).where(eq(fileChunks.fileId, fileId));
@@ -318,29 +316,20 @@ export async function searchSimilarFiles(
     mimeType?: string;
   } = {}
 ): Promise<VectorSearchResult[]> {
-  const { limit = 20, threshold = 0.5 } = options;
+  const limit = Math.min(Math.max(options.limit ?? 20, 1), 100);
 
   if (!env.AI || !env.VECTORIZE) {
     return [];
   }
 
   try {
-    const effectiveLimit = Math.min(limit * 5, 50);
-    const provider = await resolveEmbeddingProvider(env);
-    const embedStartedAt = Date.now();
+    // 阈值统一来自配置；调用方显式传值时以调用方为准（例如 chunk 级检索）
+    const threshold =
+      options.threshold ?? (await getAiConfigNumber(env, 'ai.rag.vector_threshold', AI_RAG_DEFAULTS.vectorThreshold));
+    const effectiveLimit = Math.min(limit, 100);
+    const provider = await resolveEmbeddingProvider(env, { userId, feature: 'embedding' });
     const [values] = await provider.embed([query.slice(0, MAX_TEXT_LENGTH)]);
     if (!values) return [];
-
-    await recordUsage(env, {
-      userId,
-      feature: 'embedding',
-      provider: 'workers_ai',
-      modelId: provider.modelKey,
-      inputTokens: estimateTokens(query.slice(0, MAX_TEXT_LENGTH)),
-      outputTokens: 0,
-      latencyMs: Date.now() - embedStartedAt,
-      status: 'completed',
-    });
 
     const results = await env.VECTORIZE.query(values, {
       topK: effectiveLimit,
@@ -386,7 +375,10 @@ export async function searchChunkContent(
   userId: string,
   options: { limit?: number; threshold?: number } = {}
 ): Promise<ChunkSearchResult[]> {
-  const { limit = 5, threshold = 0.25 } = options;
+  const limit = options.limit ?? 5;
+  const threshold =
+    options.threshold ??
+    (await getAiConfigNumber(env, 'ai.rag.chunk_threshold', AI_RAG_DEFAULTS.chunkThreshold));
 
   const vectorHits = await searchSimilarFiles(env, query, userId, { limit: limit * 2, threshold });
   if (vectorHits.length === 0) return [];
@@ -456,14 +448,33 @@ async function rerankChunks(
 ): Promise<ChunkSearchResult[]> {
   if (!env.AI || results.length === 0) return results;
 
-  const rerankModel = '@cf/baai/bge-reranker-base';
+  const [rerankModel, timeoutMs] = await Promise.all([
+    getAiConfigString(env, 'ai.rag.rerank_model', AI_RAG_DEFAULTS.rerankModel),
+    getAiConfigNumber(env, 'ai.rag.rerank_timeout_ms', AI_RAG_DEFAULTS.rerankTimeoutMs),
+  ]);
+  const estimatedInput = estimateTokens(query) + results.reduce((sum, item) => sum + estimateTokens(item.snippet), 0);
+  const quota = await reserveAiQuota(env, userId, { estimatedTokens: estimatedInput, countRequest: false });
+  if (!quota.allowed || !quota.reservation) {
+    // 配额不足时降级为融合排序，不让 rerank 阻断整条检索链路
+    return results;
+  }
+
   const startedAt = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new DOMException(`rerank timeout after ${timeoutMs}ms`, 'TimeoutError')),
+    Math.max(1_000, timeoutMs)
+  );
 
   try {
-    const response = (await (env.AI as any).run(rerankModel, {
-      query,
-      contexts: results.map((item) => ({ text: item.snippet })),
-    })) as {
+    const response = (await (env.AI as any).run(
+      rerankModel,
+      {
+        query,
+        contexts: results.map((item) => ({ text: item.snippet })),
+      },
+      { signal: controller.signal }
+    )) as {
       response?: Array<{ id?: number; index?: number; score?: number }>;
       result?: Array<{ id?: number; index?: number; score?: number }>;
     };
@@ -474,11 +485,12 @@ async function rerankChunks(
       feature: 'rerank',
       provider: 'workers_ai',
       modelId: rerankModel,
-      inputTokens: estimateTokens(query) + results.reduce((sum, item) => sum + estimateTokens(item.snippet), 0),
+      inputTokens: estimatedInput,
       outputTokens: 0,
       latencyMs: Date.now() - startedAt,
       status: 'completed',
     });
+    await quota.reservation.settle(estimatedInput);
 
     const scores = response?.response ?? response?.result;
     if (!Array.isArray(scores) || scores.length === 0) return results;
@@ -493,8 +505,11 @@ async function rerankChunks(
       .map((item, index) => ({ ...item, score: scoreMap.get(index) ?? item.score }))
       .sort((a, b) => b.score - a.score);
   } catch (error) {
+    await quota.reservation.release();
     logger.warn(VECTOR_LOG_MODULE, 'rerank failed, using original order', {}, error);
     return results;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -506,9 +521,10 @@ export async function buildFileTextForVector(env: Env, fileId: string): Promise<
 
   let actualContent = '';
   try {
+    const maxSourceChars = await getAiConfigNumber(env, 'ai.rag.max_source_chars', AI_RAG_DEFAULTS.maxSourceChars);
     const readResult = await readFileContent(env, file);
     if (readResult.success && readResult.content) {
-      actualContent = readResult.content.slice(0, 50000);
+      actualContent = readResult.content.slice(0, Math.max(1_000, maxSourceChars));
     }
   } catch (error) {
     logger.warn(VECTOR_LOG_MODULE, '实际内容读取失败，将降级', { fileId, fileName: file.name }, error);
@@ -545,67 +561,6 @@ export async function buildFileTextForVector(env: Env, fileId: string): Promise<
   }
 
   return [...metaParts, ...bodyParts, ...notes.map((note) => note.content)].filter(Boolean).join('\n');
-}
-
-function reciprocalRankFusion(
-  vectorResults: VectorSearchResult[],
-  keywordResults: VectorSearchResult[],
-  k: number = 60
-): VectorSearchResult[] {
-  const scores = new Map<string, number>();
-
-  for (const results of [vectorResults, keywordResults]) {
-    results.forEach((result, rank) => {
-      const prev = scores.get(result.fileId) || 0;
-      scores.set(result.fileId, prev + 1 / (k + rank + 1));
-    });
-  }
-
-  return Array.from(scores.entries())
-    .map(([fileId, score]) => ({ fileId, score }))
-    .sort((a, b) => b.score - a.score);
-}
-
-export async function searchAndFetchFiles(
-  env: Env,
-  query: string,
-  userId: string,
-  options: { limit?: number; threshold?: number; mimeType?: string } = {}
-) {
-  const { limit = 20 } = options;
-
-  const [vectorResults, keywordHits] = await Promise.all([
-    searchSimilarFiles(env, query, userId, { limit: Math.min(limit * 2, 40) }),
-    searchFileIdsByKeyword(env, query, userId, Math.min(limit * 2, 40)),
-  ]);
-
-  const keywordResults: VectorSearchResult[] = keywordHits.map((hit) => ({
-    fileId: hit.fileId,
-    score: hit.score,
-  }));
-
-  const fusedResults = reciprocalRankFusion(vectorResults, keywordResults);
-  const topResults = fusedResults.slice(0, limit);
-
-  if (topResults.length === 0) return [];
-
-  const db = getDb(env.DB);
-  const fileIds = topResults.map((result) => result.fileId);
-
-  const fileRecords = await db
-    .select()
-    .from(files)
-    .where(and(eq(files.userId, userId), isNull(files.deletedAt), inArray(files.id, fileIds)))
-    .all();
-
-  const fileMap = new Map(fileRecords.map((file) => [file.id, file]));
-
-  return topResults
-    .filter((result) => fileMap.has(result.fileId))
-    .map((result) => ({
-      ...fileMap.get(result.fileId)!,
-      similarityScore: result.score,
-    }));
 }
 
 export async function isAIConfigured(env: Env): Promise<boolean> {

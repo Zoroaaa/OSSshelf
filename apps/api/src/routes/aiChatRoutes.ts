@@ -10,12 +10,24 @@
 import { Hono } from 'hono';
 import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
 import { getAgentByName } from 'agents';
-import { authMiddleware } from '../middleware';
+import { authMiddleware, denyApiKeyAuth } from '../middleware';
 import { aiRateLimit } from '../middleware/aiRateLimit';
-import { getDb, aiChatSessions, aiChatMessages, aiMemories, aiUsageEvents } from '../db';
+import {
+  getDb,
+  aiChatSessions,
+  aiChatMessages,
+  aiMemories,
+  aiUsageEvents,
+  aiTaskRuns,
+  aiTaskSteps,
+  aiTaskEvents,
+} from '../db';
 import { AgentMemory } from '../lib/ai/agentMemory';
 import { completeText } from '../lib/ai/modelRuntime';
-import { buildAgentInstanceName, issueWsTicket, WS_TICKET_TTL_MS } from '../agents/auth';
+import { getActiveRun, getRunView, listRunEvents, resumeRun } from '../lib/ai/planRuntime';
+import { buildToolCatalog } from '../lib/ai/toolCatalog';
+import { AI_AGENT_DEFAULTS, getAiConfigNumber } from '../lib/ai/aiConfigService';
+import { buildAgentInstanceName, issueWsTicket } from '../agents/auth';
 import type { OSSShelfAgent } from '../agents/OSSShelfAgent';
 import type { Env, Variables } from '../types/env';
 import { logger } from '@osshelf/shared';
@@ -23,6 +35,8 @@ import { AppError, throwAppError } from '../middleware/error';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
+// 会话/记忆/任务涉及个人数据与模型计费，API Key 一律不可用（R9）
+app.use('/*', denyApiKeyAuth());
 app.use('/ws-ticket', aiRateLimit({ estimatedTokens: 0 }));
 app.use('/sessions/:sessionId/title', aiRateLimit());
 
@@ -33,6 +47,29 @@ function normalizeTitle(input: string, maxLength = 60): string {
     .replace(/^["'“”‘’\s]+|["'“”‘’\s]+$/g, '')
     .trim()
     .slice(0, maxLength);
+}
+
+/**
+ * 删除会话时同步清理任务编排数据。
+ * ai_task_* 没有外键（D1 上无法保证级联），不清理会留下跨会话的任务与事件孤儿。
+ */
+async function purgeTaskData(db: ReturnType<typeof getDb>, sessionIds: string[]): Promise<void> {
+  const CHUNK = 100;
+  for (let i = 0; i < sessionIds.length; i += CHUNK) {
+    const slice = sessionIds.slice(i, i + CHUNK);
+    const runs = await db
+      .select({ id: aiTaskRuns.id })
+      .from(aiTaskRuns)
+      .where(inArray(aiTaskRuns.sessionId, slice))
+      .all();
+    const runIds = runs.map((run) => run.id);
+    for (let j = 0; j < runIds.length; j += CHUNK) {
+      const runSlice = runIds.slice(j, j + CHUNK);
+      await db.delete(aiTaskEvents).where(inArray(aiTaskEvents.runId, runSlice));
+      await db.delete(aiTaskSteps).where(inArray(aiTaskSteps.runId, runSlice));
+    }
+    await db.delete(aiTaskRuns).where(inArray(aiTaskRuns.sessionId, slice));
+  }
 }
 
 app.post('/ws-ticket', async (c) => {
@@ -55,14 +92,80 @@ app.post('/ws-ticket', async (c) => {
     throwAppError('NOT_FOUND', '会话不存在');
   }
 
-  const ticket = await issueWsTicket(c.env, userId, sessionId);
+  const ticketTtlMs = Math.max(
+    60_000,
+    await getAiConfigNumber(c.env, 'ai.agent.ticket_ttl_ms', AI_AGENT_DEFAULTS.ticketTtlMs)
+  );
+  const ticket = await issueWsTicket(c.env, userId, sessionId, ticketTtlMs);
   return c.json({
     success: true,
     data: {
       ticket,
       agent: 'OSSShelfAgent',
       name: buildAgentInstanceName(userId, sessionId),
-      expiresIn: Math.floor(WS_TICKET_TTL_MS / 1000),
+      expiresIn: Math.floor(ticketTtlMs / 1000),
+    },
+  });
+});
+
+/**
+ * 工具目录：前端展示的 label/category 由后端定义派生，不再手写映射。
+ * 只返回展示元数据，不含参数 schema 与执行器。
+ */
+app.get('/tools', (c) => {
+  return c.json({ success: true, data: buildToolCatalog() });
+});
+
+/** 当前会话进行中的任务（前端计划条 / 续跑入口） */
+app.get('/sessions/:sessionId/run', async (c) => {
+  const userId = c.get('userId');
+  if (!userId) throwAppError('UNAUTHORIZED', '未认证');
+  const sessionId = c.req.param('sessionId');
+
+  const session = await getDb(c.env.DB)
+    .select({ id: aiChatSessions.id })
+    .from(aiChatSessions)
+    .where(and(eq(aiChatSessions.id, sessionId), eq(aiChatSessions.userId, userId)))
+    .get();
+  if (!session) throwAppError('NOT_FOUND', '会话不存在');
+
+  const view = await getActiveRun(c.env, userId, sessionId);
+  return c.json({ success: true, data: view });
+});
+
+app.get('/runs/:runId', async (c) => {
+  const userId = c.get('userId');
+  if (!userId) throwAppError('UNAUTHORIZED', '未认证');
+  const view = await getRunView(c.env, userId, c.req.param('runId'));
+  if (!view) throwAppError('NOT_FOUND', '任务不存在');
+  return c.json({ success: true, data: view });
+});
+
+app.get('/runs/:runId/events', async (c) => {
+  const userId = c.get('userId');
+  if (!userId) throwAppError('UNAUTHORIZED', '未认证');
+  const rawLimit = parseInt(c.req.query('limit') || '100', 10);
+  const limit = Number.isFinite(rawLimit) ? rawLimit : 100;
+  const events = await listRunEvents(c.env, userId, c.req.param('runId'), limit);
+  return c.json({ success: true, data: events });
+});
+
+/**
+ * 续跑入口：把中断遗留的步骤退回 pending 并恢复 run。
+ * 真正的续跑由前端发一条「继续执行」消息触发，Agent 通过 L1 任务状态从当前步骤继续，
+ * 不在服务端重放历史工具调用。
+ */
+app.post('/runs/:runId/resume', async (c) => {
+  const userId = c.get('userId');
+  if (!userId) throwAppError('UNAUTHORIZED', '未认证');
+  const view = await resumeRun(c.env, userId, c.req.param('runId'));
+  if (!view) throwAppError('NOT_FOUND', '任务不存在');
+  return c.json({
+    success: true,
+    data: {
+      run: view.run,
+      steps: view.steps,
+      resumeMessage: '继续执行未完成的任务，从当前步骤接着做，不要重复已完成的步骤。',
     },
   });
 });
@@ -380,6 +483,7 @@ app.delete('/sessions', async (c) => {
       await db.delete(aiChatMessages).where(inArray(aiChatMessages.sessionId, slice));
       await db.delete(aiMemories).where(inArray(aiMemories.sessionId, slice));
     }
+    await purgeTaskData(db, ids);
     await db.delete(aiChatSessions).where(eq(aiChatSessions.userId, userId));
   } catch (error) {
     logger.error('AI Chat', 'Failed to clear sessions', { userId }, error);
@@ -420,6 +524,7 @@ app.delete('/sessions/:sessionId', async (c) => {
 
     await db.delete(aiChatMessages).where(eq(aiChatMessages.sessionId, sessionId));
     await db.delete(aiMemories).where(eq(aiMemories.sessionId, sessionId));
+    await purgeTaskData(db, [sessionId]);
     await db.delete(aiChatSessions).where(eq(aiChatSessions.id, sessionId));
 
     return c.json({ success: true, data: { message: '会话已删除' } });

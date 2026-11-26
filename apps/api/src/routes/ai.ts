@@ -13,13 +13,14 @@
 import { Hono } from 'hono';
 import { eq, and, isNull, sql, inArray, or, lt } from 'drizzle-orm';
 import { getDb, files, fileChunks, aiTasks, aiTaskItems } from '../db';
-import { authMiddleware } from '../middleware';
+import { authMiddleware, denyApiKeyAuth } from '../middleware';
 import { aiRateLimit } from '../middleware/aiRateLimit';
 import { logger } from '@osshelf/shared';
 import type { Env, Variables } from '../types/env';
 import { z } from 'zod';
 
-import { deleteFileVector, deleteFileVectors, isAIConfigured, searchAndFetchFiles } from '../lib/ai/vectorIndex';
+import { deleteFileVector, deleteFileVectors, isAIConfigured } from '../lib/ai/vectorIndex';
+import { searchFilesHybrid } from '../lib/ai/retrievalService';
 import {
   generateFileSummary,
   generateImageTags,
@@ -41,6 +42,8 @@ import { throwAppError } from '../middleware/error';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
+// 模型调用会产生费用且工具可读写用户文件：AI 端点禁用 API Key 认证
+app.use('/*', denyApiKeyAuth());
 
 // 仅入队的端点不消耗模型 token（由后台任务消费），只做请求级限流
 const aiEnqueueGuard = aiRateLimit({ estimatedTokens: 0 });
@@ -805,7 +808,7 @@ app.post('/search', async (c) => {
   const { query, limit, threshold, mimeType } = result.data;
 
   // searchAndFetchFiles 内部用 inArray 单次查询，避免全表扫描
-  const items = await searchAndFetchFiles(c.env, query, userId, {
+  const items = await searchFilesHybrid(c.env, query, userId, {
     limit,
     threshold,
     mimeType,

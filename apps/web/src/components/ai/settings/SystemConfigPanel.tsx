@@ -26,15 +26,29 @@ const CATEGORY_LABELS: Record<string, string> = {
   model: '全局回退模型',
   parameter: '模型参数',
   agent: 'Agent 配置',
+  task: '任务编排',
   tool: '工具配置',
   feature: '功能开关',
   rag: 'RAG 配置',
   retry: '重试与超时',
   quota: '配额与限流',
+  ui: '前端交互',
   prompt: '提示词模板',
 };
 
-const CATEGORY_ORDER = ['model', 'parameter', 'agent', 'tool', 'feature', 'rag', 'retry', 'quota', 'prompt'];
+const CATEGORY_ORDER = [
+  'model',
+  'parameter',
+  'agent',
+  'task',
+  'tool',
+  'feature',
+  'rag',
+  'retry',
+  'quota',
+  'ui',
+  'prompt',
+];
 const ADVANCED_CATEGORY = '__advanced__';
 
 function getCurrentValue(config: AiSystemConfigItem): string {

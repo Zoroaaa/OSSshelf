@@ -147,6 +147,9 @@ export const WRITE_TOOLS = new Set([
   // AI 任务（会消耗模型额度或覆盖摘要/标签/索引）
   'trigger_ai_summary',
   'trigger_ai_tags',
+  // 同步生成摘要/标签：会调用模型并覆盖文件元数据，属于有副作用写操作
+  'generate_summary',
+  'generate_tags',
   'rebuild_vector_index',
 ]);
 

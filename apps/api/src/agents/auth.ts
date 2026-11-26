@@ -13,7 +13,7 @@ import { getDb, aiChatSessions } from '../db';
 import type { Env } from '../types/env';
 
 /**
- * ticket 有效期。
+ * ticket 有效期默认值。实际签发时由 ai.agent.ticket_ttl_ms 覆盖，前后端同源。
  * 连接建立后只校验一次，因此前端会在临近过期时重新签票并重连，
  * 绝不在重连时复用旧票据；配额/限流为消息级校验（见 OSSShelfAgent.onChatMessage）。
  */
@@ -58,8 +58,13 @@ export function buildAgentInstanceName(userId: string, sessionId: string): strin
   return `${userId}:${sessionId}`;
 }
 
-export async function issueWsTicket(env: Env, userId: string, sessionId: string): Promise<string> {
-  const payload = `${buildAgentInstanceName(userId, sessionId)}:${Date.now() + WS_TICKET_TTL_MS}`;
+export async function issueWsTicket(
+  env: Env,
+  userId: string,
+  sessionId: string,
+  ttlMs: number = WS_TICKET_TTL_MS
+): Promise<string> {
+  const payload = `${buildAgentInstanceName(userId, sessionId)}:${Date.now() + ttlMs}`;
   const encoded = toBase64Url(encoder.encode(payload));
   const signature = await sign(env.JWT_SECRET, encoded);
   return `${encoded}.${signature}`;

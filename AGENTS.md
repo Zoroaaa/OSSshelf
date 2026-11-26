@@ -84,7 +84,7 @@ pnpm db:migrate:local                                         # 本地 D1 应用
 ### 3.5 SQL 迁移是唯一事实源
 
 表结构看 `migrations/*.sql`，`schema.ts` 只做类型推导。禁止用 `drizzle-kit generate` 覆盖 migrations。
-编号只增不改，当前最大 119，下一个 120。远程迁移由 CI 执行，agent 只写文件与本地验证。
+编号只增不改，当前最大 123，下一个 124。远程迁移由 CI 执行，agent 只写文件与本地验证。
 
 ### 3.6 shared 必须先构建
 
@@ -134,7 +134,7 @@ pnpm db:migrate:local                                         # 本地 D1 应用
 
 ## 7. 数据库迁移
 
-1. 新建 `apps/api/migrations/<下一个编号>_<snake_case>.sql`（`010` / `020` / … / `110` 为模块块，块内递增；写文件前 `ls apps/api/migrations` 确认当前最大编号，当前下一个是 **122**）。
+1. 新建 `apps/api/migrations/<下一个编号>_<snake_case>.sql`（`010` / `020` / … / `110` 为模块块，块内递增；写文件前 `ls apps/api/migrations` 确认当前最大编号，当前下一个是 **124**）。
 2. 同步修改 `src/db/schema.ts`。
 3. `pnpm db:migrate:local` 验证。
 4. 新表或新关系更新 `docs/architecture.md` 数据模型。

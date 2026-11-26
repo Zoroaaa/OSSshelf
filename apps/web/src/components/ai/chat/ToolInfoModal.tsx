@@ -3,9 +3,9 @@
  * 工具说明弹窗：按分类展示工具清单（数据来自 toolMeta 单一来源）。
  */
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Wrench, X } from 'lucide-react';
-import { CATEGORY_DESC, groupedToolMeta } from './toolMeta';
+import { CATEGORY_DESC, useToolCatalog } from './toolMeta';
 import { useDialogRegistration } from '@/lib/dialogStack';
 
 interface ToolInfoModalProps {
@@ -13,10 +13,22 @@ interface ToolInfoModalProps {
   onClose: () => void;
 }
 
-const GROUPS = groupedToolMeta();
-
 export function ToolInfoModal({ open, onClose }: ToolInfoModalProps) {
   useDialogRegistration(open, 'tool-info-modal');
+  const { catalog, isLoading } = useToolCatalog();
+
+  const groups = useMemo(() => {
+    if (!catalog) return [];
+    const byCategory = new Map<string, Array<{ name: string; label: string }>>();
+    for (const tool of catalog.tools) {
+      const list = byCategory.get(tool.category) ?? [];
+      list.push({ name: tool.name, label: tool.label });
+      byCategory.set(tool.category, list);
+    }
+    return catalog.categories
+      .filter((category) => byCategory.has(category.name))
+      .map((category) => ({ category: category.name, tools: byCategory.get(category.name) ?? [] }));
+  }, [catalog]);
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -28,7 +40,7 @@ export function ToolInfoModal({ open, onClose }: ToolInfoModalProps) {
 
   if (!open) return null;
 
-  const total = GROUPS.reduce((sum, group) => sum + group.tools.length, 0);
+  const total = catalog?.tools.length ?? 0;
 
   return (
     <div
@@ -45,7 +57,9 @@ export function ToolInfoModal({ open, onClose }: ToolInfoModalProps) {
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-foreground">可用工具</p>
-            <p className="text-[11px] text-muted-foreground">共 {total} 个 · 写操作会自动弹出确认</p>
+            <p className="text-[11px] text-muted-foreground">
+              {isLoading ? '正在加载工具目录…' : `共 ${total} 个 · 写操作会自动弹出确认`}
+            </p>
           </div>
           <button
             type="button"
@@ -59,7 +73,7 @@ export function ToolInfoModal({ open, onClose }: ToolInfoModalProps) {
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
           <div className="space-y-4">
-            {GROUPS.map((group) => (
+            {groups.map((group) => (
               <section key={group.category}>
                 <div className="mb-1.5 flex items-baseline gap-2">
                   <h3 className="text-[13px] font-semibold text-foreground">{group.category}</h3>

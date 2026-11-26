@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { AtSign, Download, FileText, Loader2, Reply, Send, StopCircle, X } from 'lucide-react';
+import { AtSign, Download, FileText, Loader2, Paperclip, Reply, Send, StopCircle, X } from 'lucide-react';
 import { aiApi } from '@/services/ai';
 import { useToast } from '@/components/ui/useToast';
 import { formatBytes } from '@/utils';
@@ -34,6 +34,9 @@ interface ComposerProps {
   onRemoveMention: (id: string) => void;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   maxLength?: number;
+  /** 本地文件上传（走文件系统的预签名上传，不是聊天通道） */
+  onUploadFiles?: (files: File[]) => void;
+  uploading?: boolean;
 }
 
 const MENTION_DEBOUNCE_MS = 300;
@@ -52,9 +55,12 @@ export function Composer({
   onRemoveMention,
   inputRef,
   maxLength = 15000,
+  onUploadFiles,
+  uploading = false,
 }: ComposerProps) {
   const { toast } = useToast();
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
   const [mentionOpen, setMentionOpen] = useState(false);
@@ -178,10 +184,14 @@ export function Composer({
     }
 
     if (event.dataTransfer.files.length > 0) {
-      toast({
-        title: '暂不支持直接发送本地文件',
-        description: '请先在文件管理页上传，再用 @ 引用该文件。',
-      });
+      if (onUploadFiles) {
+        onUploadFiles(Array.from(event.dataTransfer.files));
+      } else {
+        toast({
+          title: '暂不支持直接发送本地文件',
+          description: '请先在文件管理页上传，再用 @ 引用该文件。',
+        });
+      }
     }
   };
 
@@ -249,7 +259,32 @@ export function Composer({
               }
             />
 
-            <div className="flex flex-shrink-0 items-center pb-0.5">
+            <div className="flex flex-shrink-0 items-center gap-1 pb-0.5">
+              {onUploadFiles && (
+                <>
+                  <input
+                    ref={uploadInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(event) => {
+                      const files = Array.from(event.target.files ?? []);
+                      event.target.value = '';
+                      if (files.length > 0) onUploadFiles(files);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => uploadInputRef.current?.click()}
+                    disabled={uploading}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+                    aria-label="上传文件并引用"
+                    title="上传文件（上传后自动成为上下文）"
+                  >
+                    {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
+                  </button>
+                </>
+              )}
               {busy ? (
                 <button
                   type="button"

@@ -1,11 +1,14 @@
 /**
  * components/ai/chat/toolMeta.ts
- * AI 工具元数据单一来源（label / category / icon / 摘要）
+ * 工具展示元数据：label / category 来自后端工具目录（GET /api/ai-chat/tools），
+ * 前端只保留图标与分类说明，不再手写 100+ 工具映射。
  *
- * 之前 label、图标、摘要、分类分散在 AIChat.tsx、ToolCallCard.tsx、
- * ToolInfoModal.tsx 三处，数量与名称都会漂移。这里统一，所有 UI 只从这里取。
+ * 为什么这样改：手写映射与后端 TOOL_DEFINITIONS 双份维护，新增/改名必然漂移；
+ * 后端从描述前缀【】解析 label、从分类表反查 category，天然同源。
  */
 
+import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import {
   BarChart3,
@@ -24,15 +27,16 @@ import {
   StickyNote,
   Tag,
 } from 'lucide-react';
+import { aiApi } from '@/services/ai';
+import type { AiToolCatalog } from '@/services/ai';
 
 export interface ToolMetaEntry {
   label: string;
   category: string;
-  summary?: (args: Record<string, unknown>) => string;
 }
 
 const CATEGORY_ICONS: Record<string, ReactNode> = {
-  搜索发现: <Search className="h-3 w-3" />,
+  搜索与发现: <Search className="h-3 w-3" />,
   内容理解: <FileText className="h-3 w-3" />,
   目录导航: <FolderOpen className="h-3 w-3" />,
   统计分析: <BarChart3 className="h-3 w-3" />,
@@ -48,264 +52,31 @@ const CATEGORY_ICONS: Record<string, ReactNode> = {
   任务规划: <ListTodo className="h-3 w-3" />,
 };
 
-function str(value: unknown, max = 40): string {
-  return String(value ?? '').slice(0, max);
+let toolMap = new Map<string, ToolMetaEntry>();
+
+function applyCatalog(catalog: AiToolCatalog): void {
+  toolMap = new Map(catalog.tools.map((tool) => [tool.name, { label: tool.label, category: tool.category }]));
 }
 
-export const TOOL_META: Record<string, ToolMetaEntry> = {
-  // ── 搜索发现 ──
-  search_files: { label: '搜索文件', category: '搜索发现', summary: (a) => `搜索「${str(a.query)}」` },
-  search_content: { label: '全文检索', category: '搜索发现', summary: (a) => `检索内容「${str(a.query)}」` },
-  smart_search: { label: '智能搜索', category: '搜索发现', summary: (a) => `智能搜索「${str(a.query, 30)}」` },
-  filter_files: {
-    label: '筛选文件',
-    category: '搜索发现',
-    summary: (a) => {
-      const parts: string[] = [];
-      if (a.mimeTypePrefix) parts.push(`类型 ${String(a.mimeTypePrefix).split('/')[0]}`);
-      if (a.minSize) parts.push(`≥${a.minSize}B`);
-      if (a.dateFrom) parts.push(`从 ${String(a.dateFrom).slice(0, 10)}`);
-      return parts.length ? `筛选文件（${parts.join('、')}）` : '筛选文件';
-    },
-  },
-  search_by_tag: {
-    label: '标签搜索',
-    category: '搜索发现',
-    summary: (a) =>
-      `按标签搜索「${Array.isArray(a.tagNames) ? (a.tagNames as string[]).join('、') : str(a.tagNames)}」`,
-  },
-  search_duplicates: { label: '查找重复文件', category: '搜索发现' },
-  get_similar_files: { label: '相似文件', category: '搜索发现' },
-  get_file_details: { label: '文件详情', category: '搜索发现' },
-  get_starred_files: { label: '收藏文件', category: '搜索发现' },
+/** 工具目录加载：AIChat / ToolInfoModal 共用同一 query，只请求一次 */
+export function useToolCatalog() {
+  const query = useQuery({
+    queryKey: ['ai-tool-catalog'],
+    queryFn: () => aiApi.chatSession.getTools().then((response) => response.data.data),
+    staleTime: 30 * 60_000,
+    retry: 1,
+  });
 
-  // ── 内容理解 ──
-  read_file_text: { label: '读取文件内容', category: '内容理解' },
-  analyze_image: {
-    label: '分析图片',
-    category: '内容理解',
-    summary: (a) => (a.question ? `分析图片：${str(a.question, 30)}` : 'AI 分析图片'),
-  },
-  compare_files: { label: '对比文件', category: '内容理解' },
-  extract_metadata: { label: '提取元数据', category: '内容理解' },
-  generate_summary: {
-    label: '生成摘要',
-    category: '内容理解',
-    summary: (a) => (a.forceRegenerate ? '重新生成摘要' : '生成 AI 摘要'),
-  },
-  generate_tags: {
-    label: '生成标签',
-    category: '内容理解',
-    summary: (a) => `生成标签（最多 ${a.maxTags ?? 5} 个）`,
-  },
-  content_preview: {
-    label: '内容预览',
-    category: '内容理解',
-    summary: (a) => `预览前 ${a.lines ?? 50} 行`,
-  },
+  useEffect(() => {
+    if (query.data) applyCatalog(query.data);
+  }, [query.data]);
 
-  // ── 目录导航 ──
-  navigate_path: {
-    label: '路径导航',
-    category: '目录导航',
-    summary: (a) => (a.path ? `导航到 ${str(a.path)}` : '打开文件夹'),
-  },
-  list_folder: {
-    label: '浏览文件夹',
-    category: '目录导航',
-    summary: (a) => (a.folderId ? '浏览文件夹' : '浏览根目录'),
-  },
-  get_recent_files: {
-    label: '最近文件',
-    category: '目录导航',
-    summary: (a) => `最近${a.days ? ` ${a.days} 天` : ''}文件`,
-  },
-  get_parent_chain: { label: '父级链路', category: '目录导航' },
-  get_folder_tree: {
-    label: '查看目录树',
-    category: '目录导航',
-    summary: (a) => `目录树${a.depth ? `（深度 ${a.depth}）` : ''}`,
-  },
-  get_storage_overview: { label: '存储概览', category: '目录导航' },
-
-  // ── 统计分析 ──
-  get_storage_stats: {
-    label: '存储统计',
-    category: '统计分析',
-    summary: (a) => `按 ${a.dimension ?? 'mimetype'} 统计`,
-  },
-  get_activity_stats: { label: '活动趋势', category: '统计分析', summary: (a) => `周期 ${a.period ?? 'day'}` },
-  get_user_quota_info: { label: '配额信息', category: '统计分析' },
-  get_file_type_distribution: {
-    label: '文件类型分布',
-    category: '统计分析',
-    summary: (a) => `按 ${a.groupBy ?? 'category'} 分组`,
-  },
-  get_sharing_stats: { label: '分享统计', category: '统计分析' },
-
-  // ── 文件操作 ──
-  create_text_file: { label: '创建文本文件', category: '文件操作', summary: (a) => `创建「${str(a.fileName, 30)}」` },
-  create_code_file: { label: '创建代码文件', category: '文件操作', summary: (a) => `创建「${str(a.fileName, 30)}」` },
-  create_file_from_template: {
-    label: '从模板创建',
-    category: '文件操作',
-    summary: (a) => `模板「${str(a.templateName, 20)}」`,
-  },
-  edit_file_content: { label: '编辑文件', category: '文件操作', summary: (a) => `编辑 ${a.editCount ?? ''} 处内容` },
-  append_to_file: { label: '追加内容', category: '文件操作' },
-  find_and_replace: {
-    label: '查找替换',
-    category: '文件操作',
-    summary: (a) => `替换「${str(a.find, 20)}」`,
-  },
-  rename_file: { label: '重命名', category: '文件操作', summary: (a) => `重命名为「${str(a.newName, 30)}」` },
-  move_file: {
-    label: '移动文件',
-    category: '文件操作',
-    summary: (a) => (a.targetFolderPath ? `移动到 ${str(a.targetFolderPath)}` : '移动到目标文件夹'),
-  },
-  delete_file: { label: '删除文件', category: '文件操作' },
-  restore_file: { label: '恢复文件', category: '文件操作' },
-  create_folder: { label: '创建文件夹', category: '文件操作', summary: (a) => `创建「${str(a.folderName, 30)}」` },
-  draft_and_create_file: {
-    label: '草稿创建文件',
-    category: '文件操作',
-    summary: (a) => `创建「${str(a.fileName, 30)}」`,
-  },
-  batch_rename: {
-    label: '批量重命名',
-    category: '文件操作',
-    summary: (a) => `批量重命名（${Array.isArray(a.fileIds) ? a.fileIds.length : '?'} 个）`,
-  },
-  batch_move: {
-    label: '批量移动',
-    category: '文件操作',
-    summary: (a) => `批量移动（${Array.isArray(a.fileIds) ? a.fileIds.length : '?'} 个）`,
-  },
-  batch_delete: {
-    label: '批量删除',
-    category: '文件操作',
-    summary: (a) => `批量删除（${Array.isArray(a.fileIds) ? a.fileIds.length : '?'} 个）`,
-  },
-  star_file: { label: '收藏文件', category: '文件操作' },
-  unstar_file: { label: '取消收藏', category: '文件操作' },
-
-  // ── 标签管理 ──
-  add_tag: {
-    label: '添加标签',
-    category: '标签管理',
-    summary: (a) => `添加「${Array.isArray(a.tags) ? (a.tags as string[]).join('、') : str(a.tags)}」`,
-  },
-  remove_tag: {
-    label: '移除标签',
-    category: '标签管理',
-    summary: (a) => `移除「${Array.isArray(a.tagNames) ? (a.tagNames as string[]).join('、') : str(a.tagNames)}」`,
-  },
-  get_file_tags: { label: '文件标签', category: '标签管理' },
-  list_all_tags_for_management: { label: '标签库', category: '标签管理' },
-  merge_tags: { label: '合并标签', category: '标签管理', summary: (a) => `${str(a.sourceTag)} → ${str(a.targetTag)}` },
-  auto_tag_files: {
-    label: '智能打标签',
-    category: '标签管理',
-    summary: (a) => `处理 ${Array.isArray(a.fileIds) ? a.fileIds.length : '?'} 个文件`,
-  },
-  tag_folder: { label: '文件夹打标', category: '标签管理', summary: (a) => (a.recursive ? '递归打标' : '文件夹打标') },
-
-  // ── 分享链接 ──
-  create_share_link: {
-    label: '创建分享链接',
-    category: '分享链接',
-    summary: (a) => `创建分享${a.password ? '（有密码）' : ''}`,
-  },
-  list_shares: { label: '分享列表', category: '分享链接' },
-  update_share_settings: { label: '更新分享设置', category: '分享链接' },
-  revoke_share: { label: '撤销分享', category: '分享链接' },
-  get_share_stats: { label: '分享统计', category: '分享链接' },
-  create_direct_link: {
-    label: '创建直链',
-    category: '分享链接',
-    summary: (a) => `直链（${a.expiresInHours ?? 168}h）`,
-  },
-  revoke_direct_link: { label: '撤销直链', category: '分享链接' },
-  create_upload_link_for_folder: { label: '创建上传链接', category: '分享链接' },
-
-  // ── 版本管理 ──
-  get_file_versions: { label: '版本历史', category: '版本管理' },
-  restore_version: { label: '恢复版本', category: '版本管理' },
-  compare_versions: { label: '对比版本', category: '版本管理', summary: (a) => `${a.versionA} vs ${a.versionB}` },
-  set_version_retention: {
-    label: '版本保留策略',
-    category: '版本管理',
-    summary: (a) => `${a.maxVersions ?? 10} 版 / ${a.retentionDays ?? 30} 天`,
-  },
-
-  // ── 笔记备注 ──
-  add_note: { label: '添加备注', category: '笔记备注' },
-  get_notes: { label: '备注列表', category: '笔记备注' },
-  update_note: { label: '更新备注', category: '笔记备注' },
-  delete_note: { label: '删除备注', category: '笔记备注' },
-  search_notes: { label: '搜索备注', category: '笔记备注', summary: (a) => `「${str(a.query, 30)}」` },
-
-  // ── 权限管理 ──
-  get_file_permissions: { label: '查看权限', category: '权限管理' },
-  grant_permission: { label: '授权访问', category: '权限管理', summary: (a) => `${a.permissionLevel ?? ''} 权限` },
-  revoke_permission: { label: '撤销权限', category: '权限管理' },
-  set_folder_access_level: { label: '设置访问级别', category: '权限管理', summary: (a) => `${a.accessLevel ?? ''}` },
-  list_user_groups: { label: '用户组列表', category: '权限管理' },
-  manage_group_members: {
-    label: '管理组成员',
-    category: '权限管理',
-    summary: (a) => `${a.action === 'add' ? '添加' : '移除'}成员`,
-  },
-  list_expired_permissions: { label: '过期权限', category: '权限管理' },
-
-  // ── 存储管理 ──
-  list_buckets: { label: '存储桶列表', category: '存储管理' },
-  get_bucket_info: { label: '存储桶详情', category: '存储管理' },
-  set_default_bucket: { label: '设默认桶', category: '存储管理' },
-  migrate_file_to_bucket: { label: '迁移文件', category: '存储管理' },
-  get_storage_usage: { label: '存储用量', category: '存储管理' },
-  get_large_files: { label: '大文件列表', category: '存储管理', summary: (a) => `Top ${a.limit ?? 20}` },
-  get_folder_sizes: { label: '文件夹大小', category: '存储管理', summary: (a) => `Top ${a.topN ?? 10}` },
-  get_cleanup_suggestions: { label: '清理建议', category: '存储管理' },
-
-  // ── 系统管理 ──
-  get_system_status: { label: '系统状态', category: '系统管理' },
-  get_help: { label: '帮助信息', category: '系统管理', summary: (a) => `${a.topic ?? '总览'}` },
-  get_version_info: { label: '版本信息', category: '系统管理' },
-  get_faq: { label: '常见问题', category: '系统管理', summary: (a) => `${a.category ?? '全部'}` },
-  get_user_profile: { label: '用户信息', category: '系统管理' },
-  list_api_keys: { label: 'API 密钥列表', category: '系统管理' },
-  create_api_key: { label: '创建 API 密钥', category: '系统管理', summary: (a) => `「${str(a.name, 20)}」` },
-  revoke_api_key: { label: '撤销 API 密钥', category: '系统管理' },
-  list_webhooks: { label: 'Webhook 列表', category: '系统管理' },
-  create_webhook: { label: '创建 Webhook', category: '系统管理' },
-  get_audit_logs: { label: '审计日志', category: '系统管理', summary: (a) => `${a.action ?? ''}` },
-
-  // ── AI 增强 ──
-  trigger_ai_summary: { label: 'AI 摘要', category: 'AI增强' },
-  trigger_ai_tags: { label: 'AI 标签', category: 'AI增强', summary: (a) => `${a.maxTags ?? 5} 个` },
-  rebuild_vector_index: {
-    label: '重建向量索引',
-    category: 'AI增强',
-    summary: (a) => (a.fileId ? '单文件' : a.forceAll ? '全量强制' : '增量'),
-  },
-  ask_rag_question: { label: 'RAG 问答', category: 'AI增强', summary: (a) => `「${str(a.question)}」` },
-  smart_rename_suggest: { label: '智能重命名', category: 'AI增强', summary: (a) => `${a.style ?? 'descriptive'}` },
-  smart_organize_suggest: { label: '整理建议', category: 'AI增强', summary: (a) => `${a.scope ?? 'all'}` },
-  analyze_file_collection: {
-    label: '文件集合分析',
-    category: 'AI增强',
-    summary: (a) => `${a.scope === 'folder' ? '文件夹' : '文件集合'}分析`,
-  },
-
-  // ── 任务规划 ──
-  update_plan: { label: '更新执行计划', category: '任务规划', summary: (a) => `${str(a.goal, 30)}` },
-};
+  return { catalog: query.data, isLoading: query.isLoading };
+}
 
 export function getToolMeta(toolName: string): ToolMetaEntry {
   return (
-    TOOL_META[toolName] ?? {
+    toolMap.get(toolName) ?? {
       label: toolName.replace(/_/g, ' '),
       category: '其他',
     }
@@ -317,30 +88,41 @@ export function getToolIcon(toolName: string): ReactNode {
   return CATEGORY_ICONS[meta.category] ?? <Sparkles className="h-3 w-3" />;
 }
 
-/** 生成人类可读摘要；无摘要函数时退回工具名 */
-export function summarizeToolCall(toolName: string, args?: Record<string, unknown>): string {
-  const meta = getToolMeta(toolName);
-  if (!args || !meta.summary) return meta.label;
-  try {
-    return meta.summary(args);
-  } catch {
-    return meta.label;
-  }
+function truncate(value: unknown, max = 30): string {
+  return String(value ?? '').slice(0, max);
 }
 
-/** 按分类聚合，供工具说明弹窗使用 */
-export function groupedToolMeta(): Array<{ category: string; tools: Array<{ name: string; label: string }> }> {
-  const groups = new Map<string, Array<{ name: string; label: string }>>();
-  for (const [name, meta] of Object.entries(TOOL_META)) {
-    const list = groups.get(meta.category) ?? [];
-    list.push({ name, label: meta.label });
-    groups.set(meta.category, list);
+/** 通用参数摘要：取最有信息量的一个字段，不再为每个工具写函数 */
+export function summarizeToolCall(toolName: string, args?: Record<string, unknown>): string {
+  const meta = getToolMeta(toolName);
+  if (!args) return meta.label;
+
+  for (const key of ['query', 'question', 'goal', 'fileName', 'folderName', 'newName', 'path', 'find', 'name']) {
+    const value = args[key];
+    if (typeof value === 'string' && value.trim()) {
+      return `${meta.label}「${truncate(value)}」`;
+    }
   }
-  return Array.from(groups.entries()).map(([category, tools]) => ({ category, tools }));
+
+  for (const key of ['fileIds', 'ids']) {
+    const value = args[key];
+    if (Array.isArray(value) && value.length > 0) {
+      return `${meta.label}（${value.length} 个文件）`;
+    }
+  }
+
+  for (const key of ['tags', 'tagNames']) {
+    const value = args[key];
+    if (Array.isArray(value) && value.length > 0) {
+      return `${meta.label}（${value.slice(0, 3).join('、')}）`;
+    }
+  }
+
+  return meta.label;
 }
 
 export const CATEGORY_DESC: Record<string, string> = {
-  搜索发现: '关键词搜索、全文检索、标签筛选、重复检测',
+  搜索与发现: '关键词搜索、全文检索、标签筛选、重复检测',
   内容理解: '读取文本、分析图片、提取元数据、AI 摘要/标签',
   目录导航: '浏览目录、路径导航、目录树、最近文件',
   统计分析: '存储统计、活动趋势、配额、类型分布、分享统计',
@@ -354,4 +136,5 @@ export const CATEGORY_DESC: Record<string, string> = {
   系统管理: '系统状态、帮助、API Key、Webhook、审计日志',
   AI增强: '摘要/标签触发、向量索引、RAG、重命名与整理建议',
   任务规划: '多步任务的执行计划与进度',
+  其他: '未归类的辅助工具',
 };

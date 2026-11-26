@@ -21,6 +21,8 @@ interface UseOssShelfChatOptions {
   userId?: string | null;
   sessionId?: string | null;
   enabled: boolean;
+  /** 身份等待超时，来自 /api/ai-config/effective（ai.ui.identity_wait_ms） */
+  identityWaitMs?: number;
 }
 
 interface OssShelfChatHandle {
@@ -58,7 +60,7 @@ const TICKET_REFRESH_MARGIN_MS = 60_000;
 const TICKET_CACHE_MAX_AGE_MS = 10 * 60_000;
 const DEFAULT_TICKET_TTL_MS = 10 * 60_000;
 const TICKET_RETRY_DELAYS_MS = [600, 1500];
-const CONNECT_TIMEOUT_MS = 9_000;
+const FALLBACK_IDENTITY_WAIT_MS = 9_000;
 
 const ticketCache = new Map<string, { ticket: string; expiresAt: number }>();
 
@@ -123,7 +125,12 @@ function toError(value: unknown): Error | undefined {
   return new Error(typeof message === 'string' ? message : '会话连接异常');
 }
 
-export function useOssShelfChat({ userId, sessionId, enabled }: UseOssShelfChatOptions): OssShelfChatHandle {
+export function useOssShelfChat({
+  userId,
+  sessionId,
+  enabled,
+  identityWaitMs,
+}: UseOssShelfChatOptions): OssShelfChatHandle {
   const active = Boolean(enabled && userId && sessionId);
   const agentName = active ? `${userId}:${sessionId}` : null;
   const host = useMemo(resolveWsHost, []);
@@ -276,7 +283,9 @@ export function useOssShelfChat({ userId, sessionId, enabled }: UseOssShelfChatO
     return () => window.clearTimeout(timer);
   }, [agentName, ticketExpiresAt, retryConnection]);
 
-  // 连接超时自愈：票据有效但 9s 内未完成身份识别，自动重新换票一次（每张票据一次机会）
+  // 连接超时自愈：票据有效但在 identity_wait_ms 内未完成身份识别，
+  // 自动重新换票一次（每张票据一次机会）；阈值来自配置，前后端同源。
+  const identityWaitTimeoutMs = Math.max(3_000, identityWaitMs ?? FALLBACK_IDENTITY_WAIT_MS);
   const autoRetriedTicketRef = useRef<string | null>(null);
   useEffect(() => {
     if (!agentName || !ticket) return;
@@ -289,9 +298,9 @@ export function useOssShelfChat({ userId, sessionId, enabled }: UseOssShelfChatO
         autoRetriedTicketRef.current = ticket;
         retryConnection();
       }
-    }, CONNECT_TIMEOUT_MS);
+    }, identityWaitTimeoutMs);
     return () => window.clearTimeout(timer);
-  }, [agentName, ticket, agent.identified, retryConnection]);
+  }, [agentName, ticket, agent.identified, retryConnection, identityWaitTimeoutMs]);
 
   const connectionError = useMemo(() => {
     const sdkError = toError(chat.connectionError);

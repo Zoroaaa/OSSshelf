@@ -16,7 +16,8 @@
 import { eq, and, isNull, isNotNull, desc, asc, like, or, inArray, count, gte, lte, sql } from 'drizzle-orm';
 import type { InferSelectModel } from 'drizzle-orm';
 import { getDb, files, fileTags, shares } from '../../../db';
-import { searchAndFetchFiles, searchChunkContent } from '../vectorIndex';
+import { searchChunkContent } from '../vectorIndex';
+import { searchFilesHybrid } from '../retrievalService';
 import type { Env } from '../../../types/env';
 import { logger } from '@osshelf/shared';
 import type { ToolDefinition, AgentFile } from './types';
@@ -343,60 +344,25 @@ export class SearchTools {
     const mimeTypePrefix = args.mimeTypePrefix as string | undefined;
     const folderId = args.folderId as string | undefined;
 
-    const db = getDb(env.DB);
-    let results: AgentFile[] = [];
-
-    // 使用智能关键词拆分（支持中文语义单元识别）
+    // 使用智能关键词拆分（支持中文语义单元识别），仅用于日志诊断；
+    // 真正的关键词召回在 retrievalService 内走 FTS5，不再在业务层拼 LIKE。
     const splitResult = splitKeywords(query);
-    const keywords = splitResult.keywords.length > 0 ? splitResult.keywords : [query];
-
     logger.info('AgentTool', '搜索关键词智能拆分', {
       originalQuery: query,
-      keywords,
+      keywords: splitResult.keywords.length > 0 ? splitResult.keywords : [query],
       method: splitResult.method,
     });
 
+    let results: AgentFile[] = [];
     try {
-      // 向量搜索使用原始查询（保持语义完整性）
-      const vectorResults = await searchAndFetchFiles(env, query, userId, {
+      const hits = await searchFilesHybrid(env, query, userId, {
         limit: limit * 2,
-        threshold: 0.22,
+        mimeTypePrefix,
+        folderId,
       });
-      results = vectorResults
-        .filter((f: InferSelectModel<typeof files>) => !mimeTypePrefix || (f.mimeType ?? '').startsWith(mimeTypePrefix))
-        .filter((f: InferSelectModel<typeof files>) => !folderId || f.parentId === folderId)
-        .map(toAgentFile);
+      results = hits.map((file) => toAgentFile(file)).slice(0, limit);
     } catch (error) {
-      logger.warn('AgentTool', 'Vector search failed, falling back to FTS', { query }, error);
-    }
-
-    if (results.length < 3) {
-      // FTS 回退搜索使用拆分后的关键词
-      const conditions: any[] = [
-        eq(files.userId, userId),
-        isNull(files.deletedAt),
-        or(
-          ...keywords.flatMap((w) => [
-            like(files.name, `%${w}%`),
-            like(files.description, `%${w}%`),
-            like(files.aiSummary, `%${w}%`),
-            like(files.aiTags, `%${w}%`),
-          ])
-        ),
-      ];
-      if (mimeTypePrefix) conditions.push(like(files.mimeType, `${mimeTypePrefix}%`));
-      if (folderId) conditions.push(eq(files.parentId, folderId));
-
-      const kwRows = await db
-        .select()
-        .from(files)
-        .where(and(...conditions))
-        .orderBy(desc(files.updatedAt))
-        .limit(limit)
-        .all();
-
-      const existing = new Set(results.map((r) => r.id));
-      results = [...results, ...kwRows.filter((f) => !existing.has(f.id)).map(toAgentFile)].slice(0, limit);
+      logger.warn('AgentTool', 'Hybrid search failed', { query }, error);
     }
 
     const imageCount = results.filter((f) => f.mimeType?.startsWith('image/')).length;
@@ -595,80 +561,21 @@ export class SearchTools {
     const query = args.query as string;
     const context = (args.context as string) || '';
     const limit = Math.min((args.limit as number) || 10, 30);
-    const db = getDb(env.DB);
 
     const effectiveQuery = context ? `${context} ${query}` : query;
-    const splitResult = splitKeywords(query);
-    const keywords = splitResult.keywords.length > 0 ? splitResult.keywords : [query];
 
-    // ── 方案A：向量 + FTS 双路并行，合并去重 ────────────────────────────
-    const [vectorResults, kwRows] = await Promise.allSettled([
-      // 路径1：向量语义搜索（保持原始查询语义完整性）
-      searchAndFetchFiles(env, effectiveQuery, userId, {
-        limit: limit * 2,
-        threshold: 0.2,
-      }),
-      // 路径2：FTS 关键词搜索
-      db
-        .select()
-        .from(files)
-        .where(
-          and(
-            eq(files.userId, userId),
-            isNull(files.deletedAt),
-            or(
-              ...keywords.flatMap((w) => [
-                like(files.name, `%${w}%`),
-                like(files.description, `%${w}%`),
-                like(files.aiSummary, `%${w}%`),
-                like(files.aiTags, `%${w}%`),
-              ])
-            )
-          )
-        )
-        .orderBy(desc(files.updatedAt))
-        .limit(limit * 2)
-        .all(),
-    ]);
-
-    // 向量结果：按得分加权（权重 1.2）
-    const vectorFiles: Array<AgentFile & { _score: number }> =
-      vectorResults.status === 'fulfilled'
-        ? vectorResults.value.map((f: InferSelectModel<typeof files>) => ({
-            ...toAgentFile(f),
-            _score: 1.2,
-          }))
-        : [];
-
-    // FTS 结果：按时间排序，基础得分 0.8
-    const kwFiles: Array<AgentFile & { _score: number }> =
-      kwRows.status === 'fulfilled'
-        ? kwRows.value.map((f: InferSelectModel<typeof files>) => ({
-            ...toAgentFile(f),
-            _score: 0.8,
-          }))
-        : [];
-
-    if (vectorResults.status === 'rejected') {
-      logger.warn('AgentTool', 'smart_search vector failed', { query }, vectorResults.reason);
+    // 单一策略：向量 + FTS 召回 → RRF 融合（比例与阈值来自 ai.rag.*），
+    // 不再在这里做固定权重 1.2/0.8 或 LIKE 补漏。
+    let merged: AgentFile[] = [];
+    try {
+      const hits = await searchFilesHybrid(env, effectiveQuery, userId, { limit });
+      merged = hits.map((file) => toAgentFile(file));
+    } catch (error) {
+      logger.warn('AgentTool', 'smart_search hybrid failed', { query }, error);
     }
 
-    // 合并去重：向量结果优先，FTS 补充不重叠的结果
-    const seen = new Set<string>();
-    const merged: AgentFile[] = [];
-    for (const f of [...vectorFiles, ...kwFiles]) {
-      if (!seen.has(f.id) && merged.length < limit) {
-        seen.add(f.id);
-        const file = { ...f };
-        delete (file as any)._score;
-        merged.push(file);
-      }
-    }
-
-    logger.info('AgentTool', 'smart_search 双路并行完成', {
+    logger.info('AgentTool', 'smart_search 完成', {
       query,
-      vectorCount: vectorFiles.length,
-      kwCount: kwFiles.length,
       mergedCount: merged.length,
     });
 
@@ -683,9 +590,7 @@ export class SearchTools {
     return createSuccessResponse({
       files: merged,
       total: merged.length,
-      strategy: 'parallel_merge',
-      vectorHits: vectorFiles.length,
-      keywordHits: kwFiles.length,
+      strategy: 'hybrid_rrf',
       nextActions,
     });
   }
@@ -703,7 +608,7 @@ export class SearchTools {
     if (!file) return { error: `文件不存在: ${fileId}` };
 
     try {
-      const vectorResults = await searchAndFetchFiles(env, file.name || '', userId, {
+      const vectorResults = await searchFilesHybrid(env, file.name || '', userId, {
         limit: limit + 1,
         threshold: 0.3,
       });

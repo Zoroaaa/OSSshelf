@@ -1,4 +1,4 @@
-# OSSshelf AI API 文档（v3.0，Cloudflare Agents SDK）
+# OSSshelf AI API 文档（v3.2，Cloudflare Agents SDK）
 
 > 运行时：`OSSShelfAgent`（Durable Object）+ AI SDK `streamText`。
 > HTTP 接口只负责会话/记忆管理、模型配置、索引任务与用量查询；对话本体走 `/agents/*` WebSocket。
@@ -12,6 +12,30 @@
 - 每分钟请求上限：`ai.rate.requests_per_minute`
 
 超限返回 `429`，`error.code` 为 `AI_RATE_LIMIT` 或 `AI_QUOTA_EXCEEDED`。
+
+> 2026-11-26 起，`/api/ai/*`、`/api/ai-chat/*`、`/api/ai-config/*`、`/api/ai/usage` 全部拒绝 API Key 身份（403 `A001`），只允许登录 JWT。原因是这些端点可读写用户文件并产生模型费用，API Key scope 尚未覆盖工具级权限。
+
+## 生效配置（非管理员）
+
+`GET /api/ai-config/effective` 返回前端行为所需的非敏感配置，未登录不可读：
+
+```json
+{
+  "ui": { "connectTimeoutMs": 10000, "identityWaitMs": 9000, "maxQueryLength": 15000, "suggestions": [], "capabilityTags": [] },
+  "agent": { "ticketTtlMs": 600000, "streamStallTimeoutMs": 120000, "maxContextFiles": 5, "maxToolDefinitions": 40, "contextTopK": 5 }
+}
+```
+
+## 任务编排（2026-11-26 新增）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/ai-chat/sessions/:sessionId/run` | 当前会话进行中的任务（`run + steps`），无则 `data: null` |
+| GET | `/api/ai-chat/runs/:runId` | 任务详情（校验归属） |
+| GET | `/api/ai-chat/runs/:runId/events` | 任务事件流（approval/retry/dead_letter/tool_*） |
+| POST | `/api/ai-chat/runs/:runId/resume` | 把 running/awaiting_approval 步骤退回 pending，返回 `resumeMessage` |
+
+续跑流程：前端调 `resume` → 把 `resumeMessage` 作为普通用户消息发给 Agent → Agent 从 system 中的「当前任务状态」继续，不重放历史工具调用。
 
 ## 环境依赖
 

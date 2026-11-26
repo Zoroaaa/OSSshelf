@@ -7,15 +7,15 @@
  * - 乐观消息、上下文文件、引用消息、错误与连接状态
  */
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, Copy, Loader2, PanelLeft, Reply } from 'lucide-react';
 import { aiApi, filesApi } from '@/services/api';
+import { presignUpload } from '@/services/presignUpload';
 import { FilePreview } from '@/components/files/FilePreview';
 import { useAuthStore } from '@/stores/auth';
 import { useToast } from '@/components/ui/useToast';
-import type { FileItem } from '@osshelf/shared';
 import {
   ChatHeader,
   ChatSidebar,
@@ -23,20 +23,27 @@ import {
   ErrorBanner,
   MessageBubble,
   StatusStrip,
+  TaskRunBanner,
   ToolInfoModal,
   WelcomeScreen,
 } from '@/components/ai/chat';
-import { TOOL_META } from '@/components/ai/chat/toolMeta';
+import { useToolCatalog } from '@/components/ai/chat/toolMeta';
 import type { Message } from '@/components/ai/types';
 import { useOssShelfChat, agentMessagesKey } from '@/hooks/useOssShelfChat';
 import { mapUIMessages } from '@/utils/agentMessages';
+import {
+  MODEL_STORAGE_KEY,
+  useAIChatUiState,
+  useUiField,
+  type QuotedMessage,
+} from './aiChat/useAIChatUi';
 
 const PENDING_MESSAGE_ID = 'pending-user-message';
-const MAX_QUERY_LENGTH = 15000;
-const MODEL_STORAGE_KEY = 'osshelf:chat-model';
-const PENDING_CONNECT_TIMEOUT_MS = 10_000;
+/** 配置未加载时的兜底值；实际值来自 GET /api/ai-config/effective */
+const FALLBACK_MAX_QUERY_LENGTH = 15_000;
+const FALLBACK_CONNECT_TIMEOUT_MS = 10_000;
 
-const SUGGESTED = [
+const FALLBACK_SUGGESTED = [
   '帮我找最近上传的文件',
   '查看我的存储统计',
   '有哪些带有"项目"标签的文件？',
@@ -47,17 +54,6 @@ const SUGGESTED = [
   '查看我分享了哪些文件',
 ];
 
-interface QuotedMessage {
-  content: string;
-  role: 'user' | 'assistant';
-}
-
-interface ContextMenuState {
-  x: number;
-  y: number;
-  message: Message;
-}
-
 export function AIChat() {
   const navigate = useNavigate();
   const { sessionId: urlSessionId } = useParams<{ sessionId: string }>();
@@ -67,25 +63,29 @@ export function AIChat() {
   const { token, user } = useAuthStore();
   const { toast } = useToast();
 
-  const [input, setInput] = useState('');
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(urlSessionId ?? null);
-  const [showSidebar, setShowSidebar] = useState(() => window.innerWidth >= 1024);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState('');
-  const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
-  const [showToolInfo, setShowToolInfo] = useState(false);
-  const [quotedMessage, setQuotedMessage] = useState<QuotedMessage | null>(null);
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [sendError, setSendError] = useState<string | null>(null);
-  const [dismissedError, setDismissedError] = useState(false);
-  const [exporting, setExporting] = useState(false);
-  const [showScrollDown, setShowScrollDown] = useState(false);
+  const { state: ui, dispatch: uiDispatch } = useAIChatUiState(urlSessionId ?? null);
 
-  const [mentionedFiles, setMentionedFiles] = useState<Array<{ id: string; name: string }>>([]);
+  const [input, setInput] = useUiField(ui, uiDispatch, 'input');
+  const [currentSessionId, setCurrentSessionId] = useUiField(ui, uiDispatch, 'currentSessionId');
+  const [showSidebar, setShowSidebar] = useUiField(ui, uiDispatch, 'showSidebar');
+  const [copiedId, setCopiedId] = useUiField(ui, uiDispatch, 'copiedId');
+  const [renamingId, setRenamingId] = useUiField(ui, uiDispatch, 'renamingId');
+  const [renameValue, setRenameValue] = useUiField(ui, uiDispatch, 'renameValue');
+  const [previewFile, setPreviewFile] = useUiField(ui, uiDispatch, 'previewFile');
+  const [showToolInfo, setShowToolInfo] = useUiField(ui, uiDispatch, 'showToolInfo');
+  const [quotedMessage, setQuotedMessage] = useUiField(ui, uiDispatch, 'quotedMessage');
+  const [contextMenu, setContextMenu] = useUiField(ui, uiDispatch, 'contextMenu');
+  const [sendError, setSendError] = useUiField(ui, uiDispatch, 'sendError');
+  const [dismissedError, setDismissedError] = useUiField(ui, uiDispatch, 'dismissedError');
+  const [exporting, setExporting] = useUiField(ui, uiDispatch, 'exporting');
+  const [showScrollDown, setShowScrollDown] = useUiField(ui, uiDispatch, 'showScrollDown');
+  const [resumingRun, setResumingRun] = useUiField(ui, uiDispatch, 'resumingRun');
+  const [uploading, setUploading] = useUiField(ui, uiDispatch, 'uploading');
+  const [mentionedFiles, setMentionedFiles] = useUiField(ui, uiDispatch, 'mentionedFiles');
+  const [modelId, setModelId] = useUiField(ui, uiDispatch, 'modelId');
+  const [pendingAgentSend, setPendingAgentSend] = useUiField(ui, uiDispatch, 'pendingAgentSend');
+
   const mentionedFilesRef = useRef<Array<{ id: string; name: string }>>([]);
-
-  const [modelId, setModelId] = useState<string>(() => localStorage.getItem(MODEL_STORAGE_KEY) ?? '');
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -96,17 +96,28 @@ export function AIChat() {
   const wasStreamingRef = useRef(false);
   const titleGeneratedRef = useRef<Set<string>>(new Set());
 
+  const { catalog: toolCatalog } = useToolCatalog();
+
+  const { data: effectiveConfig } = useQuery({
+    queryKey: ['ai-effective-config'],
+    queryFn: () => aiApi.config.getEffective().then((r) => r.data.data),
+    staleTime: 5 * 60_000,
+  });
+
+  const maxQueryLength = effectiveConfig?.ui.maxQueryLength ?? FALLBACK_MAX_QUERY_LENGTH;
+  const pendingConnectTimeoutMs = effectiveConfig?.ui.connectTimeoutMs ?? FALLBACK_CONNECT_TIMEOUT_MS;
+  const suggestedQuestions = effectiveConfig?.ui.suggestions?.length
+    ? effectiveConfig.ui.suggestions
+    : FALLBACK_SUGGESTED;
+
   const agent = useOssShelfChat({
     userId: user?.id,
     sessionId: currentSessionId,
     enabled: true,
+    identityWaitMs: effectiveConfig?.ui.identityWaitMs,
   });
 
-  const [pendingAgentSend, setPendingAgentSend] = useState<{
-    text: string;
-    body: Record<string, unknown>;
-    files: Array<{ id: string; name: string }>;
-  } | null>(null);
+
 
   // ═══ 展示层消息：历史 + 乐观消息 ═══
   const displayMessages = useMemo<Message[]>(() => {
@@ -149,6 +160,19 @@ export function AIChat() {
     [sessions, currentSessionId]
   );
 
+  // 服务端任务事实源：仅在失败/等待审批时用于呈现可恢复入口
+  const { data: activeRun, refetch: refetchActiveRun } = useQuery({
+    queryKey: ['ai-chat-run', currentSessionId],
+    queryFn: () => {
+      if (!currentSessionId) throw new Error('缺少会话上下文');
+      return aiApi.chatSession.getActiveRun(currentSessionId).then((r) => r.data.data);
+    },
+    enabled: Boolean(currentSessionId),
+    staleTime: 5_000,
+    refetchInterval: agent.isStreaming ? 3_000 : false,
+    retry: 1,
+  });
+
   const { data: models = [] } = useQuery({
     queryKey: ['ai-chat-models'],
     queryFn: () => aiApi.config.getModels('chat').then((r) => r.data.data ?? []),
@@ -185,7 +209,7 @@ export function AIChat() {
     const payload = pendingAgentSend;
     setPendingAgentSend(null);
     void agentSendMessage({ text: payload.text }, { body: payload.body });
-  }, [agentConnected, agentSendMessage, pendingAgentSend, currentSessionId]);
+  }, [agentConnected, agentSendMessage, pendingAgentSend, currentSessionId, setPendingAgentSend]);
 
   // 连接超时：避免乐观消息永远停在"正在连接"
   useEffect(() => {
@@ -193,9 +217,9 @@ export function AIChat() {
     const timer = window.setTimeout(() => {
       setPendingAgentSend(null);
       setSendError('会话连接超时，请检查网络后重新发送');
-    }, PENDING_CONNECT_TIMEOUT_MS);
+    }, pendingConnectTimeoutMs);
     return () => window.clearTimeout(timer);
-  }, [pendingAgentSend, currentSessionId]);
+  }, [pendingAgentSend, currentSessionId, pendingConnectTimeoutMs, setPendingAgentSend, setSendError]);
 
   // 流结束：刷新会话列表 + 首次对话自动生成标题
   useEffect(() => {
@@ -207,6 +231,7 @@ export function AIChat() {
     wasStreamingRef.current = false;
 
     queryClient.invalidateQueries({ queryKey: ['ai-chat-sessions'] });
+    void refetchActiveRun();
 
     if (!currentSessionId || titleGeneratedRef.current.has(currentSessionId)) return;
     if (displayMessages.length > 3) return;
@@ -218,7 +243,7 @@ export function AIChat() {
       .catch(() => {
         // 标题生成失败保留原会话标题
       });
-  }, [agent.isStreaming, queryClient, currentSessionId, displayMessages.length]);
+  }, [agent.isStreaming, queryClient, currentSessionId, displayMessages.length, refetchActiveRun]);
 
   // ═══ 滚动：只有贴近底部时才自动跟随 ═══
   useEffect(() => {
@@ -228,7 +253,7 @@ export function AIChat() {
     }
     messagesEndRef.current?.scrollIntoView({ behavior: agent.isStreaming ? 'auto' : 'smooth' });
     setShowScrollDown(false);
-  }, [displayMessages, agent.isStreaming]);
+  }, [displayMessages, agent.isStreaming, setShowScrollDown]);
 
   useEffect(() => {
     if (prevSessionIdRef.current && prevSessionIdRef.current !== currentSessionId) {
@@ -246,7 +271,7 @@ export function AIChat() {
     }
     autoScrollRef.current = true;
     setShowScrollDown(false);
-  }, [currentSessionId]);
+  }, [currentSessionId, setShowScrollDown]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -254,7 +279,7 @@ export function AIChat() {
 
   useEffect(() => {
     if (urlSessionId && urlSessionId !== currentSessionId) setCurrentSessionId(urlSessionId);
-  }, [urlSessionId, currentSessionId]);
+  }, [urlSessionId, currentSessionId, setCurrentSessionId]);
 
   // ═══ 文件预览 ═══
   const handleFileClick = useCallback(
@@ -280,7 +305,7 @@ export function AIChat() {
       }
       navigate(`/files?preview=${fileId}`);
     },
-    [navigate]
+    [navigate, setPreviewFile]
   );
 
   // ═══ 引用 / 右键菜单 ═══
@@ -291,7 +316,7 @@ export function AIChat() {
       y: Math.min(event.clientY, window.innerHeight - 110),
       message,
     });
-  }, []);
+  }, [setContextMenu]);
 
   useEffect(() => {
     const close = () => setContextMenu(null);
@@ -301,13 +326,13 @@ export function AIChat() {
       window.removeEventListener('click', close);
       window.removeEventListener('scroll', close, true);
     };
-  }, []);
+  }, [setContextMenu]);
 
   const handleQuote = useCallback((message: Message | QuotedMessage) => {
     setQuotedMessage({ content: message.content, role: message.role });
     setContextMenu(null);
     requestAnimationFrame(() => inputRef.current?.focus());
-  }, []);
+  }, [setContextMenu, setQuotedMessage]);
 
   // ═══ 发送 ═══
   const sendMessage = useCallback(
@@ -315,10 +340,10 @@ export function AIChat() {
       const query = rawQuery.trim();
       if (!query || isLoading || sessionLoading) return;
 
-      if (query.length > MAX_QUERY_LENGTH) {
+      if (query.length > maxQueryLength) {
         toast({
           title: '输入过长',
-          description: `消息长度不能超过 ${MAX_QUERY_LENGTH} 字符，当前 ${query.length} 字符`,
+          description: `消息长度不能超过 ${maxQueryLength} 字符，当前 ${query.length} 字符`,
           variant: 'destructive',
         });
         return;
@@ -370,10 +395,18 @@ export function AIChat() {
       navigate,
       queryClient,
       user?.id,
+      setCurrentSessionId,
+      setDismissedError,
+      setInput,
+      setMentionedFiles,
+      setPendingAgentSend,
+      setQuotedMessage,
+      setSendError,
       contextFolderId,
       quotedMessage,
       toast,
       effectiveModelId,
+      maxQueryLength,
     ]
   );
 
@@ -395,6 +428,44 @@ export function AIChat() {
   const handleRegenerate = () => {
     agent.regenerate();
   };
+
+  const handleResumeRun = useCallback(async () => {
+    const runId = activeRun?.run.id;
+    if (!runId || resumingRun) return;
+    setResumingRun(true);
+    try {
+      const response = await aiApi.chatSession.resumeRun(runId);
+      const resumeMessage = response.data.data?.resumeMessage ?? '继续执行未完成的任务，从当前步骤接着做。';
+      await agent.sendMessage(
+        { text: resumeMessage },
+        {
+          body: {
+            contextFolderId: contextFolderId ?? null,
+            modelId: effectiveModelId || undefined,
+          },
+        }
+      );
+      queryClient.invalidateQueries({ queryKey: ['ai-chat-run', currentSessionId] });
+    } catch (error) {
+      toast({
+        title: '无法继续任务',
+        description: error instanceof Error ? error.message : '请稍后重试',
+        variant: 'destructive',
+      });
+    } finally {
+      setResumingRun(false);
+    }
+  }, [
+    activeRun?.run.id,
+    resumingRun,
+    agent,
+    contextFolderId,
+    effectiveModelId,
+    queryClient,
+    currentSessionId,
+    toast,
+    setResumingRun,
+  ]);
 
   const handleNewChat = () => {
     setPendingAgentSend(null);
@@ -511,7 +582,7 @@ export function AIChat() {
       mentionedFilesRef.current = next;
       return next;
     });
-  }, []);
+  }, [setMentionedFiles]);
 
   const handleRemoveMention = useCallback((id: string) => {
     setMentionedFiles((prev) => {
@@ -519,7 +590,52 @@ export function AIChat() {
       mentionedFilesRef.current = next;
       return next;
     });
-  }, []);
+  }, [setMentionedFiles]);
+
+  /**
+   * 对话内上传：复用文件系统的预签名/代理上传（配额、去重、Telegram 分片、权限都在原链路），
+   * 上传成功后直接加入 @ 引用，文件随即进入自动 AI 处理（摘要/标签/索引）。
+   * 不在聊天通道里另造一套上传逻辑，否则安全与配额校验会分叉。
+   */
+  const handleUploadFiles = useCallback(
+    async (files: File[]) => {
+      if (uploading) return;
+      const maxFiles = effectiveConfig?.agent.maxContextFiles ?? 5;
+      const remaining = Math.max(0, maxFiles - mentionedFilesRef.current.length);
+      if (remaining === 0) {
+        toast({
+          title: '引用文件已达上限',
+          description: `单轮对话最多引用 ${maxFiles} 个文件，请先移除部分引用`,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setUploading(true);
+      let added = 0;
+      for (const file of files.slice(0, remaining)) {
+        try {
+          const uploaded = await presignUpload({ file, parentId: contextFolderId ?? null });
+          handleAddMention({ id: uploaded.id, name: uploaded.name });
+          added++;
+        } catch (error) {
+          toast({
+            title: `上传失败：${file.name}`,
+            description: error instanceof Error ? error.message : '请稍后重试',
+            variant: 'destructive',
+          });
+        }
+      }
+      setUploading(false);
+      if (added > 0) {
+        toast({
+          title: '已加入上下文',
+          description: `${added} 个文件上传完成，可直接提问；解析完成前提问会先读到文件元信息`,
+        });
+      }
+    },
+    [uploading, effectiveConfig?.agent.maxContextFiles, contextFolderId, handleAddMention, toast, setUploading]
+  );
 
   const lastAssistantIndex = displayMessages.reduce(
     (last, message, index) => (message.role === 'assistant' ? index : last),
@@ -531,7 +647,7 @@ export function AIChat() {
   // 新的错误内容出现时重新展示提示条（用户此前手动关闭过的旧提示保持关闭）
   useEffect(() => {
     if (errorMessage) setDismissedError(false);
-  }, [errorMessage]);
+  }, [errorMessage, setDismissedError]);
 
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-background">
@@ -571,7 +687,7 @@ export function AIChat() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <ChatHeader
           title={currentSession?.title}
-          toolCount={Object.keys(TOOL_META).length}
+          toolCount={toolCatalog?.tools.length ?? 0}
           onShowToolInfo={() => setShowToolInfo(true)}
           models={modelOptions}
           modelId={effectiveModelId}
@@ -600,6 +716,14 @@ export function AIChat() {
           mentionCount={mentionedFiles.length}
           onClearContext={contextFolderId ? () => navigate('/ai-chat', { replace: true }) : undefined}
         />
+
+        {activeRun && (
+          <TaskRunBanner
+            runView={activeRun}
+            resuming={resumingRun}
+            onResume={handleResumeRun}
+          />
+        )}
 
         <div
           ref={messagesContainerRef}
@@ -638,7 +762,11 @@ export function AIChat() {
             )}
 
             {displayMessages.length === 0 && !isLoading && !sessionLoading && (
-              <WelcomeScreen suggestedQuestions={SUGGESTED} onSelectQuestion={setInput} />
+              <WelcomeScreen
+                suggestedQuestions={suggestedQuestions}
+                capabilityTags={effectiveConfig?.ui.capabilityTags}
+                onSelectQuestion={setInput}
+              />
             )}
 
             {displayMessages.map((message, index) => (
@@ -691,7 +819,9 @@ export function AIChat() {
           onAddMention={handleAddMention}
           onRemoveMention={handleRemoveMention}
           inputRef={inputRef}
-          maxLength={MAX_QUERY_LENGTH}
+          maxLength={maxQueryLength}
+          onUploadFiles={handleUploadFiles}
+          uploading={uploading}
         />
       </div>
 

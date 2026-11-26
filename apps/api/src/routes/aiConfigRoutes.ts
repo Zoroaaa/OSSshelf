@@ -13,7 +13,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { eq, and } from 'drizzle-orm';
 import { getDb, aiModels } from '../db';
-import { authMiddleware, requireAdmin } from '../middleware/auth';
+import { authMiddleware, denyApiKeyAuth, requireAdmin } from '../middleware/auth';
 import { aiRateLimit } from '../middleware/aiRateLimit';
 import { recordUsage } from '../lib/ai/usage';
 import type { Env, Variables } from '../types/env';
@@ -27,8 +27,14 @@ import { getFeatureModelConfig, saveFeatureModelConfig } from '../lib/ai/feature
 import type { ModelConfig, ModelCapability, ModelProvider } from '../lib/ai/types';
 import { logger } from '@osshelf/shared';
 import {
+  AI_AGENT_DEFAULTS,
+  AI_RAG_DEFAULTS,
+  AI_TOOL_DEFAULTS,
+  AI_UI_DEFAULTS,
   initializeAiConfig,
   getAllAiConfigs,
+  getAiConfigJson,
+  getAiConfigNumber,
   updateAiConfig,
   resetAiConfigToDefault,
   validateAiConfigValue,
@@ -62,6 +68,8 @@ import {
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('/*', authMiddleware);
+// AI 配置属于系统级敏感数据，API Key 不可读写
+app.use('/*', denyApiKeyAuth());
 // 连通性测试会真实调用模型，必须限流并记账，避免被当作免费推理接口刷额度
 app.use('/test', aiRateLimit());
 
@@ -1161,6 +1169,46 @@ app.post('/test', async (c) => {
 });
 
 // AI功能配置表相关接口
+
+/**
+ * 非管理员可读的生效配置白名单。
+ * 只下发前端行为需要的超时/上限/推荐语，密钥、供应商、模型凭据一律不下发。
+ */
+app.get('/effective', async (c) => {
+  const [connectTimeoutMs, identityWaitMs, maxQueryLength, suggestions, capabilityTags, ticketTtlMs, streamStallTimeoutMs, maxContextFiles, maxToolDefinitions, contextTopK] =
+    await Promise.all([
+      getAiConfigNumber(c.env, 'ai.ui.connect_timeout_ms', AI_UI_DEFAULTS.connectTimeoutMs),
+      getAiConfigNumber(c.env, 'ai.ui.identity_wait_ms', AI_UI_DEFAULTS.identityWaitMs),
+      getAiConfigNumber(c.env, 'ai.ui.max_query_length', AI_UI_DEFAULTS.maxQueryLength),
+      getAiConfigJson<string[]>(c.env, 'ai.ui.suggestions', [...AI_UI_DEFAULTS.suggestions]),
+      getAiConfigJson<string[]>(c.env, 'ai.ui.capability_tags', [...AI_UI_DEFAULTS.capabilityTags]),
+      getAiConfigNumber(c.env, 'ai.agent.ticket_ttl_ms', AI_AGENT_DEFAULTS.ticketTtlMs),
+      getAiConfigNumber(c.env, 'ai.agent.stream_stall_timeout_ms', AI_AGENT_DEFAULTS.streamStallTimeoutMs),
+      getAiConfigNumber(c.env, 'ai.agent.max_context_files', AI_AGENT_DEFAULTS.maxContextFiles),
+      getAiConfigNumber(c.env, 'ai.tool.max_tool_definitions', AI_TOOL_DEFAULTS.maxToolDefinitions),
+      getAiConfigNumber(c.env, 'ai.rag.context_top_k', AI_RAG_DEFAULTS.contextTopK),
+    ]);
+
+  return c.json({
+    success: true,
+    data: {
+      ui: {
+        connectTimeoutMs,
+        identityWaitMs,
+        maxQueryLength,
+        suggestions,
+        capabilityTags,
+      },
+      agent: {
+        ticketTtlMs,
+        streamStallTimeoutMs,
+        maxContextFiles,
+        maxToolDefinitions,
+        contextTopK,
+      },
+    },
+  });
+});
 
 // 获取所有AI配置项
 app.get('/system-config', requireAdmin(), async (c) => {

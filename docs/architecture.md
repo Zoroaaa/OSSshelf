@@ -727,6 +727,59 @@ CREATE TABLE ai_system_config (
 );
 ```
 
+#### AI 任务编排与检索（2026-11-26 新增）
+
+```sql
+-- 任务事实源：一次多步任务的终态与当前步骤
+CREATE TABLE ai_task_runs (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    goal TEXT NOT NULL,
+    status TEXT NOT NULL,          -- running | awaiting_approval | succeeded | failed | cancelled
+    current_step_id TEXT,
+    total_steps INTEGER NOT NULL DEFAULT 0,
+    completed_steps INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT
+);
+
+-- 步骤状态机：模型只上报状态，推进与重试由 PlanRuntime 负责
+CREATE TABLE ai_task_steps (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    step_index INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    tool_name TEXT,
+    status TEXT NOT NULL,          -- pending | running | done | failed | skipped | awaiting_approval
+    attempts INTEGER NOT NULL DEFAULT 0,
+    idempotency_key TEXT,
+    error TEXT,
+    updated_at TEXT NOT NULL,
+    UNIQUE (run_id, step_index)
+);
+
+-- 事件流：审批、重试、死信、工具执行都追加，不覆盖
+CREATE TABLE ai_task_events (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    step_id TEXT,
+    type TEXT NOT NULL,
+    payload TEXT,
+    created_at TEXT NOT NULL
+);
+
+-- FTS5 关键词索引：122 迁移重建，列名统一为 file_id
+CREATE VIRTUAL TABLE files_fts_v2 USING fts5(
+    file_id UNINDEXED, name, description, ai_summary, ai_tags,
+    tokenize = 'unicode61'
+);
+```
+
+要点：`ai_task_*` 是任务事实源，DO 回收/断线/审批挂起后按 step 状态续跑；`files_fts_v2` 与 070 的旧 `files_fts`（列名 `id`）并存，旧表只作熔断降级回退。
+
 #### 团队相关 (v3.0.0 新增)
 
 ```sql

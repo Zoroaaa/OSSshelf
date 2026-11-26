@@ -268,19 +268,25 @@ export interface QuotaReserveResult {
  * - 先扣分钟窗口（超额 → rate_limit）
  * - 再扣日窗口（请求数 + 估算 token；超额 → request_quota / token_quota）
  * - 任一步失败都会回滚已扣的计数
+ *
+ * countRequest=false 用于 Agent 轮内的二次模型调用（工具、记忆提取、标题生成）：
+ * 这些调用只预扣 token，不再重复占用「每日请求数」与每分钟限流，
+ * 否则一次用户消息会被计成 N 次请求，用量页与配额口径对不上。
  */
 export async function reserveAiQuota(
   env: Env,
   userId: string,
-  options: { estimatedTokens?: number } = {}
+  options: { estimatedTokens?: number; countRequest?: boolean } = {}
 ): Promise<QuotaReserveResult> {
   const limits = await getQuotaLimits(env);
   const estimatedTokens = Math.max(0, Math.floor(options.estimatedTokens ?? limits.estimatedTokens));
+  const countRequest = options.countRequest !== false;
+  const deltaRequests = countRequest ? 1 : 0;
   const dayKey = startOfUtcDayKey();
   const minuteKey = startOfUtcMinuteKey();
 
-  const minuteRow = await bumpCounter(env, userId, minuteKey, 1, 0, {
-    maxRequests: limits.minuteLimit,
+  const minuteRow = await bumpCounter(env, userId, minuteKey, deltaRequests, 0, {
+    maxRequests: countRequest ? limits.minuteLimit : 0,
     maxTokens: 0,
   });
 
@@ -302,14 +308,14 @@ export async function reserveAiQuota(
     };
   }
 
-  const dayRow = await bumpCounter(env, userId, dayKey, 1, estimatedTokens, {
+  const dayRow = await bumpCounter(env, userId, dayKey, deltaRequests, estimatedTokens, {
     maxRequests: limits.requestLimit,
     maxTokens: limits.tokenLimit,
   });
 
   if (!dayRow) {
     // 日窗口失败：回滚刚扣的分钟计数
-    await adjustCounter(env, userId, minuteKey, -1, 0);
+    await adjustCounter(env, userId, minuteKey, -deltaRequests, 0);
     const [day, minute] = await Promise.all([readCounter(env, userId, dayKey), readCounter(env, userId, minuteKey)]);
     const reason: QuotaDecision['reason'] =
       limits.requestLimit > 0 && day.requests >= limits.requestLimit ? 'request_quota' : 'token_quota';
@@ -356,8 +362,8 @@ export async function reserveAiQuota(
         if (finalized) return;
         finalized = true;
         await Promise.all([
-          adjustCounter(env, userId, dayKey, -1, -estimatedTokens),
-          adjustCounter(env, userId, minuteKey, -1, 0),
+          adjustCounter(env, userId, dayKey, -deltaRequests, -estimatedTokens),
+          adjustCounter(env, userId, minuteKey, -deltaRequests, 0),
         ]);
       },
     },

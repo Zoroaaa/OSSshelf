@@ -287,7 +287,7 @@ export const definitions: ToolDefinition[] = [
     type: 'function',
     function: {
       name: 'update_plan',
-      description: `【执行计划】为多步任务创建或更新执行计划，前端会渲染为进度条。
+      description: `【执行计划】为多步任务创建或更新执行计划，系统会持久化到任务事实源，前端渲染为进度条。
 适用场景：
 • 需要 3 个及以上步骤的任务
 • 需要 2 次以上不同工具调用的任务
@@ -296,7 +296,8 @@ export const definitions: ToolDefinition[] = [
 用法：
 1. 复杂请求开始时先调用一次，生成完整步骤
 2. 每完成一步再次调用，更新对应步骤 status 为 done，并把下一步置为 running
-3. 简单问答不要调用`,
+3. 失败步骤置为 failed 并写清原因；系统按重试策略处理
+4. 简单问答不要调用`,
       parameters: {
         type: 'object',
         properties: {
